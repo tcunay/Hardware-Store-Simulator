@@ -1,0 +1,12 @@
+using HardwareStore.Gameplay.Components;
+
+namespace HardwareStore.Gameplay.Factories
+{
+    public interface IGameEventFactory
+    {
+        void EmitAudio(AudioCueId cue);
+        void EmitNotification(string message);
+        void EmitProductLoaded(int productEntityId, int orderEntityId);
+        void EmitOrderCompleted(int orderEntityId);
+    }
+}

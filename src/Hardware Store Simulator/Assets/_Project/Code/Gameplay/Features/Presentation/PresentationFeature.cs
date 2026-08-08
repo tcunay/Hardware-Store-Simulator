@@ -1,0 +1,16 @@
+using HardwareStore.Gameplay.Features.Presentation.Systems;
+using HardwareStore.Infrastructure.Systems;
+
+namespace HardwareStore.Gameplay.Features.Presentation
+{
+    public sealed class PresentationFeature : Feature
+    {
+        public PresentationFeature(ISystemFactory systems)
+        {
+            Add(systems.Create<PresentInteractionHighlightsSystem>());
+            Add(systems.Create<PresentHudSystem>());
+            Add(systems.Create<PlayAudioCuesSystem>());
+            Add(systems.Create<PresentNotificationsSystem>());
+        }
+    }
+}

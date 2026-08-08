@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+project_dir="$(cd "$script_dir/../src/Hardware Store Simulator" && pwd)"
+cd "$project_dir"
+
+dotnet "$script_dir/Jenny/Jenny.Generator.Cli.dll" gen "$script_dir/JennyRoslyn.properties" -v

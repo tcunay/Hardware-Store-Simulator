@@ -1,0 +1,39 @@
+using System;
+using UnityEngine;
+using UnityEngine.InputSystem;
+using Zenject;
+
+namespace HardwareStore.Gameplay.Common.Input
+{
+    public sealed class InputSystemService : IInputService, IInitializable, IDisposable
+    {
+        private InputActionMap _playerMap;
+        private InputAction _move;
+        private InputAction _look;
+        private InputAction _interact;
+        private InputAction _drop;
+        private InputAction _sprint;
+
+        public Vector2 Move => _move.ReadValue<Vector2>();
+        public Vector2 Look => _look.ReadValue<Vector2>();
+        public bool SprintHeld => _sprint.IsPressed();
+        public bool InteractPressedThisFrame => _interact.WasPressedThisFrame();
+        public bool DropPressedThisFrame => _drop.WasPressedThisFrame();
+        public bool ToggleCursorPressedThisFrame =>
+            Keyboard.current != null && Keyboard.current.escapeKey.wasPressedThisFrame;
+        public bool LookUsesPointer => _look.activeControl?.device is Pointer;
+
+        public void Initialize()
+        {
+            _playerMap = InputSystem.actions.FindActionMap("Player", true);
+            _move = _playerMap.FindAction("Move", true);
+            _look = _playerMap.FindAction("Look", true);
+            _interact = _playerMap.FindAction("Interact", true);
+            _drop = _playerMap.FindAction("Drop", true);
+            _sprint = _playerMap.FindAction("Sprint", true);
+            _playerMap.Enable();
+        }
+
+        public void Dispose() => _playerMap.Disable();
+    }
+}
