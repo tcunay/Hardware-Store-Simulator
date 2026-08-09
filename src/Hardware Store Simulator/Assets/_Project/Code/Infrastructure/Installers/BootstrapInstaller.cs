@@ -66,8 +66,10 @@ namespace HardwareStore.Infrastructure.Installers
         private void BindGameplayFactories()
         {
             Container.Bind<IPlayerFactory>().To<PlayerFactory>().AsSingle();
+            Container.Bind<IStoreFactory>().To<StoreFactory>().AsSingle();
             Container.Bind<IOrderFactory>().To<OrderFactory>().AsSingle();
             Container.Bind<IProductFactory>().To<ProductFactory>().AsSingle();
+            Container.Bind<IDeliveryFactory>().To<DeliveryFactory>().AsSingle();
             Container.Bind<IInteractionTargetFactory>().To<InteractionTargetFactory>().AsSingle();
             Container.Bind<IGameEventFactory>().To<GameEventFactory>().AsSingle();
         }

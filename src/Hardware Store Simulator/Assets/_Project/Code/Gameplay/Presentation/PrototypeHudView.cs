@@ -63,11 +63,13 @@ namespace HardwareStore.Gameplay.Presentation
 
         private void DrawStatusPanel()
         {
-            Rect panel = new(24f, 24f, 410f, 132f);
+            Rect panel = new(24f, 24f, 440f, 164f);
             DrawPanel(panel, new Color(0.035f, 0.045f, 0.055f, 0.9f));
             GUI.Label(new Rect(42f, 38f, 370f, 32f), "СТРОЙБАЗА • ПРОТОТИП", _titleStyle);
-            GUI.Label(new Rect(42f, 76f, 370f, 28f), ResolveObjective(), _bodyStyle);
-            GUI.Label(new Rect(42f, 111f, 370f, 28f),
+            GUI.Label(new Rect(42f, 76f, 400f, 28f), ResolveObjective(), _bodyStyle);
+            GUI.Label(new Rect(42f, 108f, 400f, 28f),
+                $"Остаток на складе: {_snapshot.StockCount}", _bodyStyle);
+            GUI.Label(new Rect(42f, 140f, 400f, 28f),
                 $"Баланс: {_snapshot.Money.ToString("N0", RussianCulture)} ₽", _bodyStyle);
         }
 
@@ -124,14 +126,25 @@ namespace HardwareStore.Gameplay.Presentation
                 "Курсор свободен • нажмите Esc, чтобы продолжить", _centerStyle);
         }
 
-        private string ResolveObjective() => _snapshot.OrderState switch
+        private string ResolveObjective()
         {
-            HudOrderState.Waiting => "Цель: принять заказ у клиента",
-            HudOrderState.Active =>
-                $"Цель: загрузить цемент — {_snapshot.LoadedCount}/{_snapshot.RequiredCount}",
-            HudOrderState.Completed => "Заказ выполнен • автомобиль загружен",
-            _ => throw new ArgumentOutOfRangeException()
-        };
+            if (_snapshot.OrderState == HudOrderState.Waiting &&
+                _snapshot.StockCount < _snapshot.RequiredCount)
+            {
+                return _snapshot.HasActiveDelivery
+                    ? $"Цель: принять поставку — {_snapshot.DeliveryStockedCount}/{_snapshot.DeliveryProductCount}"
+                    : $"Цель: заказать поставку — {_snapshot.DeliveryProductCount} мешка";
+            }
+
+            return _snapshot.OrderState switch
+            {
+                HudOrderState.Waiting => "Цель: принять заказ у клиента",
+                HudOrderState.Active =>
+                    $"Цель: отгрузить цемент — {_snapshot.LoadedCount}/{_snapshot.RequiredCount}",
+                HudOrderState.Completed => "Заказ выполнен • автомобиль загружен",
+                _ => throw new ArgumentOutOfRangeException()
+            };
+        }
 
         private void EnsureStyles()
         {

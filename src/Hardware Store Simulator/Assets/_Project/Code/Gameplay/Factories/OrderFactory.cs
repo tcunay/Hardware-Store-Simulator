@@ -17,21 +17,19 @@ namespace HardwareStore.Gameplay.Factories
             _staticData = staticData;
         }
 
-        public GameEntity CreateOrder(int walletEntityId)
+        public GameEntity CreateOrder(int storeEntityId, int storageZoneEntityId)
         {
             OrderConfig config = _staticData.Order;
             return CreateEntity.Empty(_identifiers.Next())
-                .AddWalletEntityId(walletEntityId)
+                .AddStoreEntityId(storeEntityId)
+                .AddStorageZoneEntityId(storageZoneEntityId)
                 .AddRequiredProductType(config.RequiredProductType)
                 .AddRequiredProductCount(config.RequiredProductCount)
+                .AddAvailableProductCount(0)
                 .AddLoadedProductCount(0)
                 .AddOrderReward(config.Reward)
                 .With(x => x.isOrder = true)
                 .With(x => x.isOrderWaiting = true);
         }
-
-        public GameEntity CreateWallet() => CreateEntity.Empty(_identifiers.Next())
-            .AddMoney(_staticData.Order.InitialMoney)
-            .With(x => x.isWallet = true);
     }
 }

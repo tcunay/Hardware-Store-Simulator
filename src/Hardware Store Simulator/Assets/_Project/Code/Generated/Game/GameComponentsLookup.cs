@@ -10,93 +10,138 @@ public static class GameComponentsLookup {
 
     public const int AimAssistRadius = 0;
     public const int AudioCue = 1;
-    public const int Camera = 2;
-    public const int Carried = 3;
-    public const int CarryAnchor = 4;
-    public const int CarryingSpeed = 5;
-    public const int CharacterController = 6;
-    public const int CursorLocked = 7;
-    public const int Destructed = 8;
-    public const int DropOrigin = 9;
-    public const int EntityId = 10;
-    public const int FocusedEntityId = 11;
-    public const int FocusInteractionAvailable = 12;
-    public const int GamepadLookSpeed = 13;
-    public const int Gravity = 14;
-    public const int HeldProductId = 15;
-    public const int Highlighted = 16;
-    public const int HorizontalSpeed = 17;
-    public const int Interactable = 18;
-    public const int InteractionDistance = 19;
-    public const int InteractionPrompt = 20;
-    public const int InteractionRequest = 21;
-    public const int InteractionView = 22;
-    public const int Loaded = 23;
-    public const int LoadedProductCount = 24;
-    public const int LoadingSlots = 25;
-    public const int LoadingZone = 26;
-    public const int MaxPitch = 27;
-    public const int Money = 28;
-    public const int MouseSensitivity = 29;
-    public const int MoveDirection = 30;
-    public const int MovementSpeed = 31;
-    public const int NotificationMessage = 32;
-    public const int Order = 33;
-    public const int OrderActive = 34;
-    public const int OrderCompleted = 35;
-    public const int OrderCompletedEvent = 36;
-    public const int OrderCounter = 37;
-    public const int OrderEntityId = 38;
-    public const int OrderReward = 39;
-    public const int OrderWaiting = 40;
-    public const int Player = 41;
-    public const int Product = 42;
-    public const int ProductEntityId = 43;
-    public const int ProductLoaded = 44;
-    public const int ProductMass = 45;
-    public const int ProductPhysicsConfigured = 46;
-    public const int ProductType = 47;
-    public const int ProductView = 48;
-    public const int RequiredProductCount = 49;
-    public const int RequiredProductType = 50;
-    public const int Rigidbody = 51;
-    public const int SourceEntityId = 52;
-    public const int SpawnPosition = 53;
-    public const int SpawnRotation = 54;
-    public const int SprintSpeed = 55;
-    public const int TargetEntityId = 56;
-    public const int Transform = 57;
-    public const int UnitPrice = 58;
-    public const int VerticalVelocity = 59;
-    public const int View = 60;
-    public const int ViewPitch = 61;
-    public const int ViewPivot = 62;
-    public const int ViewPrefab = 63;
-    public const int WalkSpeed = 64;
-    public const int Wallet = 65;
-    public const int WalletEntityId = 66;
+    public const int AvailableProductCount = 2;
+    public const int Camera = 3;
+    public const int Carried = 4;
+    public const int CarryAnchor = 5;
+    public const int CarryingSpeed = 6;
+    public const int CharacterController = 7;
+    public const int Colliders = 8;
+    public const int CursorLocked = 9;
+    public const int Delivery = 10;
+    public const int DeliveryActive = 11;
+    public const int DeliveryCompleted = 12;
+    public const int DeliveryCost = 13;
+    public const int DeliveryEntityId = 14;
+    public const int DeliveryProductCount = 15;
+    public const int DeliveryProductsSpawned = 16;
+    public const int DeliverySlotIndex = 17;
+    public const int Destructed = 18;
+    public const int DropForwardDistance = 19;
+    public const int DropOrigin = 20;
+    public const int EntityId = 21;
+    public const int FocusedEntityId = 22;
+    public const int FocusedInteractionType = 23;
+    public const int FocusInteractionAvailable = 24;
+    public const int GamepadLookSpeed = 25;
+    public const int Gravity = 26;
+    public const int HeldProductId = 27;
+    public const int HeldRotationOffset = 28;
+    public const int Highlighted = 29;
+    public const int HorizontalSpeed = 30;
+    public const int InboundProduct = 31;
+    public const int InStock = 32;
+    public const int Interactable = 33;
+    public const int InteractionDistance = 34;
+    public const int InteractionPrompt = 35;
+    public const int InteractionRequest = 36;
+    public const int InteractionView = 37;
+    public const int Loaded = 38;
+    public const int LoadedProductCount = 39;
+    public const int LoadingSlotIndex = 40;
+    public const int LoadingZone = 41;
+    public const int LoadingZoneEntityId = 42;
+    public const int LooseProduct = 43;
+    public const int MaxPitch = 44;
+    public const int Money = 45;
+    public const int MouseSensitivity = 46;
+    public const int MoveDirection = 47;
+    public const int MovementSpeed = 48;
+    public const int NotificationMessage = 49;
+    public const int OccupiedStorageSlotCount = 50;
+    public const int Order = 51;
+    public const int OrderActive = 52;
+    public const int OrderCompleted = 53;
+    public const int OrderCompletedEvent = 54;
+    public const int OrderCounter = 55;
+    public const int OrderEntityId = 56;
+    public const int OrderReward = 57;
+    public const int OrderWaiting = 58;
+    public const int Player = 59;
+    public const int ProcurementTerminal = 60;
+    public const int ProcurementTerminalEntityId = 61;
+    public const int Product = 62;
+    public const int ProductEntityId = 63;
+    public const int ProductLoaded = 64;
+    public const int ProductMass = 65;
+    public const int ProductMassApplied = 66;
+    public const int ProductPlacementDirty = 67;
+    public const int ProductStocked = 68;
+    public const int ProductType = 69;
+    public const int RequiredProductCount = 70;
+    public const int RequiredProductType = 71;
+    public const int RigidbodyCollisionDetectionMode = 72;
+    public const int Rigidbody = 73;
+    public const int RigidbodyInterpolationMode = 74;
+    public const int Slots = 75;
+    public const int SourceEntityId = 76;
+    public const int SpawnPosition = 77;
+    public const int SpawnRotation = 78;
+    public const int SprintSpeed = 79;
+    public const int StockedProductCount = 80;
+    public const int StorageSlotIndex = 81;
+    public const int StorageZone = 82;
+    public const int StorageZoneEntityId = 83;
+    public const int Store = 84;
+    public const int StoreEntityId = 85;
+    public const int TargetEntityId = 86;
+    public const int Transform = 87;
+    public const int UnitPrice = 88;
+    public const int VerticalVelocity = 89;
+    public const int View = 90;
+    public const int ViewPitch = 91;
+    public const int ViewPivot = 92;
+    public const int ViewPrefab = 93;
+    public const int WalkSpeed = 94;
+    public const int WorldPosition = 95;
+    public const int WorldRotation = 96;
 
-    public const int TotalComponents = 67;
+    public const int TotalComponents = 97;
 
     public static readonly string[] componentNames = {
         "AimAssistRadius",
         "AudioCue",
+        "AvailableProductCount",
         "Camera",
         "Carried",
         "CarryAnchor",
         "CarryingSpeed",
         "CharacterController",
+        "Colliders",
         "CursorLocked",
+        "Delivery",
+        "DeliveryActive",
+        "DeliveryCompleted",
+        "DeliveryCost",
+        "DeliveryEntityId",
+        "DeliveryProductCount",
+        "DeliveryProductsSpawned",
+        "DeliverySlotIndex",
         "Destructed",
+        "DropForwardDistance",
         "DropOrigin",
         "EntityId",
         "FocusedEntityId",
+        "FocusedInteractionType",
         "FocusInteractionAvailable",
         "GamepadLookSpeed",
         "Gravity",
         "HeldProductId",
+        "HeldRotationOffset",
         "Highlighted",
         "HorizontalSpeed",
+        "InboundProduct",
+        "InStock",
         "Interactable",
         "InteractionDistance",
         "InteractionPrompt",
@@ -104,14 +149,17 @@ public static class GameComponentsLookup {
         "InteractionView",
         "Loaded",
         "LoadedProductCount",
-        "LoadingSlots",
+        "LoadingSlotIndex",
         "LoadingZone",
+        "LoadingZoneEntityId",
+        "LooseProduct",
         "MaxPitch",
         "Money",
         "MouseSensitivity",
         "MoveDirection",
         "MovementSpeed",
         "NotificationMessage",
+        "OccupiedStorageSlotCount",
         "Order",
         "OrderActive",
         "OrderCompleted",
@@ -121,20 +169,32 @@ public static class GameComponentsLookup {
         "OrderReward",
         "OrderWaiting",
         "Player",
+        "ProcurementTerminal",
+        "ProcurementTerminalEntityId",
         "Product",
         "ProductEntityId",
         "ProductLoaded",
         "ProductMass",
-        "ProductPhysicsConfigured",
+        "ProductMassApplied",
+        "ProductPlacementDirty",
+        "ProductStocked",
         "ProductType",
-        "ProductView",
         "RequiredProductCount",
         "RequiredProductType",
+        "RigidbodyCollisionDetectionMode",
         "Rigidbody",
+        "RigidbodyInterpolationMode",
+        "Slots",
         "SourceEntityId",
         "SpawnPosition",
         "SpawnRotation",
         "SprintSpeed",
+        "StockedProductCount",
+        "StorageSlotIndex",
+        "StorageZone",
+        "StorageZoneEntityId",
+        "Store",
+        "StoreEntityId",
         "TargetEntityId",
         "Transform",
         "UnitPrice",
@@ -144,29 +204,44 @@ public static class GameComponentsLookup {
         "ViewPivot",
         "ViewPrefab",
         "WalkSpeed",
-        "Wallet",
-        "WalletEntityId"
+        "WorldPosition",
+        "WorldRotation"
     };
 
     public static readonly System.Type[] componentTypes = {
         typeof(HardwareStore.Gameplay.Components.AimAssistRadius),
         typeof(HardwareStore.Gameplay.Components.AudioCue),
+        typeof(HardwareStore.Gameplay.Components.AvailableProductCount),
         typeof(HardwareStore.Gameplay.Components.CameraComponent),
         typeof(HardwareStore.Gameplay.Components.Carried),
         typeof(HardwareStore.Gameplay.Components.CarryAnchorComponent),
         typeof(HardwareStore.Gameplay.Components.CarryingSpeed),
         typeof(HardwareStore.Gameplay.Components.CharacterControllerComponent),
+        typeof(HardwareStore.Gameplay.Components.CollidersComponent),
         typeof(HardwareStore.Gameplay.Components.CursorLocked),
+        typeof(HardwareStore.Gameplay.Components.Delivery),
+        typeof(HardwareStore.Gameplay.Components.DeliveryActive),
+        typeof(HardwareStore.Gameplay.Components.DeliveryCompleted),
+        typeof(HardwareStore.Gameplay.Components.DeliveryCost),
+        typeof(HardwareStore.Gameplay.Components.DeliveryEntityId),
+        typeof(HardwareStore.Gameplay.Components.DeliveryProductCount),
+        typeof(HardwareStore.Gameplay.Components.DeliveryProductsSpawned),
+        typeof(HardwareStore.Gameplay.Components.DeliverySlotIndex),
         typeof(HardwareStore.Gameplay.Components.Destructed),
+        typeof(HardwareStore.Gameplay.Components.DropForwardDistance),
         typeof(HardwareStore.Gameplay.Components.DropOriginComponent),
         typeof(HardwareStore.Gameplay.Components.EntityId),
         typeof(HardwareStore.Gameplay.Components.FocusedEntityId),
+        typeof(HardwareStore.Gameplay.Components.FocusedInteractionType),
         typeof(HardwareStore.Gameplay.Components.FocusInteractionAvailable),
         typeof(HardwareStore.Gameplay.Components.GamepadLookSpeed),
         typeof(HardwareStore.Gameplay.Components.Gravity),
         typeof(HardwareStore.Gameplay.Components.HeldProductId),
+        typeof(HardwareStore.Gameplay.Components.HeldRotationOffset),
         typeof(HardwareStore.Gameplay.Components.Highlighted),
         typeof(HardwareStore.Gameplay.Components.HorizontalSpeed),
+        typeof(HardwareStore.Gameplay.Components.InboundProduct),
+        typeof(HardwareStore.Gameplay.Components.InStock),
         typeof(HardwareStore.Gameplay.Components.Interactable),
         typeof(HardwareStore.Gameplay.Components.InteractionDistance),
         typeof(HardwareStore.Gameplay.Components.InteractionPrompt),
@@ -174,14 +249,17 @@ public static class GameComponentsLookup {
         typeof(HardwareStore.Gameplay.Components.InteractionViewComponent),
         typeof(HardwareStore.Gameplay.Components.Loaded),
         typeof(HardwareStore.Gameplay.Components.LoadedProductCount),
-        typeof(HardwareStore.Gameplay.Components.LoadingSlotsComponent),
+        typeof(HardwareStore.Gameplay.Components.LoadingSlotIndex),
         typeof(HardwareStore.Gameplay.Components.LoadingZone),
+        typeof(HardwareStore.Gameplay.Components.LoadingZoneEntityId),
+        typeof(HardwareStore.Gameplay.Components.LooseProduct),
         typeof(HardwareStore.Gameplay.Components.MaxPitch),
         typeof(HardwareStore.Gameplay.Components.Money),
         typeof(HardwareStore.Gameplay.Components.MouseSensitivity),
         typeof(HardwareStore.Gameplay.Components.MoveDirection),
         typeof(HardwareStore.Gameplay.Components.MovementSpeed),
         typeof(HardwareStore.Gameplay.Components.NotificationMessage),
+        typeof(HardwareStore.Gameplay.Components.OccupiedStorageSlotCount),
         typeof(HardwareStore.Gameplay.Components.Order),
         typeof(HardwareStore.Gameplay.Components.OrderActive),
         typeof(HardwareStore.Gameplay.Components.OrderCompleted),
@@ -191,20 +269,32 @@ public static class GameComponentsLookup {
         typeof(HardwareStore.Gameplay.Components.OrderReward),
         typeof(HardwareStore.Gameplay.Components.OrderWaiting),
         typeof(HardwareStore.Gameplay.Components.Player),
+        typeof(HardwareStore.Gameplay.Components.ProcurementTerminal),
+        typeof(HardwareStore.Gameplay.Components.ProcurementTerminalEntityId),
         typeof(HardwareStore.Gameplay.Components.Product),
         typeof(HardwareStore.Gameplay.Components.ProductEntityId),
         typeof(HardwareStore.Gameplay.Components.ProductLoaded),
         typeof(HardwareStore.Gameplay.Components.ProductMass),
-        typeof(HardwareStore.Gameplay.Components.ProductPhysicsConfigured),
+        typeof(HardwareStore.Gameplay.Components.ProductMassApplied),
+        typeof(HardwareStore.Gameplay.Components.ProductPlacementDirty),
+        typeof(HardwareStore.Gameplay.Components.ProductStocked),
         typeof(HardwareStore.Gameplay.Components.ProductType),
-        typeof(HardwareStore.Gameplay.Components.ProductViewComponent),
         typeof(HardwareStore.Gameplay.Components.RequiredProductCount),
         typeof(HardwareStore.Gameplay.Components.RequiredProductType),
+        typeof(HardwareStore.Gameplay.Components.RigidbodyCollisionDetectionMode),
         typeof(HardwareStore.Gameplay.Components.RigidbodyComponent),
+        typeof(HardwareStore.Gameplay.Components.RigidbodyInterpolationMode),
+        typeof(HardwareStore.Gameplay.Components.SlotsComponent),
         typeof(HardwareStore.Gameplay.Components.SourceEntityId),
         typeof(HardwareStore.Gameplay.Components.SpawnPosition),
         typeof(HardwareStore.Gameplay.Components.SpawnRotation),
         typeof(HardwareStore.Gameplay.Components.SprintSpeed),
+        typeof(HardwareStore.Gameplay.Components.StockedProductCount),
+        typeof(HardwareStore.Gameplay.Components.StorageSlotIndex),
+        typeof(HardwareStore.Gameplay.Components.StorageZone),
+        typeof(HardwareStore.Gameplay.Components.StorageZoneEntityId),
+        typeof(HardwareStore.Gameplay.Components.Store),
+        typeof(HardwareStore.Gameplay.Components.StoreEntityId),
         typeof(HardwareStore.Gameplay.Components.TargetEntityId),
         typeof(HardwareStore.Gameplay.Components.TransformComponent),
         typeof(HardwareStore.Gameplay.Components.UnitPrice),
@@ -214,7 +304,7 @@ public static class GameComponentsLookup {
         typeof(HardwareStore.Gameplay.Components.ViewPivotComponent),
         typeof(HardwareStore.Gameplay.Components.ViewPrefabComponent),
         typeof(HardwareStore.Gameplay.Components.WalkSpeed),
-        typeof(HardwareStore.Gameplay.Components.Wallet),
-        typeof(HardwareStore.Gameplay.Components.WalletEntityId)
+        typeof(HardwareStore.Gameplay.Components.WorldPosition),
+        typeof(HardwareStore.Gameplay.Components.WorldRotation)
     };
 }

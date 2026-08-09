@@ -7,6 +7,7 @@ namespace HardwareStore.Gameplay.Factories
         void EmitAudio(AudioCueId cue);
         void EmitNotification(string message);
         void EmitProductLoaded(int productEntityId, int orderEntityId);
+        void EmitProductStocked(int productEntityId, int deliveryEntityId);
         void EmitOrderCompleted(int orderEntityId);
     }
 }

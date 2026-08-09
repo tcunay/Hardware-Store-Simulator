@@ -3,7 +3,7 @@ using HardwareStore.Common.Extensions;
 using HardwareStore.Gameplay.Configs;
 using HardwareStore.Gameplay.StaticData;
 using HardwareStore.Infrastructure.Identifiers;
-using HardwareStore.Infrastructure.View;
+using UnityEngine;
 
 namespace HardwareStore.Gameplay.Factories
 {
@@ -18,19 +18,26 @@ namespace HardwareStore.Gameplay.Factories
             _staticData = staticData;
         }
 
-        public GameEntity Create(EntityBehaviour view)
+        public GameEntity CreateInbound(Pose at, int deliveryEntityId, int deliverySlotIndex)
         {
-            int entityId = _identifiers.Next();
             ProductConfig config = _staticData.Product;
-            GameEntity entity = CreateEntity.Empty(entityId)
+            return CreateEntity.Empty(_identifiers.Next())
+                .AddViewPrefab(config.ViewPrefab)
+                .AddSpawnPosition(at.position)
+                .AddSpawnRotation(at.rotation)
+                .AddDeliveryEntityId(deliveryEntityId)
+                .AddDeliverySlotIndex(deliverySlotIndex)
                 .AddProductType(config.ProductType)
                 .AddUnitPrice(config.UnitPrice)
                 .AddProductMass(config.Mass)
+                .AddHeldRotationOffset(config.HeldRotationOffset)
+                .AddDropForwardDistance(config.DropForwardDistance)
+                .AddRigidbodyInterpolationMode(config.WorldInterpolation)
+                .AddRigidbodyCollisionDetectionMode(config.WorldCollisionDetection)
                 .With(x => x.isProduct = true)
+                .With(x => x.isInboundProduct = true)
+                .With(x => x.isProductPlacementDirty = true)
                 .With(x => x.isInteractable = true);
-
-            view.SetEntity(entity);
-            return entity;
         }
     }
 }

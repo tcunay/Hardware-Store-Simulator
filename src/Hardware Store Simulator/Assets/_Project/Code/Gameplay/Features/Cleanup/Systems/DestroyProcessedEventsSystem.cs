@@ -7,6 +7,7 @@ namespace HardwareStore.Gameplay.Features.Cleanup.Systems
     {
         private readonly IGroup<GameEntity> _interactionRequests;
         private readonly IGroup<GameEntity> _productLoadedEvents;
+        private readonly IGroup<GameEntity> _productStockedEvents;
         private readonly IGroup<GameEntity> _orderCompletedEvents;
         private readonly List<GameEntity> _buffer = new(16);
 
@@ -14,6 +15,7 @@ namespace HardwareStore.Gameplay.Features.Cleanup.Systems
         {
             _interactionRequests = gameContext.GetGroup(GameMatcher.AllOf(GameMatcher.InteractionRequest));
             _productLoadedEvents = gameContext.GetGroup(GameMatcher.AllOf(GameMatcher.ProductLoaded));
+            _productStockedEvents = gameContext.GetGroup(GameMatcher.AllOf(GameMatcher.ProductStocked));
             _orderCompletedEvents = gameContext.GetGroup(GameMatcher.AllOf(GameMatcher.OrderCompletedEvent));
         }
 
@@ -21,6 +23,7 @@ namespace HardwareStore.Gameplay.Features.Cleanup.Systems
         {
             Destroy(_interactionRequests);
             Destroy(_productLoadedEvents);
+            Destroy(_productStockedEvents);
             Destroy(_orderCompletedEvents);
         }
 

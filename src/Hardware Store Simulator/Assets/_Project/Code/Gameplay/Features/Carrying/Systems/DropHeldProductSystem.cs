@@ -1,5 +1,7 @@
+using System;
 using System.Collections.Generic;
 using Entitas;
+using HardwareStore.Common.Entity;
 using HardwareStore.Gameplay.Components;
 using HardwareStore.Gameplay.Factories;
 using UnityEngine;
@@ -32,13 +34,38 @@ namespace HardwareStore.Gameplay.Features.Carrying.Systems
             foreach (InputEntity ignored in _inputs)
             foreach (GameEntity player in _players.GetEntities(_buffer))
             {
-                GameEntity product = _gameContext.GetEntityWithEntityId(player.HeldProductId);
+                GameEntity product = GetRequiredHeldProduct(player.HeldProductId);
                 Transform dropOrigin = player.DropOrigin;
+                Vector3 position = dropOrigin.position +
+                                   dropOrigin.forward * product.DropForwardDistance;
+
                 player.RemoveHeldProductId();
                 product.isCarried = false;
-                product.ProductView.Drop(dropOrigin.position + dropOrigin.forward * 1.15f, dropOrigin.rotation);
+                product.isLooseProduct = true;
+                product.isInteractable = true;
+                product.ReplaceWorldPosition(position);
+                product.ReplaceWorldRotation(dropOrigin.rotation);
+                product.isProductPlacementDirty = true;
                 _events.EmitAudio(AudioCueId.Drop);
             }
+        }
+
+        private GameEntity GetRequiredHeldProduct(int productEntityId)
+        {
+            GameEntity product = _gameContext.GetRequiredEntity(
+                productEntityId,
+                "player held product");
+            if (!product.isProduct || !product.isCarried || !product.hasDropForwardDistance)
+                throw new InvalidOperationException(
+                    $"Entity {productEntityId} is not a fully configured carried product.");
+            if (product.hasDeliverySlotIndex || product.hasStorageSlotIndex ||
+                product.hasLoadingZoneEntityId || product.hasLoadingSlotIndex)
+            {
+                throw new InvalidOperationException(
+                    $"Carried product {productEntityId} still contains slot placement state.");
+            }
+
+            return product;
         }
     }
 }

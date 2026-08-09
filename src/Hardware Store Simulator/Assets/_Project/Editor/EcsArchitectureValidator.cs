@@ -7,10 +7,14 @@ using Entitas;
 using HardwareStore.Gameplay.Common.Registrars;
 using HardwareStore.Gameplay.Components;
 using HardwareStore.Gameplay.Configs;
+using HardwareStore.Gameplay.Factories;
+using HardwareStore.Gameplay.Presentation;
 using HardwareStore.Gameplay.Registrars;
 using HardwareStore.Gameplay.Scene;
+using HardwareStore.Gameplay.Views;
 using HardwareStore.Infrastructure.Installers;
 using HardwareStore.Infrastructure.View;
+using HardwareStore.Infrastructure.View.Registrars;
 using UnityEditor;
 using UnityEditor.SceneManagement;
 using UnityEngine;
@@ -26,6 +30,13 @@ namespace HardwareStore.Editor
         private const string PrototypeScenePath = "Assets/Scenes/Prototype_Yard.unity";
         private const string PlayerConfigPath = "Assets/Resources/Configs/PlayerConfig.asset";
         private const string PlayerPrefabPath = "Assets/_Project/Prefabs/Gameplay/Player.prefab";
+        private const string ProductConfigPath = "Assets/Resources/Configs/ProductConfig.asset";
+        private const string DeliveryConfigPath = "Assets/Resources/Configs/DeliveryConfig.asset";
+        private const string EconomyConfigPath = "Assets/Resources/Configs/EconomyConfig.asset";
+        private const string OrderConfigPath = "Assets/Resources/Configs/OrderConfig.asset";
+        private const string ProductPrefabPath = "Assets/_Project/Prefabs/Gameplay/CementBag.prefab";
+        private const string DeliveryVehiclePrefabPath = "Assets/_Project/Prefabs/Gameplay/DeliveryTruck.prefab";
+        private const int RequiredStorageSlotCapacity = 6;
 
         private static readonly Type[] ExpectedInputComponents =
         {
@@ -56,7 +67,13 @@ namespace HardwareStore.Editor
             "PlayerTransformRegistrar",
             "PlayerTransformComponent",
             "PlayerCameraRegistrar",
-            "PlayerCameraComponent"
+            "PlayerCameraComponent",
+            "LoadingZoneView",
+            "LoadingSlotsRegistrar",
+            "ProductView",
+            "ProductViewRegistrar",
+            "ProductViewComponent",
+            "GameProductViewComponent"
         };
 
         [MenuItem(MenuPath, priority = 120)]
@@ -83,9 +100,11 @@ namespace HardwareStore.Editor
             ValidateComponentShapes(componentTypes);
             ValidateRegistries(componentTypes);
             ValidateLegacyTypesAreAbsent(runtimeTypes);
+            ValidateStoreArchitecture(componentTypes);
             ValidateJennyPipeline();
             ValidateProjectContextPrefab();
             ValidatePlayerPrefab();
+            ValidateSupplyChainAssets();
             ValidatePrototypeSceneComposition();
             ValidateBuildSettings();
 
@@ -189,6 +208,24 @@ namespace HardwareStore.Editor
             }
         }
 
+        private static void ValidateStoreArchitecture(IEnumerable<Type> componentTypes)
+        {
+            var discoveredComponents = new HashSet<Type>(componentTypes);
+            Require(discoveredComponents.Contains(typeof(Store)),
+                $"{nameof(Store)} must be declared as a Game component.");
+            Require(discoveredComponents.Contains(typeof(StoreEntityId)),
+                $"{nameof(StoreEntityId)} must be declared as a Game relation component.");
+            Require(typeof(IStoreFactory).IsAssignableFrom(typeof(StoreFactory)),
+                $"{nameof(StoreFactory)} must implement {nameof(IStoreFactory)}.");
+
+            MethodInfo createMethod = typeof(IStoreFactory).GetMethod(
+                nameof(IStoreFactory.Create),
+                new[] { typeof(IStoreSceneData) });
+            Require(createMethod != null && createMethod.ReturnType == typeof(GameEntity),
+                $"{nameof(IStoreFactory)} must create and return a Store GameEntity from " +
+                $"{nameof(IStoreSceneData)}.");
+        }
+
         private static void ValidateJennyPipeline()
         {
             string repositoryRoot = Path.GetFullPath(Path.Combine(Application.dataPath, "../../.."));
@@ -244,17 +281,20 @@ namespace HardwareStore.Editor
             Require(prefab.transform.localScale == Vector3.one,
                 $"Player prefab root at {PlayerPrefabPath} must have unit local scale.");
 
-            EntityBehaviour[] views = RequireExactlyOneInPrefab<EntityBehaviour>(prefab);
-            TransformRegistrar[] transforms = RequireExactlyOneInPrefab<TransformRegistrar>(prefab);
+            EntityBehaviour[] views = RequireExactlyOneInPrefab<EntityBehaviour>(prefab, PlayerPrefabPath);
+            TransformRegistrar[] transforms = RequireExactlyOneInPrefab<TransformRegistrar>(prefab, PlayerPrefabPath);
             CharacterControllerRegistrar[] characterRegistrars =
-                RequireExactlyOneInPrefab<CharacterControllerRegistrar>(prefab);
-            ViewPivotRegistrar[] viewPivots = RequireExactlyOneInPrefab<ViewPivotRegistrar>(prefab);
-            CameraRegistrar[] cameraRegistrars = RequireExactlyOneInPrefab<CameraRegistrar>(prefab);
-            CarryAnchorRegistrar[] carryAnchors = RequireExactlyOneInPrefab<CarryAnchorRegistrar>(prefab);
-            DropOriginRegistrar[] dropOrigins = RequireExactlyOneInPrefab<DropOriginRegistrar>(prefab);
-            CharacterController[] controllers = RequireExactlyOneInPrefab<CharacterController>(prefab);
-            Camera[] cameras = RequireExactlyOneInPrefab<Camera>(prefab);
-            AudioListener[] listeners = RequireExactlyOneInPrefab<AudioListener>(prefab);
+                RequireExactlyOneInPrefab<CharacterControllerRegistrar>(prefab, PlayerPrefabPath);
+            ViewPivotRegistrar[] viewPivots = RequireExactlyOneInPrefab<ViewPivotRegistrar>(prefab, PlayerPrefabPath);
+            CameraRegistrar[] cameraRegistrars = RequireExactlyOneInPrefab<CameraRegistrar>(prefab, PlayerPrefabPath);
+            CarryAnchorRegistrar[] carryAnchors =
+                RequireExactlyOneInPrefab<CarryAnchorRegistrar>(prefab, PlayerPrefabPath);
+            DropOriginRegistrar[] dropOrigins =
+                RequireExactlyOneInPrefab<DropOriginRegistrar>(prefab, PlayerPrefabPath);
+            CharacterController[] controllers =
+                RequireExactlyOneInPrefab<CharacterController>(prefab, PlayerPrefabPath);
+            Camera[] cameras = RequireExactlyOneInPrefab<Camera>(prefab, PlayerPrefabPath);
+            AudioListener[] listeners = RequireExactlyOneInPrefab<AudioListener>(prefab, PlayerPrefabPath);
 
             Require(views[0].gameObject == prefab,
                 $"The only EntityBehaviour in {PlayerPrefabPath} must be on the prefab root.");
@@ -278,6 +318,127 @@ namespace HardwareStore.Editor
                 $"{PlayerConfigPath} must reference the EntityBehaviour root from {PlayerPrefabPath}.");
         }
 
+        private static void ValidateSupplyChainAssets()
+        {
+            ProductConfig productConfig = RequireAsset<ProductConfig>(ProductConfigPath);
+            DeliveryConfig deliveryConfig = RequireAsset<DeliveryConfig>(DeliveryConfigPath);
+            EconomyConfig economyConfig = RequireAsset<EconomyConfig>(EconomyConfigPath);
+            OrderConfig orderConfig = RequireAsset<OrderConfig>(OrderConfigPath);
+
+            Require(deliveryConfig.ProductType == ProductTypeId.CementBag,
+                $"{DeliveryConfigPath} must deliver {ProductTypeId.CementBag}.");
+            Require(deliveryConfig.ProductCount == 3,
+                $"{DeliveryConfigPath} must contain exactly 3 products for the prototype slice.");
+            Require(deliveryConfig.PurchaseUnitPrice == 200,
+                $"{DeliveryConfigPath} must use a purchase unit price of 200.");
+            Require(deliveryConfig.TotalCost == deliveryConfig.ProductCount * deliveryConfig.PurchaseUnitPrice,
+                $"{DeliveryConfigPath} has an inconsistent total cost.");
+            Require(economyConfig.InitialMoney == 1000,
+                $"{EconomyConfigPath} must start the prototype with 1000.");
+            Require(economyConfig.InitialMoney >= deliveryConfig.TotalCost,
+                "Initial money must be sufficient for the configured inbound delivery.");
+            Require(productConfig.ProductType == deliveryConfig.ProductType &&
+                    orderConfig.RequiredProductType == deliveryConfig.ProductType,
+                "Product, delivery and customer order configs must use the same product type.");
+            Require(orderConfig.RequiredProductCount == 2,
+                $"{OrderConfigPath} must require exactly 2 products for the prototype slice.");
+            Require(orderConfig.Reward == 700,
+                $"{OrderConfigPath} must reward 700 for the prototype slice.");
+            Require(deliveryConfig.ProductCount > orderConfig.RequiredProductCount,
+                "The delivery must leave at least one product in storage after the customer order.");
+            Require(Quaternion.Angle(productConfig.HeldRotationOffset, Quaternion.Euler(8f, 0f, 0f)) < 0.01f,
+                $"{ProductConfigPath} must use an 8 degree held rotation offset around X.");
+            Require(Mathf.Approximately(productConfig.DropForwardDistance, 1.15f),
+                $"{ProductConfigPath} must use a drop forward distance of 1.15.");
+            Require(productConfig.WorldInterpolation == RigidbodyInterpolation.Interpolate,
+                $"{ProductConfigPath} must use {RigidbodyInterpolation.Interpolate} world interpolation.");
+            Require(productConfig.WorldCollisionDetection == CollisionDetectionMode.ContinuousSpeculative,
+                $"{ProductConfigPath} must use {CollisionDetectionMode.ContinuousSpeculative} " +
+                "world collision detection.");
+
+            GameObject productPrefab = RequireAsset<GameObject>(ProductPrefabPath);
+            ValidatePrefabRoot(productPrefab, ProductPrefabPath, requireUnitScale: false);
+            InteractionView[] productViews =
+                RequireExactlyOneInPrefab<InteractionView>(productPrefab, ProductPrefabPath);
+            EntityBehaviour[] productEntityViews =
+                RequireExactlyOneInPrefab<EntityBehaviour>(productPrefab, ProductPrefabPath);
+            TransformRegistrar[] productTransforms =
+                RequireExactlyOneInPrefab<TransformRegistrar>(productPrefab, ProductPrefabPath);
+            InteractionViewRegistrar[] interactionRegistrars =
+                RequireExactlyOneInPrefab<InteractionViewRegistrar>(productPrefab, ProductPrefabPath);
+            RigidbodyRegistrar[] rigidbodyRegistrars =
+                RequireExactlyOneInPrefab<RigidbodyRegistrar>(productPrefab, ProductPrefabPath);
+            CollidersRegistrar[] collidersRegistrars =
+                RequireExactlyOneInPrefab<CollidersRegistrar>(productPrefab, ProductPrefabPath);
+            EntityComponentRegistrar[] allRegistrars =
+                productPrefab.GetComponentsInChildren<EntityComponentRegistrar>(true);
+            Rigidbody[] rigidbodies = RequireExactlyOneInPrefab<Rigidbody>(productPrefab, ProductPrefabPath);
+            InteractionHighlight[] highlights =
+                RequireExactlyOneInPrefab<InteractionHighlight>(productPrefab, ProductPrefabPath);
+            Collider[] productColliders = productPrefab.GetComponentsInChildren<Collider>(true);
+
+            Require(productViews[0].GetType() == typeof(InteractionView) &&
+                    productViews[0].gameObject == productPrefab &&
+                    productEntityViews[0].gameObject == productPrefab,
+                $"The root view in {ProductPrefabPath} must be a non-specialized InteractionView.");
+            Require(productTransforms[0].gameObject == productPrefab &&
+                    interactionRegistrars[0].gameObject == productPrefab &&
+                    rigidbodyRegistrars[0].gameObject == productPrefab &&
+                    collidersRegistrars[0].gameObject == productPrefab &&
+                    rigidbodies[0].gameObject == productPrefab &&
+                    highlights[0].gameObject == productPrefab,
+                $"All product registrars and required adapters in {ProductPrefabPath} must be on its root.");
+            var expectedProductRegistrarTypes = new HashSet<Type>
+            {
+                typeof(TransformRegistrar),
+                typeof(InteractionViewRegistrar),
+                typeof(RigidbodyRegistrar),
+                typeof(CollidersRegistrar)
+            };
+            Require(allRegistrars.Length == expectedProductRegistrarTypes.Count &&
+                    new HashSet<Type>(allRegistrars.Select(registrar => registrar.GetType()))
+                        .SetEquals(expectedProductRegistrarTypes),
+                $"{ProductPrefabPath} must contain exactly the generic Transform, InteractionView, " +
+                "Rigidbody and Colliders registrars.");
+            Require(productColliders.Length >= 2 &&
+                    productColliders.All(collider => collider.enabled && collider.gameObject.activeSelf),
+                $"Every collider in {ProductPrefabPath} must be enabled on an active object.");
+            Require(productColliders.Count(collider => !collider.isTrigger) == 1,
+                $"{ProductPrefabPath} must contain exactly one solid product collider.");
+            Require(productColliders.Any(collider => collider.isTrigger),
+                $"{ProductPrefabPath} must contain an interaction trigger.");
+            Require(Mathf.Approximately(rigidbodies[0].mass, productConfig.Mass) &&
+                    rigidbodies[0].interpolation == productConfig.WorldInterpolation &&
+                    rigidbodies[0].collisionDetectionMode == productConfig.WorldCollisionDetection,
+                $"The Rigidbody in {ProductPrefabPath} must match {ProductConfigPath} physics values.");
+            Require(productConfig.ViewPrefab == productEntityViews[0],
+                $"{ProductConfigPath} must reference the EntityBehaviour root from {ProductPrefabPath}.");
+
+            GameObject deliveryPrefab = RequireAsset<GameObject>(DeliveryVehiclePrefabPath);
+            ValidatePrefabRoot(deliveryPrefab, DeliveryVehiclePrefabPath, requireUnitScale: true);
+            EntityBehaviour[] deliveryViews =
+                RequireExactlyOneInPrefab<EntityBehaviour>(deliveryPrefab, DeliveryVehiclePrefabPath);
+            TransformRegistrar[] deliveryTransforms =
+                RequireExactlyOneInPrefab<TransformRegistrar>(deliveryPrefab, DeliveryVehiclePrefabPath);
+            SlotsRegistrar[] deliverySlotRegistrars =
+                RequireExactlyOneInPrefab<SlotsRegistrar>(deliveryPrefab, DeliveryVehiclePrefabPath);
+            Transform[] deliverySlots = ReadSlots(deliverySlotRegistrars[0], DeliveryVehiclePrefabPath);
+
+            Require(deliveryViews[0].gameObject == deliveryPrefab &&
+                    deliveryTransforms[0].gameObject == deliveryPrefab &&
+                    deliverySlotRegistrars[0].gameObject == deliveryPrefab,
+                $"The delivery view and registrars in {DeliveryVehiclePrefabPath} must be on its root.");
+            Require(deliverySlots.Length == deliveryConfig.ProductCount,
+                $"{DeliveryVehiclePrefabPath} must expose exactly {deliveryConfig.ProductCount} cargo slots.");
+            Require(deliverySlots.All(slot => slot.IsChildOf(deliveryPrefab.transform)),
+                $"Every cargo slot in {DeliveryVehiclePrefabPath} must belong to the prefab hierarchy.");
+            Require(!ContainsPrefabInstance(deliveryPrefab, productPrefab),
+                $"{DeliveryVehiclePrefabPath} must be empty before runtime cargo spawning.");
+            Require(deliveryConfig.ViewPrefab == deliveryViews[0],
+                $"{DeliveryConfigPath} must reference the EntityBehaviour root from " +
+                $"{DeliveryVehiclePrefabPath}.");
+        }
+
         private static void ValidatePrototypeSceneComposition()
         {
             Require(AssetDatabase.LoadAssetAtPath<SceneAsset>(PrototypeScenePath) != null,
@@ -299,8 +460,12 @@ namespace HardwareStore.Editor
                 CharacterControllerRegistrar[] characterRegistrars =
                     FindComponentsInScene<CharacterControllerRegistrar>(scene);
                 CameraRegistrar[] cameraRegistrars = FindComponentsInScene<CameraRegistrar>(scene);
-                TransformRegistrar[] transformRegistrars = FindComponentsInScene<TransformRegistrar>(scene);
                 SpawnPointMarker[] spawnPoints = FindComponentsInScene<SpawnPointMarker>(scene);
+                SceneViewMarker[] sceneViews = FindComponentsInScene<SceneViewMarker>(scene);
+                EntityBehaviour[] entityViews = FindComponentsInScene<EntityBehaviour>(scene);
+                SlotsRegistrar[] slotRegistrars = FindComponentsInScene<SlotsRegistrar>(scene);
+                PrototypeHudView[] hudViews = FindComponentsInScene<PrototypeHudView>(scene);
+                PrototypeAudioView[] audioViews = FindComponentsInScene<PrototypeAudioView>(scene);
 
                 Require(contexts.Length == 1,
                     $"{PrototypeScenePath} must contain exactly one SceneContext, found {contexts.Length}.");
@@ -322,37 +487,102 @@ namespace HardwareStore.Editor
                 Require(installers[0].Initializers.Contains(initializers[0]),
                     "PrototypeSceneInitializer is present in Prototype_Yard but is not registered " +
                     "in SceneInitializationInstaller.Initializers.");
-                SerializedProperty configuredSpawnPoints = new SerializedObject(initializers[0])
-                    .FindProperty("_spawnPoints");
-                Require(configuredSpawnPoints != null && configuredSpawnPoints.isArray,
-                    $"{nameof(PrototypeSceneInitializer)} must serialize its spawn point array.");
-                Require(configuredSpawnPoints.arraySize == spawnPoints.Length,
-                    $"{nameof(PrototypeSceneInitializer)} must register every spawn point in " +
-                    $"{PrototypeScenePath} exactly once.");
-                var configuredSpawnPointSet = new HashSet<SpawnPointMarker>();
-                for (int index = 0; index < configuredSpawnPoints.arraySize; index++)
-                {
-                    SpawnPointMarker marker = configuredSpawnPoints.GetArrayElementAtIndex(index)
-                        .objectReferenceValue as SpawnPointMarker;
-                    Require(marker != null && configuredSpawnPointSet.Add(marker),
-                        $"{nameof(PrototypeSceneInitializer)} contains a missing or duplicate spawn point.");
-                }
-
-                Require(configuredSpawnPointSet.SetEquals(spawnPoints),
+                SerializedObject serializedInitializer = new(initializers[0]);
+                SpawnPointMarker[] configuredSpawnPoints = ReadObjectArray<SpawnPointMarker>(
+                    serializedInitializer, "_spawnPoints", nameof(PrototypeSceneInitializer));
+                SceneViewMarker[] configuredSceneViews = ReadObjectArray<SceneViewMarker>(
+                    serializedInitializer, "_sceneViews", nameof(PrototypeSceneInitializer));
+                Require(new HashSet<SpawnPointMarker>(configuredSpawnPoints).SetEquals(spawnPoints) &&
+                        configuredSpawnPoints.Length == spawnPoints.Length,
                     $"{nameof(PrototypeSceneInitializer)} does not reference the scene spawn point set.");
+                Require(new HashSet<SceneViewMarker>(configuredSceneViews).SetEquals(sceneViews) &&
+                        configuredSceneViews.Length == sceneViews.Length,
+                    $"{nameof(PrototypeSceneInitializer)} does not reference the static scene view set.");
+                Require(hudViews.Length == 1 && audioViews.Length == 1,
+                    $"{PrototypeScenePath} must contain exactly one HUD and one audio view.");
+                Require(serializedInitializer.FindProperty("_hudView")?.objectReferenceValue == hudViews[0] &&
+                        serializedInitializer.FindProperty("_audioView")?.objectReferenceValue == audioViews[0],
+                    $"{nameof(PrototypeSceneInitializer)} must reference the scene HUD and audio views.");
                 Require(characterRegistrars.Length == 0,
                     $"{PrototypeScenePath} must not contain CharacterControllerRegistrar; " +
                     "the player view is instantiated from its prefab at runtime.");
                 Require(cameraRegistrars.Length == 0,
                     $"{PrototypeScenePath} must not contain CameraRegistrar; " +
                     "the player view is instantiated from its prefab at runtime.");
-                Require(transformRegistrars.Length == 0,
-                    $"{PrototypeScenePath} must not contain TransformRegistrar; " +
-                    "the player view is instantiated from its prefab at runtime.");
-                Require(spawnPoints.Select(marker => marker.Id).Distinct().Count() == spawnPoints.Length,
-                    $"{PrototypeScenePath} contains duplicate spawn point ids.");
-                Require(spawnPoints.Count(marker => marker.Id == SpawnPointId.Player) == 1,
-                    $"{PrototypeScenePath} must contain exactly one {SpawnPointId.Player} spawn point.");
+                GameObject productPrefab = RequireAsset<GameObject>(ProductPrefabPath);
+                Require(!ContainsPrefabInstance(scene, productPrefab),
+                    $"{PrototypeScenePath} must not contain a product prefab instance; " +
+                    "delivery cargo is spawned at runtime.");
+
+                var expectedSpawnIds = new HashSet<SpawnPointId>
+                {
+                    SpawnPointId.Player,
+                    SpawnPointId.DeliveryVehicle
+                };
+                var actualSpawnIds = new HashSet<SpawnPointId>(spawnPoints.Select(marker => marker.Id));
+                Require(spawnPoints.Length == expectedSpawnIds.Count && actualSpawnIds.SetEquals(expectedSpawnIds),
+                    $"{PrototypeScenePath} must contain one spawn point for Player and DeliveryVehicle.");
+
+                var expectedSceneViewIds = new HashSet<SceneViewId>
+                {
+                    SceneViewId.CustomerOrderCounter,
+                    SceneViewId.CustomerLoadingZone,
+                    SceneViewId.ProcurementTerminal,
+                    SceneViewId.StorageZone
+                };
+                var actualSceneViewIds = new HashSet<SceneViewId>(sceneViews.Select(marker => marker.Id));
+                Require(sceneViews.Length == expectedSceneViewIds.Count &&
+                        actualSceneViewIds.SetEquals(expectedSceneViewIds),
+                    $"{PrototypeScenePath} must contain exactly one marker for every SceneViewId.");
+                Require(sceneViews.All(marker => marker.View is InteractionView),
+                    "Every static scene view marker must reference an InteractionView on the same object.");
+                Require(entityViews.Length == sceneViews.Length &&
+                        new HashSet<EntityBehaviour>(sceneViews.Select(marker => marker.View)).SetEquals(entityViews),
+                    $"{PrototypeScenePath} must contain only the four marked static entity views.");
+                Require(slotRegistrars.Length == 2,
+                    $"{PrototypeScenePath} must contain slots only for storage and customer loading.");
+
+                SceneViewMarker storage = sceneViews.Single(marker => marker.Id == SceneViewId.StorageZone);
+                SceneViewMarker customerLoading =
+                    sceneViews.Single(marker => marker.Id == SceneViewId.CustomerLoadingZone);
+                SlotsRegistrar storageSlotsRegistrar = storage.GetComponent<SlotsRegistrar>();
+                SlotsRegistrar customerSlotsRegistrar = customerLoading.GetComponent<SlotsRegistrar>();
+                Require(storageSlotsRegistrar != null && customerSlotsRegistrar != null,
+                    "Storage and customer loading scene views must each have a SlotsRegistrar.");
+                Transform[] storageSlots = ReadSlots(storageSlotsRegistrar, PrototypeScenePath);
+                Transform[] customerSlots = ReadSlots(customerSlotsRegistrar, PrototypeScenePath);
+                Require(storageSlots.Length >= RequiredStorageSlotCapacity,
+                    $"Storage must expose at least {RequiredStorageSlotCapacity} unique slots.");
+                Collider[] storageInteractionTriggers = storage.View
+                    .GetComponentsInChildren<Collider>(true)
+                    .Where(collider => collider.isTrigger)
+                    .ToArray();
+                Require(storageInteractionTriggers.Length == 1,
+                    "Storage scene view must expose exactly one interaction trigger.");
+                Collider storageInteractionTrigger = storageInteractionTriggers[0];
+                Require(storageInteractionTrigger.enabled &&
+                        storageInteractionTrigger.gameObject.activeInHierarchy,
+                    "Storage interaction trigger must be enabled and active.");
+                foreach (Transform storageSlot in storageSlots)
+                {
+                    Vector3 slotPosition = storageSlot.position;
+                    Vector3 closestPoint = storageInteractionTrigger.ClosestPoint(slotPosition);
+                    Require(!storageInteractionTrigger.bounds.Contains(slotPosition) &&
+                            (closestPoint - slotPosition).sqrMagnitude > Mathf.Epsilon,
+                        $"Storage interaction trigger overlaps slot {storageSlot.name} at " +
+                        $"{slotPosition}; the receiving target must be spatially separate from stored products.");
+                }
+
+                OrderConfig orderConfig = RequireAsset<OrderConfig>(OrderConfigPath);
+                Require(customerSlots.Length >= orderConfig.RequiredProductCount,
+                    "Customer loading slots must cover the configured outbound order quantity.");
+                Require(storageSlots.Concat(customerSlots).Distinct().Count() ==
+                        storageSlots.Length + customerSlots.Length,
+                    "Storage and customer loading slot references must be globally unique.");
+
+                GameObject deliveryPrefab = RequireAsset<GameObject>(DeliveryVehiclePrefabPath);
+                Require(!ContainsPrefabInstance(scene, deliveryPrefab),
+                    $"{PrototypeScenePath} must not contain a supplier truck prefab instance.");
             }
             finally
             {
@@ -380,12 +610,84 @@ namespace HardwareStore.Editor
                 .SelectMany(root => root.GetComponentsInChildren<TComponent>(true))
                 .ToArray();
 
-        private static TComponent[] RequireExactlyOneInPrefab<TComponent>(GameObject prefab)
+        private static TAsset RequireAsset<TAsset>(string path) where TAsset : UnityEngine.Object =>
+            AssetDatabase.LoadAssetAtPath<TAsset>(path) ??
+            throw new InvalidOperationException($"ECS architecture validation failed: asset is missing at {path}.");
+
+        private static void ValidatePrefabRoot(GameObject prefab, string path, bool requireUnitScale)
+        {
+            Require(prefab.activeSelf, $"Prefab root at {path} must be active.");
+            Require(prefab.transform.localPosition == Vector3.zero,
+                $"Prefab root at {path} must have zero local position.");
+            Require(prefab.transform.localRotation == Quaternion.identity,
+                $"Prefab root at {path} must have identity local rotation.");
+            if (requireUnitScale)
+            {
+                Require(prefab.transform.localScale == Vector3.one,
+                    $"Prefab root at {path} must have unit local scale.");
+            }
+            else
+            {
+                Vector3 scale = prefab.transform.localScale;
+                Require(scale.x > 0f && scale.y > 0f && scale.z > 0f,
+                    $"Prefab root at {path} must have a positive local scale.");
+            }
+        }
+
+        private static Transform[] ReadSlots(SlotsRegistrar registrar, string owner)
+        {
+            SerializedProperty slotsProperty = new SerializedObject(registrar).FindProperty("_slots");
+            Require(slotsProperty != null && slotsProperty.isArray,
+                $"SlotsRegistrar in {owner} must serialize a slot array.");
+
+            Transform[] slots = new Transform[slotsProperty.arraySize];
+            var uniqueSlots = new HashSet<Transform>();
+            for (int index = 0; index < slots.Length; index++)
+            {
+                Transform slot = slotsProperty.GetArrayElementAtIndex(index).objectReferenceValue as Transform;
+                Require(slot != null && uniqueSlots.Add(slot),
+                    $"SlotsRegistrar in {owner} contains a missing or duplicate slot at index {index}.");
+                slots[index] = slot;
+            }
+
+            return slots;
+        }
+
+        private static TObject[] ReadObjectArray<TObject>(SerializedObject owner, string propertyName,
+            string ownerName) where TObject : UnityEngine.Object
+        {
+            SerializedProperty property = owner.FindProperty(propertyName);
+            Require(property != null && property.isArray,
+                $"{ownerName} must serialize {propertyName} as an array.");
+
+            TObject[] values = new TObject[property.arraySize];
+            var uniqueValues = new HashSet<TObject>();
+            for (int index = 0; index < values.Length; index++)
+            {
+                TObject value = property.GetArrayElementAtIndex(index).objectReferenceValue as TObject;
+                Require(value != null && uniqueValues.Add(value),
+                    $"{ownerName}.{propertyName} contains a missing or duplicate reference at index {index}.");
+                values[index] = value;
+            }
+
+            return values;
+        }
+
+        private static bool ContainsPrefabInstance(Scene scene, GameObject prefab) =>
+            scene.GetRootGameObjects()
+                .SelectMany(root => root.GetComponentsInChildren<Transform>(true))
+                .Any(candidate => PrefabUtility.GetCorrespondingObjectFromSource(candidate.gameObject) == prefab);
+
+        private static bool ContainsPrefabInstance(GameObject root, GameObject prefab) =>
+            root.GetComponentsInChildren<Transform>(true)
+                .Any(candidate => PrefabUtility.GetCorrespondingObjectFromSource(candidate.gameObject) == prefab);
+
+        private static TComponent[] RequireExactlyOneInPrefab<TComponent>(GameObject prefab, string prefabPath)
             where TComponent : Component
         {
             TComponent[] components = prefab.GetComponentsInChildren<TComponent>(true);
             Require(components.Length == 1,
-                $"{PlayerPrefabPath} must contain exactly one {typeof(TComponent).Name}, " +
+                $"{prefabPath} must contain exactly one {typeof(TComponent).Name}, " +
                 $"found {components.Length}.");
             return components;
         }

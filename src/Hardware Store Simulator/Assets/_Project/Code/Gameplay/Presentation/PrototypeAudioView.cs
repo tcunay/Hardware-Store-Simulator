@@ -15,6 +15,9 @@ namespace HardwareStore.Gameplay.Presentation
         private AudioClip _drop;
         private AudioClip _load;
         private AudioClip _orderAccepted;
+        private AudioClip _deliveryPurchased;
+        private AudioClip _productStocked;
+        private AudioClip _deliveryCompleted;
         private AudioClip _reward;
 
         private void Awake()
@@ -27,6 +30,9 @@ namespace HardwareStore.Gameplay.Presentation
             _drop = CreateTone("Drop", 90f, 0.18f, 0.22f, -45f);
             _load = CreateTone("Load", 115f, 0.22f, 0.25f, -35f);
             _orderAccepted = CreateTone("OrderAccepted", 420f, 0.18f, 0.16f, 280f);
+            _deliveryPurchased = CreateTone("DeliveryPurchased", 310f, 0.24f, 0.17f, 190f);
+            _productStocked = CreateTone("ProductStocked", 185f, 0.16f, 0.18f, 120f);
+            _deliveryCompleted = CreateTone("DeliveryCompleted", 440f, 0.32f, 0.18f, 300f);
             _reward = CreateRewardTone();
         }
 
@@ -38,6 +44,9 @@ namespace HardwareStore.Gameplay.Presentation
                 AudioCueId.Drop => _drop,
                 AudioCueId.Load => _load,
                 AudioCueId.OrderAccepted => _orderAccepted,
+                AudioCueId.DeliveryPurchased => _deliveryPurchased,
+                AudioCueId.ProductStocked => _productStocked,
+                AudioCueId.DeliveryCompleted => _deliveryCompleted,
                 AudioCueId.Reward => _reward,
                 _ => throw new ArgumentOutOfRangeException(nameof(cue), cue, "Unknown prototype audio cue.")
             };
@@ -51,6 +60,9 @@ namespace HardwareStore.Gameplay.Presentation
             Destroy(_drop);
             Destroy(_load);
             Destroy(_orderAccepted);
+            Destroy(_deliveryPurchased);
+            Destroy(_productStocked);
+            Destroy(_deliveryCompleted);
             Destroy(_reward);
         }
 

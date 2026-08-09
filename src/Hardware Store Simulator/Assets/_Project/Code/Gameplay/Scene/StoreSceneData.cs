@@ -2,7 +2,7 @@ using System;
 using System.Collections.Generic;
 using HardwareStore.Gameplay.Components;
 using HardwareStore.Gameplay.Presentation;
-using HardwareStore.Gameplay.Views;
+using HardwareStore.Infrastructure.View;
 using UnityEngine;
 
 namespace HardwareStore.Gameplay.Scene
@@ -10,17 +10,12 @@ namespace HardwareStore.Gameplay.Scene
     public sealed class StoreSceneData : IStoreSceneData
     {
         private Dictionary<SpawnPointId, Pose> _spawnPoints;
-        private InteractionView _orderCounterView;
-        private LoadingZoneView _loadingZoneView;
-        private IReadOnlyList<ProductView> _productViews;
+        private Dictionary<SceneViewId, EntityBehaviour> _sceneViews;
         private IHudService _hud;
         private INotificationService _notifications;
         private IAudioService _audio;
 
         public bool IsRegistered { get; private set; }
-        public InteractionView OrderCounterView => GetRegistered(_orderCounterView);
-        public LoadingZoneView LoadingZoneView => GetRegistered(_loadingZoneView);
-        public IReadOnlyList<ProductView> ProductViews => GetRegistered(_productViews);
 
         public Pose GetSpawnPoint(SpawnPointId id)
         {
@@ -32,8 +27,17 @@ namespace HardwareStore.Gameplay.Scene
             return pose;
         }
 
-        public void Register(SpawnPointMarker[] spawnPoints, InteractionView orderCounterView,
-            LoadingZoneView loadingZoneView, ProductView[] productViews,
+        public EntityBehaviour GetSceneView(SceneViewId id)
+        {
+            EnsureRegistered();
+
+            if (!_sceneViews.TryGetValue(id, out EntityBehaviour view))
+                throw new KeyNotFoundException($"Scene view '{id}' is not registered.");
+
+            return view;
+        }
+
+        public void Register(SpawnPointMarker[] spawnPoints, SceneViewMarker[] sceneViews,
             PrototypeHudView hudView, PrototypeAudioView audioView)
         {
             if (IsRegistered)
@@ -41,12 +45,8 @@ namespace HardwareStore.Gameplay.Scene
 
             if (spawnPoints == null)
                 throw new ArgumentNullException(nameof(spawnPoints));
-            if (orderCounterView == null)
-                throw new ArgumentNullException(nameof(orderCounterView));
-            if (loadingZoneView == null)
-                throw new ArgumentNullException(nameof(loadingZoneView));
-            if (productViews == null)
-                throw new ArgumentNullException(nameof(productViews));
+            if (sceneViews == null)
+                throw new ArgumentNullException(nameof(sceneViews));
             if (hudView == null)
                 throw new ArgumentNullException(nameof(hudView));
             if (audioView == null)
@@ -63,17 +63,19 @@ namespace HardwareStore.Gameplay.Scene
                         $"Spawn point '{spawnPoint.Id}' is registered more than once.", nameof(spawnPoints));
             }
 
-            ProductView[] products = (ProductView[])productViews.Clone();
-            for (int index = 0; index < products.Length; index++)
+            var viewsById = new Dictionary<SceneViewId, EntityBehaviour>(sceneViews.Length);
+            for (int index = 0; index < sceneViews.Length; index++)
             {
-                if (products[index] == null)
-                    throw new ArgumentException($"Product view at index {index} is missing.", nameof(productViews));
+                SceneViewMarker marker = sceneViews[index];
+                if (marker == null)
+                    throw new ArgumentException($"Scene view marker at index {index} is missing.", nameof(sceneViews));
+                if (!viewsById.TryAdd(marker.Id, marker.View))
+                    throw new ArgumentException(
+                        $"Scene view '{marker.Id}' is registered more than once.", nameof(sceneViews));
             }
 
             _spawnPoints = spawnPointPoses;
-            _orderCounterView = orderCounterView;
-            _loadingZoneView = loadingZoneView;
-            _productViews = Array.AsReadOnly(products);
+            _sceneViews = viewsById;
             _hud = hudView;
             _notifications = hudView;
             _audio = audioView;
@@ -87,9 +89,8 @@ namespace HardwareStore.Gameplay.Scene
             IsRegistered = false;
             _spawnPoints.Clear();
             _spawnPoints = null;
-            _orderCounterView = null;
-            _loadingZoneView = null;
-            _productViews = null;
+            _sceneViews.Clear();
+            _sceneViews = null;
             _hud = null;
             _notifications = null;
             _audio = null;
@@ -111,12 +112,6 @@ namespace HardwareStore.Gameplay.Scene
         {
             EnsureRegistered();
             _hud.Present(snapshot);
-        }
-
-        private T GetRegistered<T>(T value) where T : class
-        {
-            EnsureRegistered();
-            return value;
         }
 
         private void EnsureRegistered()

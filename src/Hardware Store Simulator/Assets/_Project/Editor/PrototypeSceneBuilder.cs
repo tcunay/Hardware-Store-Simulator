@@ -27,6 +27,9 @@ namespace HardwareStore.Editor
         private const string ProjectContextPath = "Assets/Resources/ProjectContext.prefab";
         private const string ConfigFolder = "Assets/Resources/Configs";
         private const string PlayerPrefabPath = "Assets/_Project/Prefabs/Gameplay/Player.prefab";
+        private const string ProductPrefabPath = "Assets/_Project/Prefabs/Gameplay/CementBag.prefab";
+        private const string DeliveryVehiclePrefabPath = "Assets/_Project/Prefabs/Gameplay/DeliveryTruck.prefab";
+        private const int StorageSlotCapacity = 6;
 
         [MenuItem("Tools/Hardware Store/Build Prototype Yard")]
         public static void BuildPrototypeYard()
@@ -46,10 +49,13 @@ namespace HardwareStore.Editor
             EnsureFolder(ConfigFolder);
             EnsureConfigAssets();
             PlayerConfig playerConfig = LoadConfig<PlayerConfig>("PlayerConfig");
-            EnsurePlayerPrefab(playerConfig);
-            EnsureProjectContextPrefab();
+            DeliveryConfig deliveryConfig = LoadConfig<DeliveryConfig>("DeliveryConfig");
+            EconomyConfig economyConfig = LoadConfig<EconomyConfig>("EconomyConfig");
             ProductConfig productConfig = LoadConfig<ProductConfig>("ProductConfig");
             OrderConfig orderConfig = LoadConfig<OrderConfig>("OrderConfig");
+            ConfigurePrototypeConfigs(deliveryConfig, economyConfig, productConfig, orderConfig);
+            EnsurePlayerPrefab(playerConfig);
+            EnsureProjectContextPrefab();
 
             Material asphalt = GetOrCreateMaterial("Asphalt", new Color(0.12f, 0.14f, 0.15f), 0.12f);
             Material concrete = GetOrCreateMaterial("Concrete", new Color(0.48f, 0.49f, 0.47f), 0.08f);
@@ -64,18 +70,24 @@ namespace HardwareStore.Editor
             Material white = GetOrCreateMaterial("White", new Color(0.82f, 0.84f, 0.82f), 0.18f);
             Material yellow = GetOrCreateMaterial("SafetyYellow", new Color(0.95f, 0.65f, 0.08f), 0.18f);
 
+            EnsureProductPrefab(productConfig, cement);
+            EnsureDeliveryVehiclePrefab(deliveryConfig, yellow, darkMetal, glass, timber);
+
             Scene scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
             ConfigureEnvironment();
 
             GameObject environment = CreateEmpty("Environment");
             BuildLighting(environment.transform);
             BuildYard(environment.transform, asphalt, concrete, brandBlue, white, yellow);
-            InteractionView counter = BuildShop(environment.transform, concrete, brandBlue, brandOrange, darkMetal, glass);
-            ProductView[] products = BuildCementStorage(environment.transform, concrete, brandBlue, cement, timber,
-                darkMetal, brandOrange, productConfig, orderConfig.RequiredProductCount + 1);
-            LoadingZoneView loadingZone = BuildTruck(environment.transform, truckPaint, darkMetal, glass, loadingGreen,
-                cement, orderConfig.RequiredProductCount);
+            (SceneViewMarker orderCounter, SceneViewMarker procurementTerminal) =
+                BuildShop(environment.transform, concrete, brandBlue, brandOrange, darkMetal, glass);
+            SceneViewMarker storageZone = BuildCementStorage(environment.transform, concrete, brandBlue, timber,
+                darkMetal, brandOrange, productConfig);
+            SceneViewMarker customerLoadingZone = BuildTruck(environment.transform, truckPaint, darkMetal, glass,
+                loadingGreen, orderConfig.RequiredProductCount);
             BuildLumberArea(environment.transform, concrete, brandBlue, timber, darkMetal);
+            SpawnPointMarker deliveryVehicleSpawnPoint =
+                BuildInboundDeliveryBay(environment.transform, asphalt, yellow);
 
             SpawnPointMarker playerSpawnPoint = BuildPlayerSpawnPoint();
             GameObject systems = CreateEmpty("SceneContext");
@@ -83,7 +95,11 @@ namespace HardwareStore.Editor
             PrototypeAudioView audio = systems.AddComponent<PrototypeAudioView>();
             PrototypeHudView hud = systems.AddComponent<PrototypeHudView>();
             PrototypeSceneInitializer initializer = systems.AddComponent<PrototypeSceneInitializer>();
-            initializer.Configure(new[] { playerSpawnPoint }, counter, loadingZone, products, hud, audio);
+            initializer.Configure(
+                new[] { playerSpawnPoint, deliveryVehicleSpawnPoint },
+                new[] { orderCounter, customerLoadingZone, procurementTerminal, storageZone },
+                hud,
+                audio);
             SceneInitializationInstaller installer = systems.AddComponent<SceneInitializationInstaller>();
             installer.Configure(initializer);
             sceneContext.Installers = new MonoInstaller[] { installer };
@@ -164,7 +180,8 @@ namespace HardwareStore.Editor
                 new Vector3(6.5f, 0.04f, 1.3f), concrete, false);
         }
 
-        private static InteractionView BuildShop(Transform parent, Material concrete, Material brandBlue,
+        private static (SceneViewMarker OrderCounter, SceneViewMarker ProcurementTerminal) BuildShop(
+            Transform parent, Material concrete, Material brandBlue,
             Material brandOrange, Material darkMetal, Material glass)
         {
             GameObject shop = CreateEmpty("Sales Kiosk", parent);
@@ -188,27 +205,43 @@ namespace HardwareStore.Editor
             CreateCube("Customer Vest", customer.transform, new Vector3(0f, 0.15f, 0f),
                 new Vector3(1.05f, 0.8f, 1.02f), brandBlue, false, true);
 
-            GameObject terminal = CreateCube("Order Terminal", shop.transform, new Vector3(-9f, 1.15f, 1.16f),
-                new Vector3(2.25f, 0.72f, 0.12f), brandOrange);
+            GameObject terminal = CreateCube("Customer Order Terminal", shop.transform,
+                new Vector3(-7.9f, 1.15f, 1.16f), new Vector3(1.7f, 0.72f, 0.12f), brandOrange);
             BoxCollider orderInteraction = terminal.GetComponent<BoxCollider>();
             orderInteraction.isTrigger = true;
             orderInteraction.center = new Vector3(0f, 0f, -2f);
-            orderInteraction.size = new Vector3(1.4f, 2.8f, 5f);
+            orderInteraction.size = new Vector3(1.2f, 2.8f, 5f);
             InteractionHighlight highlight = terminal.AddComponent<InteractionHighlight>();
             InteractionView counter = terminal.AddComponent<InteractionView>();
             counter.Configure(highlight);
             terminal.AddComponent<InteractionViewRegistrar>();
-            CreateWorldLabel("Orders Label", terminal.transform, "ПРИНЯТЬ ЗАКАЗ", new Vector3(0f, 0f, -0.56f),
+            SceneViewMarker orderCounter = terminal.AddComponent<SceneViewMarker>();
+            orderCounter.Configure(SceneViewId.CustomerOrderCounter);
+            CreateWorldLabel("Orders Label", terminal.transform, "ЗАКАЗ КЛИЕНТА", new Vector3(0f, 0f, -0.56f),
                 Quaternion.identity, 0.03f, Color.white);
+
+            GameObject procurementObject = CreateCube("Procurement Terminal", shop.transform,
+                new Vector3(-10.15f, 1.15f, 1.16f), new Vector3(1.7f, 0.72f, 0.12f), brandOrange);
+            BoxCollider procurementInteraction = procurementObject.GetComponent<BoxCollider>();
+            procurementInteraction.isTrigger = true;
+            procurementInteraction.center = new Vector3(0f, 0f, -2f);
+            procurementInteraction.size = new Vector3(1.2f, 2.8f, 5f);
+            InteractionHighlight procurementHighlight = procurementObject.AddComponent<InteractionHighlight>();
+            InteractionView procurementView = procurementObject.AddComponent<InteractionView>();
+            procurementView.Configure(procurementHighlight);
+            procurementObject.AddComponent<InteractionViewRegistrar>();
+            SceneViewMarker procurementTerminal = procurementObject.AddComponent<SceneViewMarker>();
+            procurementTerminal.Configure(SceneViewId.ProcurementTerminal);
+            CreateWorldLabel("Procurement Label", procurementObject.transform, "ЗАКУПКИ",
+                new Vector3(0f, 0f, -0.56f), Quaternion.identity, 0.03f, Color.white);
 
             CreateCube("Window", shop.transform, new Vector3(-9f, 2.2f, 8f), new Vector3(3.3f, 1.15f, 0.08f),
                 glass, false);
-            return counter;
+            return (orderCounter, procurementTerminal);
         }
 
-        private static ProductView[] BuildCementStorage(Transform parent, Material concrete, Material brandBlue,
-            Material cement, Material timber, Material darkMetal, Material brandOrange, ProductConfig productConfig,
-            int productCount)
+        private static SceneViewMarker BuildCementStorage(Transform parent, Material concrete, Material brandBlue,
+            Material timber, Material darkMetal, Material brandOrange, ProductConfig productConfig)
         {
             GameObject storage = CreateEmpty("Cement Storage", parent);
             CreateCube("Storage Pad", storage.transform, new Vector3(5f, 0.1f, 6.5f),
@@ -229,42 +262,44 @@ namespace HardwareStore.Editor
             CreateCube("Pallet Beam B", storage.transform, new Vector3(5f, 0.25f, 5.75f),
                 new Vector3(2.9f, 0.18f, 0.28f), timber);
 
-            List<ProductView> products = new();
+            GameObject slotsRoot = CreateEmpty("Storage Slots", storage.transform);
+            Transform[] slots = new Transform[StorageSlotCapacity];
             const int bagsPerRow = 3;
-            for (int i = 0; i < productCount; i++)
+            for (int i = 0; i < slots.Length; i++)
             {
                 int column = i % bagsPerRow;
                 int row = i / bagsPerRow;
-                Vector3 position = new(4.05f + column * 0.95f, 0.55f + row * 0.33f, 5.4f);
-                GameObject bag = CreateCube($"Cement Bag {i + 1}", storage.transform, position,
-                    new Vector3(0.84f, 0.28f, 0.48f), cement);
-                bag.transform.rotation = Quaternion.Euler(i % 2 == 0 ? 2f : -2f, (i % 3 - 1) * 3f, 0f);
-                Rigidbody body = bag.AddComponent<Rigidbody>();
-                body.isKinematic = true;
-                body.interpolation = RigidbodyInterpolation.Interpolate;
-                body.collisionDetectionMode = CollisionDetectionMode.ContinuousSpeculative;
-                GameObject interactionArea = CreateEmpty("Interaction Area", bag.transform);
-                BoxCollider interactionCollider = interactionArea.AddComponent<BoxCollider>();
-                interactionCollider.isTrigger = true;
-                interactionCollider.center = new Vector3(0f, 0.35f, 0f);
-                interactionCollider.size = new Vector3(1.4f, 2.5f, 1.8f);
-                InteractionHighlight highlight = bag.AddComponent<InteractionHighlight>();
-                ProductView product = bag.AddComponent<ProductView>();
-                product.Configure(highlight);
-                bag.AddComponent<InteractionViewRegistrar>();
-                bag.AddComponent<ProductViewRegistrar>();
-                bag.AddComponent<RigidbodyRegistrar>();
-                products.Add(product);
+                GameObject slot = CreateEmpty($"Stock Slot {i + 1}", slotsRoot.transform);
+                slot.transform.position = new Vector3(4.05f + column * 0.95f,
+                    0.55f + row * 0.33f, 5.4f);
+                slots[i] = slot.transform;
             }
+
+            GameObject target = CreateCube("Storage Intake Target", storage.transform,
+                new Vector3(7.5f, 0.24f, 5.4f), new Vector3(1.45f, 0.12f, 2.4f), brandOrange);
+            BoxCollider storageInteraction = target.GetComponent<BoxCollider>();
+            storageInteraction.isTrigger = true;
+            storageInteraction.center = new Vector3(0f, 5f, 0f);
+            storageInteraction.size = new Vector3(1f, 10f, 1f);
+            InteractionHighlight highlight = target.AddComponent<InteractionHighlight>();
+            InteractionView storageView = target.AddComponent<InteractionView>();
+            storageView.Configure(highlight);
+            target.AddComponent<InteractionViewRegistrar>();
+            SlotsRegistrar slotsRegistrar = target.AddComponent<SlotsRegistrar>();
+            slotsRegistrar.Configure(slots);
+            SceneViewMarker storageMarker = target.AddComponent<SceneViewMarker>();
+            storageMarker.Configure(SceneViewId.StorageZone);
 
             CreateWorldLabel("Cement Sign", storage.transform, $"ЦЕМЕНТ • {productConfig.Mass:0.#} КГ",
                 new Vector3(5f, 2.7f, 3.25f),
                 Quaternion.identity, 0.035f, brandOrange.color);
-            return products.ToArray();
+            CreateWorldLabel("Storage Intake Label", target.transform, "ПРИЁМКА",
+                new Vector3(0f, 0f, -0.58f), Quaternion.identity, 0.025f, Color.white);
+            return storageMarker;
         }
 
-        private static LoadingZoneView BuildTruck(Transform parent, Material truckPaint, Material darkMetal,
-            Material glass, Material loadingGreen, Material cement, int requiredProductCount)
+        private static SceneViewMarker BuildTruck(Transform parent, Material truckPaint, Material darkMetal,
+            Material glass, Material loadingGreen, int requiredProductCount)
         {
             GameObject truck = CreateEmpty("Customer Truck", parent);
             CreateCube("Cab", truck.transform, new Vector3(6f, 1.12f, -2.45f),
@@ -285,7 +320,7 @@ namespace HardwareStore.Editor
             CreateWheel("Rear Left Wheel", truck.transform, new Vector3(4.88f, 0.55f, -5.55f), darkMetal);
             CreateWheel("Rear Right Wheel", truck.transform, new Vector3(7.12f, 0.55f, -5.55f), darkMetal);
 
-            GameObject slotsRoot = CreateEmpty("Loading Slots", truck.transform);
+            GameObject slotsRoot = CreateEmpty("Customer Cargo Slots", truck.transform);
             Transform[] slots = new Transform[requiredProductCount];
             for (int i = 0; i < slots.Length; i++)
             {
@@ -304,18 +339,17 @@ namespace HardwareStore.Editor
             loadingInteraction.center = new Vector3(0f, 1.5f, -2f);
             loadingInteraction.size = new Vector3(1.5f, 5.5f, 9f);
             InteractionHighlight highlight = target.AddComponent<InteractionHighlight>();
-            LoadingZoneView loadingZone = target.AddComponent<LoadingZoneView>();
+            InteractionView loadingZone = target.AddComponent<InteractionView>();
             loadingZone.Configure(highlight);
             target.AddComponent<InteractionViewRegistrar>();
-            LoadingSlotsRegistrar slotsRegistrar = target.AddComponent<LoadingSlotsRegistrar>();
+            SlotsRegistrar slotsRegistrar = target.AddComponent<SlotsRegistrar>();
             slotsRegistrar.Configure(slots);
+            SceneViewMarker loadingZoneMarker = target.AddComponent<SceneViewMarker>();
+            loadingZoneMarker.Configure(SceneViewId.CustomerLoadingZone);
             CreateWorldLabel("Loading Label", target.transform, "ЗАГРУЗИТЬ", new Vector3(0f, 0f, -0.56f),
                 Quaternion.identity, 0.02f, Color.white);
 
-            GameObject sampleBag = CreateCube("Bed Guide Bag", truck.transform, new Vector3(6f, 1.14f, -4.9f),
-                new Vector3(0.84f, 0.08f, 0.48f), cement, false);
-            sampleBag.SetActive(false);
-            return loadingZone;
+            return loadingZoneMarker;
         }
 
         private static void BuildLumberArea(Transform parent, Material concrete, Material brandBlue,
@@ -342,6 +376,31 @@ namespace HardwareStore.Editor
             }
         }
 
+        private static SpawnPointMarker BuildInboundDeliveryBay(Transform parent, Material asphalt,
+            Material inboundYellow)
+        {
+            GameObject bay = CreateEmpty("Inbound Delivery Bay", parent);
+            CreateCube("Inbound Bay Surface", bay.transform, new Vector3(11f, 0.015f, -9f),
+                new Vector3(5f, 0.03f, 7.5f), asphalt, false);
+
+            for (int index = 0; index < 6; index++)
+            {
+                CreateCube($"Inbound Marking {index + 1}", bay.transform,
+                    new Vector3(8.75f + index % 2 * 4.5f, 0.035f, -11.7f + index / 2 * 2.7f),
+                    new Vector3(0.14f, 0.04f, 1.4f), inboundYellow, false);
+            }
+
+            CreateWorldLabel("Inbound Label", bay.transform, "ПРИЁМКА ПОСТАВКИ",
+                new Vector3(11f, 0.04f, -5.15f), Quaternion.Euler(90f, 0f, 0f),
+                0.035f, inboundYellow.color);
+
+            GameObject spawnPoint = CreateEmpty("Delivery Vehicle Spawn Point", bay.transform);
+            spawnPoint.transform.SetPositionAndRotation(new Vector3(11f, 0.02f, -9f), Quaternion.identity);
+            SpawnPointMarker marker = spawnPoint.AddComponent<SpawnPointMarker>();
+            marker.Configure(SpawnPointId.DeliveryVehicle);
+            return marker;
+        }
+
         private static SpawnPointMarker BuildPlayerSpawnPoint()
         {
             GameObject spawnPoint = CreateEmpty("Player Spawn Point");
@@ -351,6 +410,125 @@ namespace HardwareStore.Editor
             SpawnPointMarker marker = spawnPoint.AddComponent<SpawnPointMarker>();
             marker.Configure(SpawnPointId.Player);
             return marker;
+        }
+
+        private static void EnsureProductPrefab(ProductConfig productConfig, Material cementMaterial)
+        {
+            GameObject product = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            product.name = "Cement Bag";
+
+            try
+            {
+                product.transform.SetPositionAndRotation(Vector3.zero, Quaternion.identity);
+                product.transform.localScale = new Vector3(0.84f, 0.28f, 0.48f);
+                product.SetActive(true);
+                product.GetComponent<Renderer>().sharedMaterial = cementMaterial;
+
+                Rigidbody body = product.AddComponent<Rigidbody>();
+                body.mass = productConfig.Mass;
+                body.isKinematic = true;
+                body.useGravity = false;
+                body.interpolation = productConfig.WorldInterpolation;
+                body.collisionDetectionMode = productConfig.WorldCollisionDetection;
+
+                GameObject interactionArea = CreateEmpty("Interaction Area", product.transform);
+                BoxCollider interactionCollider = interactionArea.AddComponent<BoxCollider>();
+                interactionCollider.isTrigger = true;
+                interactionCollider.center = new Vector3(0f, 0.35f, 0f);
+                interactionCollider.size = new Vector3(1.4f, 2.5f, 1.8f);
+
+                InteractionHighlight highlight = product.AddComponent<InteractionHighlight>();
+                InteractionView interactionView = product.AddComponent<InteractionView>();
+                interactionView.Configure(highlight);
+                product.AddComponent<TransformRegistrar>();
+                product.AddComponent<InteractionViewRegistrar>();
+                product.AddComponent<RigidbodyRegistrar>();
+                product.AddComponent<CollidersRegistrar>();
+
+                GameObject prefab = PrefabUtility.SaveAsPrefabAsset(product, ProductPrefabPath);
+                if (prefab == null)
+                    throw new InvalidOperationException($"Could not create product prefab at {ProductPrefabPath}.");
+
+                EntityBehaviour prefabView = prefab.GetComponent<EntityBehaviour>() ??
+                                             throw new InvalidOperationException(
+                                                 $"Product prefab at {ProductPrefabPath} has no view root.");
+                AssignViewPrefab(productConfig, prefabView);
+            }
+            finally
+            {
+                Object.DestroyImmediate(product);
+            }
+        }
+
+        private static void EnsureDeliveryVehiclePrefab(DeliveryConfig deliveryConfig, Material inboundYellow,
+            Material darkMetal, Material glass, Material timber)
+        {
+            GameObject vehicle = CreateEmpty("Delivery Truck");
+
+            try
+            {
+                vehicle.transform.SetLocalPositionAndRotation(Vector3.zero, Quaternion.identity);
+                vehicle.transform.localScale = Vector3.one;
+                vehicle.SetActive(true);
+                vehicle.AddComponent<EntityBehaviour>();
+                vehicle.AddComponent<TransformRegistrar>();
+
+                CreateCube("Cab", vehicle.transform, new Vector3(0f, 1.12f, 2.1f),
+                    new Vector3(2.25f, 1.8f, 2.2f), inboundYellow, false, true);
+                CreateCube("Hood", vehicle.transform, new Vector3(0f, 0.82f, 3.55f),
+                    new Vector3(2.18f, 1.02f, 1.05f), inboundYellow, false, true);
+                CreateCube("Windshield", vehicle.transform, new Vector3(0f, 1.55f, 2.78f),
+                    new Vector3(1.8f, 0.65f, 0.08f), glass, false, true);
+                CreateCube("Bed Floor", vehicle.transform, new Vector3(0f, 0.86f, -0.85f),
+                    new Vector3(2.3f, 0.22f, 3.7f), darkMetal, false, true);
+                CreateCube("Bed Left Rail", vehicle.transform, new Vector3(-1.1f, 1.28f, -0.85f),
+                    new Vector3(0.16f, 0.76f, 3.7f), inboundYellow, false, true);
+                CreateCube("Bed Right Rail", vehicle.transform, new Vector3(1.1f, 1.28f, -0.85f),
+                    new Vector3(0.16f, 0.76f, 3.7f), inboundYellow, false, true);
+                CreateCube("Cargo Pallet", vehicle.transform, new Vector3(0f, 1.08f, -0.85f),
+                    new Vector3(1.95f, 0.16f, 2.75f), timber, false, true);
+
+                CreateLocalWheel("Front Left Wheel", vehicle.transform, new Vector3(-1.12f, 0.55f, 2.5f),
+                    darkMetal);
+                CreateLocalWheel("Front Right Wheel", vehicle.transform, new Vector3(1.12f, 0.55f, 2.5f),
+                    darkMetal);
+                CreateLocalWheel("Rear Left Wheel", vehicle.transform, new Vector3(-1.12f, 0.55f, -1.35f),
+                    darkMetal);
+                CreateLocalWheel("Rear Right Wheel", vehicle.transform, new Vector3(1.12f, 0.55f, -1.35f),
+                    darkMetal);
+
+                GameObject slotsRoot = CreateEmpty("Cargo Slots", vehicle.transform);
+                Transform[] cargoSlots = new Transform[deliveryConfig.ProductCount];
+                for (int index = 0; index < cargoSlots.Length; index++)
+                {
+                    int row = index / 2;
+                    bool centeredLastSlot = cargoSlots.Length % 2 == 1 && index == cargoSlots.Length - 1;
+                    float x = centeredLastSlot ? 0f : -0.48f + index % 2 * 0.96f;
+                    GameObject slot = CreateEmpty($"Cargo Slot {index + 1}", slotsRoot.transform);
+                    slot.transform.localPosition = new Vector3(x, 1.28f, -1.3f + row * 0.92f);
+                    cargoSlots[index] = slot.transform;
+                }
+
+                SlotsRegistrar slotsRegistrar = vehicle.AddComponent<SlotsRegistrar>();
+                slotsRegistrar.Configure(cargoSlots);
+
+                GameObject prefab = PrefabUtility.SaveAsPrefabAsset(vehicle, DeliveryVehiclePrefabPath);
+                if (prefab == null)
+                {
+                    throw new InvalidOperationException(
+                        $"Could not create delivery vehicle prefab at {DeliveryVehiclePrefabPath}.");
+                }
+
+                EntityBehaviour prefabView = prefab.GetComponent<EntityBehaviour>() ??
+                                             throw new InvalidOperationException(
+                                                 $"Delivery vehicle prefab at {DeliveryVehiclePrefabPath} " +
+                                                 "has no EntityBehaviour root.");
+                AssignViewPrefab(deliveryConfig, prefabView);
+            }
+            finally
+            {
+                Object.DestroyImmediate(vehicle);
+            }
         }
 
         private static void EnsurePlayerPrefab(PlayerConfig playerConfig)
@@ -497,6 +675,18 @@ namespace HardwareStore.Editor
             wheel.GetComponent<Renderer>().sharedMaterial = material;
         }
 
+        private static void CreateLocalWheel(string name, Transform parent, Vector3 localPosition,
+            Material material)
+        {
+            GameObject wheel = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
+            wheel.name = name;
+            wheel.transform.SetParent(parent, false);
+            wheel.transform.SetLocalPositionAndRotation(localPosition, Quaternion.Euler(0f, 0f, 90f));
+            wheel.transform.localScale = new Vector3(0.48f, 0.19f, 0.48f);
+            wheel.GetComponent<Renderer>().sharedMaterial = material;
+            Object.DestroyImmediate(wheel.GetComponent<Collider>());
+        }
+
         private static void CreatePointLight(string name, Transform parent, Vector3 position, Color color,
             float range, float intensity)
         {
@@ -576,7 +766,56 @@ namespace HardwareStore.Editor
             EnsureConfigAsset<InteractionConfig>("InteractionConfig");
             EnsureConfigAsset<OrderConfig>("OrderConfig");
             EnsureConfigAsset<ProductConfig>("ProductConfig");
+            EnsureConfigAsset<DeliveryConfig>("DeliveryConfig");
+            EnsureConfigAsset<EconomyConfig>("EconomyConfig");
         }
+
+        private static void ConfigurePrototypeConfigs(DeliveryConfig deliveryConfig, EconomyConfig economyConfig,
+            ProductConfig productConfig, OrderConfig orderConfig)
+        {
+            SerializedObject delivery = new(deliveryConfig);
+            RequireSerializedProperty(delivery, "_productType").intValue = (int)ProductTypeId.CementBag;
+            RequireSerializedProperty(delivery, "_productCount").intValue = 3;
+            RequireSerializedProperty(delivery, "_purchaseUnitPrice").intValue = 200;
+            delivery.ApplyModifiedPropertiesWithoutUndo();
+            EditorUtility.SetDirty(deliveryConfig);
+
+            SerializedObject economy = new(economyConfig);
+            RequireSerializedProperty(economy, "_initialMoney").intValue = 1000;
+            economy.ApplyModifiedPropertiesWithoutUndo();
+            EditorUtility.SetDirty(economyConfig);
+
+            SerializedObject product = new(productConfig);
+            RequireSerializedProperty(product, "_productType").intValue = (int)ProductTypeId.CementBag;
+            RequireSerializedProperty(product, "_heldRotationEuler").vector3Value = new Vector3(8f, 0f, 0f);
+            RequireSerializedProperty(product, "_dropForwardDistance").floatValue = 1.15f;
+            RequireSerializedProperty(product, "_worldInterpolation").intValue =
+                (int)RigidbodyInterpolation.Interpolate;
+            RequireSerializedProperty(product, "_worldCollisionDetection").intValue =
+                (int)CollisionDetectionMode.ContinuousSpeculative;
+            product.ApplyModifiedPropertiesWithoutUndo();
+            EditorUtility.SetDirty(productConfig);
+
+            SerializedObject order = new(orderConfig);
+            RequireSerializedProperty(order, "_requiredProductType").intValue = (int)ProductTypeId.CementBag;
+            RequireSerializedProperty(order, "_requiredProductCount").intValue = 2;
+            RequireSerializedProperty(order, "_reward").intValue = 700;
+            order.ApplyModifiedPropertiesWithoutUndo();
+            EditorUtility.SetDirty(orderConfig);
+        }
+
+        private static void AssignViewPrefab(ScriptableObject config, EntityBehaviour prefabView)
+        {
+            SerializedObject serializedConfig = new(config);
+            RequireSerializedProperty(serializedConfig, "_viewPrefab").objectReferenceValue = prefabView;
+            serializedConfig.ApplyModifiedPropertiesWithoutUndo();
+            EditorUtility.SetDirty(config);
+        }
+
+        private static SerializedProperty RequireSerializedProperty(SerializedObject owner, string propertyName) =>
+            owner.FindProperty(propertyName) ??
+            throw new InvalidOperationException(
+                $"{owner.targetObject.GetType().Name} must declare serialized property {propertyName}.");
 
         private static void EnsureConfigAsset<TConfig>(string assetName) where TConfig : ScriptableObject
         {

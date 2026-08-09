@@ -13,6 +13,5 @@ MonoBehaviour:
   m_Name: OrderConfig
   m_EditorClassIdentifier: Assembly-CSharp::HardwareStore.Gameplay.Configs.OrderConfig
   _requiredProductType: 0
-  _requiredProductCount: 5
-  _reward: 1750
-  _initialMoney: 0
+  _requiredProductCount: 2
+  _reward: 700

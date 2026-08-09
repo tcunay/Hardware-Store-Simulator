@@ -1,9 +1,9 @@
-using HardwareStore.Infrastructure.View;
+using UnityEngine;
 
 namespace HardwareStore.Gameplay.Factories
 {
     public interface IProductFactory
     {
-        GameEntity Create(EntityBehaviour view);
+        GameEntity CreateInbound(Pose at, int deliveryEntityId, int deliverySlotIndex);
     }
 }

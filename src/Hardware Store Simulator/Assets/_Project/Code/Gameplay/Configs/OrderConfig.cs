@@ -7,13 +7,11 @@ namespace HardwareStore.Gameplay.Configs
     public sealed class OrderConfig : ScriptableObject
     {
         [SerializeField] private ProductTypeId _requiredProductType = ProductTypeId.CementBag;
-        [SerializeField, Min(1)] private int _requiredProductCount = 5;
-        [SerializeField, Min(0)] private int _reward = 1750;
-        [SerializeField, Min(0)] private int _initialMoney;
+        [SerializeField, Min(1)] private int _requiredProductCount = 2;
+        [SerializeField, Min(0)] private int _reward = 700;
 
         public ProductTypeId RequiredProductType => _requiredProductType;
         public int RequiredProductCount => _requiredProductCount;
         public int Reward => _reward;
-        public int InitialMoney => _initialMoney;
     }
 }

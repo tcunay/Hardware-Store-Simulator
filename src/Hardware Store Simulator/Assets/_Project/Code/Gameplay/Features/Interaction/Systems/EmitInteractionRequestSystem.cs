@@ -13,7 +13,6 @@ namespace HardwareStore.Gameplay.Features.Interaction.Systems
             _players = gameContext.GetGroup(GameMatcher.AllOf(
                 GameMatcher.Player,
                 GameMatcher.EntityId,
-                GameMatcher.OrderEntityId,
                 GameMatcher.FocusedEntityId,
                 GameMatcher.FocusInteractionAvailable));
             _inputs = inputContext.GetGroup(InputMatcher.AllOf(

@@ -1,5 +1,6 @@
 using HardwareStore.Gameplay.Features.Carrying;
 using HardwareStore.Gameplay.Features.Cleanup;
+using HardwareStore.Gameplay.Features.Delivery;
 using HardwareStore.Gameplay.Features.Input;
 using HardwareStore.Gameplay.Features.Interaction;
 using HardwareStore.Gameplay.Features.Movement;
@@ -7,6 +8,7 @@ using HardwareStore.Gameplay.Features.Orders;
 using HardwareStore.Gameplay.Features.Player;
 using HardwareStore.Gameplay.Features.Presentation;
 using HardwareStore.Gameplay.Features.Products;
+using HardwareStore.Gameplay.Features.StorageState;
 using HardwareStore.Infrastructure.Systems;
 using HardwareStore.Infrastructure.View;
 
@@ -19,11 +21,13 @@ namespace HardwareStore.Gameplay
             Add(systems.Create<BindViewFeature>());
             Add(systems.Create<InputFeature>());
             Add(systems.Create<PlayerFeature>());
-            Add(systems.Create<ProductsFeature>());
             Add(systems.Create<InteractionFeature>());
+            Add(systems.Create<DeliveryFeature>());
             Add(systems.Create<OrdersFeature>());
             Add(systems.Create<CarryingFeature>());
             Add(systems.Create<OrderProgressFeature>());
+            Add(systems.Create<StorageStateFeature>());
+            Add(systems.Create<ProductPlacementFeature>());
             Add(systems.Create<MovementFeature>());
             Add(systems.Create<PresentationFeature>());
             Add(systems.Create<CleanupFeature>());

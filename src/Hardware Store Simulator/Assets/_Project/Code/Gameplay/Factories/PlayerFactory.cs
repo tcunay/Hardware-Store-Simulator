@@ -18,12 +18,13 @@ namespace HardwareStore.Gameplay.Factories
             _staticData = staticData;
         }
 
-        public GameEntity Create(Pose at)
+        public GameEntity Create(Pose at, int storeEntityId)
         {
             PlayerConfig player = _staticData.Player;
             InteractionConfig interaction = _staticData.Interaction;
 
             GameEntity entity = CreateEntity.Empty(_identifiers.Next())
+                .AddStoreEntityId(storeEntityId)
                 .AddViewPrefab(player.ViewPrefab)
                 .AddSpawnPosition(at.position)
                 .AddSpawnRotation(at.rotation)

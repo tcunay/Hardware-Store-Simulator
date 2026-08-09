@@ -1,6 +1,5 @@
 using System;
 using HardwareStore.Gameplay.Presentation;
-using HardwareStore.Gameplay.Views;
 using UnityEngine;
 using Zenject;
 
@@ -9,9 +8,7 @@ namespace HardwareStore.Gameplay.Scene
     public sealed class PrototypeSceneInitializer : MonoBehaviour, IInitializable, IDisposable
     {
         [SerializeField] private SpawnPointMarker[] _spawnPoints;
-        [SerializeField] private InteractionView _orderCounterView;
-        [SerializeField] private LoadingZoneView _loadingZoneView;
-        [SerializeField] private ProductView[] _productViews;
+        [SerializeField] private SceneViewMarker[] _sceneViews;
         [SerializeField] private PrototypeHudView _hudView;
         [SerializeField] private PrototypeAudioView _audioView;
 
@@ -21,22 +18,15 @@ namespace HardwareStore.Gameplay.Scene
         private void Construct(IStoreSceneData sceneData) =>
             _sceneData = sceneData;
 
-        public void Configure(SpawnPointMarker[] spawnPoints, InteractionView orderCounterView,
-            LoadingZoneView loadingZoneView, ProductView[] productViews, PrototypeHudView hudView,
-            PrototypeAudioView audioView)
+        public void Configure(SpawnPointMarker[] spawnPoints, SceneViewMarker[] sceneViews,
+            PrototypeHudView hudView, PrototypeAudioView audioView)
         {
             _spawnPoints = spawnPoints != null
                 ? spawnPoints
                 : throw new ArgumentNullException(nameof(spawnPoints));
-            _orderCounterView = orderCounterView != null
-                ? orderCounterView
-                : throw new ArgumentNullException(nameof(orderCounterView));
-            _loadingZoneView = loadingZoneView != null
-                ? loadingZoneView
-                : throw new ArgumentNullException(nameof(loadingZoneView));
-            _productViews = productViews != null
-                ? productViews
-                : throw new ArgumentNullException(nameof(productViews));
+            _sceneViews = sceneViews != null
+                ? sceneViews
+                : throw new ArgumentNullException(nameof(sceneViews));
             _hudView = hudView != null ? hudView : throw new ArgumentNullException(nameof(hudView));
             _audioView = audioView != null ? audioView : throw new ArgumentNullException(nameof(audioView));
         }
@@ -44,9 +34,7 @@ namespace HardwareStore.Gameplay.Scene
         public void Initialize() =>
             _sceneData.Register(
                 _spawnPoints,
-                _orderCounterView,
-                _loadingZoneView,
-                _productViews,
+                _sceneViews,
                 _hudView,
                 _audioView);
 

@@ -2,7 +2,6 @@ namespace HardwareStore.Gameplay.Factories
 {
     public interface IOrderFactory
     {
-        GameEntity CreateOrder(int walletEntityId);
-        GameEntity CreateWallet();
+        GameEntity CreateOrder(int storeEntityId, int storageZoneEntityId);
     }
 }
