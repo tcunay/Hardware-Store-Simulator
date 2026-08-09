@@ -1,6 +1,5 @@
 using System;
 using Entitas;
-using HardwareStore.Common.Entity;
 using HardwareStore.Gameplay.Components;
 
 namespace HardwareStore.Gameplay.Features.Interaction.Systems
@@ -27,41 +26,22 @@ namespace HardwareStore.Gameplay.Features.Interaction.Systems
                 if (player.FocusedInteractionType != InteractionTypeId.Product)
                     continue;
 
-                GameEntity product = _gameContext.GetRequiredEntity(
-                    player.FocusedEntityId,
-                    "focused product");
-                if (!product.isProduct)
-                    throw new InvalidOperationException(
-                        $"Entity {product.EntityId} is not a product.");
-                if (product.isInboundProduct && product.isInStock)
-                    throw new InvalidOperationException(
-                        $"Product {product.EntityId} cannot be inbound and in stock at the same time.");
-
-                GameEntity store = _gameContext.RequireStore(player);
-                GameEntity inboundDelivery = null;
+                GameEntity product =
+                    _gameContext.GetEntityWithEntityId(player.FocusedEntityId);
+                GameEntity store =
+                    _gameContext.GetEntityWithEntityId(player.StoreEntityId);
                 if (product.isInboundProduct)
                 {
-                    if (!product.hasDeliveryEntityId)
-                        throw new InvalidOperationException(
-                            $"Inbound product {product.EntityId} has no delivery relation.");
-
-                    inboundDelivery = _gameContext.GetRequiredEntity(
-                        product.DeliveryEntityId,
-                        "inbound product delivery");
-                    if (!inboundDelivery.isDelivery ||
-                        !inboundDelivery.hasProcurementTerminalEntityId)
-                        throw new InvalidOperationException(
-                            $"Inbound product {product.EntityId} references invalid delivery " +
-                            $"{product.DeliveryEntityId}.");
-                    if (inboundDelivery.ProcurementTerminalEntityId !=
-                        store.ProcurementTerminalEntityId)
+                    GameEntity terminal = _gameContext.GetEntityWithEntityId(
+                        store.ProcurementTerminalEntityId);
+                    GameEntity delivery =
+                        _gameContext.GetEntityWithDeliveryProcurementTerminalEntityId(
+                            terminal.EntityId);
+                    if (delivery == null || delivery.EntityId != product.DeliveryEntityId)
                         continue;
                 }
                 else if (product.isInStock)
                 {
-                    if (!product.hasStorageZoneEntityId)
-                        throw new InvalidOperationException(
-                            $"In-stock product {product.EntityId} has no storage ownership relation.");
                     if (product.StorageZoneEntityId != store.StorageZoneEntityId)
                         continue;
                 }
@@ -72,7 +52,7 @@ namespace HardwareStore.Gameplay.Features.Interaction.Systems
                     continue;
                 }
 
-                if (player.hasHeldProductId)
+                if (player.isHandsOccupied)
                 {
                     player.SetInteractionPrompt(
                         "Руки заняты — G, чтобы бросить мешок",
@@ -82,10 +62,6 @@ namespace HardwareStore.Gameplay.Features.Interaction.Systems
 
                 if (product.isInboundProduct)
                 {
-                    if (!inboundDelivery.isDeliveryActive)
-                        throw new InvalidOperationException(
-                            $"Inbound product {product.EntityId} is not linked to an active delivery.");
-
                     player.SetInteractionPrompt(
                         "E — взять мешок из поставки",
                         true);
@@ -100,16 +76,32 @@ namespace HardwareStore.Gameplay.Features.Interaction.Systems
                     continue;
                 }
 
-                GameEntity order = _gameContext.GetRequiredEntity(
-                    store.OrderEntityId,
-                    "store order");
-                if (!order.isOrder ||
-                    order.StoreEntityId != store.EntityId ||
-                    order.StorageZoneEntityId != store.StorageZoneEntityId)
-                    throw new InvalidOperationException(
-                        $"Store {store.EntityId} has an invalid order relation.");
+                GameEntity customerVisit =
+                    _gameContext.GetEntityWithCustomerVisitStoreEntityId(store.EntityId);
+                if (customerVisit == null)
+                {
+                    player.SetInteractionPrompt(
+                        "Ожидайте следующего клиента — товар пока не требуется",
+                        false);
+                    continue;
+                }
+                if (customerVisit.isCustomerVisitArriving)
+                {
+                    player.SetInteractionPrompt(
+                        "Клиент подъезжает — дождитесь его остановки",
+                        false);
+                    continue;
+                }
 
-                if (order.isOrderWaiting)
+                if (customerVisit.isCustomerVisitDeparting)
+                {
+                    player.SetInteractionPrompt(
+                        "Клиент уезжает — ожидайте следующего",
+                        false);
+                    continue;
+                }
+
+                if (customerVisit.isCustomerVisitWaiting)
                 {
                     player.SetInteractionPrompt(
                         "Сначала примите заказ у стойки",
@@ -117,17 +109,18 @@ namespace HardwareStore.Gameplay.Features.Interaction.Systems
                     continue;
                 }
 
-                if (order.isOrderCompleted)
+                if (customerVisit.isCustomerVisitCompleted)
                 {
                     player.SetInteractionPrompt("Заказ уже выполнен", false);
                     continue;
                 }
 
-                if (!order.isOrderActive)
+                if (!customerVisit.isCustomerVisitLoading)
                     throw new InvalidOperationException(
-                        $"Order {order.EntityId} has no valid lifecycle state.");
+                        $"Customer visit {customerVisit.EntityId} has no valid lifecycle state.");
 
-                bool available = product.ProductType == order.RequiredProductType;
+                bool available =
+                    product.ProductType == customerVisit.RequiredProductType;
                 player.SetInteractionPrompt(
                     available
                         ? "E — взять мешок со склада"

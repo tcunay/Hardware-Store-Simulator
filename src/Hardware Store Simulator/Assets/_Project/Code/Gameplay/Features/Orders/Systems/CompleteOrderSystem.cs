@@ -7,32 +7,32 @@ namespace HardwareStore.Gameplay.Features.Orders.Systems
     public sealed class CompleteOrderSystem : IExecuteSystem
     {
         private readonly IGameEventFactory _events;
-        private readonly IGroup<GameEntity> _orders;
+        private readonly IGroup<GameEntity> _visits;
         private readonly List<GameEntity> _buffer = new(4);
 
         public CompleteOrderSystem(GameContext gameContext, IGameEventFactory events)
         {
             _events = events;
-            _orders = gameContext.GetGroup(GameMatcher.AllOf(
-                GameMatcher.EntityId,
-                GameMatcher.Order,
-                GameMatcher.OrderActive,
-                GameMatcher.LoadedProductCount,
-                GameMatcher.RequiredProductCount,
-                GameMatcher.OrderReward));
+            _visits = gameContext.GetGroup(GameMatcher.AllOf(
+                    GameMatcher.CustomerVisit,
+                    GameMatcher.Order,
+                    GameMatcher.CustomerVisitLoading,
+                    GameMatcher.LoadedProductCount,
+                    GameMatcher.RequiredProductCount,
+                    GameMatcher.OrderReward)
+                .NoneOf(GameMatcher.Destructed));
         }
 
         public void Execute()
         {
-            foreach (GameEntity order in _orders.GetEntities(_buffer))
+            foreach (GameEntity visit in _visits.GetEntities(_buffer))
             {
-                if (order.LoadedProductCount < order.RequiredProductCount)
+                if (visit.LoadedProductCount < visit.RequiredProductCount)
                     continue;
 
-                order.isOrderActive = false;
-                order.isOrderCompleted = true;
-                _events.EmitOrderCompleted(order.EntityId);
-                _events.EmitNotification($"Заказ выполнен: +{order.OrderReward:N0} ₽");
+                visit.isCustomerVisitLoading = false;
+                visit.isCustomerVisitCompleted = true;
+                _events.EmitNotification($"Заказ выполнен: +{visit.OrderReward:N0} ₽");
             }
         }
     }

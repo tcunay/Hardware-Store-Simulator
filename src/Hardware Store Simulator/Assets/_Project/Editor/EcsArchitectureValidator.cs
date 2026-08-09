@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Text.RegularExpressions;
 using Entitas;
 using HardwareStore.Gameplay.Common.Registrars;
 using HardwareStore.Gameplay.Components;
@@ -11,10 +12,13 @@ using HardwareStore.Gameplay.Factories;
 using HardwareStore.Gameplay.Presentation;
 using HardwareStore.Gameplay.Registrars;
 using HardwareStore.Gameplay.Scene;
+using HardwareStore.Gameplay.StaticData;
 using HardwareStore.Gameplay.Views;
 using HardwareStore.Infrastructure.Installers;
 using HardwareStore.Infrastructure.View;
+using HardwareStore.Infrastructure.View.Factory;
 using HardwareStore.Infrastructure.View.Registrars;
+using HardwareStore.Infrastructure.View.Systems;
 using UnityEditor;
 using UnityEditor.SceneManagement;
 using UnityEngine;
@@ -29,13 +33,18 @@ namespace HardwareStore.Editor
         private const string ProjectContextPath = "Assets/Resources/ProjectContext.prefab";
         private const string PrototypeScenePath = "Assets/Scenes/Prototype_Yard.unity";
         private const string PlayerConfigPath = "Assets/Resources/Configs/PlayerConfig.asset";
+        private const string InteractionConfigPath = "Assets/Resources/Configs/InteractionConfig.asset";
         private const string PlayerPrefabPath = "Assets/_Project/Prefabs/Gameplay/Player.prefab";
         private const string ProductConfigPath = "Assets/Resources/Configs/ProductConfig.asset";
         private const string DeliveryConfigPath = "Assets/Resources/Configs/DeliveryConfig.asset";
+        private const string CustomerVehicleConfigPath =
+            "Assets/Resources/Configs/CustomerVehicleConfig.asset";
         private const string EconomyConfigPath = "Assets/Resources/Configs/EconomyConfig.asset";
         private const string OrderConfigPath = "Assets/Resources/Configs/OrderConfig.asset";
         private const string ProductPrefabPath = "Assets/_Project/Prefabs/Gameplay/CementBag.prefab";
         private const string DeliveryVehiclePrefabPath = "Assets/_Project/Prefabs/Gameplay/DeliveryTruck.prefab";
+        private const string CustomerVehiclePrefabPath =
+            "Assets/_Project/Prefabs/Gameplay/CustomerVehicle.prefab";
         private const int RequiredStorageSlotCapacity = 6;
 
         private static readonly Type[] ExpectedInputComponents =
@@ -70,10 +79,50 @@ namespace HardwareStore.Editor
             "PlayerCameraComponent",
             "LoadingZoneView",
             "LoadingSlotsRegistrar",
+            "CustomerVehicleView",
+            "CustomerVehicleRegistrar",
+            "CustomerVehicleViewRegistrar",
             "ProductView",
             "ProductViewRegistrar",
             "ProductViewComponent",
-            "GameProductViewComponent"
+            "GameProductViewComponent",
+            "GameContextEntityExtensions",
+            "BindEntityViewSystem",
+            "CustomerLoadingZone",
+            "CustomerVehicleArriving",
+            "CustomerVehicleWaiting",
+            "CustomerVehicleLoading",
+            "CustomerVehicleCompleted",
+            "CustomerVehicleDeparting",
+            "CustomerVehicleEntityId",
+            "OrderWaiting",
+            "OrderActive",
+            "OrderCompleted",
+            "OrderCompletedEvent",
+            "OrderEntityId",
+            "LoadingZoneEntityId",
+            "HeldProductId",
+            "Carried",
+            "ProductEntityId"
+        };
+
+        private static readonly string[] ForbiddenRuntimeMethodNames =
+        {
+            "GetRequiredEntity",
+            "EmitProductLoaded",
+            "EmitProductStocked",
+            "EmitOrderCompleted"
+        };
+
+        private static readonly (Type Type, string AssetPath)[] ExpectedGameplayConfigs =
+        {
+            (typeof(PlayerConfig), PlayerConfigPath),
+            (typeof(InteractionConfig), InteractionConfigPath),
+            (typeof(EconomyConfig), EconomyConfigPath),
+            (typeof(DeliveryConfig), DeliveryConfigPath),
+            (typeof(CustomerVehicleConfig), CustomerVehicleConfigPath),
+            (typeof(OrderConfig), OrderConfigPath),
+            (typeof(ProductConfig), ProductConfigPath)
         };
 
         [MenuItem(MenuPath, priority = 120)]
@@ -101,6 +150,9 @@ namespace HardwareStore.Editor
             ValidateRegistries(componentTypes);
             ValidateLegacyTypesAreAbsent(runtimeTypes);
             ValidateStoreArchitecture(componentTypes);
+            ValidateEntityViewBindingBoundary(runtimeTypes, componentTypes);
+            ValidateEntityIndices(runtimeTypes, componentTypes);
+            ValidateGameplayConfigBoundary(runtimeTypes);
             ValidateJennyPipeline();
             ValidateProjectContextPrefab();
             ValidatePlayerPrefab();
@@ -205,6 +257,29 @@ namespace HardwareStore.Editor
             {
                 Require(!ForbiddenRuntimeTypeNames.Contains(runtimeType.Name, StringComparer.Ordinal),
                     $"Legacy runtime type {runtimeType.FullName} is still present in Assembly-CSharp.");
+
+                MethodInfo[] declaredMethods = runtimeType.GetMethods(
+                    BindingFlags.Public |
+                    BindingFlags.NonPublic |
+                    BindingFlags.Static |
+                    BindingFlags.Instance |
+                    BindingFlags.DeclaredOnly);
+                foreach (MethodInfo method in declaredMethods)
+                {
+                    Require(!ForbiddenRuntimeMethodNames.Contains(method.Name, StringComparer.Ordinal),
+                        $"Legacy runtime API {runtimeType.FullName}.{method.Name} is still present " +
+                        "in Assembly-CSharp.");
+                }
+            }
+
+            foreach (string sourcePath in GetRuntimeSourcePaths())
+            {
+                string source = File.ReadAllText(sourcePath);
+                Require(!Regex.IsMatch(source, @"\.GetRequiredEntity\s*\("),
+                    $"Legacy GetRequiredEntity helper is still used in {sourcePath}.");
+                Require(!Regex.IsMatch(source, @"\.GetSingleEntity\s*\("),
+                    $"Legacy GetSingleEntity lookup is still used in {sourcePath}; " +
+                    "use a relation or entity index for the final architecture.");
             }
         }
 
@@ -215,6 +290,9 @@ namespace HardwareStore.Editor
                 $"{nameof(Store)} must be declared as a Game component.");
             Require(discoveredComponents.Contains(typeof(StoreEntityId)),
                 $"{nameof(StoreEntityId)} must be declared as a Game relation component.");
+            Require(discoveredComponents.Contains(typeof(CustomerDepartureDelayRemaining)),
+                $"{nameof(CustomerDepartureDelayRemaining)} must be declared as a single-value " +
+                "Game component.");
             Require(typeof(IStoreFactory).IsAssignableFrom(typeof(StoreFactory)),
                 $"{nameof(StoreFactory)} must implement {nameof(IStoreFactory)}.");
 
@@ -224,6 +302,368 @@ namespace HardwareStore.Editor
             Require(createMethod != null && createMethod.ReturnType == typeof(GameEntity),
                 $"{nameof(IStoreFactory)} must create and return a Store GameEntity from " +
                 $"{nameof(IStoreSceneData)}.");
+        }
+
+        private static void ValidateEntityViewBindingBoundary(Type[] runtimeTypes,
+            IEnumerable<Type> componentTypes)
+        {
+            var discoveredComponents = new HashSet<Type>(componentTypes);
+            Require(discoveredComponents.Contains(typeof(ViewComponent)),
+                $"{nameof(ViewComponent)} must be the single ECS view-reference component.");
+            Require(discoveredComponents.Contains(typeof(SceneViewKey)),
+                $"{nameof(SceneViewKey)} must identify views authored in a scene.");
+            Require(discoveredComponents.Contains(typeof(ViewPrefabComponent)) &&
+                    discoveredComponents.Contains(typeof(SpawnPosition)) &&
+                    discoveredComponents.Contains(typeof(SpawnRotation)),
+                "Runtime view binding requires ViewPrefab, SpawnPosition and SpawnRotation components.");
+
+            Require(typeof(IEntityView).IsAssignableFrom(typeof(EntityBehaviour)),
+                $"{nameof(EntityBehaviour)} must implement {nameof(IEntityView)}.");
+            MethodInfo setEntityContract = typeof(IEntityView).GetMethod(
+                nameof(IEntityView.SetEntity),
+                new[] { typeof(GameEntity) });
+            MethodInfo setEntityImplementation = typeof(EntityBehaviour).GetMethod(
+                nameof(IEntityView.SetEntity),
+                new[] { typeof(GameEntity) });
+            Require(setEntityContract != null && setEntityContract.ReturnType == typeof(void) &&
+                    setEntityImplementation != null && setEntityImplementation.ReturnType == typeof(void),
+                $"{nameof(IEntityView)} and {nameof(EntityBehaviour)} must expose the same SetEntity boundary.");
+
+            Require(typeof(IEntityViewFactory).IsAssignableFrom(typeof(EntityViewFactory)),
+                $"{nameof(EntityViewFactory)} must implement {nameof(IEntityViewFactory)}.");
+            RequireMethod(
+                typeof(IEntityViewFactory),
+                nameof(IEntityViewFactory.CreateViewFromPrefab),
+                typeof(EntityBehaviour),
+                typeof(GameEntity));
+            RequireMethod(
+                typeof(IEntityViewFactory),
+                nameof(IEntityViewFactory.BindExistingView),
+                typeof(EntityBehaviour),
+                typeof(GameEntity),
+                typeof(EntityBehaviour));
+
+            ValidateExecuteOnlyViewBinder(
+                typeof(BindEntityViewFromSceneSystem),
+                typeof(GameContext),
+                typeof(IStoreSceneData),
+                typeof(IEntityViewFactory));
+            ValidateExecuteOnlyViewBinder(
+                typeof(BindEntityViewFromPrefabSystem),
+                typeof(GameContext),
+                typeof(IEntityViewFactory));
+
+            string factoryPath = GetRuntimeSourcePath(
+                "Infrastructure", "View", "Factory", "EntityViewFactory.cs");
+            string sceneBinderPath = GetRuntimeSourcePath(
+                "Infrastructure", "View", "Systems", "BindEntityViewFromSceneSystem.cs");
+            string prefabBinderPath = GetRuntimeSourcePath(
+                "Infrastructure", "View", "Systems", "BindEntityViewFromPrefabSystem.cs");
+            var setEntityCallers = new List<string>();
+            var bindExistingViewCallers = new List<string>();
+            var createPrefabViewCallers = new List<string>();
+            foreach (string sourcePath in GetRuntimeSourcePaths())
+            {
+                string source = File.ReadAllText(sourcePath);
+                int setEntityCallCount = Regex.Matches(source, @"\.SetEntity\s*\(").Count;
+                for (int index = 0; index < setEntityCallCount; index++)
+                    setEntityCallers.Add(sourcePath);
+                int bindExistingCallCount = Regex.Matches(
+                    source,
+                    @"\.BindExistingView\s*\(").Count;
+                for (int index = 0; index < bindExistingCallCount; index++)
+                    bindExistingViewCallers.Add(sourcePath);
+                int createPrefabCallCount = Regex.Matches(
+                    source,
+                    @"\.CreateViewFromPrefab\s*\(").Count;
+                for (int index = 0; index < createPrefabCallCount; index++)
+                    createPrefabViewCallers.Add(sourcePath);
+            }
+
+            Require(setEntityCallers.Count == 1 && PathsEqual(setEntityCallers[0], factoryPath),
+                "EntityBehaviour.SetEntity must be called exactly once in runtime source and only by " +
+                $"{nameof(EntityViewFactory)}. Found: [{string.Join(", ", setEntityCallers)}].");
+            Require(bindExistingViewCallers.Count == 1 &&
+                    PathsEqual(bindExistingViewCallers[0], sceneBinderPath),
+                $"Only {nameof(BindEntityViewFromSceneSystem)} may bind an authored scene view.");
+            Require(createPrefabViewCallers.Count == 1 &&
+                    PathsEqual(createPrefabViewCallers[0], prefabBinderPath),
+                $"Only {nameof(BindEntityViewFromPrefabSystem)} may request a runtime prefab view.");
+
+            string bindFeatureSource = ReadRuntimeSource(
+                "Infrastructure", "View", "BindViewFeature.cs");
+            string sceneBinderToken = "Create<BindEntityViewFromSceneSystem>()";
+            string prefabBinderToken = "Create<BindEntityViewFromPrefabSystem>()";
+            int sceneBinderIndex = bindFeatureSource.IndexOf(sceneBinderToken, StringComparison.Ordinal);
+            int prefabBinderIndex = bindFeatureSource.IndexOf(prefabBinderToken, StringComparison.Ordinal);
+            Require(sceneBinderIndex >= 0 && prefabBinderIndex > sceneBinderIndex &&
+                    CountOccurrences(bindFeatureSource, sceneBinderToken) == 1 &&
+                    CountOccurrences(bindFeatureSource, prefabBinderToken) == 1,
+                $"{nameof(BindViewFeature)} must execute the scene binder once before the runtime-prefab binder.");
+
+            string sceneBinderSource = ReadRuntimeSource(
+                "Infrastructure", "View", "Systems", "BindEntityViewFromSceneSystem.cs");
+            RequireSourceContains(sceneBinderSource,
+                nameof(SceneViewKey),
+                "NoneOf(GameMatcher.View, GameMatcher.Destructed)",
+                "_viewFactory.BindExistingView",
+                "RemoveSceneViewKey");
+
+            string prefabBinderSource = ReadRuntimeSource(
+                "Infrastructure", "View", "Systems", "BindEntityViewFromPrefabSystem.cs");
+            RequireSourceContains(prefabBinderSource,
+                nameof(ViewPrefabComponent).Replace("Component", string.Empty),
+                nameof(SpawnPosition),
+                nameof(SpawnRotation),
+                "_viewFactory.CreateViewFromPrefab",
+                "RemoveSpawnPosition",
+                "RemoveSpawnRotation");
+
+            string bootstrapSource = ReadRuntimeSource(
+                "Infrastructure", "Installers", "BootstrapInstaller.cs");
+            RequireSourceContains(bootstrapSource,
+                "Bind<IEntityViewFactory>().To<EntityViewFactory>().AsSingle()");
+
+            Require(runtimeTypes.Contains(typeof(BindViewFeature)),
+                $"{nameof(BindViewFeature)} must remain part of Assembly-CSharp.");
+        }
+
+        private static void ValidateEntityIndices(Type[] runtimeTypes,
+            IEnumerable<Type> componentTypes)
+        {
+            var discoveredComponents = new HashSet<Type>(componentTypes);
+            Type[] customerVisitRoles =
+            {
+                typeof(CustomerVisit),
+                typeof(CustomerVehicle),
+                typeof(Order),
+                typeof(LoadingZone),
+                typeof(CustomerVisitArriving),
+                typeof(CustomerVisitWaiting),
+                typeof(CustomerVisitLoading),
+                typeof(CustomerVisitCompleted),
+                typeof(CustomerVisitDeparting)
+            };
+            foreach (Type role in customerVisitRoles)
+            {
+                Require(discoveredComponents.Contains(role),
+                    $"Unified customer visits require the {role.Name} Game component.");
+            }
+
+            Require(discoveredComponents.Contains(typeof(CustomerVisitEntityId)),
+                $"{nameof(CustomerVisitEntityId)} must relate loaded products to their visit.");
+            Require(discoveredComponents.Contains(typeof(CustomerVisitStoreEntityId)),
+                $"{nameof(CustomerVisitStoreEntityId)} must uniquely relate the active visit to its store.");
+            Require(discoveredComponents.Contains(typeof(DeliveryProcurementTerminalEntityId)),
+                $"{nameof(DeliveryProcurementTerminalEntityId)} must uniquely relate the active delivery " +
+                "to its procurement terminal.");
+            Require(discoveredComponents.Contains(typeof(CarrierEntityId)),
+                $"{nameof(CarrierEntityId)} must relate the carried product to its carrier.");
+            RequireComponentIndexAttribute(
+                typeof(CarrierEntityId),
+                "Entitas.CodeGeneration.Attributes.PrimaryEntityIndexAttribute");
+            RequireComponentIndexAttribute(
+                typeof(CustomerVisitStoreEntityId),
+                "Entitas.CodeGeneration.Attributes.PrimaryEntityIndexAttribute");
+            RequireComponentIndexAttribute(
+                typeof(DeliveryProcurementTerminalEntityId),
+                "Entitas.CodeGeneration.Attributes.PrimaryEntityIndexAttribute");
+            RequireComponentIndexAttribute(
+                typeof(CustomerVisitEntityId),
+                "Entitas.CodeGeneration.Attributes.EntityIndexAttribute");
+
+            RequireGeneratedIndexApi(
+                runtimeTypes,
+                "GetEntityWithCarrierEntityId",
+                typeof(GameEntity));
+            RequireGeneratedIndexApi(
+                runtimeTypes,
+                "GetEntitiesWithCustomerVisitEntityId",
+                returnType: null);
+            RequireGeneratedIndexApi(
+                runtimeTypes,
+                "GetEntityWithCustomerVisitStoreEntityId",
+                typeof(GameEntity));
+            RequireGeneratedIndexApi(
+                runtimeTypes,
+                "GetEntityWithDeliveryProcurementTerminalEntityId",
+                typeof(GameEntity));
+
+            string combinedRuntimeSource = string.Join(
+                Environment.NewLine,
+                GetRuntimeSourcePaths().Select(File.ReadAllText));
+            Require(!combinedRuntimeSource.Contains(
+                    "new PrimaryEntityIndex<",
+                    StringComparison.Ordinal),
+                "Single-value primary indices must be generated by Jenny from " +
+                "[PrimaryEntityIndex] component values, not registered manually.");
+            Require(Regex.IsMatch(combinedRuntimeSource, @"\.GetEntityWithCarrierEntityId\s*\("),
+                $"Runtime carrying logic must consume the {nameof(CarrierEntityId)} primary index.");
+            Require(Regex.IsMatch(
+                    combinedRuntimeSource,
+                    @"\.GetEntityWithCustomerVisitStoreEntityId\s*\("),
+                $"Runtime customer/order logic must consume the {nameof(CustomerVisitStoreEntityId)} " +
+                "primary index.");
+            Require(Regex.IsMatch(
+                    combinedRuntimeSource,
+                    @"\.GetEntityWithDeliveryProcurementTerminalEntityId\s*\("),
+                $"Runtime delivery logic must consume the " +
+                $"{nameof(DeliveryProcurementTerminalEntityId)} primary index.");
+
+            Require(typeof(ICustomerVisitFactory).IsAssignableFrom(typeof(CustomerVisitFactory)),
+                $"{nameof(CustomerVisitFactory)} must implement {nameof(ICustomerVisitFactory)}.");
+            RequireMethod(
+                typeof(ICustomerVisitFactory),
+                nameof(ICustomerVisitFactory.Create),
+                typeof(GameEntity),
+                typeof(GameEntity),
+                typeof(Pose[]),
+                typeof(Pose[]));
+            RequireMethod(
+                typeof(IOrderFactory),
+                nameof(IOrderFactory.AddOrderComponents),
+                typeof(GameEntity),
+                typeof(GameEntity),
+                typeof(int));
+
+            string customerVisitFactorySource = ReadRuntimeSource(
+                "Gameplay", "Factories", "CustomerVisitFactory.cs");
+            RequireSourceContains(customerVisitFactorySource,
+                "isCustomerVisit = true",
+                "isCustomerVehicle = true",
+                "isCustomerVisitArriving = true",
+                "isLoadingZone = true",
+                "AddCustomerVisitStoreEntityId",
+                "_orderFactory.AddOrderComponents");
+            string orderFactorySource = ReadRuntimeSource(
+                "Gameplay", "Factories", "OrderFactory.cs");
+            RequireSourceContains(orderFactorySource,
+                "AddOrderComponents",
+                "isOrder = true");
+            Require(!orderFactorySource.Contains("CreateEntity.", StringComparison.Ordinal),
+                $"{nameof(OrderFactory)} must enrich the unified CustomerVisit entity, not create another one.");
+
+            string completeCustomerVisitSource = ReadRuntimeSource(
+                "Gameplay", "Features", "Customers", "Systems",
+                "CompleteCustomerVehicleDepartureSystem.cs");
+            RequireSourceContains(completeCustomerVisitSource,
+                "RemoveCustomerVisitStoreEntityId",
+                "isDestructed = true");
+
+            string deliveryFactorySource = ReadRuntimeSource(
+                "Gameplay", "Factories", "DeliveryFactory.cs");
+            RequireSourceContains(deliveryFactorySource,
+                "AddDeliveryProcurementTerminalEntityId");
+            string completeDeliverySource = ReadRuntimeSource(
+                "Gameplay", "Features", "Delivery", "Systems", "CompleteDeliverySystem.cs");
+            RequireSourceContains(completeDeliverySource,
+                "RemoveDeliveryProcurementTerminalEntityId",
+                "isDeliveryActive = false",
+                "isDestructed = true");
+        }
+
+        private static void ValidateGameplayConfigBoundary(IEnumerable<Type> runtimeTypes)
+        {
+            var expectedConfigTypes =
+                new HashSet<Type>(ExpectedGameplayConfigs.Select(config => config.Type));
+            var discoveredConfigTypes = new HashSet<Type>(runtimeTypes
+                .Where(type => type.Namespace == typeof(PlayerConfig).Namespace)
+                .Where(type => !type.IsAbstract && typeof(ScriptableObject).IsAssignableFrom(type)));
+            Require(discoveredConfigTypes.SetEquals(expectedConfigTypes),
+                DescribeSetMismatch(
+                    "Gameplay config types",
+                    expectedConfigTypes,
+                    discoveredConfigTypes));
+
+            var staticDataConfigTypes = new HashSet<Type>(typeof(IStaticDataService)
+                .GetProperties(BindingFlags.Instance | BindingFlags.Public | BindingFlags.DeclaredOnly)
+                .Select(property => property.PropertyType));
+            Require(staticDataConfigTypes.SetEquals(expectedConfigTypes),
+                DescribeSetMismatch(
+                    nameof(IStaticDataService),
+                    expectedConfigTypes,
+                    staticDataConfigTypes));
+
+            foreach ((Type configType, string assetPath) in ExpectedGameplayConfigs)
+            {
+                Require(configType.IsSealed && typeof(ScriptableObject).IsAssignableFrom(configType),
+                    $"Gameplay config {configType.FullName} must be a sealed ScriptableObject.");
+                Require(typeof(IValidatableConfig).IsAssignableFrom(configType),
+                    $"Gameplay config {configType.FullName} must implement {nameof(IValidatableConfig)}.");
+
+                MethodInfo validateMethod = configType.GetMethod(
+                    nameof(IValidatableConfig.Validate),
+                    BindingFlags.Instance | BindingFlags.Public | BindingFlags.DeclaredOnly,
+                    binder: null,
+                    types: Type.EmptyTypes,
+                    modifiers: null);
+                Require(validateMethod != null && validateMethod.ReturnType == typeof(void),
+                    $"Gameplay config {configType.FullName} must declare explicit void Validate().");
+
+                PropertyInfo[] properties = configType.GetProperties(
+                    BindingFlags.Instance | BindingFlags.Public | BindingFlags.DeclaredOnly);
+                Require(properties.All(property => property.CanRead && !property.CanWrite),
+                    $"Gameplay config {configType.FullName} may expose only read-only public properties.");
+
+                string configSource = ReadRuntimeSource(
+                    "Gameplay", "Configs", configType.Name + ".cs");
+                ValidatePureConfigGetters(configType, properties, configSource);
+
+                ScriptableObject configAsset =
+                    AssetDatabase.LoadAssetAtPath(assetPath, configType) as ScriptableObject;
+                Require(configAsset != null,
+                    $"Gameplay config asset {assetPath} of type {configType.Name} is missing.");
+                try
+                {
+                    ((IValidatableConfig)configAsset).Validate();
+                }
+                catch (Exception exception)
+                {
+                    throw new InvalidOperationException(
+                        $"ECS architecture validation failed: {assetPath} did not pass " +
+                        $"{nameof(IValidatableConfig)}.{nameof(IValidatableConfig.Validate)}().",
+                        exception);
+                }
+            }
+
+            string customerVehicleConfigSource = ReadRuntimeSource(
+                "Gameplay", "Configs", nameof(CustomerVehicleConfig) + ".cs");
+            int lastConfigurationAssignment = customerVehicleConfigSource.IndexOf(
+                "_nextCustomerDelay = nextCustomerDelay",
+                StringComparison.Ordinal);
+            int explicitConfigurationValidation = customerVehicleConfigSource.IndexOf(
+                "Validate();",
+                lastConfigurationAssignment >= 0 ? lastConfigurationAssignment : 0,
+                StringComparison.Ordinal);
+            Require(lastConfigurationAssignment >= 0 &&
+                    explicitConfigurationValidation > lastConfigurationAssignment,
+                $"{nameof(CustomerVehicleConfig)}.Configure must assign all values and then call Validate().");
+
+            string staticDataSource = ReadRuntimeSource(
+                "Gameplay", "StaticData", "StaticDataService.cs");
+            Require(!staticDataSource.Contains("_ =", StringComparison.Ordinal),
+                $"{nameof(StaticDataService)} must not validate configs through discarded getter reads.");
+            RequireSourceContains(staticDataSource,
+                "player.Validate()",
+                "interaction.Validate()",
+                "economy.Validate()",
+                "delivery.Validate()",
+                "customerVehicle.Validate()",
+                "order.Validate()",
+                "product.Validate()",
+                "ValidateCompatibility(economy, delivery, order, product)",
+                "where TConfig : ScriptableObject, IValidatableConfig");
+
+            int compatibilityValidation = staticDataSource.IndexOf(
+                "ValidateCompatibility(economy, delivery, order, product)",
+                StringComparison.Ordinal);
+            int firstPublication = staticDataSource.IndexOf("Player = player", StringComparison.Ordinal);
+            int finalPublication = staticDataSource.IndexOf("Product = product", StringComparison.Ordinal);
+            Require(compatibilityValidation >= 0 && firstPublication > compatibilityValidation,
+                $"{nameof(StaticDataService)} must validate all local configs and compatibility " +
+                "before publishing any property.");
+            Require(finalPublication > firstPublication,
+                $"{nameof(StaticDataService)} must publish the complete validated config set atomically.");
         }
 
         private static void ValidateJennyPipeline()
@@ -322,6 +762,8 @@ namespace HardwareStore.Editor
         {
             ProductConfig productConfig = RequireAsset<ProductConfig>(ProductConfigPath);
             DeliveryConfig deliveryConfig = RequireAsset<DeliveryConfig>(DeliveryConfigPath);
+            CustomerVehicleConfig customerVehicleConfig =
+                RequireAsset<CustomerVehicleConfig>(CustomerVehicleConfigPath);
             EconomyConfig economyConfig = RequireAsset<EconomyConfig>(EconomyConfigPath);
             OrderConfig orderConfig = RequireAsset<OrderConfig>(OrderConfigPath);
 
@@ -355,6 +797,19 @@ namespace HardwareStore.Editor
             Require(productConfig.WorldCollisionDetection == CollisionDetectionMode.ContinuousSpeculative,
                 $"{ProductConfigPath} must use {CollisionDetectionMode.ContinuousSpeculative} " +
                 "world collision detection.");
+            Require(Mathf.Approximately(customerVehicleConfig.ArrivalSpeed, 4f),
+                $"{CustomerVehicleConfigPath} must use an arrival speed of 4.");
+            Require(Mathf.Approximately(customerVehicleConfig.DepartureSpeed, 5.25f),
+                $"{CustomerVehicleConfigPath} must use a departure speed of 5.25.");
+            Require(Mathf.Approximately(customerVehicleConfig.RotationSpeed, 135f),
+                $"{CustomerVehicleConfigPath} must use a rotation speed of 135 degrees per second.");
+            Require(Mathf.Approximately(customerVehicleConfig.WaypointTolerance, 0.08f),
+                $"{CustomerVehicleConfigPath} must use a waypoint tolerance of 0.08.");
+            Require(Mathf.Approximately(customerVehicleConfig.CompletedDwellDuration, 1.25f),
+                $"{CustomerVehicleConfigPath} must keep a completed customer visible for 1.25 seconds.");
+            Require(Mathf.Approximately(customerVehicleConfig.FirstCustomerDelay, 1f) &&
+                    Mathf.Approximately(customerVehicleConfig.NextCustomerDelay, 4f),
+                $"{CustomerVehicleConfigPath} must use prototype customer delays of 1 and 4 seconds.");
 
             GameObject productPrefab = RequireAsset<GameObject>(ProductPrefabPath);
             ValidatePrefabRoot(productPrefab, ProductPrefabPath, requireUnitScale: false);
@@ -437,6 +892,103 @@ namespace HardwareStore.Editor
             Require(deliveryConfig.ViewPrefab == deliveryViews[0],
                 $"{DeliveryConfigPath} must reference the EntityBehaviour root from " +
                 $"{DeliveryVehiclePrefabPath}.");
+
+            GameObject customerVehiclePrefab = RequireAsset<GameObject>(CustomerVehiclePrefabPath);
+            ValidatePrefabRoot(customerVehiclePrefab, CustomerVehiclePrefabPath, requireUnitScale: true);
+            InteractionView[] customerViews =
+                RequireExactlyOneInPrefab<InteractionView>(customerVehiclePrefab, CustomerVehiclePrefabPath);
+            EntityBehaviour[] customerEntityViews =
+                RequireExactlyOneInPrefab<EntityBehaviour>(customerVehiclePrefab, CustomerVehiclePrefabPath);
+            TransformRegistrar[] customerTransforms =
+                RequireExactlyOneInPrefab<TransformRegistrar>(customerVehiclePrefab, CustomerVehiclePrefabPath);
+            InteractionViewRegistrar[] customerInteractionRegistrars =
+                RequireExactlyOneInPrefab<InteractionViewRegistrar>(
+                    customerVehiclePrefab, CustomerVehiclePrefabPath);
+            SlotsRegistrar[] customerSlotRegistrars =
+                RequireExactlyOneInPrefab<SlotsRegistrar>(customerVehiclePrefab, CustomerVehiclePrefabPath);
+            RigidbodyRegistrar[] customerRigidbodyRegistrars =
+                RequireExactlyOneInPrefab<RigidbodyRegistrar>(customerVehiclePrefab, CustomerVehiclePrefabPath);
+            CollidersRegistrar[] customerCollidersRegistrars =
+                RequireExactlyOneInPrefab<CollidersRegistrar>(customerVehiclePrefab, CustomerVehiclePrefabPath);
+            Rigidbody[] customerRigidbodies =
+                RequireExactlyOneInPrefab<Rigidbody>(customerVehiclePrefab, CustomerVehiclePrefabPath);
+            InteractionHighlight[] customerHighlights =
+                RequireExactlyOneInPrefab<InteractionHighlight>(
+                    customerVehiclePrefab, CustomerVehiclePrefabPath);
+            Collider[] customerColliders = customerVehiclePrefab.GetComponentsInChildren<Collider>(true);
+            Transform customerBodyColliderTransform =
+                customerVehiclePrefab.transform.Find("Body Collider");
+            Transform customerInteractionAreaTransform =
+                customerVehiclePrefab.transform.Find("Interaction Area");
+            int ignoreRaycastLayer = LayerMask.NameToLayer("Ignore Raycast");
+            Require(ignoreRaycastLayer >= 0,
+                "Required built-in Ignore Raycast layer is missing.");
+            Require(customerBodyColliderTransform != null,
+                $"{CustomerVehiclePrefabPath} must contain a Body Collider child.");
+            Require(customerInteractionAreaTransform != null,
+                $"{CustomerVehiclePrefabPath} must contain an Interaction Area child.");
+            Collider customerBodyCollider = customerBodyColliderTransform.GetComponent<Collider>();
+            Collider customerInteractionCollider = customerInteractionAreaTransform.GetComponent<Collider>();
+            Require(customerBodyCollider != null && !customerBodyCollider.isTrigger &&
+                    customerBodyCollider.gameObject.layer == ignoreRaycastLayer,
+                $"The solid Body Collider in {CustomerVehiclePrefabPath} must use Ignore Raycast.");
+            Require(customerInteractionCollider != null && customerInteractionCollider.isTrigger &&
+                    customerInteractionCollider.gameObject.layer != ignoreRaycastLayer,
+                $"The rear Interaction Area in {CustomerVehiclePrefabPath} must be the raycastable trigger.");
+            Transform[] customerSlots = ReadSlots(customerSlotRegistrars[0], CustomerVehiclePrefabPath);
+            EntityComponentRegistrar[] customerRegistrars =
+                customerVehiclePrefab.GetComponentsInChildren<EntityComponentRegistrar>(true);
+
+            Require(customerViews[0].GetType() == typeof(InteractionView) &&
+                    customerViews[0].gameObject == customerVehiclePrefab &&
+                    customerEntityViews[0] == customerViews[0],
+                $"The root view in {CustomerVehiclePrefabPath} must be a non-specialized InteractionView.");
+            Require(customerTransforms[0].gameObject == customerVehiclePrefab &&
+                    customerInteractionRegistrars[0].gameObject == customerVehiclePrefab &&
+                    customerSlotRegistrars[0].gameObject == customerVehiclePrefab &&
+                    customerRigidbodyRegistrars[0].gameObject == customerVehiclePrefab &&
+                    customerCollidersRegistrars[0].gameObject == customerVehiclePrefab &&
+                    customerRigidbodies[0].gameObject == customerVehiclePrefab,
+                $"The customer vehicle view, Rigidbody and generic registrars in " +
+                $"{CustomerVehiclePrefabPath} must be on its root.");
+            var expectedCustomerRegistrarTypes = new HashSet<Type>
+            {
+                typeof(TransformRegistrar),
+                typeof(InteractionViewRegistrar),
+                typeof(SlotsRegistrar),
+                typeof(RigidbodyRegistrar),
+                typeof(CollidersRegistrar)
+            };
+            Require(customerRegistrars.Length == expectedCustomerRegistrarTypes.Count &&
+                    new HashSet<Type>(customerRegistrars.Select(registrar => registrar.GetType()))
+                        .SetEquals(expectedCustomerRegistrarTypes),
+                $"{CustomerVehiclePrefabPath} must contain exactly the generic Transform, InteractionView, " +
+                "Slots, Rigidbody and Colliders registrars.");
+            Require(customerSlots.Length == orderConfig.RequiredProductCount &&
+                    customerSlots.All(slot => slot.IsChildOf(customerVehiclePrefab.transform)),
+                $"{CustomerVehiclePrefabPath} must expose exactly {orderConfig.RequiredProductCount} " +
+                "customer cargo slots within its hierarchy.");
+            Require(customerColliders.Length >= 2 &&
+                    customerColliders.All(collider => collider.enabled && collider.gameObject.activeSelf),
+                $"Every collider in {CustomerVehiclePrefabPath} must be enabled on an active object.");
+            Require(customerColliders.Count(collider => collider.isTrigger) == 1 &&
+                    customerColliders.Where(collider => !collider.isTrigger)
+                        .All(collider => collider.gameObject.layer == ignoreRaycastLayer),
+                $"{CustomerVehiclePrefabPath} must expose only its rear trigger to interaction raycasts.");
+            Rigidbody customerBody = customerRigidbodies[0];
+            Require(customerBody.isKinematic && !customerBody.useGravity &&
+                    customerBody.interpolation == RigidbodyInterpolation.None,
+                $"The Rigidbody in {CustomerVehiclePrefabPath} must be kinematic, gravity-free and use " +
+                $"{RigidbodyInterpolation.None} interpolation.");
+            SerializedProperty customerHighlight =
+                new SerializedObject(customerViews[0]).FindProperty("_highlight");
+            Require(customerHighlight?.objectReferenceValue == customerHighlights[0],
+                $"The InteractionView in {CustomerVehiclePrefabPath} must reference its loading highlight.");
+            Require(!ContainsPrefabInstance(customerVehiclePrefab, productPrefab),
+                $"{CustomerVehiclePrefabPath} must be empty before runtime order loading.");
+            Require(customerVehicleConfig.ViewPrefab == customerViews[0],
+                $"{CustomerVehicleConfigPath} must reference the InteractionView root from " +
+                $"{CustomerVehiclePrefabPath}.");
         }
 
         private static void ValidatePrototypeSceneComposition()
@@ -461,6 +1013,7 @@ namespace HardwareStore.Editor
                     FindComponentsInScene<CharacterControllerRegistrar>(scene);
                 CameraRegistrar[] cameraRegistrars = FindComponentsInScene<CameraRegistrar>(scene);
                 SpawnPointMarker[] spawnPoints = FindComponentsInScene<SpawnPointMarker>(scene);
+                SceneRouteMarker[] routes = FindComponentsInScene<SceneRouteMarker>(scene);
                 SceneViewMarker[] sceneViews = FindComponentsInScene<SceneViewMarker>(scene);
                 EntityBehaviour[] entityViews = FindComponentsInScene<EntityBehaviour>(scene);
                 SlotsRegistrar[] slotRegistrars = FindComponentsInScene<SlotsRegistrar>(scene);
@@ -490,11 +1043,16 @@ namespace HardwareStore.Editor
                 SerializedObject serializedInitializer = new(initializers[0]);
                 SpawnPointMarker[] configuredSpawnPoints = ReadObjectArray<SpawnPointMarker>(
                     serializedInitializer, "_spawnPoints", nameof(PrototypeSceneInitializer));
+                SceneRouteMarker[] configuredRoutes = ReadObjectArray<SceneRouteMarker>(
+                    serializedInitializer, "_routes", nameof(PrototypeSceneInitializer));
                 SceneViewMarker[] configuredSceneViews = ReadObjectArray<SceneViewMarker>(
                     serializedInitializer, "_sceneViews", nameof(PrototypeSceneInitializer));
                 Require(new HashSet<SpawnPointMarker>(configuredSpawnPoints).SetEquals(spawnPoints) &&
                         configuredSpawnPoints.Length == spawnPoints.Length,
                     $"{nameof(PrototypeSceneInitializer)} does not reference the scene spawn point set.");
+                Require(new HashSet<SceneRouteMarker>(configuredRoutes).SetEquals(routes) &&
+                        configuredRoutes.Length == routes.Length,
+                    $"{nameof(PrototypeSceneInitializer)} does not reference the scene route set.");
                 Require(new HashSet<SceneViewMarker>(configuredSceneViews).SetEquals(sceneViews) &&
                         configuredSceneViews.Length == sceneViews.Length,
                     $"{nameof(PrototypeSceneInitializer)} does not reference the static scene view set.");
@@ -523,10 +1081,44 @@ namespace HardwareStore.Editor
                 Require(spawnPoints.Length == expectedSpawnIds.Count && actualSpawnIds.SetEquals(expectedSpawnIds),
                     $"{PrototypeScenePath} must contain one spawn point for Player and DeliveryVehicle.");
 
+                var expectedRouteIds = new HashSet<SceneRouteId>
+                {
+                    SceneRouteId.CustomerVehicleArrival,
+                    SceneRouteId.CustomerVehicleDeparture
+                };
+                var actualRouteIds = new HashSet<SceneRouteId>(routes.Select(marker => marker.Id));
+                Require(routes.Length == expectedRouteIds.Count && actualRouteIds.SetEquals(expectedRouteIds),
+                    $"{PrototypeScenePath} must contain exactly one marker for each customer vehicle route.");
+
+                var routeWaypoints = new Dictionary<SceneRouteId, Transform[]>();
+                foreach (SceneRouteMarker route in routes)
+                {
+                    Transform[] waypoints = ReadObjectArray<Transform>(
+                        new SerializedObject(route), "_waypoints", route.name);
+                    Require(waypoints.Length == 4,
+                        $"Scene route {route.Id} must contain entry, gate, apron and terminal waypoints.");
+                    Require(waypoints.All(waypoint => waypoint.gameObject.scene == scene &&
+                                                       waypoint.IsChildOf(route.transform)),
+                        $"Every waypoint of scene route {route.Id} must belong to its marker hierarchy " +
+                        $"in {PrototypeScenePath}.");
+                    routeWaypoints.Add(route.Id, waypoints);
+                }
+
+                Transform arrivalParking = routeWaypoints[SceneRouteId.CustomerVehicleArrival][^1];
+                Transform departureParking = routeWaypoints[SceneRouteId.CustomerVehicleDeparture][0];
+                Require(Vector3.Distance(arrivalParking.position, departureParking.position) < 0.001f &&
+                        Quaternion.Angle(arrivalParking.rotation, departureParking.rotation) < 0.01f,
+                    "Customer vehicle arrival must end at the exact pose where departure begins.");
+
+                Transform[] allSceneTransforms = scene.GetRootGameObjects()
+                    .SelectMany(root => root.GetComponentsInChildren<Transform>(true))
+                    .ToArray();
+                Require(allSceneTransforms.All(candidate => candidate.name != "Customer Truck"),
+                    $"{PrototypeScenePath} must not contain the legacy static Customer Truck.");
+
                 var expectedSceneViewIds = new HashSet<SceneViewId>
                 {
                     SceneViewId.CustomerOrderCounter,
-                    SceneViewId.CustomerLoadingZone,
                     SceneViewId.ProcurementTerminal,
                     SceneViewId.StorageZone
                 };
@@ -538,19 +1130,15 @@ namespace HardwareStore.Editor
                     "Every static scene view marker must reference an InteractionView on the same object.");
                 Require(entityViews.Length == sceneViews.Length &&
                         new HashSet<EntityBehaviour>(sceneViews.Select(marker => marker.View)).SetEquals(entityViews),
-                    $"{PrototypeScenePath} must contain only the four marked static entity views.");
-                Require(slotRegistrars.Length == 2,
-                    $"{PrototypeScenePath} must contain slots only for storage and customer loading.");
+                    $"{PrototypeScenePath} must contain only the three marked static entity views.");
+                Require(slotRegistrars.Length == 1,
+                    $"{PrototypeScenePath} must contain scene slots only for storage.");
 
                 SceneViewMarker storage = sceneViews.Single(marker => marker.Id == SceneViewId.StorageZone);
-                SceneViewMarker customerLoading =
-                    sceneViews.Single(marker => marker.Id == SceneViewId.CustomerLoadingZone);
                 SlotsRegistrar storageSlotsRegistrar = storage.GetComponent<SlotsRegistrar>();
-                SlotsRegistrar customerSlotsRegistrar = customerLoading.GetComponent<SlotsRegistrar>();
-                Require(storageSlotsRegistrar != null && customerSlotsRegistrar != null,
-                    "Storage and customer loading scene views must each have a SlotsRegistrar.");
+                Require(storageSlotsRegistrar != null,
+                    "The storage scene view must have a SlotsRegistrar.");
                 Transform[] storageSlots = ReadSlots(storageSlotsRegistrar, PrototypeScenePath);
-                Transform[] customerSlots = ReadSlots(customerSlotsRegistrar, PrototypeScenePath);
                 Require(storageSlots.Length >= RequiredStorageSlotCapacity,
                     $"Storage must expose at least {RequiredStorageSlotCapacity} unique slots.");
                 Collider[] storageInteractionTriggers = storage.View
@@ -573,16 +1161,12 @@ namespace HardwareStore.Editor
                         $"{slotPosition}; the receiving target must be spatially separate from stored products.");
                 }
 
-                OrderConfig orderConfig = RequireAsset<OrderConfig>(OrderConfigPath);
-                Require(customerSlots.Length >= orderConfig.RequiredProductCount,
-                    "Customer loading slots must cover the configured outbound order quantity.");
-                Require(storageSlots.Concat(customerSlots).Distinct().Count() ==
-                        storageSlots.Length + customerSlots.Length,
-                    "Storage and customer loading slot references must be globally unique.");
-
                 GameObject deliveryPrefab = RequireAsset<GameObject>(DeliveryVehiclePrefabPath);
                 Require(!ContainsPrefabInstance(scene, deliveryPrefab),
                     $"{PrototypeScenePath} must not contain a supplier truck prefab instance.");
+                GameObject customerVehiclePrefab = RequireAsset<GameObject>(CustomerVehiclePrefabPath);
+                Require(!ContainsPrefabInstance(scene, customerVehiclePrefab),
+                    $"{PrototypeScenePath} must not contain a customer vehicle prefab instance.");
             }
             finally
             {
@@ -613,6 +1197,163 @@ namespace HardwareStore.Editor
         private static TAsset RequireAsset<TAsset>(string path) where TAsset : UnityEngine.Object =>
             AssetDatabase.LoadAssetAtPath<TAsset>(path) ??
             throw new InvalidOperationException($"ECS architecture validation failed: asset is missing at {path}.");
+
+        private static void ValidateExecuteOnlyViewBinder(Type binderType,
+            params Type[] constructorParameters)
+        {
+            Require(typeof(IExecuteSystem).IsAssignableFrom(binderType) &&
+                    !typeof(IInitializeSystem).IsAssignableFrom(binderType),
+                $"{binderType.Name} must be an execute-only system for dynamically appearing entities.");
+            Require(binderType.GetConstructor(constructorParameters) != null,
+                $"{binderType.Name} must expose the expected constructor boundary: " +
+                $"({JoinTypeNames(constructorParameters)}).");
+        }
+
+        private static void RequireMethod(Type owner, string methodName, Type returnType,
+            params Type[] parameterTypes)
+        {
+            MethodInfo method = owner.GetMethod(
+                methodName,
+                BindingFlags.Public | BindingFlags.Static | BindingFlags.Instance,
+                binder: null,
+                types: parameterTypes,
+                modifiers: null);
+            Require(method != null && method.ReturnType == returnType,
+                $"{owner.FullName} must expose {returnType.Name} {methodName}" +
+                $"({JoinTypeNames(parameterTypes)}).");
+        }
+
+        private static void RequireComponentIndexAttribute(Type componentType,
+            string expectedAttributeFullName)
+        {
+            FieldInfo valueField = componentType.GetField(
+                "Value",
+                BindingFlags.Instance | BindingFlags.Public);
+            Require(valueField != null && valueField.GetCustomAttributes(inherit: false)
+                    .Any(attribute => attribute.GetType().FullName == expectedAttributeFullName),
+                $"{componentType.FullName}.Value must declare {expectedAttributeFullName}.");
+        }
+
+        private static void RequireGeneratedIndexApi(Type[] runtimeTypes, string methodName,
+            Type returnType)
+        {
+            MethodInfo[] methods = runtimeTypes
+                .SelectMany(type => type.GetMethods(
+                    BindingFlags.Public |
+                    BindingFlags.NonPublic |
+                    BindingFlags.Static |
+                    BindingFlags.DeclaredOnly))
+                .Where(method => method.Name == methodName)
+                .Where(method =>
+                {
+                    ParameterInfo[] parameters = method.GetParameters();
+                    return parameters.Length == 2 &&
+                           parameters[0].ParameterType == typeof(GameContext) &&
+                           parameters[1].ParameterType == typeof(int);
+                })
+                .ToArray();
+
+            Require(methods.Length == 1,
+                $"Jenny must generate exactly one {methodName}(GameContext, int) index API.");
+            if (returnType != null)
+            {
+                Require(methods[0].ReturnType == returnType,
+                    $"Generated {methodName} must return {returnType.FullName}.");
+            }
+            else
+            {
+                Require(typeof(IEnumerable<GameEntity>).IsAssignableFrom(methods[0].ReturnType),
+                    $"Generated {methodName} must return a collection of GameEntity.");
+            }
+        }
+
+        private static void ValidatePureConfigGetters(Type configType,
+            IEnumerable<PropertyInfo> properties, string source)
+        {
+            Require(!source.Contains("_ =", StringComparison.Ordinal),
+                $"{configType.Name} must not validate through discarded property reads.");
+
+            foreach (PropertyInfo property in properties)
+            {
+                string pattern =
+                    $@"\b{Regex.Escape(property.Name)}\s*=>\s*(?<expression>[^;]+);";
+                MatchCollection matches = Regex.Matches(source, pattern);
+                Require(matches.Count == 1,
+                    $"{configType.Name}.{property.Name} must be one pure expression-bodied getter.");
+
+                string expression = matches[0].Groups["expression"].Value;
+                Require(!Regex.IsMatch(
+                            expression,
+                            @"\b(?:Validate|Require\w*)\s*\(|\bthrow\b|\bchecked\s*\("),
+                    $"{configType.Name}.{property.Name} must not validate or throw while being read.");
+                bool returnsField = Regex.IsMatch(
+                    expression,
+                    @"^\s*_[A-Za-z]\w*\s*$");
+                bool derivesQuaternion = Regex.IsMatch(
+                    expression,
+                    @"^\s*Quaternion\.Euler\(\s*_[A-Za-z]\w*\s*\)\s*$");
+                bool derivesUncheckedProduct = Regex.IsMatch(
+                    expression,
+                    @"^\s*unchecked\(\s*_[A-Za-z]\w*\s*\*\s*_[A-Za-z]\w*\s*\)\s*$");
+                Require(returnsField || derivesQuaternion || derivesUncheckedProduct,
+                    $"{configType.Name}.{property.Name} must return serialized data or a known " +
+                    "pure derived value without hidden calls or mutation.");
+            }
+        }
+
+        private static string[] GetRuntimeSourcePaths()
+        {
+            string runtimeRoot = GetRuntimeSourcePath();
+            string generatedDirectory =
+                Path.DirectorySeparatorChar + "Generated" + Path.DirectorySeparatorChar;
+            return Directory.GetFiles(runtimeRoot, "*.cs", SearchOption.AllDirectories)
+                .Where(path => !path.Contains(generatedDirectory, StringComparison.Ordinal))
+                .OrderBy(path => path, StringComparer.Ordinal)
+                .ToArray();
+        }
+
+        private static string ReadRuntimeSource(params string[] relativePath)
+        {
+            string path = GetRuntimeSourcePath(relativePath);
+            Require(File.Exists(path), $"Required runtime source is missing at {path}.");
+            return File.ReadAllText(path);
+        }
+
+        private static string GetRuntimeSourcePath(params string[] relativePath)
+        {
+            string[] pathParts = new[] { Application.dataPath, "_Project", "Code" }
+                .Concat(relativePath)
+                .ToArray();
+            return Path.GetFullPath(Path.Combine(pathParts));
+        }
+
+        private static bool PathsEqual(string left, string right) =>
+            string.Equals(
+                Path.GetFullPath(left),
+                Path.GetFullPath(right),
+                StringComparison.OrdinalIgnoreCase);
+
+        private static int CountOccurrences(string source, string value)
+        {
+            int count = 0;
+            int offset = 0;
+            while ((offset = source.IndexOf(value, offset, StringComparison.Ordinal)) >= 0)
+            {
+                count++;
+                offset += value.Length;
+            }
+
+            return count;
+        }
+
+        private static void RequireSourceContains(string source, params string[] fragments)
+        {
+            foreach (string fragment in fragments)
+            {
+                Require(source.Contains(fragment, StringComparison.Ordinal),
+                    $"Required architecture source fragment is missing: {fragment}.");
+            }
+        }
 
         private static void ValidatePrefabRoot(GameObject prefab, string path, bool requireUnitScale)
         {

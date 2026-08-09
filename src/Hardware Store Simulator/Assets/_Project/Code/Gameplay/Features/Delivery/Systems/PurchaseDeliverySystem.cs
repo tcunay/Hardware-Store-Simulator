@@ -1,6 +1,4 @@
-using System;
 using Entitas;
-using HardwareStore.Common.Entity;
 using HardwareStore.Gameplay.Components;
 using HardwareStore.Gameplay.Factories;
 using UnityEngine;
@@ -30,67 +28,27 @@ namespace HardwareStore.Gameplay.Features.Delivery.Systems
         {
             foreach (GameEntity request in _requests)
             {
-                GameEntity terminal = _gameContext.GetRequiredEntity(
-                    request.TargetEntityId,
-                    "interaction target");
+                GameEntity terminal =
+                    _gameContext.GetEntityWithEntityId(request.TargetEntityId);
                 if (!terminal.isProcurementTerminal)
                     continue;
 
-                GameEntity player = _gameContext.GetRequiredEntity(
-                    request.SourceEntityId,
-                    "interaction source");
-                if (!player.isPlayer)
-                    throw new InvalidOperationException(
-                        $"Interaction source {request.SourceEntityId} is not a player.");
-                if (!player.hasStoreEntityId)
-                    throw new InvalidOperationException(
-                        $"Player {player.EntityId} has no store relation.");
-                if (!terminal.hasStoreEntityId || !terminal.hasStorageZoneEntityId)
-                    throw new InvalidOperationException(
-                        $"Procurement terminal {terminal.EntityId} has incomplete store relations.");
+                GameEntity player =
+                    _gameContext.GetEntityWithEntityId(request.SourceEntityId);
                 if (player.StoreEntityId != terminal.StoreEntityId)
                     continue;
 
-                GameEntity store = _gameContext.GetRequiredEntity(terminal.StoreEntityId, "terminal store");
-                if (!store.isStore || !store.hasMoney ||
-                    !store.hasProcurementTerminalEntityId || !store.hasStorageZoneEntityId)
-                    throw new InvalidOperationException(
-                        $"Entity {terminal.StoreEntityId} is not a configured store.");
-                if (store.ProcurementTerminalEntityId != terminal.EntityId ||
-                    store.StorageZoneEntityId != terminal.StorageZoneEntityId)
-                    throw new InvalidOperationException(
-                        $"Procurement terminal {terminal.EntityId} does not match store {store.EntityId}.");
-
-                if (terminal.hasDeliveryEntityId)
+                if (_gameContext.GetEntityWithDeliveryProcurementTerminalEntityId(
+                        terminal.EntityId) != null)
                 {
-                    GameEntity activeDelivery =
-                        _gameContext.GetRequiredEntity(terminal.DeliveryEntityId, "active delivery");
-                    if (!activeDelivery.isDelivery || !activeDelivery.isDeliveryActive)
-                        throw new InvalidOperationException(
-                            $"Procurement terminal {terminal.EntityId} has a stale delivery relation.");
-
                     _events.EmitNotification("Сначала примите текущую поставку на склад");
                     continue;
                 }
 
+                GameEntity store =
+                    _gameContext.GetEntityWithEntityId(terminal.StoreEntityId);
                 GameEntity storageZone =
-                    _gameContext.GetRequiredEntity(terminal.StorageZoneEntityId, "terminal storage zone");
-                if (!storageZone.isStorageZone)
-                    throw new InvalidOperationException(
-                        $"Entity {terminal.StorageZoneEntityId} is not a storage zone.");
-                if (!storageZone.hasSlots)
-                    throw new InvalidOperationException(
-                        $"Storage zone {storageZone.EntityId} has no registered slots.");
-                if (terminal.DeliveryProductCount <= 0 ||
-                    terminal.DeliveryProductCount > storageZone.Slots.Length)
-                    throw new InvalidOperationException(
-                        $"Delivery size {terminal.DeliveryProductCount} does not fit storage " +
-                        $"capacity {storageZone.Slots.Length}.");
-
-                if (!storageZone.hasOccupiedStorageSlotCount)
-                    throw new InvalidOperationException(
-                        $"Storage zone {storageZone.EntityId} has no occupancy snapshot.");
-
+                    _gameContext.GetEntityWithEntityId(terminal.StorageZoneEntityId);
                 int freeSlotCount = storageZone.Slots.Length - storageZone.OccupiedStorageSlotCount;
                 if (freeSlotCount < terminal.DeliveryProductCount)
                 {
@@ -107,19 +65,14 @@ namespace HardwareStore.Gameplay.Features.Delivery.Systems
                     continue;
                 }
 
-                var deliveryPose = new Pose(terminal.SpawnPosition, terminal.SpawnRotation);
+                var deliveryPose = new Pose(
+                    terminal.DeliverySpawnPosition,
+                    terminal.DeliverySpawnRotation);
                 GameEntity delivery = _deliveryFactory.Create(
                     terminal.EntityId,
                     store.EntityId,
                     deliveryPose);
 
-                if (delivery.DeliveryCost != terminal.DeliveryCost ||
-                    delivery.ProductType != terminal.ProductType ||
-                    delivery.DeliveryProductCount != terminal.DeliveryProductCount)
-                    throw new InvalidOperationException(
-                        "Procurement terminal and delivery config snapshots do not match.");
-
-                terminal.AddDeliveryEntityId(delivery.EntityId);
                 store.ReplaceMoney(store.Money - delivery.DeliveryCost);
                 _events.EmitNotification(
                     $"Поставка заказана: {delivery.DeliveryProductCount} мешка цемента, " +
@@ -127,6 +80,5 @@ namespace HardwareStore.Gameplay.Features.Delivery.Systems
                 _events.EmitAudio(AudioCueId.DeliveryPurchased);
             }
         }
-
     }
 }

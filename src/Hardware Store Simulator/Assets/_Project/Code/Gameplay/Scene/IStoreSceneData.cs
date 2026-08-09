@@ -10,8 +10,9 @@ namespace HardwareStore.Gameplay.Scene
         bool IsRegistered { get; }
 
         Pose GetSpawnPoint(SpawnPointId id);
+        Pose[] GetRoute(SceneRouteId id);
         EntityBehaviour GetSceneView(SceneViewId id);
-        void Register(SpawnPointMarker[] spawnPoints, SceneViewMarker[] sceneViews,
+        void Register(SpawnPointMarker[] spawnPoints, SceneRouteMarker[] routes, SceneViewMarker[] sceneViews,
             PrototypeHudView hudView, PrototypeAudioView audioView);
         void Unregister();
     }

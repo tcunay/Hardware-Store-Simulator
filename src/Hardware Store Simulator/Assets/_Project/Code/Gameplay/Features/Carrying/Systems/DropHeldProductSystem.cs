@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using Entitas;
-using HardwareStore.Common.Entity;
 using HardwareStore.Gameplay.Components;
 using HardwareStore.Gameplay.Factories;
 using UnityEngine;
@@ -22,7 +21,8 @@ namespace HardwareStore.Gameplay.Features.Carrying.Systems
             _events = events;
             _players = gameContext.GetGroup(GameMatcher.AllOf(
                 GameMatcher.Player,
-                GameMatcher.HeldProductId,
+                GameMatcher.EntityId,
+                GameMatcher.HandsOccupied,
                 GameMatcher.DropOrigin));
             _inputs = inputContext.GetGroup(InputMatcher.AllOf(
                 InputMatcher.InputState,
@@ -34,13 +34,14 @@ namespace HardwareStore.Gameplay.Features.Carrying.Systems
             foreach (InputEntity ignored in _inputs)
             foreach (GameEntity player in _players.GetEntities(_buffer))
             {
-                GameEntity product = GetRequiredHeldProduct(player.HeldProductId);
+                GameEntity product = _gameContext.GetEntityWithCarrierEntityId(player.EntityId);
+                ValidatePlacementState(product);
                 Transform dropOrigin = player.DropOrigin;
                 Vector3 position = dropOrigin.position +
                                    dropOrigin.forward * product.DropForwardDistance;
 
-                player.RemoveHeldProductId();
-                product.isCarried = false;
+                product.RemoveCarrierEntityId();
+                player.isHandsOccupied = false;
                 product.isLooseProduct = true;
                 product.isInteractable = true;
                 product.ReplaceWorldPosition(position);
@@ -50,22 +51,14 @@ namespace HardwareStore.Gameplay.Features.Carrying.Systems
             }
         }
 
-        private GameEntity GetRequiredHeldProduct(int productEntityId)
+        private static void ValidatePlacementState(GameEntity product)
         {
-            GameEntity product = _gameContext.GetRequiredEntity(
-                productEntityId,
-                "player held product");
-            if (!product.isProduct || !product.isCarried || !product.hasDropForwardDistance)
-                throw new InvalidOperationException(
-                    $"Entity {productEntityId} is not a fully configured carried product.");
             if (product.hasDeliverySlotIndex || product.hasStorageSlotIndex ||
-                product.hasLoadingZoneEntityId || product.hasLoadingSlotIndex)
+                product.hasCustomerVisitEntityId || product.hasLoadingSlotIndex)
             {
                 throw new InvalidOperationException(
-                    $"Carried product {productEntityId} still contains slot placement state.");
+                    $"Carried product {product.EntityId} still contains slot placement state.");
             }
-
-            return product;
         }
     }
 }

@@ -1,6 +1,5 @@
 using System;
 using Entitas;
-using HardwareStore.Common.Entity;
 using HardwareStore.Gameplay.Components;
 
 namespace HardwareStore.Gameplay.Features.Interaction.Systems
@@ -18,7 +17,7 @@ namespace HardwareStore.Gameplay.Features.Interaction.Systems
                     GameMatcher.StoreEntityId,
                     GameMatcher.FocusedEntityId,
                     GameMatcher.FocusedInteractionType)
-                .NoneOf(GameMatcher.HeldProductId));
+                .NoneOf(GameMatcher.HandsOccupied));
         }
 
         public void Execute()
@@ -28,73 +27,77 @@ namespace HardwareStore.Gameplay.Features.Interaction.Systems
                 if (player.FocusedInteractionType != InteractionTypeId.StorageZone)
                     continue;
 
-                GameEntity storageZone = _gameContext.GetRequiredEntity(
-                    player.FocusedEntityId,
-                    "focused storage zone");
-                if (!storageZone.isStorageZone || !storageZone.hasSlots)
-                    throw new InvalidOperationException(
-                        $"Entity {storageZone.EntityId} is not a configured storage zone.");
-
-                GameEntity store = _gameContext.RequireStore(player);
+                GameEntity storageZone =
+                    _gameContext.GetEntityWithEntityId(player.FocusedEntityId);
+                GameEntity store =
+                    _gameContext.GetEntityWithEntityId(player.StoreEntityId);
                 if (storageZone.EntityId != store.StorageZoneEntityId)
                     continue;
+                GameEntity customerVisit =
+                    _gameContext.GetEntityWithCustomerVisitStoreEntityId(store.EntityId);
 
-                GameEntity terminal = _gameContext.GetRequiredEntity(
-                    store.ProcurementTerminalEntityId,
-                    "store procurement terminal");
-                if (!terminal.isProcurementTerminal ||
-                    terminal.StoreEntityId != store.EntityId ||
-                    terminal.StorageZoneEntityId != storageZone.EntityId)
-                    throw new InvalidOperationException(
-                        $"Store {store.EntityId} has an invalid procurement terminal relation.");
-
-                if (terminal.hasDeliveryEntityId)
+                GameEntity terminal = _gameContext.GetEntityWithEntityId(
+                    store.ProcurementTerminalEntityId);
+                if (_gameContext.GetEntityWithDeliveryProcurementTerminalEntityId(
+                        terminal.EntityId) != null)
                 {
-                    GameEntity delivery = _gameContext.GetRequiredEntity(
-                        terminal.DeliveryEntityId,
-                        "terminal active delivery");
-                    if (!delivery.isDelivery || !delivery.isDeliveryActive)
-                        throw new InvalidOperationException(
-                            $"Procurement terminal {terminal.EntityId} has a stale delivery relation.");
-
                     player.SetInteractionPrompt(
                         "Принесите сюда мешок из машины поставщика",
                         false);
                     continue;
                 }
 
-                GameEntity order = _gameContext.GetRequiredEntity(
-                    store.OrderEntityId,
-                    "store order");
-                if (!order.isOrder ||
-                    order.StoreEntityId != store.EntityId ||
-                    order.StorageZoneEntityId != storageZone.EntityId)
-                    throw new InvalidOperationException(
-                        $"Store {store.EntityId} has an invalid order relation.");
-
-                if (order.isOrderActive)
+                if (customerVisit == null)
                 {
                     player.SetInteractionPrompt(
-                        order.AvailableProductCount > 0
+                        storageZone.StorageProductCount > 0
+                            ? $"На складе мешков: {storageZone.StorageProductCount}. " +
+                              "Ожидайте следующего клиента"
+                            : "Склад пуст — можно заказать поставку",
+                        false);
+                    continue;
+                }
+                if (customerVisit.isCustomerVisitArriving)
+                {
+                    player.SetInteractionPrompt(
+                        "Клиент подъезжает — можно подготовить товар",
+                        false);
+                    continue;
+                }
+
+                if (customerVisit.isCustomerVisitDeparting)
+                {
+                    player.SetInteractionPrompt(
+                        "Клиент уезжает — ожидайте следующего",
+                        false);
+                    continue;
+                }
+
+                if (customerVisit.isCustomerVisitLoading)
+                {
+                    player.SetInteractionPrompt(
+                        customerVisit.AvailableProductCount > 0
                             ? "Наведите прицел на мешок на складе и нажмите E"
                             : "Склад пуст — закажите поставку в терминале закупок",
                         false);
                     continue;
                 }
 
-                if (order.isOrderWaiting)
+                if (customerVisit.isCustomerVisitWaiting)
                 {
-                    if (order.AvailableProductCount >= order.RequiredProductCount)
+                    if (customerVisit.AvailableProductCount >=
+                        customerVisit.RequiredProductCount)
                     {
                         player.SetInteractionPrompt(
                             "Товар на складе — примите заказ у стойки клиента",
                             false);
                     }
-                    else if (order.AvailableProductCount > 0)
+                    else if (customerVisit.AvailableProductCount > 0)
                     {
                         player.SetInteractionPrompt(
                             $"Для заказа не хватает товара: на складе " +
-                            $"{order.AvailableProductCount}/{order.RequiredProductCount}. " +
+                            $"{customerVisit.AvailableProductCount}/" +
+                            $"{customerVisit.RequiredProductCount}. " +
                             "Закажите поставку",
                             false);
                     }
@@ -108,14 +111,14 @@ namespace HardwareStore.Gameplay.Features.Interaction.Systems
                     continue;
                 }
 
-                if (!order.isOrderCompleted)
+                if (!customerVisit.isCustomerVisitCompleted)
                     throw new InvalidOperationException(
-                        $"Order {order.EntityId} has no valid lifecycle state.");
+                        $"Customer visit {customerVisit.EntityId} has no valid lifecycle state.");
 
                 player.SetInteractionPrompt(
-                    order.AvailableProductCount > 0
+                    customerVisit.AvailableProductCount > 0
                         ? $"Заказ выполнен — на складе осталось мешков: " +
-                          $"{order.AvailableProductCount}"
+                          $"{customerVisit.AvailableProductCount}"
                         : "Склад пуст — закажите поставку в терминале закупок",
                     false);
             }

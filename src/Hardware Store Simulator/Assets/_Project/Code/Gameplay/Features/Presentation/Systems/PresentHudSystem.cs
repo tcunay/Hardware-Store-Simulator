@@ -1,6 +1,5 @@
 using System;
 using Entitas;
-using HardwareStore.Common.Entity;
 using HardwareStore.Gameplay.Presentation;
 
 namespace HardwareStore.Gameplay.Features.Presentation.Systems
@@ -25,79 +24,88 @@ namespace HardwareStore.Gameplay.Features.Presentation.Systems
         {
             foreach (GameEntity player in _players)
             {
-                GameEntity store = _gameContext.GetRequiredEntity(player.StoreEntityId, "player store");
-                if (!store.isStore || !store.hasMoney || !store.hasOrderEntityId ||
-                    !store.hasProcurementTerminalEntityId || !store.hasStorageZoneEntityId)
-                    throw new InvalidOperationException(
-                        $"Entity {player.StoreEntityId} is not a configured store.");
+                GameEntity store =
+                    _gameContext.GetEntityWithEntityId(player.StoreEntityId);
+                GameEntity procurementTerminal = _gameContext.GetEntityWithEntityId(
+                    store.ProcurementTerminalEntityId);
+                GameEntity storageZone = _gameContext.GetEntityWithEntityId(
+                    store.StorageZoneEntityId);
+                GameEntity delivery =
+                    _gameContext.GetEntityWithDeliveryProcurementTerminalEntityId(
+                        procurementTerminal.EntityId);
 
-                GameEntity order = _gameContext.GetRequiredEntity(store.OrderEntityId, "store order");
-                if (!order.isOrder || !order.hasStoreEntityId || order.StoreEntityId != store.EntityId ||
-                    !order.hasAvailableProductCount)
-                    throw new InvalidOperationException(
-                        $"Entity {store.OrderEntityId} is not the configured order of store {store.EntityId}.");
-
-                GameEntity procurementTerminal = _gameContext.GetRequiredEntity(
-                    store.ProcurementTerminalEntityId,
-                    "store procurement terminal");
-                if (!procurementTerminal.isProcurementTerminal ||
-                    !procurementTerminal.hasStoreEntityId ||
-                    procurementTerminal.StoreEntityId != store.EntityId ||
-                    !procurementTerminal.hasStorageZoneEntityId ||
-                    procurementTerminal.StorageZoneEntityId != store.StorageZoneEntityId)
-                    throw new InvalidOperationException(
-                        $"Entity {store.ProcurementTerminalEntityId} is not the configured terminal of store " +
-                        $"{store.EntityId}.");
-
-                GameEntity storageZone = _gameContext.GetRequiredEntity(
-                    store.StorageZoneEntityId,
-                    "store storage zone");
-                if (!storageZone.isStorageZone || !storageZone.hasSlots)
-                    throw new InvalidOperationException(
-                        $"Entity {store.StorageZoneEntityId} is not a configured storage zone.");
-
-                bool hasActiveDelivery = procurementTerminal.hasDeliveryEntityId;
+                bool hasActiveDelivery = delivery != null;
                 int deliveryStockedCount = 0;
                 int deliveryProductCount = procurementTerminal.DeliveryProductCount;
                 if (hasActiveDelivery)
                 {
-                    GameEntity delivery =
-                        _gameContext.GetRequiredEntity(
-                            procurementTerminal.DeliveryEntityId,
-                            "terminal active delivery");
-                    if (!delivery.isDelivery || !delivery.isDeliveryActive)
-                        throw new InvalidOperationException("Procurement terminal references an inactive delivery.");
-
                     deliveryStockedCount = delivery.StockedProductCount;
                     deliveryProductCount = delivery.DeliveryProductCount;
                 }
 
+                HudOrderState orderState;
+                int loadedProductCount = 0;
+                int requiredProductCount = 0;
+                GameEntity customerVisit =
+                    _gameContext.GetEntityWithCustomerVisitStoreEntityId(store.EntityId);
+                if (customerVisit != null)
+                {
+                    orderState = ResolveOrderState(customerVisit);
+                    loadedProductCount = customerVisit.LoadedProductCount;
+                    requiredProductCount = customerVisit.RequiredProductCount;
+                }
+                else
+                {
+                    orderState = HudOrderState.NoCustomer;
+                }
+
                 _hud.Present(new HudSnapshot(
-                    ResolveOrderState(order),
-                    order.LoadedProductCount,
-                    order.RequiredProductCount,
+                    orderState,
+                    loadedProductCount,
+                    requiredProductCount,
                     store.Money,
-                    order.AvailableProductCount,
+                    storageZone.StorageProductCount,
                     hasActiveDelivery,
                     deliveryStockedCount,
                     deliveryProductCount,
                     player.hasInteractionPrompt ? player.InteractionPrompt : string.Empty,
                     player.hasFocusedEntityId,
                     player.isFocusInteractionAvailable,
-                    player.hasHeldProductId,
+                    player.isHandsOccupied,
                     player.isCursorLocked));
             }
         }
 
-        private static HudOrderState ResolveOrderState(GameEntity order)
+        private static HudOrderState ResolveOrderState(GameEntity customerVisit)
         {
-            if (order.isOrderWaiting)
+            ValidateSingleLifecycleState(customerVisit);
+            if (customerVisit.isCustomerVisitArriving)
+                return HudOrderState.Arriving;
+            if (customerVisit.isCustomerVisitDeparting)
+                return HudOrderState.Departing;
+            if (customerVisit.isCustomerVisitWaiting)
                 return HudOrderState.Waiting;
-            if (order.isOrderActive)
+            if (customerVisit.isCustomerVisitLoading)
                 return HudOrderState.Active;
-            if (order.isOrderCompleted)
+            if (customerVisit.isCustomerVisitCompleted)
                 return HudOrderState.Completed;
-            throw new InvalidOperationException("Order entity has no state tag.");
+
+            throw new InvalidOperationException(
+                $"Customer visit {customerVisit.EntityId} has no lifecycle state.");
+        }
+
+        private static void ValidateSingleLifecycleState(GameEntity customerVisit)
+        {
+            int lifecycleStateCount =
+                (customerVisit.isCustomerVisitArriving ? 1 : 0) +
+                (customerVisit.isCustomerVisitWaiting ? 1 : 0) +
+                (customerVisit.isCustomerVisitLoading ? 1 : 0) +
+                (customerVisit.isCustomerVisitCompleted ? 1 : 0) +
+                (customerVisit.isCustomerVisitDeparting ? 1 : 0);
+            if (lifecycleStateCount != 1)
+                throw new InvalidOperationException(
+                    $"Customer visit {customerVisit.EntityId} must have exactly one " +
+                    "lifecycle state.");
         }
     }
 }

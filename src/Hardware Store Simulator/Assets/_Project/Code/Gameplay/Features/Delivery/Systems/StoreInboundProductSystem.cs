@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using Entitas;
-using HardwareStore.Common.Entity;
 using HardwareStore.Gameplay.Components;
 using HardwareStore.Gameplay.Factories;
 
@@ -35,36 +34,34 @@ namespace HardwareStore.Gameplay.Features.Delivery.Systems
 
             foreach (GameEntity request in _requests)
             {
-                GameEntity storageZone = _gameContext.GetRequiredEntity(
-                    request.TargetEntityId,
-                    "interaction target");
+                GameEntity storageZone =
+                    _gameContext.GetEntityWithEntityId(request.TargetEntityId);
+                if (storageZone == null)
+                    throw new InvalidOperationException(
+                        $"Interaction target {request.TargetEntityId} does not exist.");
                 if (!storageZone.isStorageZone)
                     continue;
 
-                GameEntity player = _gameContext.GetRequiredEntity(
-                    request.SourceEntityId,
-                    "interaction source");
-                if (!player.isPlayer)
+                GameEntity player =
+                    _gameContext.GetEntityWithEntityId(request.SourceEntityId);
+                if (player == null)
                     throw new InvalidOperationException(
-                        $"Interaction source {request.SourceEntityId} is not a player.");
+                        $"Interaction source {request.SourceEntityId} does not exist.");
 
-                GameEntity store = GetPlayerStore(player);
-                if (!store.hasStorageZoneEntityId)
+                GameEntity store =
+                    _gameContext.GetEntityWithEntityId(player.StoreEntityId);
+                if (store == null || !store.isStoreSceneBindingsValidated)
                     throw new InvalidOperationException(
-                        $"Store {store.EntityId} has no storage relation.");
+                        $"Player {player.EntityId} is linked to an unconfigured store.");
                 if (store.StorageZoneEntityId != storageZone.EntityId)
                     continue;
-                if (!player.hasHeldProductId)
+                if (!player.isHandsOccupied)
                     continue;
-                if (!storageZone.hasSlots)
-                    throw new InvalidOperationException(
-                        $"Storage zone {storageZone.EntityId} has no registered slots.");
 
-                GameEntity product = _gameContext.GetRequiredEntity(
-                    player.HeldProductId,
-                    "player held product");
-                if (!product.isProduct || !product.isCarried || !product.isInboundProduct ||
-                    product.isInStock || !product.hasDeliveryEntityId)
+                GameEntity product =
+                    _gameContext.GetEntityWithCarrierEntityId(player.EntityId);
+                if (!product.isInboundProduct || product.isInStock ||
+                    !product.hasDeliveryEntityId)
                     continue;
                 if (product.hasDeliverySlotIndex)
                     throw new InvalidOperationException(
@@ -73,11 +70,10 @@ namespace HardwareStore.Gameplay.Features.Delivery.Systems
                     throw new InvalidOperationException(
                         $"Carried inbound product {product.EntityId} still contains loose placement state.");
 
-                GameEntity delivery = _gameContext.GetRequiredEntity(
-                    product.DeliveryEntityId,
-                    "inbound product delivery");
-                if (!delivery.isDelivery || !delivery.isDeliveryActive ||
-                    !delivery.hasStoreEntityId || delivery.StoreEntityId != store.EntityId)
+                GameEntity delivery =
+                    _gameContext.GetEntityWithEntityId(product.DeliveryEntityId);
+                if (delivery == null || !delivery.isDeliveryActive ||
+                    delivery.StoreEntityId != store.EntityId)
                 {
                     throw new InvalidOperationException(
                         $"Inbound product {product.EntityId} does not belong to store {store.EntityId}.");
@@ -93,34 +89,17 @@ namespace HardwareStore.Gameplay.Features.Delivery.Systems
                     continue;
                 }
 
-                int productEntityId = product.EntityId;
-                int deliveryEntityId = delivery.EntityId;
-
-                player.RemoveHeldProductId();
-                product.isCarried = false;
+                player.isHandsOccupied = false;
+                product.RemoveCarrierEntityId();
                 product.isInboundProduct = false;
                 product.isInStock = true;
                 product.isInteractable = true;
                 product.AddStorageZoneEntityId(storageZone.EntityId);
                 product.AddStorageSlotIndex(slotIndex);
                 product.isProductPlacementDirty = true;
-                _events.EmitProductStocked(productEntityId, deliveryEntityId);
-                product.RemoveDeliveryEntityId();
+                product.isProductStocked = true;
                 occupiedSlots.Add(slotIndex);
             }
-        }
-
-        private GameEntity GetPlayerStore(GameEntity player)
-        {
-            if (!player.hasStoreEntityId)
-                throw new InvalidOperationException(
-                    $"Player {player.EntityId} has no store relation.");
-
-            GameEntity store = _gameContext.GetRequiredEntity(player.StoreEntityId, "player store");
-            if (!store.isStore)
-                throw new InvalidOperationException($"Entity {player.StoreEntityId} is not a store.");
-
-            return store;
         }
 
         private Dictionary<int, HashSet<int>> CollectOccupiedSlots()

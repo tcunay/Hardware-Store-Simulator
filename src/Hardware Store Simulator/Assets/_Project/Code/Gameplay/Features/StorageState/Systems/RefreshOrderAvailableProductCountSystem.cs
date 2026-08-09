@@ -13,7 +13,6 @@ namespace HardwareStore.Gameplay.Features.StorageState.Systems
         {
             _orders = gameContext.GetGroup(GameMatcher.AllOf(
                 GameMatcher.Order,
-                GameMatcher.StoreEntityId,
                 GameMatcher.StorageZoneEntityId,
                 GameMatcher.RequiredProductType));
             _stockedProducts = gameContext.GetGroup(GameMatcher.AllOf(

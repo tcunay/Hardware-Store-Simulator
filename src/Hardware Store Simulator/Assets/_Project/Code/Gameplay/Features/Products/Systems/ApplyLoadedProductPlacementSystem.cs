@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using Entitas;
-using HardwareStore.Common.Entity;
 
 namespace HardwareStore.Gameplay.Features.Products.Systems
 {
@@ -18,7 +17,7 @@ namespace HardwareStore.Gameplay.Features.Products.Systems
                     GameMatcher.Product,
                     GameMatcher.EntityId,
                     GameMatcher.Loaded,
-                    GameMatcher.LoadingZoneEntityId,
+                    GameMatcher.CustomerVisitEntityId,
                     GameMatcher.LoadingSlotIndex,
                     GameMatcher.ProductPlacementDirty,
                     GameMatcher.View,
@@ -30,36 +29,34 @@ namespace HardwareStore.Gameplay.Features.Products.Systems
                 .NoneOf(
                     GameMatcher.InboundProduct,
                     GameMatcher.InStock,
-                    GameMatcher.Carried,
+                    GameMatcher.CarrierEntityId,
                     GameMatcher.LooseProduct,
                     GameMatcher.DeliveryEntityId,
                     GameMatcher.StorageZoneEntityId,
                     GameMatcher.DeliverySlotIndex,
-                    GameMatcher.StorageSlotIndex));
+                    GameMatcher.StorageSlotIndex,
+                    GameMatcher.WorldPosition,
+                    GameMatcher.WorldRotation));
         }
 
         public void Execute()
         {
             foreach (GameEntity product in _products.GetEntities(_buffer))
             {
-                GameEntity loadingZone = _gameContext.GetRequiredEntity(
-                    product.LoadingZoneEntityId,
-                    "loaded product loading zone");
-                if (!loadingZone.isLoadingZone || !loadingZone.hasSlots)
-                    throw new InvalidOperationException(
-                        $"Loaded product {product.EntityId} references an invalid loading zone.");
-                if (product.LoadingSlotIndex < 0 || product.LoadingSlotIndex >= loadingZone.Slots.Length)
+                GameEntity customerVisit =
+                    _gameContext.GetEntityWithEntityId(product.CustomerVisitEntityId);
+                if (product.LoadingSlotIndex < 0 ||
+                    product.LoadingSlotIndex >= customerVisit.Slots.Length)
                     throw new InvalidOperationException(
                         $"Loaded product {product.EntityId} references loading slot " +
-                        $"{product.LoadingSlotIndex}, but loading zone {loadingZone.EntityId} has " +
-                        $"{loadingZone.Slots.Length} slots.");
+                        $"{product.LoadingSlotIndex}, but customer visit " +
+                        $"{customerVisit.EntityId} has {customerVisit.Slots.Length} slots.");
 
                 ProductPhysicsUtility.ConfigureLockedSlot(
                     product,
-                    loadingZone.Slots[product.LoadingSlotIndex]);
+                    customerVisit.Slots[product.LoadingSlotIndex]);
                 product.isProductPlacementDirty = false;
             }
         }
-
     }
 }

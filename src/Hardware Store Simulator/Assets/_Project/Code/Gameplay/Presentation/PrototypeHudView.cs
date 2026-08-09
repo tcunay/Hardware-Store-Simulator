@@ -128,20 +128,28 @@ namespace HardwareStore.Gameplay.Presentation
 
         private string ResolveObjective()
         {
+            if (_snapshot.HasActiveDelivery &&
+                _snapshot.DeliveryStockedCount < _snapshot.DeliveryProductCount)
+            {
+                return $"Цель: принять поставку — {_snapshot.DeliveryStockedCount}/" +
+                       $"{_snapshot.DeliveryProductCount}";
+            }
+
             if (_snapshot.OrderState == HudOrderState.Waiting &&
                 _snapshot.StockCount < _snapshot.RequiredCount)
             {
-                return _snapshot.HasActiveDelivery
-                    ? $"Цель: принять поставку — {_snapshot.DeliveryStockedCount}/{_snapshot.DeliveryProductCount}"
-                    : $"Цель: заказать поставку — {_snapshot.DeliveryProductCount} мешка";
+                return $"Цель: заказать поставку — {_snapshot.DeliveryProductCount} мешка";
             }
 
             return _snapshot.OrderState switch
             {
+                HudOrderState.NoCustomer => "Ожидаем следующего клиента",
+                HudOrderState.Arriving => "Клиент подъезжает",
                 HudOrderState.Waiting => "Цель: принять заказ у клиента",
                 HudOrderState.Active =>
                     $"Цель: отгрузить цемент — {_snapshot.LoadedCount}/{_snapshot.RequiredCount}",
                 HudOrderState.Completed => "Заказ выполнен • автомобиль загружен",
+                HudOrderState.Departing => "Клиент уезжает",
                 _ => throw new ArgumentOutOfRangeException()
             };
         }

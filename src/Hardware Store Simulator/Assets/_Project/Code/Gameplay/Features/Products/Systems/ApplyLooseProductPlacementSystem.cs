@@ -22,9 +22,9 @@ namespace HardwareStore.Gameplay.Features.Products.Systems
                     GameMatcher.RigidbodyInterpolationMode,
                     GameMatcher.RigidbodyCollisionDetectionMode)
                 .NoneOf(
-                    GameMatcher.Carried,
+                    GameMatcher.CarrierEntityId,
                     GameMatcher.Loaded,
-                    GameMatcher.LoadingZoneEntityId,
+                    GameMatcher.CustomerVisitEntityId,
                     GameMatcher.DeliverySlotIndex,
                     GameMatcher.StorageSlotIndex,
                     GameMatcher.LoadingSlotIndex));

@@ -1,35 +1,36 @@
+using System;
 using HardwareStore.Common.Entity;
 using HardwareStore.Common.Extensions;
-using HardwareStore.Gameplay.Configs;
 using HardwareStore.Gameplay.StaticData;
-using HardwareStore.Infrastructure.Identifiers;
 
 namespace HardwareStore.Gameplay.Factories
 {
     public sealed class OrderFactory : IOrderFactory
     {
-        private readonly IIdentifierService _identifiers;
         private readonly IStaticDataService _staticData;
 
-        public OrderFactory(IIdentifierService identifiers, IStaticDataService staticData)
-        {
-            _identifiers = identifiers;
-            _staticData = staticData;
-        }
+        public OrderFactory(IStaticDataService staticData) => _staticData = staticData;
 
-        public GameEntity CreateOrder(int storeEntityId, int storageZoneEntityId)
+        public GameEntity AddOrderComponents(GameEntity customerVisit, int storageZoneEntityId)
         {
-            OrderConfig config = _staticData.Order;
-            return CreateEntity.Empty(_identifiers.Next())
-                .AddStoreEntityId(storeEntityId)
+            if (customerVisit == null)
+                throw new ArgumentNullException(nameof(customerVisit));
+            if (!customerVisit.isCustomerVisit || !customerVisit.isCustomerVehicle ||
+                !customerVisit.hasCustomerVisitStoreEntityId || customerVisit.isOrder)
+            {
+                throw new InvalidOperationException(
+                    "Order components require a fresh configured customer visit.");
+            }
+
+            var config = _staticData.Order;
+            return customerVisit
                 .AddStorageZoneEntityId(storageZoneEntityId)
                 .AddRequiredProductType(config.RequiredProductType)
                 .AddRequiredProductCount(config.RequiredProductCount)
                 .AddAvailableProductCount(0)
                 .AddLoadedProductCount(0)
                 .AddOrderReward(config.Reward)
-                .With(x => x.isOrder = true)
-                .With(x => x.isOrderWaiting = true);
+                .With(x => x.isOrder = true);
         }
     }
 }

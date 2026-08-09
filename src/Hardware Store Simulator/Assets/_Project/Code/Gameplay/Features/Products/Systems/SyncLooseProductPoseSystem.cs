@@ -14,7 +14,14 @@ namespace HardwareStore.Gameplay.Features.Products.Systems
                     GameMatcher.Rigidbody,
                     GameMatcher.WorldPosition,
                     GameMatcher.WorldRotation)
-                .NoneOf(GameMatcher.ProductPlacementDirty));
+                .NoneOf(
+                    GameMatcher.CarrierEntityId,
+                    GameMatcher.Loaded,
+                    GameMatcher.CustomerVisitEntityId,
+                    GameMatcher.DeliverySlotIndex,
+                    GameMatcher.StorageSlotIndex,
+                    GameMatcher.LoadingSlotIndex,
+                    GameMatcher.ProductPlacementDirty));
 
         public void Execute()
         {

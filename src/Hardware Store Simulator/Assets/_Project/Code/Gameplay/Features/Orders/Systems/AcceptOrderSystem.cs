@@ -1,6 +1,4 @@
-using System;
 using Entitas;
-using HardwareStore.Common.Entity;
 using HardwareStore.Gameplay.Components;
 using HardwareStore.Gameplay.Factories;
 
@@ -26,47 +24,36 @@ namespace HardwareStore.Gameplay.Features.Orders.Systems
         {
             foreach (GameEntity request in _requests)
             {
-                GameEntity orderCounter = _gameContext.GetRequiredEntity(
-                    request.TargetEntityId,
-                    "interaction target");
+                GameEntity orderCounter =
+                    _gameContext.GetEntityWithEntityId(request.TargetEntityId);
                 if (!orderCounter.isOrderCounter)
                     continue;
 
-                GameEntity player = _gameContext.GetRequiredEntity(
-                    request.SourceEntityId,
-                    "interaction source");
-                if (!player.isPlayer)
-                    throw new InvalidOperationException(
-                        $"Interaction source {request.SourceEntityId} is not a player.");
-                if (!player.hasStoreEntityId)
-                    throw new InvalidOperationException(
-                        $"Player {player.EntityId} has no store relation.");
-
-                GameEntity order = _gameContext.GetRequiredEntity(
-                    orderCounter.OrderEntityId,
-                    "order counter order");
-                if (!order.isOrder ||
-                    !order.hasStoreEntityId ||
-                    !order.hasStorageZoneEntityId)
-                    throw new InvalidOperationException(
-                        $"Order counter {orderCounter.EntityId} has an invalid order relation.");
-                if (order.StoreEntityId != player.StoreEntityId)
-                    continue;
-                if (!order.isOrderWaiting)
+                GameEntity player =
+                    _gameContext.GetEntityWithEntityId(request.SourceEntityId);
+                if (player.StoreEntityId != orderCounter.StoreEntityId)
                     continue;
 
-                if (order.AvailableProductCount < order.RequiredProductCount)
+                GameEntity customerVisit =
+                    _gameContext.GetEntityWithCustomerVisitStoreEntityId(
+                        orderCounter.StoreEntityId);
+                if (customerVisit == null || !customerVisit.isCustomerVisitWaiting)
+                    continue;
+
+                if (customerVisit.AvailableProductCount <
+                    customerVisit.RequiredProductCount)
                 {
                     _events.EmitNotification(
                         $"Недостаточно товара на складе: " +
-                        $"{order.AvailableProductCount}/{order.RequiredProductCount}");
+                        $"{customerVisit.AvailableProductCount}/" +
+                        $"{customerVisit.RequiredProductCount}");
                     continue;
                 }
 
-                order.isOrderWaiting = false;
-                order.isOrderActive = true;
+                customerVisit.isCustomerVisitWaiting = false;
+                customerVisit.isCustomerVisitLoading = true;
                 _events.EmitNotification(
-                    $"Заказ принят: {order.RequiredProductCount} мешков цемента");
+                    $"Заказ принят: {customerVisit.RequiredProductCount} мешков цемента");
                 _events.EmitAudio(AudioCueId.OrderAccepted);
             }
         }

@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using Entitas;
 using HardwareStore.Gameplay.Components;
 using HardwareStore.Gameplay.Factories;
@@ -9,37 +10,46 @@ namespace HardwareStore.Gameplay.Features.Orders.Systems
     {
         private readonly IGameEventFactory _events;
         private readonly GameContext _gameContext;
-        private readonly IGroup<GameEntity> _loadedEvents;
+        private readonly IGroup<GameEntity> _loadedProducts;
+        private readonly List<GameEntity> _buffer = new(8);
 
         public RegisterLoadedProductSystem(GameContext gameContext, IGameEventFactory events)
         {
             _gameContext = gameContext;
             _events = events;
-            _loadedEvents = gameContext.GetGroup(GameMatcher.AllOf(
-                GameMatcher.ProductLoaded,
-                GameMatcher.ProductEntityId,
-                GameMatcher.OrderEntityId));
+            _loadedProducts = gameContext.GetGroup(GameMatcher.AllOf(
+                    GameMatcher.Product,
+                    GameMatcher.EntityId,
+                    GameMatcher.ProductLoaded,
+                    GameMatcher.Loaded,
+                    GameMatcher.CustomerVisitEntityId,
+                    GameMatcher.ProductType)
+                .NoneOf(GameMatcher.Destructed));
         }
 
         public void Execute()
         {
-            foreach (GameEntity loadedEvent in _loadedEvents)
+            foreach (GameEntity product in _loadedProducts.GetEntities(_buffer))
             {
-                GameEntity order = _gameContext.GetEntityWithEntityId(loadedEvent.OrderEntityId);
-                if (!order.isOrder || !order.isOrderActive)
-                    throw new InvalidOperationException("A product can only be registered for an active order.");
+                GameEntity visit = _gameContext.GetEntityWithEntityId(
+                    product.CustomerVisitEntityId);
+                if (!visit.isCustomerVisitLoading ||
+                    product.ProductType != visit.RequiredProductType)
+                {
+                    throw new InvalidOperationException(
+                        $"Product {product.EntityId} cannot be registered for customer visit " +
+                        $"{visit.EntityId}.");
+                }
 
-                GameEntity product = _gameContext.GetEntityWithEntityId(loadedEvent.ProductEntityId);
-                if (!product.isProduct || !product.isLoaded || product.ProductType != order.RequiredProductType)
-                    throw new InvalidOperationException("The loaded product does not satisfy the order.");
-
-                int loaded = order.LoadedProductCount;
-                int required = order.RequiredProductCount;
+                int loaded = visit.LoadedProductCount;
+                int required = visit.RequiredProductCount;
                 if (loaded >= required)
-                    throw new InvalidOperationException("The order already contains all required products.");
+                    throw new InvalidOperationException(
+                        $"Customer visit {visit.EntityId} already contains all required products.");
 
                 loaded++;
-                order.ReplaceLoadedProductCount(loaded);
+                visit.ReplaceLoadedProductCount(loaded);
+                product.isProductLoaded = false;
                 if (loaded < required)
                 {
                     _events.EmitNotification($"Мешок загружен: {loaded}/{required}");

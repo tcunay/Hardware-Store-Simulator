@@ -1,6 +1,5 @@
 using System;
 using Entitas;
-using HardwareStore.Common.Entity;
 using HardwareStore.Gameplay.Components;
 
 namespace HardwareStore.Gameplay.Features.Interaction.Systems
@@ -15,6 +14,7 @@ namespace HardwareStore.Gameplay.Features.Interaction.Systems
             _gameContext = gameContext;
             _players = gameContext.GetGroup(GameMatcher.AllOf(
                 GameMatcher.Player,
+                GameMatcher.EntityId,
                 GameMatcher.StoreEntityId,
                 GameMatcher.FocusedEntityId,
                 GameMatcher.FocusedInteractionType));
@@ -27,27 +27,27 @@ namespace HardwareStore.Gameplay.Features.Interaction.Systems
                 if (player.FocusedInteractionType != InteractionTypeId.LoadingZone)
                     continue;
 
-                GameEntity loadingZone = _gameContext.GetRequiredEntity(
-                    player.FocusedEntityId,
-                    "focused customer loading zone");
-                if (!loadingZone.isLoadingZone || !loadingZone.hasOrderEntityId)
-                    throw new InvalidOperationException(
-                        $"Entity {loadingZone.EntityId} is not a configured loading zone.");
-
-                GameEntity store = _gameContext.RequireStore(player);
-                if (loadingZone.OrderEntityId != store.OrderEntityId)
+                GameEntity loadingZone =
+                    _gameContext.GetEntityWithEntityId(player.FocusedEntityId);
+                if (loadingZone.CustomerVisitStoreEntityId != player.StoreEntityId)
                     continue;
+                if (loadingZone.isCustomerVisitArriving)
+                {
+                    player.SetInteractionPrompt(
+                        "Клиент подъезжает — дождитесь остановки машины",
+                        false);
+                    continue;
+                }
 
-                GameEntity order = _gameContext.GetRequiredEntity(
-                    store.OrderEntityId,
-                    "store order");
-                if (!order.isOrder ||
-                    order.StoreEntityId != store.EntityId ||
-                    order.StorageZoneEntityId != store.StorageZoneEntityId)
-                    throw new InvalidOperationException(
-                        $"Store {store.EntityId} has an invalid order relation.");
+                if (loadingZone.isCustomerVisitDeparting)
+                {
+                    player.SetInteractionPrompt(
+                        "Клиент уезжает — загрузка завершена",
+                        false);
+                    continue;
+                }
 
-                if (order.isOrderWaiting)
+                if (loadingZone.isCustomerVisitWaiting)
                 {
                     player.SetInteractionPrompt(
                         "Сначала примите заказ у стойки",
@@ -55,7 +55,7 @@ namespace HardwareStore.Gameplay.Features.Interaction.Systems
                     continue;
                 }
 
-                if (order.isOrderCompleted)
+                if (loadingZone.isCustomerVisitCompleted)
                 {
                     player.SetInteractionPrompt(
                         "Машина загружена — заказ выполнен",
@@ -63,11 +63,11 @@ namespace HardwareStore.Gameplay.Features.Interaction.Systems
                     continue;
                 }
 
-                if (!order.isOrderActive)
+                if (!loadingZone.isCustomerVisitLoading)
                     throw new InvalidOperationException(
-                        $"Order {order.EntityId} has no valid lifecycle state.");
+                        $"Customer visit {loadingZone.EntityId} has no valid lifecycle state.");
 
-                if (!player.hasHeldProductId)
+                if (!player.isHandsOccupied)
                 {
                     player.SetInteractionPrompt(
                         "Принесите сюда товар со склада",
@@ -75,23 +75,13 @@ namespace HardwareStore.Gameplay.Features.Interaction.Systems
                     continue;
                 }
 
-                GameEntity heldProduct = _gameContext.GetRequiredEntity(
-                    player.HeldProductId,
-                    "player held product");
-                if (!heldProduct.isProduct || !heldProduct.isCarried)
-                    throw new InvalidOperationException(
-                        $"Player {player.EntityId} holds invalid product {heldProduct.EntityId}.");
-                if (heldProduct.isInStock && !heldProduct.hasStorageZoneEntityId)
-                    throw new InvalidOperationException(
-                        $"In-stock product {heldProduct.EntityId} has no storage ownership relation.");
-                if (heldProduct.isCarried && heldProduct.hasStorageSlotIndex)
-                    throw new InvalidOperationException(
-                        $"Carried product {heldProduct.EntityId} still occupies storage slot " +
-                        $"{heldProduct.StorageSlotIndex}.");
+                GameEntity heldProduct =
+                    _gameContext.GetEntityWithCarrierEntityId(player.EntityId);
 
                 bool available = heldProduct.isInStock &&
-                                 heldProduct.StorageZoneEntityId == store.StorageZoneEntityId &&
-                                 heldProduct.ProductType == order.RequiredProductType;
+                                 heldProduct.StorageZoneEntityId ==
+                                 loadingZone.StorageZoneEntityId &&
+                                 heldProduct.ProductType == loadingZone.RequiredProductType;
                 if (!available)
                 {
                     player.SetInteractionPrompt(
@@ -100,8 +90,7 @@ namespace HardwareStore.Gameplay.Features.Interaction.Systems
                     continue;
                 }
 
-                if (!loadingZone.hasSlots ||
-                    loadingZone.Slots.Length <= order.LoadedProductCount)
+                if (loadingZone.Slots.Length <= loadingZone.LoadedProductCount)
                 {
                     player.SetInteractionPrompt(
                         "В машине клиента нет свободного места",

@@ -11,6 +11,8 @@ namespace HardwareStore.Infrastructure.View
     {
         private GameEntity _entity;
         private ICollisionRegistry _collisionRegistry;
+        private IEntityComponentRegistrar[] _registrars;
+        private Collider[] _colliders;
 
         public GameEntity Entity => _entity ??
             throw new InvalidOperationException($"{name} is not bound to an ECS entity.");
@@ -38,6 +40,7 @@ namespace HardwareStore.Infrastructure.View
             _entity.AddView(this);
             _entity.Retain(this);
 
+            CacheViewComponents();
             RegisterComponents();
             RegisterColliders();
         }
@@ -60,6 +63,8 @@ namespace HardwareStore.Infrastructure.View
 
             _entity.Release(this);
             _entity = null;
+            _registrars = null;
+            _colliders = null;
         }
 
         private void OnDestroy()
@@ -73,33 +78,33 @@ namespace HardwareStore.Infrastructure.View
             ReleaseEntity();
         }
 
+        private void CacheViewComponents()
+        {
+            _registrars = GetComponentsInChildren<IEntityComponentRegistrar>(includeInactive: true);
+            _colliders = GetComponentsInChildren<Collider>(includeInactive: true);
+        }
+
         private void RegisterComponents()
         {
-            foreach (IEntityComponentRegistrar registrar in
-                     GetComponentsInChildren<IEntityComponentRegistrar>(includeInactive: true))
-            {
+            foreach (IEntityComponentRegistrar registrar in _registrars)
                 registrar.RegisterComponents();
-            }
         }
 
         private void UnregisterComponents()
         {
-            foreach (IEntityComponentRegistrar registrar in
-                     GetComponentsInChildren<IEntityComponentRegistrar>(includeInactive: true))
-            {
+            foreach (IEntityComponentRegistrar registrar in _registrars)
                 registrar.UnregisterComponents();
-            }
         }
 
         private void RegisterColliders()
         {
-            foreach (Collider entityCollider in GetComponentsInChildren<Collider>(includeInactive: true))
+            foreach (Collider entityCollider in _colliders)
                 _collisionRegistry.Register(entityCollider.GetEntityId(), _entity);
         }
 
         private void UnregisterColliders()
         {
-            foreach (Collider entityCollider in GetComponentsInChildren<Collider>(includeInactive: true))
+            foreach (Collider entityCollider in _colliders)
                 _collisionRegistry.Unregister(entityCollider.GetEntityId());
         }
     }

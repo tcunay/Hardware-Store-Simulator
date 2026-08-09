@@ -5,7 +5,7 @@ using UnityEngine;
 namespace HardwareStore.Gameplay.Configs
 {
     [CreateAssetMenu(fileName = "ProductConfig", menuName = "Hardware Store/Gameplay/Product Config")]
-    public sealed class ProductConfig : ScriptableObject
+    public sealed class ProductConfig : ScriptableObject, IValidatableConfig
     {
         [Header("View")]
         [SerializeField] private EntityBehaviour _viewPrefab;
@@ -32,5 +32,30 @@ namespace HardwareStore.Gameplay.Configs
         public float DropForwardDistance => _dropForwardDistance;
         public RigidbodyInterpolation WorldInterpolation => _worldInterpolation;
         public CollisionDetectionMode WorldCollisionDetection => _worldCollisionDetection;
+
+        public void Validate()
+        {
+            const string owner = nameof(ProductConfig);
+            ConfigValidation.RequireReference(_viewPrefab, owner, nameof(ViewPrefab));
+            ConfigValidation.RequireDefined(_productType, owner, nameof(ProductType));
+            ConfigValidation.RequireNonNegative(_unitPrice, owner, nameof(UnitPrice));
+            ConfigValidation.RequirePositive(_mass, owner, nameof(Mass));
+            ConfigValidation.RequireFinite(
+                _heldRotationEuler,
+                owner,
+                nameof(HeldRotationOffset));
+            ConfigValidation.RequireNonNegative(
+                _dropForwardDistance,
+                owner,
+                nameof(DropForwardDistance));
+            ConfigValidation.RequireDefined(
+                _worldInterpolation,
+                owner,
+                nameof(WorldInterpolation));
+            ConfigValidation.RequireDefined(
+                _worldCollisionDetection,
+                owner,
+                nameof(WorldCollisionDetection));
+        }
     }
 }

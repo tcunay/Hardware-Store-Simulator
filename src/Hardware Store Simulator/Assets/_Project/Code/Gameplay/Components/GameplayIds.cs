@@ -9,9 +9,14 @@ namespace HardwareStore.Gameplay.Components
     public enum SceneViewId
     {
         CustomerOrderCounter,
-        CustomerLoadingZone,
         ProcurementTerminal,
         StorageZone
+    }
+
+    public enum SceneRouteId
+    {
+        CustomerVehicleArrival,
+        CustomerVehicleDeparture
     }
 
     public enum ProductTypeId

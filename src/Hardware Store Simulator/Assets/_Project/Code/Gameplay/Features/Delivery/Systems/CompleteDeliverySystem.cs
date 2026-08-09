@@ -8,22 +8,21 @@ namespace HardwareStore.Gameplay.Features.Delivery.Systems
 {
     public sealed class CompleteDeliverySystem : IExecuteSystem
     {
-        private readonly GameContext _gameContext;
         private readonly IGameEventFactory _events;
         private readonly IGroup<GameEntity> _deliveries;
         private readonly List<GameEntity> _buffer = new(4);
 
         public CompleteDeliverySystem(GameContext gameContext, IGameEventFactory events)
         {
-            _gameContext = gameContext;
             _events = events;
             _deliveries = gameContext.GetGroup(GameMatcher.AllOf(
                 GameMatcher.Delivery,
                 GameMatcher.DeliveryActive,
                 GameMatcher.EntityId,
+                GameMatcher.DeliveryProcurementTerminalEntityId,
                 GameMatcher.DeliveryProductCount,
-                GameMatcher.StockedProductCount,
-                GameMatcher.ProcurementTerminalEntityId));
+                GameMatcher.StockedProductCount)
+                .NoneOf(GameMatcher.Destructed));
         }
 
         public void Execute()
@@ -36,14 +35,7 @@ namespace HardwareStore.Gameplay.Features.Delivery.Systems
                     throw new InvalidOperationException(
                         $"Delivery {delivery.EntityId} registered more products than expected.");
 
-                GameEntity terminal =
-                    _gameContext.GetEntityWithEntityId(delivery.ProcurementTerminalEntityId);
-                if (!terminal.isProcurementTerminal || !terminal.hasDeliveryEntityId ||
-                    terminal.DeliveryEntityId != delivery.EntityId)
-                    throw new InvalidOperationException(
-                        $"Delivery {delivery.EntityId} is not linked from its procurement terminal.");
-
-                terminal.RemoveDeliveryEntityId();
+                delivery.RemoveDeliveryProcurementTerminalEntityId();
                 delivery.isDeliveryActive = false;
                 delivery.isDeliveryCompleted = true;
                 _events.EmitNotification("Поставка полностью принята на склад");

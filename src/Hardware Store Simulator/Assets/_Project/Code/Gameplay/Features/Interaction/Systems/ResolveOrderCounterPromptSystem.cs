@@ -1,6 +1,5 @@
 using System;
 using Entitas;
-using HardwareStore.Common.Entity;
 using HardwareStore.Gameplay.Components;
 
 namespace HardwareStore.Gameplay.Features.Interaction.Systems
@@ -27,40 +26,47 @@ namespace HardwareStore.Gameplay.Features.Interaction.Systems
                 if (player.FocusedInteractionType != InteractionTypeId.OrderCounter)
                     continue;
 
-                GameEntity orderCounter = _gameContext.GetRequiredEntity(
-                    player.FocusedEntityId,
-                    "focused order counter");
-                if (!orderCounter.isOrderCounter || !orderCounter.hasOrderEntityId)
-                    throw new InvalidOperationException(
-                        $"Entity {orderCounter.EntityId} is not a configured order counter.");
-
-                GameEntity store = _gameContext.RequireStore(player);
-                if (orderCounter.OrderEntityId != store.OrderEntityId)
+                GameEntity orderCounter =
+                    _gameContext.GetEntityWithEntityId(player.FocusedEntityId);
+                if (orderCounter.StoreEntityId != player.StoreEntityId)
                     continue;
 
-                GameEntity order = _gameContext.GetRequiredEntity(
-                    store.OrderEntityId,
-                    "store order");
-                if (!order.isOrder ||
-                    order.StoreEntityId != store.EntityId ||
-                    order.StorageZoneEntityId != store.StorageZoneEntityId)
-                    throw new InvalidOperationException(
-                        $"Store {store.EntityId} has an invalid order relation.");
+                GameEntity customerVisit =
+                    _gameContext.GetEntityWithCustomerVisitStoreEntityId(
+                        orderCounter.StoreEntityId);
+                if (customerVisit == null)
+                {
+                    player.SetInteractionPrompt("Ожидаем следующего клиента", false);
+                    continue;
+                }
+                if (customerVisit.isCustomerVisitArriving)
+                {
+                    player.SetInteractionPrompt("Клиент подъезжает", false);
+                    continue;
+                }
 
-                if (order.isOrderWaiting)
+                if (customerVisit.isCustomerVisitDeparting)
+                {
+                    player.SetInteractionPrompt("Клиент уезжает", false);
+                    continue;
+                }
+
+                if (customerVisit.isCustomerVisitWaiting)
                 {
                     bool available =
-                        order.AvailableProductCount >= order.RequiredProductCount;
+                        customerVisit.AvailableProductCount >=
+                        customerVisit.RequiredProductCount;
                     player.SetInteractionPrompt(
                         available
-                            ? $"E — принять заказ на {order.RequiredProductCount} мешка цемента"
+                            ? $"E — принять заказ на {customerVisit.RequiredProductCount} мешка цемента"
                             : $"Сначала закупите товар: на складе " +
-                              $"{order.AvailableProductCount}/{order.RequiredProductCount}",
+                              $"{customerVisit.AvailableProductCount}/" +
+                              $"{customerVisit.RequiredProductCount}",
                         available);
                     continue;
                 }
 
-                if (order.isOrderActive)
+                if (customerVisit.isCustomerVisitLoading)
                 {
                     player.SetInteractionPrompt(
                         "Заказ принят — загрузите товар в машину клиента",
@@ -68,12 +74,12 @@ namespace HardwareStore.Gameplay.Features.Interaction.Systems
                     continue;
                 }
 
-                if (!order.isOrderCompleted)
+                if (!customerVisit.isCustomerVisitCompleted)
                     throw new InvalidOperationException(
-                        $"Order {order.EntityId} has no valid lifecycle state.");
+                        $"Customer visit {customerVisit.EntityId} has no valid lifecycle state.");
 
                 player.SetInteractionPrompt(
-                    "Заказ выполнен — деньги получены",
+                    "Заказ выполнен — клиент готовится уезжать",
                     false);
             }
         }

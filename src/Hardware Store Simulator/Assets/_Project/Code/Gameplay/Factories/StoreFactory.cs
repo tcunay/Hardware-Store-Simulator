@@ -1,4 +1,3 @@
-using System;
 using HardwareStore.Common.Entity;
 using HardwareStore.Common.Extensions;
 using HardwareStore.Gameplay.Components;
@@ -13,62 +12,37 @@ namespace HardwareStore.Gameplay.Factories
     {
         private readonly IIdentifierService _identifiers;
         private readonly IStaticDataService _staticData;
-        private readonly IOrderFactory _orderFactory;
         private readonly IInteractionTargetFactory _interactionTargetFactory;
 
         public StoreFactory(IIdentifierService identifiers, IStaticDataService staticData,
-            IOrderFactory orderFactory, IInteractionTargetFactory interactionTargetFactory)
+            IInteractionTargetFactory interactionTargetFactory)
         {
             _identifiers = identifiers;
             _staticData = staticData;
-            _orderFactory = orderFactory;
             _interactionTargetFactory = interactionTargetFactory;
         }
 
         public GameEntity Create(IStoreSceneData sceneData)
         {
             Pose deliveryPose = sceneData.GetSpawnPoint(SpawnPointId.DeliveryVehicle);
-            GameEntity storageZone = _interactionTargetFactory.CreateStorageZone(
-                sceneData.GetSceneView(SceneViewId.StorageZone));
+            GameEntity storageZone = _interactionTargetFactory.CreateStorageZone();
             GameEntity store = CreateEntity.Empty(_identifiers.Next())
                 .AddMoney(_staticData.Economy.InitialMoney)
+                .AddCustomerCooldownRemaining(_staticData.CustomerVehicle.FirstCustomerDelay)
                 .With(x => x.isStore = true);
-            GameEntity order = _orderFactory.CreateOrder(store.EntityId, storageZone.EntityId);
 
-            _interactionTargetFactory.CreateOrderCounter(
-                sceneData.GetSceneView(SceneViewId.CustomerOrderCounter),
-                order.EntityId);
-            GameEntity customerLoadingZone =
-                _interactionTargetFactory.CreateCustomerLoadingZone(
-                    sceneData.GetSceneView(SceneViewId.CustomerLoadingZone),
-                    order.EntityId);
-
-            ValidateCapacity(customerLoadingZone, storageZone, order);
+            GameEntity orderCounter = _interactionTargetFactory.CreateOrderCounter(store.EntityId);
 
             GameEntity procurementTerminal =
                 _interactionTargetFactory.CreateProcurementTerminal(
-                    sceneData.GetSceneView(SceneViewId.ProcurementTerminal),
                     store.EntityId,
                     storageZone.EntityId,
                     deliveryPose);
 
-            store.AddOrderEntityId(order.EntityId);
+            store.AddOrderCounterEntityId(orderCounter.EntityId);
             store.AddProcurementTerminalEntityId(procurementTerminal.EntityId);
             store.AddStorageZoneEntityId(storageZone.EntityId);
             return store;
-        }
-
-        private void ValidateCapacity(GameEntity customerLoadingZone, GameEntity storageZone,
-            GameEntity order)
-        {
-            if (!customerLoadingZone.hasSlots ||
-                customerLoadingZone.Slots.Length < order.RequiredProductCount)
-                throw new InvalidOperationException(
-                    "The customer loading zone must contain enough slots to complete the order.");
-            if (!storageZone.hasSlots ||
-                storageZone.Slots.Length < _staticData.Delivery.ProductCount)
-                throw new InvalidOperationException(
-                    "The storage zone must contain enough slots for the complete delivery.");
         }
     }
 }

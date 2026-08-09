@@ -1,6 +1,5 @@
 using System;
 using Entitas;
-using HardwareStore.Common.Entity;
 using HardwareStore.Gameplay.Components;
 
 namespace HardwareStore.Gameplay.Features.Interaction.Systems
@@ -15,8 +14,9 @@ namespace HardwareStore.Gameplay.Features.Interaction.Systems
             _gameContext = gameContext;
             _players = gameContext.GetGroup(GameMatcher.AllOf(
                 GameMatcher.Player,
+                GameMatcher.EntityId,
                 GameMatcher.StoreEntityId,
-                GameMatcher.HeldProductId,
+                GameMatcher.HandsOccupied,
                 GameMatcher.FocusedEntityId,
                 GameMatcher.FocusedInteractionType));
         }
@@ -28,36 +28,24 @@ namespace HardwareStore.Gameplay.Features.Interaction.Systems
                 if (player.FocusedInteractionType != InteractionTypeId.StorageZone)
                     continue;
 
-                GameEntity storageZone = _gameContext.GetRequiredEntity(
-                    player.FocusedEntityId,
-                    "focused storage zone");
-                if (!storageZone.isStorageZone || !storageZone.hasSlots ||
-                    !storageZone.hasOccupiedStorageSlotCount)
-                    throw new InvalidOperationException(
-                        $"Entity {storageZone.EntityId} is not a configured storage zone.");
-
-                GameEntity store = _gameContext.RequireStore(player);
+                GameEntity storageZone =
+                    _gameContext.GetEntityWithEntityId(player.FocusedEntityId);
+                GameEntity store =
+                    _gameContext.GetEntityWithEntityId(player.StoreEntityId);
                 if (storageZone.EntityId != store.StorageZoneEntityId)
                     continue;
 
-                GameEntity heldProduct = _gameContext.GetRequiredEntity(
-                    player.HeldProductId,
-                    "player held product");
-                if (!heldProduct.isProduct || !heldProduct.isCarried)
-                    throw new InvalidOperationException(
-                        $"Player {player.EntityId} holds invalid product {heldProduct.EntityId}.");
+                GameEntity heldProduct =
+                    _gameContext.GetEntityWithCarrierEntityId(player.EntityId);
 
                 if (heldProduct.isInStock)
                 {
-                    if (!heldProduct.hasStorageZoneEntityId ||
-                        heldProduct.StorageZoneEntityId != storageZone.EntityId)
+                    if (heldProduct.StorageZoneEntityId != storageZone.EntityId)
                         throw new InvalidOperationException(
                             $"Held stock product {heldProduct.EntityId} does not belong to " +
                             $"storage zone {storageZone.EntityId}.");
 
-                    player.SetInteractionPrompt(
-                        "Отнесите мешок в машину клиента",
-                        false);
+                    ResolveHeldStockPrompt(player, store, heldProduct);
                     continue;
                 }
 
@@ -69,30 +57,16 @@ namespace HardwareStore.Gameplay.Features.Interaction.Systems
                     continue;
                 }
 
-                if (!heldProduct.hasDeliveryEntityId)
-                    throw new InvalidOperationException(
-                        $"Inbound product {heldProduct.EntityId} has no delivery relation.");
-
-                GameEntity terminal = _gameContext.GetRequiredEntity(
-                    store.ProcurementTerminalEntityId,
-                    "store procurement terminal");
-                if (!terminal.isProcurementTerminal ||
-                    terminal.StoreEntityId != store.EntityId ||
-                    terminal.StorageZoneEntityId != storageZone.EntityId)
-                    throw new InvalidOperationException(
-                        $"Store {store.EntityId} has an invalid procurement terminal relation.");
-                if (!terminal.hasDeliveryEntityId ||
-                    terminal.DeliveryEntityId != heldProduct.DeliveryEntityId)
+                GameEntity terminal = _gameContext.GetEntityWithEntityId(
+                    store.ProcurementTerminalEntityId);
+                GameEntity delivery =
+                    _gameContext.GetEntityWithDeliveryProcurementTerminalEntityId(
+                        terminal.EntityId);
+                if (delivery == null ||
+                    delivery.EntityId != heldProduct.DeliveryEntityId)
                     throw new InvalidOperationException(
                         $"Inbound product {heldProduct.EntityId} does not belong to the active " +
                         $"delivery of procurement terminal {terminal.EntityId}.");
-
-                GameEntity delivery = _gameContext.GetRequiredEntity(
-                    terminal.DeliveryEntityId,
-                    "terminal active delivery");
-                if (!delivery.isDelivery || !delivery.isDeliveryActive)
-                    throw new InvalidOperationException(
-                        $"Procurement terminal {terminal.EntityId} has a stale delivery relation.");
 
                 if (storageZone.OccupiedStorageSlotCount >= storageZone.Slots.Length)
                 {
@@ -104,6 +78,57 @@ namespace HardwareStore.Gameplay.Features.Interaction.Systems
 
                 player.SetInteractionPrompt("E — принять мешок на склад", true);
             }
+        }
+
+        private void ResolveHeldStockPrompt(
+            GameEntity player,
+            GameEntity store,
+            GameEntity heldProduct)
+        {
+            GameEntity customerVisit =
+                _gameContext.GetEntityWithCustomerVisitStoreEntityId(store.EntityId);
+            if (customerVisit == null)
+            {
+                player.SetInteractionPrompt(
+                    "Нет активного заказа — положите мешок клавишей G",
+                    false);
+                return;
+            }
+
+            if (customerVisit.isCustomerVisitArriving)
+            {
+                player.SetInteractionPrompt(
+                    "Клиент подъезжает — пока положите мешок клавишей G",
+                    false);
+                return;
+            }
+
+            if (customerVisit.isCustomerVisitDeparting ||
+                customerVisit.isCustomerVisitCompleted)
+            {
+                player.SetInteractionPrompt(
+                    "Клиент уезжает — положите мешок клавишей G",
+                    false);
+                return;
+            }
+
+            if (customerVisit.isCustomerVisitWaiting)
+            {
+                player.SetInteractionPrompt("Сначала примите заказ у стойки", false);
+                return;
+            }
+
+            if (!customerVisit.isCustomerVisitLoading)
+            {
+                throw new InvalidOperationException(
+                    $"Customer visit {customerVisit.EntityId} has no valid lifecycle state.");
+            }
+
+            player.SetInteractionPrompt(
+                heldProduct.ProductType == customerVisit.RequiredProductType
+                    ? "Отнесите мешок в машину клиента"
+                    : "Для активного заказа нужен другой товар",
+                false);
         }
     }
 }

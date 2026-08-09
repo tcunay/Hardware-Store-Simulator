@@ -11,7 +11,7 @@ namespace HardwareStore.Gameplay.Features.Products.Systems
         public ApplyCarriedProductPlacementSystem(GameContext gameContext) =>
             _products = gameContext.GetGroup(GameMatcher.AllOf(
                     GameMatcher.Product,
-                    GameMatcher.Carried,
+                    GameMatcher.CarrierEntityId,
                     GameMatcher.ProductPlacementDirty,
                     GameMatcher.View,
                     GameMatcher.Transform,
@@ -23,10 +23,12 @@ namespace HardwareStore.Gameplay.Features.Products.Systems
                 .NoneOf(
                     GameMatcher.LooseProduct,
                     GameMatcher.Loaded,
-                    GameMatcher.LoadingZoneEntityId,
+                    GameMatcher.CustomerVisitEntityId,
                     GameMatcher.DeliverySlotIndex,
                     GameMatcher.StorageSlotIndex,
-                    GameMatcher.LoadingSlotIndex));
+                    GameMatcher.LoadingSlotIndex,
+                    GameMatcher.WorldPosition,
+                    GameMatcher.WorldRotation));
 
         public void Execute()
         {

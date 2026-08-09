@@ -1,4 +1,5 @@
 using Entitas;
+using Entitas.CodeGeneration.Attributes;
 using UnityEngine;
 
 namespace HardwareStore.Gameplay.Components
@@ -6,15 +7,13 @@ namespace HardwareStore.Gameplay.Components
     [Game] public class Product : IComponent { }
     [Game] public class InboundProduct : IComponent { }
     [Game] public class InStock : IComponent { }
-    [Game] public class Carried : IComponent { }
+    [Game] public class CarrierEntityId : IComponent { [PrimaryEntityIndex] public int Value; }
     [Game] public class LooseProduct : IComponent { }
     [Game] public class Loaded : IComponent { }
     [Game] public class ProductLoaded : IComponent { }
     [Game] public class ProductStocked : IComponent { }
-    [Game] public class ProductEntityId : IComponent { public int Value; }
     [Game] public class DeliverySlotIndex : IComponent { public int Value; }
     [Game] public class StorageSlotIndex : IComponent { public int Value; }
-    [Game] public class LoadingZoneEntityId : IComponent { public int Value; }
     [Game] public class LoadingSlotIndex : IComponent { public int Value; }
     [Game] public class ProductType : IComponent { public ProductTypeId Value; }
     [Game] public class ProductMass : IComponent { public float Value; }

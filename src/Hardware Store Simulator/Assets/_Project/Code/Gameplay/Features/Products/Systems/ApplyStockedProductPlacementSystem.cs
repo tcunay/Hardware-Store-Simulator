@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using Entitas;
-using HardwareStore.Common.Entity;
 
 namespace HardwareStore.Gameplay.Features.Products.Systems
 {
@@ -29,25 +28,22 @@ namespace HardwareStore.Gameplay.Features.Products.Systems
                     GameMatcher.RigidbodyCollisionDetectionMode)
                 .NoneOf(
                     GameMatcher.InboundProduct,
-                    GameMatcher.Carried,
+                    GameMatcher.CarrierEntityId,
                     GameMatcher.LooseProduct,
                     GameMatcher.Loaded,
                     GameMatcher.DeliveryEntityId,
-                    GameMatcher.LoadingZoneEntityId,
+                    GameMatcher.CustomerVisitEntityId,
                     GameMatcher.DeliverySlotIndex,
-                    GameMatcher.LoadingSlotIndex));
+                    GameMatcher.LoadingSlotIndex,
+                    GameMatcher.WorldPosition,
+                    GameMatcher.WorldRotation));
         }
 
         public void Execute()
         {
             foreach (GameEntity product in _products.GetEntities(_buffer))
             {
-                GameEntity storageZone = _gameContext.GetRequiredEntity(
-                    product.StorageZoneEntityId,
-                    "stocked product storage zone");
-                if (!storageZone.isStorageZone || !storageZone.hasSlots)
-                    throw new InvalidOperationException(
-                        $"Stocked product {product.EntityId} references an invalid storage zone.");
+                GameEntity storageZone = _gameContext.GetEntityWithEntityId(product.StorageZoneEntityId);
                 if (product.StorageSlotIndex < 0 || product.StorageSlotIndex >= storageZone.Slots.Length)
                     throw new InvalidOperationException(
                         $"Stocked product {product.EntityId} references storage slot " +
@@ -60,6 +56,5 @@ namespace HardwareStore.Gameplay.Features.Products.Systems
                 product.isProductPlacementDirty = false;
             }
         }
-
     }
 }

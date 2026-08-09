@@ -4,7 +4,7 @@ using UnityEngine;
 namespace HardwareStore.Gameplay.Configs
 {
     [CreateAssetMenu(fileName = "PlayerConfig", menuName = "Hardware Store/Gameplay/Player Config")]
-    public sealed class PlayerConfig : ScriptableObject
+    public sealed class PlayerConfig : ScriptableObject, IValidatableConfig
     {
         [Header("View")]
         [SerializeField] private EntityBehaviour _viewPrefab;
@@ -28,5 +28,22 @@ namespace HardwareStore.Gameplay.Configs
         public float MouseSensitivity => _mouseSensitivity;
         public float GamepadLookSpeed => _gamepadLookSpeed;
         public float MaxPitch => _maxPitch;
+
+        public void Validate()
+        {
+            const string owner = nameof(PlayerConfig);
+            ConfigValidation.RequireReference(_viewPrefab, owner, nameof(ViewPrefab));
+            ConfigValidation.RequirePositive(_walkSpeed, owner, nameof(WalkSpeed));
+            ConfigValidation.RequirePositive(_sprintSpeed, owner, nameof(SprintSpeed));
+            ConfigValidation.RequirePositive(_carryingSpeed, owner, nameof(CarryingSpeed));
+            if (!(_carryingSpeed < _walkSpeed && _walkSpeed < _sprintSpeed))
+                throw new System.InvalidOperationException(
+                    $"{owner} movement speeds must satisfy CarryingSpeed < WalkSpeed < SprintSpeed.");
+
+            ConfigValidation.RequireNegative(_gravity, owner, nameof(Gravity));
+            ConfigValidation.RequirePositive(_mouseSensitivity, owner, nameof(MouseSensitivity));
+            ConfigValidation.RequirePositive(_gamepadLookSpeed, owner, nameof(GamepadLookSpeed));
+            ConfigValidation.RequireInRange(_maxPitch, 30f, 89f, owner, nameof(MaxPitch));
+        }
     }
 }

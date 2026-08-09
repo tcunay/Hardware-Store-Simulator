@@ -10,6 +10,7 @@ namespace HardwareStore.Gameplay.Scene
     public sealed class StoreSceneData : IStoreSceneData
     {
         private Dictionary<SpawnPointId, Pose> _spawnPoints;
+        private Dictionary<SceneRouteId, Pose[]> _routes;
         private Dictionary<SceneViewId, EntityBehaviour> _sceneViews;
         private IHudService _hud;
         private INotificationService _notifications;
@@ -37,7 +38,18 @@ namespace HardwareStore.Gameplay.Scene
             return view;
         }
 
-        public void Register(SpawnPointMarker[] spawnPoints, SceneViewMarker[] sceneViews,
+        public Pose[] GetRoute(SceneRouteId id)
+        {
+            EnsureRegistered();
+
+            if (!_routes.TryGetValue(id, out Pose[] poses))
+                throw new KeyNotFoundException($"Scene route '{id}' is not registered.");
+
+            return (Pose[])poses.Clone();
+        }
+
+        public void Register(SpawnPointMarker[] spawnPoints, SceneRouteMarker[] routes,
+            SceneViewMarker[] sceneViews,
             PrototypeHudView hudView, PrototypeAudioView audioView)
         {
             if (IsRegistered)
@@ -45,6 +57,8 @@ namespace HardwareStore.Gameplay.Scene
 
             if (spawnPoints == null)
                 throw new ArgumentNullException(nameof(spawnPoints));
+            if (routes == null)
+                throw new ArgumentNullException(nameof(routes));
             if (sceneViews == null)
                 throw new ArgumentNullException(nameof(sceneViews));
             if (hudView == null)
@@ -63,6 +77,17 @@ namespace HardwareStore.Gameplay.Scene
                         $"Spawn point '{spawnPoint.Id}' is registered more than once.", nameof(spawnPoints));
             }
 
+            var routesById = new Dictionary<SceneRouteId, Pose[]>(routes.Length);
+            for (int index = 0; index < routes.Length; index++)
+            {
+                SceneRouteMarker marker = routes[index];
+                if (marker == null)
+                    throw new ArgumentException($"Scene route marker at index {index} is missing.", nameof(routes));
+                if (!routesById.TryAdd(marker.Id, marker.Poses))
+                    throw new ArgumentException(
+                        $"Scene route '{marker.Id}' is registered more than once.", nameof(routes));
+            }
+
             var viewsById = new Dictionary<SceneViewId, EntityBehaviour>(sceneViews.Length);
             for (int index = 0; index < sceneViews.Length; index++)
             {
@@ -75,6 +100,7 @@ namespace HardwareStore.Gameplay.Scene
             }
 
             _spawnPoints = spawnPointPoses;
+            _routes = routesById;
             _sceneViews = viewsById;
             _hud = hudView;
             _notifications = hudView;
@@ -89,6 +115,8 @@ namespace HardwareStore.Gameplay.Scene
             IsRegistered = false;
             _spawnPoints.Clear();
             _spawnPoints = null;
+            _routes.Clear();
+            _routes = null;
             _sceneViews.Clear();
             _sceneViews = null;
             _hud = null;

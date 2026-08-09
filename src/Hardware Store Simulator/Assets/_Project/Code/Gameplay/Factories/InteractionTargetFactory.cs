@@ -1,9 +1,9 @@
 using HardwareStore.Common.Entity;
 using HardwareStore.Common.Extensions;
 using HardwareStore.Gameplay.Configs;
+using HardwareStore.Gameplay.Components;
 using HardwareStore.Gameplay.StaticData;
 using HardwareStore.Infrastructure.Identifiers;
-using HardwareStore.Infrastructure.View;
 using UnityEngine;
 
 namespace HardwareStore.Gameplay.Factories
@@ -19,58 +19,40 @@ namespace HardwareStore.Gameplay.Factories
             _staticData = staticData;
         }
 
-        public GameEntity CreateOrderCounter(EntityBehaviour view, int orderEntityId)
+        public GameEntity CreateOrderCounter(int storeEntityId)
         {
-            int entityId = _identifiers.Next();
-            GameEntity entity = CreateEntity.Empty(entityId)
-                .AddOrderEntityId(orderEntityId)
+            return CreateEntity.Empty(_identifiers.Next())
+                .AddStoreEntityId(storeEntityId)
+                .AddSceneViewKey(SceneViewId.CustomerOrderCounter)
                 .With(x => x.isOrderCounter = true)
                 .With(x => x.isInteractable = true);
-
-            view.SetEntity(entity);
-            return entity;
         }
 
-        public GameEntity CreateCustomerLoadingZone(EntityBehaviour view, int orderEntityId)
-        {
-            int entityId = _identifiers.Next();
-            GameEntity entity = CreateEntity.Empty(entityId)
-                .AddOrderEntityId(orderEntityId)
-                .With(x => x.isLoadingZone = true)
-                .With(x => x.isInteractable = true);
-
-            view.SetEntity(entity);
-            return entity;
-        }
-
-        public GameEntity CreateProcurementTerminal(EntityBehaviour view, int storeEntityId,
-            int storageZoneEntityId, Pose deliveryPose)
+        public GameEntity CreateProcurementTerminal(int storeEntityId, int storageZoneEntityId,
+            Pose deliveryPose)
         {
             DeliveryConfig config = _staticData.Delivery;
-            GameEntity entity = CreateEntity.Empty(_identifiers.Next())
+            return CreateEntity.Empty(_identifiers.Next())
                 .AddStoreEntityId(storeEntityId)
                 .AddStorageZoneEntityId(storageZoneEntityId)
+                .AddSceneViewKey(SceneViewId.ProcurementTerminal)
                 .AddProductType(config.ProductType)
                 .AddDeliveryProductCount(config.ProductCount)
                 .AddDeliveryCost(config.TotalCost)
-                .AddSpawnPosition(deliveryPose.position)
-                .AddSpawnRotation(deliveryPose.rotation)
+                .AddDeliverySpawnPosition(deliveryPose.position)
+                .AddDeliverySpawnRotation(deliveryPose.rotation)
                 .With(x => x.isProcurementTerminal = true)
                 .With(x => x.isInteractable = true);
-
-            view.SetEntity(entity);
-            return entity;
         }
 
-        public GameEntity CreateStorageZone(EntityBehaviour view)
+        public GameEntity CreateStorageZone()
         {
-            GameEntity entity = CreateEntity.Empty(_identifiers.Next())
+            return CreateEntity.Empty(_identifiers.Next())
+                .AddSceneViewKey(SceneViewId.StorageZone)
                 .AddOccupiedStorageSlotCount(0)
+                .AddStorageProductCount(0)
                 .With(x => x.isStorageZone = true)
                 .With(x => x.isInteractable = true);
-
-            view.SetEntity(entity);
-            return entity;
         }
     }
 }

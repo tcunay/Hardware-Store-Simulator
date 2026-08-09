@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using Entitas;
-using HardwareStore.Common.Entity;
 using HardwareStore.Gameplay.Components;
 
 namespace HardwareStore.Gameplay.Features.Interaction.Systems
@@ -31,9 +30,8 @@ namespace HardwareStore.Gameplay.Features.Interaction.Systems
 
             foreach (GameEntity player in _focusedPlayers)
             {
-                GameEntity target = _gameContext.GetRequiredEntity(
-                    player.FocusedEntityId,
-                    "player focused entity");
+                GameEntity target =
+                    _gameContext.GetEntityWithEntityId(player.FocusedEntityId);
                 if (!target.isInteractable)
                     throw new InvalidOperationException(
                         $"Focused entity {target.EntityId} is not interactable.");

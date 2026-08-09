@@ -20,6 +20,6 @@ namespace HardwareStore.Gameplay.Components
     [Game] public class MouseSensitivity : IComponent { public float Value; }
     [Game] public class GamepadLookSpeed : IComponent { public float Value; }
     [Game] public class MaxPitch : IComponent { public float Value; }
-    [Game] public class HeldProductId : IComponent { public int Value; }
+    [Game] public class HandsOccupied : IComponent { }
     [Game] public class CursorLocked : IComponent { }
 }

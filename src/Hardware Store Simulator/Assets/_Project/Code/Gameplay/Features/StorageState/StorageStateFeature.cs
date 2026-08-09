@@ -8,6 +8,7 @@ namespace HardwareStore.Gameplay.Features.StorageState
         public StorageStateFeature(ISystemFactory systems)
         {
             Add(systems.Create<RefreshStorageOccupiedSlotCountSystem>());
+            Add(systems.Create<RefreshStorageProductCountSystem>());
             Add(systems.Create<RefreshOrderAvailableProductCountSystem>());
         }
     }

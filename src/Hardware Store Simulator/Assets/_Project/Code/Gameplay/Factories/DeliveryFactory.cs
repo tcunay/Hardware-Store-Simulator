@@ -29,10 +29,10 @@ namespace HardwareStore.Gameplay.Factories
                 .AddDeliveryProductCount(config.ProductCount)
                 .AddStockedProductCount(0)
                 .AddDeliveryCost(config.TotalCost)
-                .AddProcurementTerminalEntityId(procurementTerminalEntityId)
                 .AddStoreEntityId(storeEntityId)
                 .With(x => x.isDelivery = true)
-                .With(x => x.isDeliveryActive = true);
+                .With(x => x.isDeliveryActive = true)
+                .AddDeliveryProcurementTerminalEntityId(procurementTerminalEntityId);
         }
     }
 }

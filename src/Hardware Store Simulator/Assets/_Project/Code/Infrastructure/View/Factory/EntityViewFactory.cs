@@ -20,6 +20,11 @@ namespace HardwareStore.Infrastructure.View.Factory
 
             view.transform.SetParent(null, worldPositionStays: true);
             SceneManager.MoveGameObjectToScene(view.gameObject, SceneManager.GetActiveScene());
+            return BindExistingView(entity, view);
+        }
+
+        public EntityBehaviour BindExistingView(GameEntity entity, EntityBehaviour view)
+        {
             view.SetEntity(entity);
             return view;
         }

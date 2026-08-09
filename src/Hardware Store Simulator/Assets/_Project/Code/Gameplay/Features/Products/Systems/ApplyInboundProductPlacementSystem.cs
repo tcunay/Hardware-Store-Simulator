@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using Entitas;
-using HardwareStore.Common.Entity;
 
 namespace HardwareStore.Gameplay.Features.Products.Systems
 {
@@ -29,25 +28,25 @@ namespace HardwareStore.Gameplay.Features.Products.Systems
                     GameMatcher.RigidbodyCollisionDetectionMode)
                 .NoneOf(
                     GameMatcher.InStock,
-                    GameMatcher.Carried,
+                    GameMatcher.CarrierEntityId,
                     GameMatcher.LooseProduct,
                     GameMatcher.Loaded,
                     GameMatcher.StorageZoneEntityId,
-                    GameMatcher.LoadingZoneEntityId,
+                    GameMatcher.CustomerVisitEntityId,
                     GameMatcher.StorageSlotIndex,
-                    GameMatcher.LoadingSlotIndex));
+                    GameMatcher.LoadingSlotIndex,
+                    GameMatcher.WorldPosition,
+                    GameMatcher.WorldRotation));
         }
 
         public void Execute()
         {
             foreach (GameEntity product in _products.GetEntities(_buffer))
             {
-                GameEntity delivery = _gameContext.GetRequiredEntity(
-                    product.DeliveryEntityId,
-                    "inbound product delivery");
-                if (!delivery.isDelivery || !delivery.isDeliveryActive || !delivery.hasSlots)
+                GameEntity delivery = _gameContext.GetEntityWithEntityId(product.DeliveryEntityId);
+                if (!delivery.isDeliveryActive)
                     throw new InvalidOperationException(
-                        $"Inbound product {product.EntityId} references an invalid delivery.");
+                        $"Inbound product {product.EntityId} references an inactive delivery.");
                 if (product.DeliverySlotIndex < 0 || product.DeliverySlotIndex >= delivery.Slots.Length)
                     throw new InvalidOperationException(
                         $"Inbound product {product.EntityId} references delivery slot " +
@@ -60,6 +59,5 @@ namespace HardwareStore.Gameplay.Features.Products.Systems
                 product.isProductPlacementDirty = false;
             }
         }
-
     }
 }

@@ -23,7 +23,7 @@ namespace HardwareStore.Gameplay.Features.Movement.Systems
             foreach (InputEntity input in _inputs)
             foreach (GameEntity player in _players)
             {
-                float speed = player.hasHeldProductId
+                float speed = player.isHandsOccupied
                     ? player.CarryingSpeed
                     : input.isSprintHeld
                         ? player.SprintSpeed

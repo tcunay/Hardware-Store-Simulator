@@ -1,6 +1,4 @@
-using System;
 using Entitas;
-using HardwareStore.Common.Entity;
 using HardwareStore.Gameplay.Components;
 
 namespace HardwareStore.Gameplay.Features.Interaction.Systems
@@ -27,41 +25,21 @@ namespace HardwareStore.Gameplay.Features.Interaction.Systems
                 if (player.FocusedInteractionType != InteractionTypeId.ProcurementTerminal)
                     continue;
 
-                GameEntity terminal = _gameContext.GetRequiredEntity(
-                    player.FocusedEntityId,
-                    "focused procurement terminal");
-                if (!terminal.isProcurementTerminal)
-                    throw new InvalidOperationException(
-                        $"Entity {terminal.EntityId} is not a procurement terminal.");
-
-                GameEntity store = _gameContext.RequireStore(player);
-                if (terminal.EntityId != store.ProcurementTerminalEntityId ||
-                    terminal.StoreEntityId != store.EntityId ||
-                    terminal.StorageZoneEntityId != store.StorageZoneEntityId)
+                GameEntity terminal =
+                    _gameContext.GetEntityWithEntityId(player.FocusedEntityId);
+                if (terminal.StoreEntityId != player.StoreEntityId)
                     continue;
 
-                GameEntity storageZone = _gameContext.GetRequiredEntity(
-                    terminal.StorageZoneEntityId,
-                    "terminal storage zone");
-                if (!storageZone.isStorageZone || !storageZone.hasSlots ||
-                    !storageZone.hasOccupiedStorageSlotCount)
-                    throw new InvalidOperationException(
-                        $"Entity {terminal.StorageZoneEntityId} is not a configured storage zone.");
-                if (terminal.DeliveryProductCount <= 0 ||
-                    terminal.DeliveryProductCount > storageZone.Slots.Length)
-                    throw new InvalidOperationException(
-                        $"Delivery size {terminal.DeliveryProductCount} does not fit storage " +
-                        $"capacity {storageZone.Slots.Length}.");
+                GameEntity store =
+                    _gameContext.GetEntityWithEntityId(terminal.StoreEntityId);
+                GameEntity storageZone =
+                    _gameContext.GetEntityWithEntityId(terminal.StorageZoneEntityId);
 
-                if (terminal.hasDeliveryEntityId)
+                GameEntity delivery =
+                    _gameContext.GetEntityWithDeliveryProcurementTerminalEntityId(
+                        terminal.EntityId);
+                if (delivery != null)
                 {
-                    GameEntity delivery = _gameContext.GetRequiredEntity(
-                        terminal.DeliveryEntityId,
-                        "terminal active delivery");
-                    if (!delivery.isDelivery || !delivery.isDeliveryActive)
-                        throw new InvalidOperationException(
-                            $"Procurement terminal {terminal.EntityId} has a stale delivery relation.");
-
                     player.SetInteractionPrompt(
                         $"Поставка разгружается: {delivery.StockedProductCount}/" +
                         $"{delivery.DeliveryProductCount} принято",

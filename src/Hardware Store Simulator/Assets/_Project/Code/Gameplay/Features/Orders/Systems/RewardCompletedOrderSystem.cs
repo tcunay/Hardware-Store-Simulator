@@ -1,6 +1,5 @@
-using System;
+using System.Collections.Generic;
 using Entitas;
-using HardwareStore.Common.Entity;
 using HardwareStore.Gameplay.Components;
 using HardwareStore.Gameplay.Factories;
 
@@ -10,35 +9,33 @@ namespace HardwareStore.Gameplay.Features.Orders.Systems
     {
         private readonly GameContext _gameContext;
         private readonly IGameEventFactory _events;
-        private readonly IGroup<GameEntity> _completedEvents;
+        private readonly IGroup<GameEntity> _visits;
+        private readonly List<GameEntity> _buffer = new(4);
 
         public RewardCompletedOrderSystem(GameContext gameContext, IGameEventFactory events)
         {
             _gameContext = gameContext;
             _events = events;
-            _completedEvents = gameContext.GetGroup(GameMatcher.AllOf(
-                GameMatcher.OrderCompletedEvent,
-                GameMatcher.OrderEntityId));
+            _visits = gameContext.GetGroup(GameMatcher.AllOf(
+                    GameMatcher.CustomerVisit,
+                    GameMatcher.Order,
+                    GameMatcher.CustomerVisitCompleted,
+                    GameMatcher.CustomerVisitStoreEntityId,
+                    GameMatcher.OrderReward)
+                .NoneOf(
+                    GameMatcher.OrderRewarded,
+                    GameMatcher.Destructed));
         }
 
         public void Execute()
         {
-            foreach (GameEntity completedEvent in _completedEvents)
+            foreach (GameEntity visit in _visits.GetEntities(_buffer))
             {
-                GameEntity order = _gameContext.GetRequiredEntity(
-                    completedEvent.OrderEntityId,
-                    "completed order event target");
-                if (!order.isOrder || !order.isOrderCompleted)
-                    throw new InvalidOperationException("Only a completed order can be rewarded.");
+                GameEntity store =
+                    _gameContext.GetEntityWithEntityId(visit.CustomerVisitStoreEntityId);
 
-                GameEntity store = _gameContext.GetRequiredEntity(order.StoreEntityId, "order store");
-                if (!store.isStore || !store.hasMoney)
-                    throw new InvalidOperationException($"Entity {order.StoreEntityId} is not a configured store.");
-                if (!store.hasOrderEntityId || store.OrderEntityId != order.EntityId)
-                    throw new InvalidOperationException(
-                        $"Store {store.EntityId} does not own completed order {order.EntityId}.");
-
-                store.ReplaceMoney(store.Money + order.OrderReward);
+                store.ReplaceMoney(store.Money + visit.OrderReward);
+                visit.isOrderRewarded = true;
                 _events.EmitAudio(AudioCueId.Reward);
             }
         }

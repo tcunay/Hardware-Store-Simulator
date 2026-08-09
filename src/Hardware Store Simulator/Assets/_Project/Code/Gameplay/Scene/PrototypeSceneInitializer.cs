@@ -8,6 +8,7 @@ namespace HardwareStore.Gameplay.Scene
     public sealed class PrototypeSceneInitializer : MonoBehaviour, IInitializable, IDisposable
     {
         [SerializeField] private SpawnPointMarker[] _spawnPoints;
+        [SerializeField] private SceneRouteMarker[] _routes;
         [SerializeField] private SceneViewMarker[] _sceneViews;
         [SerializeField] private PrototypeHudView _hudView;
         [SerializeField] private PrototypeAudioView _audioView;
@@ -18,12 +19,16 @@ namespace HardwareStore.Gameplay.Scene
         private void Construct(IStoreSceneData sceneData) =>
             _sceneData = sceneData;
 
-        public void Configure(SpawnPointMarker[] spawnPoints, SceneViewMarker[] sceneViews,
+        public void Configure(SpawnPointMarker[] spawnPoints, SceneRouteMarker[] routes,
+            SceneViewMarker[] sceneViews,
             PrototypeHudView hudView, PrototypeAudioView audioView)
         {
             _spawnPoints = spawnPoints != null
                 ? spawnPoints
                 : throw new ArgumentNullException(nameof(spawnPoints));
+            _routes = routes != null
+                ? routes
+                : throw new ArgumentNullException(nameof(routes));
             _sceneViews = sceneViews != null
                 ? sceneViews
                 : throw new ArgumentNullException(nameof(sceneViews));
@@ -34,6 +39,7 @@ namespace HardwareStore.Gameplay.Scene
         public void Initialize() =>
             _sceneData.Register(
                 _spawnPoints,
+                _routes,
                 _sceneViews,
                 _hudView,
                 _audioView);

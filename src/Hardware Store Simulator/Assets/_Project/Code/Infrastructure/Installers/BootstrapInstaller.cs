@@ -36,6 +36,7 @@ namespace HardwareStore.Infrastructure.Installers
         private void BindInfrastructureServices()
         {
             Container.BindInterfacesTo<BootstrapInstaller>().FromInstance(this).AsSingle();
+            Container.BindExecutionOrder<BootstrapInstaller>(0);
             Container.Bind<IIdentifierService>().To<IdentifierService>().AsSingle();
             Container.Bind<ITimeService>().To<UnityTimeService>().AsSingle();
             Container.Bind<ICursorService>().To<UnityCursorService>().AsSingle();
@@ -67,6 +68,7 @@ namespace HardwareStore.Infrastructure.Installers
         {
             Container.Bind<IPlayerFactory>().To<PlayerFactory>().AsSingle();
             Container.Bind<IStoreFactory>().To<StoreFactory>().AsSingle();
+            Container.Bind<ICustomerVisitFactory>().To<CustomerVisitFactory>().AsSingle();
             Container.Bind<IOrderFactory>().To<OrderFactory>().AsSingle();
             Container.Bind<IProductFactory>().To<ProductFactory>().AsSingle();
             Container.Bind<IDeliveryFactory>().To<DeliveryFactory>().AsSingle();

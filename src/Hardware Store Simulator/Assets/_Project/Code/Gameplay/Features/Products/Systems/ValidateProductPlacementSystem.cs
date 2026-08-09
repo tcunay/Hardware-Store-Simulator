@@ -21,7 +21,7 @@ namespace HardwareStore.Gameplay.Features.Products.Systems
                 throw new InvalidOperationException(
                     $"Bound product {product.EntityId} has no complete placement state. " +
                     $"Inbound={product.isInboundProduct}, InStock={product.isInStock}, " +
-                    $"Carried={product.isCarried}, Loose={product.isLooseProduct}, " +
+                    $"Carried={product.hasCarrierEntityId}, Loose={product.isLooseProduct}, " +
                     $"Loaded={product.isLoaded}.");
             }
         }

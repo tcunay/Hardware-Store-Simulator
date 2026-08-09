@@ -1,4 +1,5 @@
 using Entitas;
+using Entitas.CodeGeneration.Attributes;
 
 namespace HardwareStore.Gameplay.Components
 {
@@ -13,5 +14,6 @@ namespace HardwareStore.Gameplay.Components
     [Game] public class StockedProductCount : IComponent { public int Value; }
     [Game] public class OccupiedStorageSlotCount : IComponent { public int Value; }
     [Game] public class DeliveryCost : IComponent { public int Value; }
+    [Game] public class DeliveryProcurementTerminalEntityId : IComponent { [PrimaryEntityIndex] public int Value; }
     [Game] public class ProcurementTerminalEntityId : IComponent { public int Value; }
 }

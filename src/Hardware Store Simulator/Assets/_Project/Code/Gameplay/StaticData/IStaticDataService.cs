@@ -8,6 +8,7 @@ namespace HardwareStore.Gameplay.StaticData
         InteractionConfig Interaction { get; }
         EconomyConfig Economy { get; }
         DeliveryConfig Delivery { get; }
+        CustomerVehicleConfig CustomerVehicle { get; }
         OrderConfig Order { get; }
         ProductConfig Product { get; }
 

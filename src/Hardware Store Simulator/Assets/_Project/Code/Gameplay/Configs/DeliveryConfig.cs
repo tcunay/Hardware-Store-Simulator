@@ -5,7 +5,7 @@ using UnityEngine;
 namespace HardwareStore.Gameplay.Configs
 {
     [CreateAssetMenu(fileName = "DeliveryConfig", menuName = "Hardware Store/Gameplay/Delivery Config")]
-    public sealed class DeliveryConfig : ScriptableObject
+    public sealed class DeliveryConfig : ScriptableObject, IValidatableConfig
     {
         [Header("View")]
         [SerializeField] private EntityBehaviour _viewPrefab;
@@ -19,6 +19,23 @@ namespace HardwareStore.Gameplay.Configs
         public ProductTypeId ProductType => _productType;
         public int ProductCount => _productCount;
         public int PurchaseUnitPrice => _purchaseUnitPrice;
-        public int TotalCost => ProductCount * PurchaseUnitPrice;
+        public int TotalCost => unchecked(_productCount * _purchaseUnitPrice);
+
+        public void Validate()
+        {
+            const string owner = nameof(DeliveryConfig);
+            ConfigValidation.RequireReference(_viewPrefab, owner, nameof(ViewPrefab));
+            ConfigValidation.RequireDefined(_productType, owner, nameof(ProductType));
+            ConfigValidation.RequirePositive(_productCount, owner, nameof(ProductCount));
+            ConfigValidation.RequireNonNegative(
+                _purchaseUnitPrice,
+                owner,
+                nameof(PurchaseUnitPrice));
+            ConfigValidation.RequireProductFitsInt(
+                _productCount,
+                _purchaseUnitPrice,
+                owner,
+                nameof(TotalCost));
+        }
     }
 }

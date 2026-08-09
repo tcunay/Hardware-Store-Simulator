@@ -3,11 +3,7 @@ using Entitas;
 namespace HardwareStore.Gameplay.Components
 {
     [Game] public class Order : IComponent { }
-    [Game] public class OrderWaiting : IComponent { }
-    [Game] public class OrderActive : IComponent { }
-    [Game] public class OrderCompleted : IComponent { }
-    [Game] public class OrderCompletedEvent : IComponent { }
-    [Game] public class OrderEntityId : IComponent { public int Value; }
+    [Game] public class OrderRewarded : IComponent { }
     [Game] public class RequiredProductCount : IComponent { public int Value; }
     [Game] public class AvailableProductCount : IComponent { public int Value; }
     [Game] public class LoadedProductCount : IComponent { public int Value; }
