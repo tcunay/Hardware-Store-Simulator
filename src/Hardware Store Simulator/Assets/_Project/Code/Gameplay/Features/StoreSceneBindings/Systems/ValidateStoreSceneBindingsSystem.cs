@@ -68,7 +68,8 @@ namespace HardwareStore.Gameplay.Features.StoreSceneBindings.Systems
             ValidateBoundInteractionTarget(terminal, "procurement terminal");
             if (!terminal.isProcurementTerminal || !terminal.hasStoreEntityId ||
                 terminal.StoreEntityId != store.EntityId || !terminal.hasStorageZoneEntityId ||
-                terminal.StorageZoneEntityId != storageZone.EntityId)
+                terminal.StorageZoneEntityId != storageZone.EntityId ||
+                !terminal.hasSelectedProductType)
             {
                 throw new InvalidOperationException(
                     $"Store {store.EntityId} references an invalid procurement terminal.");
@@ -81,8 +82,16 @@ namespace HardwareStore.Gameplay.Features.StoreSceneBindings.Systems
             if (!storageZone.isStorageZone)
                 throw new InvalidOperationException(
                     $"Entity {storageZone.EntityId} is not a storage zone.");
+            int largestDeliverySize = 0;
+            foreach (var productType in _staticData.ProductTypes)
+            {
+                largestDeliverySize = Math.Max(
+                    largestDeliverySize,
+                    _staticData.GetDelivery(productType).ProductCount);
+            }
+
             if (!storageZone.hasSlots || storageZone.Slots == null ||
-                storageZone.Slots.Length < _staticData.Delivery.ProductCount)
+                storageZone.Slots.Length < largestDeliverySize)
             {
                 throw new InvalidOperationException(
                     "The storage zone must contain enough slots for the complete delivery.");

@@ -1,6 +1,7 @@
 using System;
 using HardwareStore.Common.Entity;
 using HardwareStore.Common.Extensions;
+using HardwareStore.Gameplay.Components;
 using HardwareStore.Gameplay.StaticData;
 
 namespace HardwareStore.Gameplay.Factories
@@ -11,7 +12,8 @@ namespace HardwareStore.Gameplay.Factories
 
         public OrderFactory(IStaticDataService staticData) => _staticData = staticData;
 
-        public GameEntity AddOrderComponents(GameEntity customerVisit, int storageZoneEntityId)
+        public GameEntity AddOrderComponents(GameEntity customerVisit, int storageZoneEntityId,
+            ProductTypeId productType)
         {
             if (customerVisit == null)
                 throw new ArgumentNullException(nameof(customerVisit));
@@ -22,7 +24,7 @@ namespace HardwareStore.Gameplay.Factories
                     "Order components require a fresh configured customer visit.");
             }
 
-            var config = _staticData.Order;
+            var config = _staticData.GetOrder(productType);
             return customerVisit
                 .AddStorageZoneEntityId(storageZoneEntityId)
                 .AddRequiredProductType(config.RequiredProductType)

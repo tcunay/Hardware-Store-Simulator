@@ -12,6 +12,8 @@ namespace HardwareStore.Gameplay.Common.Input
         private InputAction _look;
         private InputAction _interact;
         private InputAction _drop;
+        private InputAction _previous;
+        private InputAction _next;
         private InputAction _sprint;
 
         public Vector2 Move => _move.ReadValue<Vector2>();
@@ -19,6 +21,8 @@ namespace HardwareStore.Gameplay.Common.Input
         public bool SprintHeld => _sprint.IsPressed();
         public bool InteractPressedThisFrame => _interact.WasPressedThisFrame();
         public bool DropPressedThisFrame => _drop.WasPressedThisFrame();
+        public bool PreviousPressedThisFrame => _previous.WasPressedThisFrame();
+        public bool NextPressedThisFrame => _next.WasPressedThisFrame();
         public bool ToggleCursorPressedThisFrame =>
             Keyboard.current != null && Keyboard.current.escapeKey.wasPressedThisFrame;
         public bool LookUsesPointer => _look.activeControl?.device is Pointer;
@@ -30,6 +34,8 @@ namespace HardwareStore.Gameplay.Common.Input
             _look = _playerMap.FindAction("Look", true);
             _interact = _playerMap.FindAction("Interact", true);
             _drop = _playerMap.FindAction("Drop", true);
+            _previous = _playerMap.FindAction("Previous", true);
+            _next = _playerMap.FindAction("Next", true);
             _sprint = _playerMap.FindAction("Sprint", true);
             _playerMap.Enable();
         }

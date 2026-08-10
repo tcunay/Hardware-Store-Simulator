@@ -9,6 +9,8 @@ namespace HardwareStore.Gameplay.Components
     [Input] public class SprintHeld : IComponent { }
     [Input] public class InteractPressed : IComponent { }
     [Input] public class DropPressed : IComponent { }
+    [Input] public class PreviousPressed : IComponent { }
+    [Input] public class NextPressed : IComponent { }
     [Input] public class ToggleCursorPressed : IComponent { }
     [Input] public class PointerLook : IComponent { }
 }

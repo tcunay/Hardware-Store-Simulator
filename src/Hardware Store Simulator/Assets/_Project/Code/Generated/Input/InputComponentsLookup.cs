@@ -13,11 +13,13 @@ public static class InputComponentsLookup {
     public const int InteractPressed = 2;
     public const int LookInput = 3;
     public const int MoveInput = 4;
-    public const int PointerLook = 5;
-    public const int SprintHeld = 6;
-    public const int ToggleCursorPressed = 7;
+    public const int NextPressed = 5;
+    public const int PointerLook = 6;
+    public const int PreviousPressed = 7;
+    public const int SprintHeld = 8;
+    public const int ToggleCursorPressed = 9;
 
-    public const int TotalComponents = 8;
+    public const int TotalComponents = 10;
 
     public static readonly string[] componentNames = {
         "DropPressed",
@@ -25,7 +27,9 @@ public static class InputComponentsLookup {
         "InteractPressed",
         "LookInput",
         "MoveInput",
+        "NextPressed",
         "PointerLook",
+        "PreviousPressed",
         "SprintHeld",
         "ToggleCursorPressed"
     };
@@ -36,7 +40,9 @@ public static class InputComponentsLookup {
         typeof(HardwareStore.Gameplay.Components.InteractPressed),
         typeof(HardwareStore.Gameplay.Components.LookInput),
         typeof(HardwareStore.Gameplay.Components.MoveInput),
+        typeof(HardwareStore.Gameplay.Components.NextPressed),
         typeof(HardwareStore.Gameplay.Components.PointerLook),
+        typeof(HardwareStore.Gameplay.Components.PreviousPressed),
         typeof(HardwareStore.Gameplay.Components.SprintHeld),
         typeof(HardwareStore.Gameplay.Components.ToggleCursorPressed)
     };

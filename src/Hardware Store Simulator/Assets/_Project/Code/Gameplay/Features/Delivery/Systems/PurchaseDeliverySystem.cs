@@ -1,6 +1,8 @@
 using Entitas;
+using HardwareStore.Gameplay.Configs;
 using HardwareStore.Gameplay.Components;
 using HardwareStore.Gameplay.Factories;
+using HardwareStore.Gameplay.StaticData;
 using UnityEngine;
 
 namespace HardwareStore.Gameplay.Features.Delivery.Systems
@@ -8,14 +10,16 @@ namespace HardwareStore.Gameplay.Features.Delivery.Systems
     public sealed class PurchaseDeliverySystem : IExecuteSystem
     {
         private readonly GameContext _gameContext;
+        private readonly IStaticDataService _staticData;
         private readonly IDeliveryFactory _deliveryFactory;
         private readonly IGameEventFactory _events;
         private readonly IGroup<GameEntity> _requests;
 
-        public PurchaseDeliverySystem(GameContext gameContext, IDeliveryFactory deliveryFactory,
-            IGameEventFactory events)
+        public PurchaseDeliverySystem(GameContext gameContext, IStaticDataService staticData,
+            IDeliveryFactory deliveryFactory, IGameEventFactory events)
         {
             _gameContext = gameContext;
+            _staticData = staticData;
             _deliveryFactory = deliveryFactory;
             _events = events;
             _requests = gameContext.GetGroup(GameMatcher.AllOf(
@@ -32,6 +36,9 @@ namespace HardwareStore.Gameplay.Features.Delivery.Systems
                     _gameContext.GetEntityWithEntityId(request.TargetEntityId);
                 if (!terminal.isProcurementTerminal)
                     continue;
+                if (!terminal.hasSelectedProductType)
+                    throw new System.InvalidOperationException(
+                        $"Procurement terminal {terminal.EntityId} has no selected product type.");
 
                 GameEntity player =
                     _gameContext.GetEntityWithEntityId(request.SourceEntityId);
@@ -47,21 +54,50 @@ namespace HardwareStore.Gameplay.Features.Delivery.Systems
 
                 GameEntity store =
                     _gameContext.GetEntityWithEntityId(terminal.StoreEntityId);
-                GameEntity storageZone =
-                    _gameContext.GetEntityWithEntityId(terminal.StorageZoneEntityId);
-                int freeSlotCount = storageZone.Slots.Length - storageZone.OccupiedStorageSlotCount;
-                if (freeSlotCount < terminal.DeliveryProductCount)
+                GameEntity customerVisit =
+                    _gameContext.GetEntityWithCustomerVisitStoreEntityId(store.EntityId);
+                if (customerVisit == null)
                 {
                     _events.EmitNotification(
-                        $"Недостаточно места на складе: свободно {freeSlotCount}/" +
-                        $"{terminal.DeliveryProductCount}");
+                        "Дождитесь клиента, чтобы выбрать поставку под его заказ");
                     continue;
                 }
 
-                if (store.Money < terminal.DeliveryCost)
+                if (customerVisit.isCustomerVisitCompleted ||
+                    customerVisit.isCustomerVisitDeparting)
                 {
                     _events.EmitNotification(
-                        $"Недостаточно денег на поставку: нужно {terminal.DeliveryCost:N0} ₽");
+                        "Текущий заказ уже выполнен — дождитесь следующего клиента");
+                    continue;
+                }
+
+                if (terminal.SelectedProductType != customerVisit.RequiredProductType)
+                {
+                    ProductConfig requiredProduct =
+                        _staticData.GetProduct(customerVisit.RequiredProductType);
+                    _events.EmitNotification(
+                        $"Для текущего заказа нужен товар: {requiredProduct.DisplayName}");
+                    continue;
+                }
+
+                GameEntity storageZone =
+                    _gameContext.GetEntityWithEntityId(terminal.StorageZoneEntityId);
+                DeliveryConfig deliveryConfig =
+                    _staticData.GetDelivery(terminal.SelectedProductType);
+                int freeSlotCount = storageZone.Slots.Length - storageZone.OccupiedStorageSlotCount;
+                if (freeSlotCount < deliveryConfig.ProductCount)
+                {
+                    _events.EmitNotification(
+                        $"Недостаточно места на складе: свободно {freeSlotCount}/" +
+                        $"{deliveryConfig.ProductCount}");
+                    continue;
+                }
+
+                if (store.Money < deliveryConfig.TotalCost)
+                {
+                    _events.EmitNotification(
+                        $"Недостаточно денег на поставку: нужно " +
+                        $"{deliveryConfig.TotalCost:N0} ₽");
                     continue;
                 }
 
@@ -69,13 +105,16 @@ namespace HardwareStore.Gameplay.Features.Delivery.Systems
                     terminal.DeliverySpawnPosition,
                     terminal.DeliverySpawnRotation);
                 GameEntity delivery = _deliveryFactory.Create(
+                    terminal.SelectedProductType,
                     terminal.EntityId,
                     store.EntityId,
                     deliveryPose);
 
                 store.ReplaceMoney(store.Money - delivery.DeliveryCost);
+                ProductConfig productConfig = _staticData.GetProduct(delivery.ProductType);
                 _events.EmitNotification(
-                    $"Поставка заказана: {delivery.DeliveryProductCount} мешка цемента, " +
+                    $"Поставка заказана • товар: {productConfig.DisplayName} • " +
+                    $"количество: {delivery.DeliveryProductCount} {productConfig.UnitLabel} • " +
                     $"−{delivery.DeliveryCost:N0} ₽");
                 _events.EmitAudio(AudioCueId.DeliveryPurchased);
             }

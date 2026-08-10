@@ -1,6 +1,5 @@
 using HardwareStore.Common.Entity;
 using HardwareStore.Common.Extensions;
-using HardwareStore.Gameplay.Configs;
 using HardwareStore.Gameplay.Components;
 using HardwareStore.Gameplay.StaticData;
 using HardwareStore.Infrastructure.Identifiers;
@@ -31,14 +30,11 @@ namespace HardwareStore.Gameplay.Factories
         public GameEntity CreateProcurementTerminal(int storeEntityId, int storageZoneEntityId,
             Pose deliveryPose)
         {
-            DeliveryConfig config = _staticData.Delivery;
             return CreateEntity.Empty(_identifiers.Next())
                 .AddStoreEntityId(storeEntityId)
                 .AddStorageZoneEntityId(storageZoneEntityId)
                 .AddSceneViewKey(SceneViewId.ProcurementTerminal)
-                .AddProductType(config.ProductType)
-                .AddDeliveryProductCount(config.ProductCount)
-                .AddDeliveryCost(config.TotalCost)
+                .AddSelectedProductType(_staticData.ProductTypes[0])
                 .AddDeliverySpawnPosition(deliveryPose.position)
                 .AddDeliverySpawnRotation(deliveryPose.rotation)
                 .With(x => x.isProcurementTerminal = true)

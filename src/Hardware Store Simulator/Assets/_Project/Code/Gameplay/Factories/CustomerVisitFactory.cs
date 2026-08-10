@@ -1,6 +1,7 @@
 using System;
 using HardwareStore.Common.Entity;
 using HardwareStore.Common.Extensions;
+using HardwareStore.Gameplay.Components;
 using HardwareStore.Gameplay.Configs;
 using HardwareStore.Gameplay.StaticData;
 using HardwareStore.Infrastructure.Identifiers;
@@ -32,6 +33,15 @@ namespace HardwareStore.Gameplay.Factories
             Pose[] arrival = CloneAndValidateRoute(arrivalRoute, nameof(arrivalRoute));
             Pose[] departure = CloneAndValidateRoute(departureRoute, nameof(departureRoute));
             ValidateRouteContinuity(arrival, departure, config.WaypointTolerance);
+            int orderSequenceIndex = store.NextOrderSequenceIndex;
+            if (orderSequenceIndex < 0 || orderSequenceIndex >= _staticData.ProductTypes.Count)
+            {
+                throw new InvalidOperationException(
+                    $"Store {store.EntityId} has invalid next order sequence index " +
+                    $"{orderSequenceIndex} for {_staticData.ProductTypes.Count} product types.");
+            }
+
+            ProductTypeId productType = _staticData.ProductTypes[orderSequenceIndex];
 
             GameEntity customerVisit = CreateEntity.Empty(_identifiers.Next())
                 .AddViewPrefab(config.ViewPrefab)
@@ -51,7 +61,10 @@ namespace HardwareStore.Gameplay.Factories
 
             _orderFactory.AddOrderComponents(
                 customerVisit,
-                store.StorageZoneEntityId);
+                store.StorageZoneEntityId,
+                productType);
+            store.ReplaceNextOrderSequenceIndex(
+                (orderSequenceIndex + 1) % _staticData.ProductTypes.Count);
             store.RemoveCustomerCooldownRemaining();
             return customerVisit;
         }
@@ -60,7 +73,8 @@ namespace HardwareStore.Gameplay.Factories
         {
             if (store == null)
                 throw new ArgumentNullException(nameof(store));
-            if (!store.isStore || !store.hasEntityId || !store.hasStorageZoneEntityId)
+            if (!store.isStore || !store.hasEntityId || !store.hasStorageZoneEntityId ||
+                !store.hasNextOrderSequenceIndex)
                 throw new InvalidOperationException("A customer visit requires a configured store.");
             if (!store.hasCustomerCooldownRemaining)
                 throw new InvalidOperationException(

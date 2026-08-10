@@ -1,3 +1,5 @@
+using System.Collections.Generic;
+using HardwareStore.Gameplay.Components;
 using HardwareStore.Gameplay.Configs;
 
 namespace HardwareStore.Gameplay.StaticData
@@ -7,11 +9,12 @@ namespace HardwareStore.Gameplay.StaticData
         PlayerConfig Player { get; }
         InteractionConfig Interaction { get; }
         EconomyConfig Economy { get; }
-        DeliveryConfig Delivery { get; }
         CustomerVehicleConfig CustomerVehicle { get; }
-        OrderConfig Order { get; }
-        ProductConfig Product { get; }
+        IReadOnlyList<ProductTypeId> ProductTypes { get; }
 
         void LoadAll();
+        ProductConfig GetProduct(ProductTypeId productType);
+        DeliveryConfig GetDelivery(ProductTypeId productType);
+        OrderConfig GetOrder(ProductTypeId productType);
     }
 }

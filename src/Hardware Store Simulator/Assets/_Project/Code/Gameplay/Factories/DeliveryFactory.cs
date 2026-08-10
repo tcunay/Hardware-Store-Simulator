@@ -1,5 +1,6 @@
 using HardwareStore.Common.Entity;
 using HardwareStore.Common.Extensions;
+using HardwareStore.Gameplay.Components;
 using HardwareStore.Gameplay.Configs;
 using HardwareStore.Gameplay.StaticData;
 using HardwareStore.Infrastructure.Identifiers;
@@ -18,9 +19,10 @@ namespace HardwareStore.Gameplay.Factories
             _staticData = staticData;
         }
 
-        public GameEntity Create(int procurementTerminalEntityId, int storeEntityId, Pose at)
+        public GameEntity Create(ProductTypeId productType, int procurementTerminalEntityId,
+            int storeEntityId, Pose at)
         {
-            DeliveryConfig config = _staticData.Delivery;
+            DeliveryConfig config = _staticData.GetDelivery(productType);
             return CreateEntity.Empty(_identifiers.Next())
                 .AddViewPrefab(config.ViewPrefab)
                 .AddSpawnPosition(at.position)

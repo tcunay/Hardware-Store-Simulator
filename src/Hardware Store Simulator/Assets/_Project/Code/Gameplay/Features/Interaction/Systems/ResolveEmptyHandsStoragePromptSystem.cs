@@ -1,17 +1,22 @@
 using System;
 using Entitas;
+using HardwareStore.Gameplay.Configs;
 using HardwareStore.Gameplay.Components;
+using HardwareStore.Gameplay.StaticData;
 
 namespace HardwareStore.Gameplay.Features.Interaction.Systems
 {
     public sealed class ResolveEmptyHandsStoragePromptSystem : IExecuteSystem
     {
         private readonly GameContext _gameContext;
+        private readonly IStaticDataService _staticData;
         private readonly IGroup<GameEntity> _players;
 
-        public ResolveEmptyHandsStoragePromptSystem(GameContext gameContext)
+        public ResolveEmptyHandsStoragePromptSystem(GameContext gameContext,
+            IStaticDataService staticData)
         {
             _gameContext = gameContext;
+            _staticData = staticData;
             _players = gameContext.GetGroup(GameMatcher.AllOf(
                     GameMatcher.Player,
                     GameMatcher.StoreEntityId,
@@ -38,11 +43,16 @@ namespace HardwareStore.Gameplay.Features.Interaction.Systems
 
                 GameEntity terminal = _gameContext.GetEntityWithEntityId(
                     store.ProcurementTerminalEntityId);
-                if (_gameContext.GetEntityWithDeliveryProcurementTerminalEntityId(
-                        terminal.EntityId) != null)
+                GameEntity delivery =
+                    _gameContext.GetEntityWithDeliveryProcurementTerminalEntityId(
+                        terminal.EntityId);
+                if (delivery != null)
                 {
+                    ProductConfig deliveredProduct =
+                        _staticData.GetProduct(delivery.ProductType);
                     player.SetInteractionPrompt(
-                        "Принесите сюда мешок из машины поставщика",
+                        $"Принесите товар из поставки на приёмку • товар: " +
+                        $"{deliveredProduct.DisplayName}",
                         false);
                     continue;
                 }
@@ -51,7 +61,7 @@ namespace HardwareStore.Gameplay.Features.Interaction.Systems
                 {
                     player.SetInteractionPrompt(
                         storageZone.StorageProductCount > 0
-                            ? $"На складе мешков: {storageZone.StorageProductCount}. " +
+                            ? $"Товаров на складе: {storageZone.StorageProductCount} • " +
                               "Ожидайте следующего клиента"
                             : "Склад пуст — можно заказать поставку",
                         false);
@@ -75,36 +85,42 @@ namespace HardwareStore.Gameplay.Features.Interaction.Systems
 
                 if (customerVisit.isCustomerVisitLoading)
                 {
+                    ProductConfig product =
+                        _staticData.GetProduct(customerVisit.RequiredProductType);
                     player.SetInteractionPrompt(
                         customerVisit.AvailableProductCount > 0
-                            ? "Наведите прицел на мешок на складе и нажмите E"
-                            : "Склад пуст — закажите поставку в терминале закупок",
+                            ? $"Наведитесь на товар: {product.DisplayName} • E — взять"
+                            : $"Нет товара для заказа: {product.DisplayName} • " +
+                              "закажите поставку",
                         false);
                     continue;
                 }
 
                 if (customerVisit.isCustomerVisitWaiting)
                 {
+                    ProductConfig product =
+                        _staticData.GetProduct(customerVisit.RequiredProductType);
                     if (customerVisit.AvailableProductCount >=
                         customerVisit.RequiredProductCount)
                     {
                         player.SetInteractionPrompt(
-                            "Товар на складе — примите заказ у стойки клиента",
+                            $"Товар готов: {product.DisplayName} • примите заказ у стойки",
                             false);
                     }
                     else if (customerVisit.AvailableProductCount > 0)
                     {
                         player.SetInteractionPrompt(
-                            $"Для заказа не хватает товара: на складе " +
+                            $"Нужен товар: {product.DisplayName} • доступно: " +
                             $"{customerVisit.AvailableProductCount}/" +
-                            $"{customerVisit.RequiredProductCount}. " +
-                            "Закажите поставку",
+                            $"{customerVisit.RequiredProductCount} {product.UnitLabel} • " +
+                            "закажите поставку",
                             false);
                     }
                     else
                     {
                         player.SetInteractionPrompt(
-                            "Склад пуст — закажите поставку в терминале закупок",
+                            $"Нет товара для заказа: {product.DisplayName} • " +
+                            "закажите поставку",
                             false);
                     }
 
@@ -117,7 +133,7 @@ namespace HardwareStore.Gameplay.Features.Interaction.Systems
 
                 player.SetInteractionPrompt(
                     customerVisit.AvailableProductCount > 0
-                        ? $"Заказ выполнен — на складе осталось мешков: " +
+                        ? $"Заказ выполнен • осталось нужного товара: " +
                           $"{customerVisit.AvailableProductCount}"
                         : "Склад пуст — закажите поставку в терминале закупок",
                     false);

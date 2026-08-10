@@ -38,6 +38,7 @@ namespace HardwareStore.Gameplay.Features.Delivery.Systems
                 {
                     Transform slot = delivery.Slots[index];
                     GameEntity product = _productFactory.CreateInbound(
+                        delivery.ProductType,
                         new Pose(slot.position, slot.rotation),
                         delivery.EntityId,
                         index);

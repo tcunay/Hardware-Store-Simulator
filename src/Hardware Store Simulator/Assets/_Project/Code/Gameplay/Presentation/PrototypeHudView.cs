@@ -63,13 +63,12 @@ namespace HardwareStore.Gameplay.Presentation
 
         private void DrawStatusPanel()
         {
-            Rect panel = new(24f, 24f, 440f, 164f);
+            Rect panel = new(24f, 24f, 560f, 164f);
             DrawPanel(panel, new Color(0.035f, 0.045f, 0.055f, 0.9f));
             GUI.Label(new Rect(42f, 38f, 370f, 32f), "СТРОЙБАЗА • ПРОТОТИП", _titleStyle);
-            GUI.Label(new Rect(42f, 76f, 400f, 28f), ResolveObjective(), _bodyStyle);
-            GUI.Label(new Rect(42f, 108f, 400f, 28f),
-                $"Остаток на складе: {_snapshot.StockCount}", _bodyStyle);
-            GUI.Label(new Rect(42f, 140f, 400f, 28f),
+            GUI.Label(new Rect(42f, 76f, 520f, 28f), ResolveObjective(), _bodyStyle);
+            GUI.Label(new Rect(42f, 108f, 520f, 28f), ResolveStockStatus(), _bodyStyle);
+            GUI.Label(new Rect(42f, 140f, 520f, 28f),
                 $"Баланс: {_snapshot.Money.ToString("N0", RussianCulture)} ₽", _bodyStyle);
         }
 
@@ -101,8 +100,12 @@ namespace HardwareStore.Gameplay.Presentation
 
         private void DrawControls()
         {
-            string carried = _snapshot.HasItem ? "  •  В руках: мешок цемента" : string.Empty;
-            string controls = $"WASD — идти   Shift — бег   E — действие   G — бросить   Esc — курсор{carried}";
+            string carried = _snapshot.HasItem
+                ? $"  •  В руках: {_snapshot.CarriedProductDisplayName}"
+                : string.Empty;
+            string controls =
+                $"WASD — идти   Shift — бег   E — действие   G — бросить   " +
+                $"1/2 — выбор товара   Esc — курсор{carried}";
             Rect rect = new(22f, _canvasHeight - 54f, _canvasWidth - 44f, 34f);
             GUI.Label(rect, controls, _bodyStyle);
         }
@@ -131,27 +134,42 @@ namespace HardwareStore.Gameplay.Presentation
             if (_snapshot.HasActiveDelivery &&
                 _snapshot.DeliveryStockedCount < _snapshot.DeliveryProductCount)
             {
-                return $"Цель: принять поставку — {_snapshot.DeliveryStockedCount}/" +
-                       $"{_snapshot.DeliveryProductCount}";
-            }
-
-            if (_snapshot.OrderState == HudOrderState.Waiting &&
-                _snapshot.StockCount < _snapshot.RequiredCount)
-            {
-                return $"Цель: заказать поставку — {_snapshot.DeliveryProductCount} мешка";
+                return $"Принять поставку • {_snapshot.DeliveryProductDisplayName}: " +
+                       $"{_snapshot.DeliveryStockedCount}/" +
+                       $"{_snapshot.DeliveryProductCount} " +
+                       $"{_snapshot.DeliveryProductUnitLabel}";
             }
 
             return _snapshot.OrderState switch
             {
                 HudOrderState.NoCustomer => "Ожидаем следующего клиента",
                 HudOrderState.Arriving => "Клиент подъезжает",
-                HudOrderState.Waiting => "Цель: принять заказ у клиента",
+                HudOrderState.Waiting when
+                    _snapshot.AvailableProductCount < _snapshot.RequiredCount =>
+                    $"Пополнить товар • {_snapshot.RequiredProductDisplayName}: " +
+                    $"{_snapshot.AvailableProductCount}/{_snapshot.RequiredCount} " +
+                    $"{_snapshot.RequiredProductUnitLabel}",
+                HudOrderState.Waiting =>
+                    $"Принять заказ • {_snapshot.RequiredProductDisplayName}: " +
+                    $"{_snapshot.RequiredCount} {_snapshot.RequiredProductUnitLabel}",
                 HudOrderState.Active =>
-                    $"Цель: отгрузить цемент — {_snapshot.LoadedCount}/{_snapshot.RequiredCount}",
+                    $"Отгрузить товар • {_snapshot.RequiredProductDisplayName}: " +
+                    $"{_snapshot.LoadedCount}/{_snapshot.RequiredCount} " +
+                    $"{_snapshot.RequiredProductUnitLabel}",
                 HudOrderState.Completed => "Заказ выполнен • автомобиль загружен",
                 HudOrderState.Departing => "Клиент уезжает",
                 _ => throw new ArgumentOutOfRangeException()
             };
+        }
+
+        private string ResolveStockStatus()
+        {
+            if (_snapshot.OrderState == HudOrderState.NoCustomer)
+                return $"Товаров на складе: {_snapshot.StockCount}";
+
+            return $"Доступно • {_snapshot.RequiredProductDisplayName}: " +
+                   $"{_snapshot.AvailableProductCount} " +
+                   $"{_snapshot.RequiredProductUnitLabel} • всего: {_snapshot.StockCount}";
         }
 
         private void EnsureStyles()

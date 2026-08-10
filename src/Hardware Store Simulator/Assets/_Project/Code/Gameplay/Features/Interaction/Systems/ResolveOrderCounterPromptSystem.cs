@@ -1,17 +1,22 @@
 using System;
 using Entitas;
+using HardwareStore.Gameplay.Configs;
 using HardwareStore.Gameplay.Components;
+using HardwareStore.Gameplay.StaticData;
 
 namespace HardwareStore.Gameplay.Features.Interaction.Systems
 {
     public sealed class ResolveOrderCounterPromptSystem : IExecuteSystem
     {
         private readonly GameContext _gameContext;
+        private readonly IStaticDataService _staticData;
         private readonly IGroup<GameEntity> _players;
 
-        public ResolveOrderCounterPromptSystem(GameContext gameContext)
+        public ResolveOrderCounterPromptSystem(GameContext gameContext,
+            IStaticDataService staticData)
         {
             _gameContext = gameContext;
+            _staticData = staticData;
             _players = gameContext.GetGroup(GameMatcher.AllOf(
                 GameMatcher.Player,
                 GameMatcher.StoreEntityId,
@@ -53,15 +58,19 @@ namespace HardwareStore.Gameplay.Features.Interaction.Systems
 
                 if (customerVisit.isCustomerVisitWaiting)
                 {
+                    ProductConfig product =
+                        _staticData.GetProduct(customerVisit.RequiredProductType);
                     bool available =
                         customerVisit.AvailableProductCount >=
                         customerVisit.RequiredProductCount;
                     player.SetInteractionPrompt(
                         available
-                            ? $"E — принять заказ на {customerVisit.RequiredProductCount} мешка цемента"
-                            : $"Сначала закупите товар: на складе " +
+                            ? $"E — принять заказ • товар: {product.DisplayName} • " +
+                              $"количество: {customerVisit.RequiredProductCount} " +
+                              $"{product.UnitLabel}"
+                            : $"Нужен товар: {product.DisplayName} • доступно: " +
                               $"{customerVisit.AvailableProductCount}/" +
-                              $"{customerVisit.RequiredProductCount}",
+                              $"{customerVisit.RequiredProductCount} {product.UnitLabel}",
                         available);
                     continue;
                 }

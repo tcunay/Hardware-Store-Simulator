@@ -23,6 +23,8 @@ namespace HardwareStore.Gameplay.Features.Input.Systems
                 input.isSprintHeld = _inputService.SprintHeld;
                 input.isInteractPressed = _inputService.InteractPressedThisFrame;
                 input.isDropPressed = _inputService.DropPressedThisFrame;
+                input.isPreviousPressed = _inputService.PreviousPressedThisFrame;
+                input.isNextPressed = _inputService.NextPressedThisFrame;
                 input.isToggleCursorPressed = _inputService.ToggleCursorPressedThisFrame;
                 input.isPointerLook = _inputService.LookUsesPointer;
             }

@@ -12,10 +12,14 @@ namespace HardwareStore.Gameplay.Configs
 
         [Header("Product")]
         [SerializeField] private ProductTypeId _productType = ProductTypeId.CementBag;
-        [SerializeField, Min(0)] private int _unitPrice = 350;
+        [SerializeField] private string _displayName = "Цемент";
+        [SerializeField] private string _unitLabel = "шт.";
+        [SerializeField, Min(0), Tooltip("Retail sale price per product unit.")]
+        private int _unitPrice = 350;
         [SerializeField, Min(0f)] private float _mass = 25f;
 
         [Header("Handling")]
+        [SerializeField, Min(0f)] private float _carryMovementSpeed = 3.2f;
         [SerializeField] private Vector3 _heldRotationEuler = new(8f, 0f, 0f);
         [SerializeField, Min(0f)] private float _dropForwardDistance = 1.15f;
 
@@ -26,8 +30,11 @@ namespace HardwareStore.Gameplay.Configs
 
         public EntityBehaviour ViewPrefab => _viewPrefab;
         public ProductTypeId ProductType => _productType;
+        public string DisplayName => _displayName;
+        public string UnitLabel => _unitLabel;
         public int UnitPrice => _unitPrice;
         public float Mass => _mass;
+        public float CarryMovementSpeed => _carryMovementSpeed;
         public Quaternion HeldRotationOffset => Quaternion.Euler(_heldRotationEuler);
         public float DropForwardDistance => _dropForwardDistance;
         public RigidbodyInterpolation WorldInterpolation => _worldInterpolation;
@@ -38,8 +45,14 @@ namespace HardwareStore.Gameplay.Configs
             const string owner = nameof(ProductConfig);
             ConfigValidation.RequireReference(_viewPrefab, owner, nameof(ViewPrefab));
             ConfigValidation.RequireDefined(_productType, owner, nameof(ProductType));
+            ConfigValidation.RequireNotBlank(_displayName, owner, nameof(DisplayName));
+            ConfigValidation.RequireNotBlank(_unitLabel, owner, nameof(UnitLabel));
             ConfigValidation.RequireNonNegative(_unitPrice, owner, nameof(UnitPrice));
             ConfigValidation.RequirePositive(_mass, owner, nameof(Mass));
+            ConfigValidation.RequirePositive(
+                _carryMovementSpeed,
+                owner,
+                nameof(CarryMovementSpeed));
             ConfigValidation.RequireFinite(
                 _heldRotationEuler,
                 owner,

@@ -9,6 +9,7 @@ namespace HardwareStore.Gameplay.Components
     [Game] public class Highlighted : IComponent { }
     [Game] public class FocusInteractionAvailable : IComponent { }
     [Game] public class FocusedInteractionType : IComponent { public InteractionTypeId Value; }
+    [Game] public class SelectedProductType : IComponent { public ProductTypeId Value; }
     [Game] public class InteractionViewComponent : IComponent { public HardwareStore.Gameplay.Views.InteractionView Value; }
     [Game] public class SlotsComponent : IComponent { public UnityEngine.Transform[] Value; }
     [Game] public class InteractionDistance : IComponent { public float Value; }

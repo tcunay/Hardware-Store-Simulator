@@ -1,17 +1,22 @@
 using System;
 using Entitas;
+using HardwareStore.Gameplay.Configs;
 using HardwareStore.Gameplay.Components;
+using HardwareStore.Gameplay.StaticData;
 
 namespace HardwareStore.Gameplay.Features.Interaction.Systems
 {
     public sealed class ResolveProductPromptSystem : IExecuteSystem
     {
         private readonly GameContext _gameContext;
+        private readonly IStaticDataService _staticData;
         private readonly IGroup<GameEntity> _players;
 
-        public ResolveProductPromptSystem(GameContext gameContext)
+        public ResolveProductPromptSystem(GameContext gameContext,
+            IStaticDataService staticData)
         {
             _gameContext = gameContext;
+            _staticData = staticData;
             _players = gameContext.GetGroup(GameMatcher.AllOf(
                 GameMatcher.Player,
                 GameMatcher.StoreEntityId,
@@ -28,6 +33,7 @@ namespace HardwareStore.Gameplay.Features.Interaction.Systems
 
                 GameEntity product =
                     _gameContext.GetEntityWithEntityId(player.FocusedEntityId);
+                ProductConfig productConfig = _staticData.GetProduct(product.ProductType);
                 GameEntity store =
                     _gameContext.GetEntityWithEntityId(player.StoreEntityId);
                 if (product.isInboundProduct)
@@ -48,14 +54,17 @@ namespace HardwareStore.Gameplay.Features.Interaction.Systems
 
                 if (product.isLoaded)
                 {
-                    player.SetInteractionPrompt("Товар уже загружен клиенту", false);
+                    player.SetInteractionPrompt(
+                        $"Товар уже загружен клиенту • товар: " +
+                        $"{productConfig.DisplayName}",
+                        false);
                     continue;
                 }
 
                 if (player.isHandsOccupied)
                 {
                     player.SetInteractionPrompt(
-                        "Руки заняты — G, чтобы бросить мешок",
+                        "Руки заняты • G — бросить предмет",
                         false);
                     continue;
                 }
@@ -63,7 +72,7 @@ namespace HardwareStore.Gameplay.Features.Interaction.Systems
                 if (product.isInboundProduct)
                 {
                     player.SetInteractionPrompt(
-                        "E — взять мешок из поставки",
+                        $"E — взять из поставки • товар: {productConfig.DisplayName}",
                         true);
                     continue;
                 }
@@ -121,10 +130,13 @@ namespace HardwareStore.Gameplay.Features.Interaction.Systems
 
                 bool available =
                     product.ProductType == customerVisit.RequiredProductType;
+                ProductConfig requiredProduct =
+                    _staticData.GetProduct(customerVisit.RequiredProductType);
                 player.SetInteractionPrompt(
                     available
-                        ? "E — взять мешок со склада"
-                        : "Для активного заказа нужен другой товар",
+                        ? $"E — взять со склада • товар: {productConfig.DisplayName}"
+                        : $"Для заказа нужен товар: {requiredProduct.DisplayName} • " +
+                          $"выбран: {productConfig.DisplayName}",
                     available);
             }
         }

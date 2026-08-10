@@ -14,7 +14,7 @@ public static class GameComponentsLookup {
     public const int Camera = 3;
     public const int CarrierEntityId = 4;
     public const int CarryAnchor = 5;
-    public const int CarryingSpeed = 6;
+    public const int CarryMovementSpeed = 6;
     public const int CharacterController = 7;
     public const int Colliders = 8;
     public const int CursorLocked = 9;
@@ -71,60 +71,62 @@ public static class GameComponentsLookup {
     public const int MouseSensitivity = 60;
     public const int MoveDirection = 61;
     public const int MovementSpeed = 62;
-    public const int NotificationMessage = 63;
-    public const int OccupiedStorageSlotCount = 64;
-    public const int Order = 65;
-    public const int OrderCounter = 66;
-    public const int OrderCounterEntityId = 67;
-    public const int OrderReward = 68;
-    public const int OrderRewarded = 69;
-    public const int Player = 70;
-    public const int ProcurementTerminal = 71;
-    public const int ProcurementTerminalEntityId = 72;
-    public const int Product = 73;
-    public const int ProductLoaded = 74;
-    public const int ProductMass = 75;
-    public const int ProductMassApplied = 76;
-    public const int ProductPlacementDirty = 77;
-    public const int ProductStocked = 78;
-    public const int ProductType = 79;
-    public const int RequiredProductCount = 80;
-    public const int RequiredProductType = 81;
-    public const int RigidbodyCollisionDetectionMode = 82;
-    public const int Rigidbody = 83;
-    public const int RigidbodyInterpolationMode = 84;
-    public const int RotationSpeed = 85;
-    public const int RouteCompleted = 86;
-    public const int Route = 87;
-    public const int RouteWaypointIndex = 88;
-    public const int SceneViewKey = 89;
-    public const int Slots = 90;
-    public const int SourceEntityId = 91;
-    public const int SpawnPosition = 92;
-    public const int SpawnRotation = 93;
-    public const int SprintSpeed = 94;
-    public const int StockedProductCount = 95;
-    public const int StorageProductCount = 96;
-    public const int StorageSlotIndex = 97;
-    public const int StorageZone = 98;
-    public const int StorageZoneEntityId = 99;
-    public const int Store = 100;
-    public const int StoreEntityId = 101;
-    public const int StoreSceneBindingsValidated = 102;
-    public const int TargetEntityId = 103;
-    public const int Transform = 104;
-    public const int UnitPrice = 105;
-    public const int VerticalVelocity = 106;
-    public const int View = 107;
-    public const int ViewPitch = 108;
-    public const int ViewPivot = 109;
-    public const int ViewPrefab = 110;
-    public const int WalkSpeed = 111;
-    public const int WaypointTolerance = 112;
-    public const int WorldPosition = 113;
-    public const int WorldRotation = 114;
+    public const int NextOrderSequenceIndex = 63;
+    public const int NotificationMessage = 64;
+    public const int OccupiedStorageSlotCount = 65;
+    public const int Order = 66;
+    public const int OrderCounter = 67;
+    public const int OrderCounterEntityId = 68;
+    public const int OrderReward = 69;
+    public const int OrderRewarded = 70;
+    public const int Player = 71;
+    public const int ProcurementTerminal = 72;
+    public const int ProcurementTerminalEntityId = 73;
+    public const int Product = 74;
+    public const int ProductLoaded = 75;
+    public const int ProductMass = 76;
+    public const int ProductMassApplied = 77;
+    public const int ProductPlacementDirty = 78;
+    public const int ProductStocked = 79;
+    public const int ProductType = 80;
+    public const int RequiredProductCount = 81;
+    public const int RequiredProductType = 82;
+    public const int RigidbodyCollisionDetectionMode = 83;
+    public const int Rigidbody = 84;
+    public const int RigidbodyInterpolationMode = 85;
+    public const int RotationSpeed = 86;
+    public const int RouteCompleted = 87;
+    public const int Route = 88;
+    public const int RouteWaypointIndex = 89;
+    public const int SceneViewKey = 90;
+    public const int SelectedProductType = 91;
+    public const int Slots = 92;
+    public const int SourceEntityId = 93;
+    public const int SpawnPosition = 94;
+    public const int SpawnRotation = 95;
+    public const int SprintSpeed = 96;
+    public const int StockedProductCount = 97;
+    public const int StorageProductCount = 98;
+    public const int StorageSlotIndex = 99;
+    public const int StorageZone = 100;
+    public const int StorageZoneEntityId = 101;
+    public const int Store = 102;
+    public const int StoreEntityId = 103;
+    public const int StoreSceneBindingsValidated = 104;
+    public const int TargetEntityId = 105;
+    public const int Transform = 106;
+    public const int UnitPrice = 107;
+    public const int VerticalVelocity = 108;
+    public const int View = 109;
+    public const int ViewPitch = 110;
+    public const int ViewPivot = 111;
+    public const int ViewPrefab = 112;
+    public const int WalkSpeed = 113;
+    public const int WaypointTolerance = 114;
+    public const int WorldPosition = 115;
+    public const int WorldRotation = 116;
 
-    public const int TotalComponents = 115;
+    public const int TotalComponents = 117;
 
     public static readonly string[] componentNames = {
         "AimAssistRadius",
@@ -133,7 +135,7 @@ public static class GameComponentsLookup {
         "Camera",
         "CarrierEntityId",
         "CarryAnchor",
-        "CarryingSpeed",
+        "CarryMovementSpeed",
         "CharacterController",
         "Colliders",
         "CursorLocked",
@@ -190,6 +192,7 @@ public static class GameComponentsLookup {
         "MouseSensitivity",
         "MoveDirection",
         "MovementSpeed",
+        "NextOrderSequenceIndex",
         "NotificationMessage",
         "OccupiedStorageSlotCount",
         "Order",
@@ -217,6 +220,7 @@ public static class GameComponentsLookup {
         "Route",
         "RouteWaypointIndex",
         "SceneViewKey",
+        "SelectedProductType",
         "Slots",
         "SourceEntityId",
         "SpawnPosition",
@@ -251,7 +255,7 @@ public static class GameComponentsLookup {
         typeof(HardwareStore.Gameplay.Components.CameraComponent),
         typeof(HardwareStore.Gameplay.Components.CarrierEntityId),
         typeof(HardwareStore.Gameplay.Components.CarryAnchorComponent),
-        typeof(HardwareStore.Gameplay.Components.CarryingSpeed),
+        typeof(HardwareStore.Gameplay.Components.CarryMovementSpeed),
         typeof(HardwareStore.Gameplay.Components.CharacterControllerComponent),
         typeof(HardwareStore.Gameplay.Components.CollidersComponent),
         typeof(HardwareStore.Gameplay.Components.CursorLocked),
@@ -308,6 +312,7 @@ public static class GameComponentsLookup {
         typeof(HardwareStore.Gameplay.Components.MouseSensitivity),
         typeof(HardwareStore.Gameplay.Components.MoveDirection),
         typeof(HardwareStore.Gameplay.Components.MovementSpeed),
+        typeof(HardwareStore.Gameplay.Components.NextOrderSequenceIndex),
         typeof(HardwareStore.Gameplay.Components.NotificationMessage),
         typeof(HardwareStore.Gameplay.Components.OccupiedStorageSlotCount),
         typeof(HardwareStore.Gameplay.Components.Order),
@@ -335,6 +340,7 @@ public static class GameComponentsLookup {
         typeof(HardwareStore.Gameplay.Components.RouteComponent),
         typeof(HardwareStore.Gameplay.Components.RouteWaypointIndex),
         typeof(HardwareStore.Gameplay.Components.SceneViewKey),
+        typeof(HardwareStore.Gameplay.Components.SelectedProductType),
         typeof(HardwareStore.Gameplay.Components.SlotsComponent),
         typeof(HardwareStore.Gameplay.Components.SourceEntityId),
         typeof(HardwareStore.Gameplay.Components.SpawnPosition),

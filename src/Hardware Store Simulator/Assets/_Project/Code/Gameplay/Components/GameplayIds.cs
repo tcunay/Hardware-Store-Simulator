@@ -21,7 +21,8 @@ namespace HardwareStore.Gameplay.Components
 
     public enum ProductTypeId
     {
-        CementBag
+        CementBag = 0,
+        BoardBundle = 1
     }
 
     public enum InteractionTypeId

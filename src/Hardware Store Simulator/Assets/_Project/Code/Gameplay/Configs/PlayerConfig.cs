@@ -12,7 +12,6 @@ namespace HardwareStore.Gameplay.Configs
         [Header("Movement")]
         [SerializeField, Min(0f)] private float _walkSpeed = 5.2f;
         [SerializeField, Min(0f)] private float _sprintSpeed = 8f;
-        [SerializeField, Min(0f)] private float _carryingSpeed = 3.2f;
         [SerializeField] private float _gravity = -24f;
 
         [Header("Look")]
@@ -23,7 +22,6 @@ namespace HardwareStore.Gameplay.Configs
         public EntityBehaviour ViewPrefab => _viewPrefab;
         public float WalkSpeed => _walkSpeed;
         public float SprintSpeed => _sprintSpeed;
-        public float CarryingSpeed => _carryingSpeed;
         public float Gravity => _gravity;
         public float MouseSensitivity => _mouseSensitivity;
         public float GamepadLookSpeed => _gamepadLookSpeed;
@@ -35,10 +33,9 @@ namespace HardwareStore.Gameplay.Configs
             ConfigValidation.RequireReference(_viewPrefab, owner, nameof(ViewPrefab));
             ConfigValidation.RequirePositive(_walkSpeed, owner, nameof(WalkSpeed));
             ConfigValidation.RequirePositive(_sprintSpeed, owner, nameof(SprintSpeed));
-            ConfigValidation.RequirePositive(_carryingSpeed, owner, nameof(CarryingSpeed));
-            if (!(_carryingSpeed < _walkSpeed && _walkSpeed < _sprintSpeed))
+            if (_walkSpeed >= _sprintSpeed)
                 throw new System.InvalidOperationException(
-                    $"{owner} movement speeds must satisfy CarryingSpeed < WalkSpeed < SprintSpeed.");
+                    $"{owner} movement speeds must satisfy WalkSpeed < SprintSpeed.");
 
             ConfigValidation.RequireNegative(_gravity, owner, nameof(Gravity));
             ConfigValidation.RequirePositive(_mouseSensitivity, owner, nameof(MouseSensitivity));

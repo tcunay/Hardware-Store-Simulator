@@ -17,6 +17,7 @@ namespace HardwareStore.Gameplay.Components
     [Game] public class LoadingSlotIndex : IComponent { public int Value; }
     [Game] public class ProductType : IComponent { public ProductTypeId Value; }
     [Game] public class ProductMass : IComponent { public float Value; }
+    [Game] public class CarryMovementSpeed : IComponent { public float Value; }
     [Game] public class HeldRotationOffset : IComponent { public Quaternion Value; }
     [Game] public class DropForwardDistance : IComponent { public float Value; }
     [Game] public class RigidbodyInterpolationMode : IComponent { public RigidbodyInterpolation Value; }

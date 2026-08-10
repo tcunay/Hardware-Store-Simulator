@@ -12,6 +12,12 @@ namespace HardwareStore.Gameplay.Configs
                 throw Invalid(owner, property, "must reference an object");
         }
 
+        public static void RequireNotBlank(string value, string owner, string property)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+                throw Invalid(owner, property, "must contain non-whitespace text");
+        }
+
         public static void RequirePositive(float value, string owner, string property)
         {
             RequireFinite(value, owner, property);

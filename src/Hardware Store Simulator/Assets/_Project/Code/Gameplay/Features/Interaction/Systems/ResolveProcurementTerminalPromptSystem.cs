@@ -1,16 +1,21 @@
 using Entitas;
+using HardwareStore.Gameplay.Configs;
 using HardwareStore.Gameplay.Components;
+using HardwareStore.Gameplay.StaticData;
 
 namespace HardwareStore.Gameplay.Features.Interaction.Systems
 {
     public sealed class ResolveProcurementTerminalPromptSystem : IExecuteSystem
     {
         private readonly GameContext _gameContext;
+        private readonly IStaticDataService _staticData;
         private readonly IGroup<GameEntity> _players;
 
-        public ResolveProcurementTerminalPromptSystem(GameContext gameContext)
+        public ResolveProcurementTerminalPromptSystem(GameContext gameContext,
+            IStaticDataService staticData)
         {
             _gameContext = gameContext;
+            _staticData = staticData;
             _players = gameContext.GetGroup(GameMatcher.AllOf(
                 GameMatcher.Player,
                 GameMatcher.StoreEntityId,
@@ -29,46 +34,87 @@ namespace HardwareStore.Gameplay.Features.Interaction.Systems
                     _gameContext.GetEntityWithEntityId(player.FocusedEntityId);
                 if (terminal.StoreEntityId != player.StoreEntityId)
                     continue;
+                if (!terminal.hasSelectedProductType)
+                    throw new System.InvalidOperationException(
+                        $"Procurement terminal {terminal.EntityId} has no selected product type.");
 
                 GameEntity store =
                     _gameContext.GetEntityWithEntityId(terminal.StoreEntityId);
                 GameEntity storageZone =
                     _gameContext.GetEntityWithEntityId(terminal.StorageZoneEntityId);
+                DeliveryConfig selectedDelivery =
+                    _staticData.GetDelivery(terminal.SelectedProductType);
+                ProductConfig selectedProduct =
+                    _staticData.GetProduct(terminal.SelectedProductType);
 
                 GameEntity delivery =
                     _gameContext.GetEntityWithDeliveryProcurementTerminalEntityId(
                         terminal.EntityId);
                 if (delivery != null)
                 {
+                    ProductConfig deliveredProduct =
+                        _staticData.GetProduct(delivery.ProductType);
                     player.SetInteractionPrompt(
-                        $"Поставка разгружается: {delivery.StockedProductCount}/" +
-                        $"{delivery.DeliveryProductCount} принято",
+                        $"Поставка принимается • товар: {deliveredProduct.DisplayName} • " +
+                        $"принято: {delivery.StockedProductCount}/" +
+                        $"{delivery.DeliveryProductCount} {deliveredProduct.UnitLabel}",
+                        false);
+                    continue;
+                }
+
+                GameEntity customerVisit =
+                    _gameContext.GetEntityWithCustomerVisitStoreEntityId(store.EntityId);
+                if (customerVisit == null)
+                {
+                    player.SetInteractionPrompt(
+                        "Ожидайте клиента — поставка выбирается под заказ",
+                        false);
+                    continue;
+                }
+
+                if (customerVisit.isCustomerVisitCompleted ||
+                    customerVisit.isCustomerVisitDeparting)
+                {
+                    player.SetInteractionPrompt(
+                        "Заказ выполнен — дождитесь следующего клиента",
+                        false);
+                    continue;
+                }
+
+                if (terminal.SelectedProductType != customerVisit.RequiredProductType)
+                {
+                    ProductConfig requiredProduct =
+                        _staticData.GetProduct(customerVisit.RequiredProductType);
+                    player.SetInteractionPrompt(
+                        $"1/2 — выбрать товар для заказа: {requiredProduct.DisplayName}",
                         false);
                     continue;
                 }
 
                 int freeSlotCount =
                     storageZone.Slots.Length - storageZone.OccupiedStorageSlotCount;
-                if (freeSlotCount < terminal.DeliveryProductCount)
+                if (freeSlotCount < selectedDelivery.ProductCount)
                 {
                     player.SetInteractionPrompt(
                         $"Недостаточно места на складе: свободно {freeSlotCount}/" +
-                        $"{terminal.DeliveryProductCount}",
+                        $"{selectedDelivery.ProductCount}",
                         false);
                     continue;
                 }
 
-                if (store.Money < terminal.DeliveryCost)
+                if (store.Money < selectedDelivery.TotalCost)
                 {
                     player.SetInteractionPrompt(
-                        $"Недостаточно денег — нужно {terminal.DeliveryCost:N0} ₽",
+                        $"Недостаточно денег • товар: {selectedProduct.DisplayName} • " +
+                        $"нужно: {selectedDelivery.TotalCost:N0} ₽",
                         false);
                     continue;
                 }
 
                 player.SetInteractionPrompt(
-                    $"E — заказать {terminal.DeliveryProductCount} мешка цемента " +
-                    $"за {terminal.DeliveryCost:N0} ₽",
+                    $"1/2 — {selectedProduct.DisplayName} • E — заказать " +
+                    $"{selectedDelivery.ProductCount} {selectedProduct.UnitLabel} за " +
+                    $"{selectedDelivery.TotalCost:N0} ₽",
                     true);
             }
         }

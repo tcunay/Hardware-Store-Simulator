@@ -35,17 +35,31 @@ namespace HardwareStore.Editor
         private const string PlayerConfigPath = "Assets/Resources/Configs/PlayerConfig.asset";
         private const string InteractionConfigPath = "Assets/Resources/Configs/InteractionConfig.asset";
         private const string PlayerPrefabPath = "Assets/_Project/Prefabs/Gameplay/Player.prefab";
-        private const string ProductConfigPath = "Assets/Resources/Configs/ProductConfig.asset";
-        private const string DeliveryConfigPath = "Assets/Resources/Configs/DeliveryConfig.asset";
+        private const string ConfigFolder = "Assets/Resources/Configs";
+        private const string CementProductConfigPath = "Assets/Resources/Configs/ProductConfig.asset";
+        private const string BoardProductConfigPath =
+            "Assets/Resources/Configs/ProductConfig_BoardBundle.asset";
+        private const string CementDeliveryConfigPath = "Assets/Resources/Configs/DeliveryConfig.asset";
+        private const string BoardDeliveryConfigPath =
+            "Assets/Resources/Configs/DeliveryConfig_BoardBundle.asset";
         private const string CustomerVehicleConfigPath =
             "Assets/Resources/Configs/CustomerVehicleConfig.asset";
         private const string EconomyConfigPath = "Assets/Resources/Configs/EconomyConfig.asset";
-        private const string OrderConfigPath = "Assets/Resources/Configs/OrderConfig.asset";
-        private const string ProductPrefabPath = "Assets/_Project/Prefabs/Gameplay/CementBag.prefab";
+        private const string CementOrderConfigPath = "Assets/Resources/Configs/OrderConfig.asset";
+        private const string BoardOrderConfigPath =
+            "Assets/Resources/Configs/OrderConfig_BoardBundle.asset";
+        private const string CementProductPrefabPath = "Assets/_Project/Prefabs/Gameplay/CementBag.prefab";
+        private const string BoardProductPrefabPath = "Assets/_Project/Prefabs/Gameplay/BoardBundle.prefab";
         private const string DeliveryVehiclePrefabPath = "Assets/_Project/Prefabs/Gameplay/DeliveryTruck.prefab";
         private const string CustomerVehiclePrefabPath =
             "Assets/_Project/Prefabs/Gameplay/CustomerVehicle.prefab";
-        private const int RequiredStorageSlotCapacity = 6;
+        private const int RequiredStorageSlotCapacity = 9;
+
+        private static readonly ProductTypeId[] ExpectedProductTypes =
+        {
+            ProductTypeId.CementBag,
+            ProductTypeId.BoardBundle
+        };
 
         private static readonly Type[] ExpectedInputComponents =
         {
@@ -55,6 +69,8 @@ namespace HardwareStore.Editor
             typeof(SprintHeld),
             typeof(InteractPressed),
             typeof(DropPressed),
+            typeof(PreviousPressed),
+            typeof(NextPressed),
             typeof(ToggleCursorPressed),
             typeof(PointerLook)
         };
@@ -114,15 +130,23 @@ namespace HardwareStore.Editor
             "EmitOrderCompleted"
         };
 
-        private static readonly (Type Type, string AssetPath)[] ExpectedGameplayConfigs =
+        private static readonly Type[] ExpectedGameplayConfigTypes =
+        {
+            typeof(PlayerConfig),
+            typeof(InteractionConfig),
+            typeof(EconomyConfig),
+            typeof(DeliveryConfig),
+            typeof(CustomerVehicleConfig),
+            typeof(OrderConfig),
+            typeof(ProductConfig)
+        };
+
+        private static readonly (Type Type, string AssetPath)[] ExpectedSingletonGameplayConfigs =
         {
             (typeof(PlayerConfig), PlayerConfigPath),
             (typeof(InteractionConfig), InteractionConfigPath),
             (typeof(EconomyConfig), EconomyConfigPath),
-            (typeof(DeliveryConfig), DeliveryConfigPath),
-            (typeof(CustomerVehicleConfig), CustomerVehicleConfigPath),
-            (typeof(OrderConfig), OrderConfigPath),
-            (typeof(ProductConfig), ProductConfigPath)
+            (typeof(CustomerVehicleConfig), CustomerVehicleConfigPath)
         };
 
         [MenuItem(MenuPath, priority = 120)]
@@ -524,7 +548,8 @@ namespace HardwareStore.Editor
                 nameof(IOrderFactory.AddOrderComponents),
                 typeof(GameEntity),
                 typeof(GameEntity),
-                typeof(int));
+                typeof(int),
+                typeof(ProductTypeId));
 
             string customerVisitFactorySource = ReadRuntimeSource(
                 "Gameplay", "Factories", "CustomerVisitFactory.cs");
@@ -539,6 +564,7 @@ namespace HardwareStore.Editor
                 "Gameplay", "Factories", "OrderFactory.cs");
             RequireSourceContains(orderFactorySource,
                 "AddOrderComponents",
+                "_staticData.GetOrder(productType)",
                 "isOrder = true");
             Require(!orderFactorySource.Contains("CreateEntity.", StringComparison.Ordinal),
                 $"{nameof(OrderFactory)} must enrich the unified CustomerVisit entity, not create another one.");
@@ -565,7 +591,7 @@ namespace HardwareStore.Editor
         private static void ValidateGameplayConfigBoundary(IEnumerable<Type> runtimeTypes)
         {
             var expectedConfigTypes =
-                new HashSet<Type>(ExpectedGameplayConfigs.Select(config => config.Type));
+                new HashSet<Type>(ExpectedGameplayConfigTypes);
             var discoveredConfigTypes = new HashSet<Type>(runtimeTypes
                 .Where(type => type.Namespace == typeof(PlayerConfig).Namespace)
                 .Where(type => !type.IsAbstract && typeof(ScriptableObject).IsAssignableFrom(type)));
@@ -575,16 +601,33 @@ namespace HardwareStore.Editor
                     expectedConfigTypes,
                     discoveredConfigTypes));
 
-            var staticDataConfigTypes = new HashSet<Type>(typeof(IStaticDataService)
+            Type staticDataType = typeof(IStaticDataService);
+            var staticDataConfigTypes = new HashSet<Type>(staticDataType
                 .GetProperties(BindingFlags.Instance | BindingFlags.Public | BindingFlags.DeclaredOnly)
-                .Select(property => property.PropertyType));
+                .Select(property => property.PropertyType)
+                .Concat(staticDataType
+                    .GetMethods(BindingFlags.Instance | BindingFlags.Public | BindingFlags.DeclaredOnly)
+                    .Select(method => method.ReturnType))
+                .Where(expectedConfigTypes.Contains));
             Require(staticDataConfigTypes.SetEquals(expectedConfigTypes),
                 DescribeSetMismatch(
                     nameof(IStaticDataService),
                     expectedConfigTypes,
                     staticDataConfigTypes));
 
-            foreach ((Type configType, string assetPath) in ExpectedGameplayConfigs)
+            PropertyInfo productTypesProperty = staticDataType.GetProperty(
+                nameof(IStaticDataService.ProductTypes),
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.DeclaredOnly);
+            Require(productTypesProperty?.PropertyType == typeof(IReadOnlyList<ProductTypeId>),
+                $"{nameof(IStaticDataService)} must expose a read-only ProductTypeId catalog key list.");
+            RequireMethod(staticDataType, nameof(IStaticDataService.GetProduct), typeof(ProductConfig),
+                typeof(ProductTypeId));
+            RequireMethod(staticDataType, nameof(IStaticDataService.GetDelivery), typeof(DeliveryConfig),
+                typeof(ProductTypeId));
+            RequireMethod(staticDataType, nameof(IStaticDataService.GetOrder), typeof(OrderConfig),
+                typeof(ProductTypeId));
+
+            foreach (Type configType in ExpectedGameplayConfigTypes)
             {
                 Require(configType.IsSealed && typeof(ScriptableObject).IsAssignableFrom(configType),
                     $"Gameplay config {configType.FullName} must be a sealed ScriptableObject.");
@@ -608,7 +651,10 @@ namespace HardwareStore.Editor
                 string configSource = ReadRuntimeSource(
                     "Gameplay", "Configs", configType.Name + ".cs");
                 ValidatePureConfigGetters(configType, properties, configSource);
+            }
 
+            foreach ((Type configType, string assetPath) in ExpectedSingletonGameplayConfigs)
+            {
                 ScriptableObject configAsset =
                     AssetDatabase.LoadAssetAtPath(assetPath, configType) as ScriptableObject;
                 Require(configAsset != null,
@@ -625,6 +671,10 @@ namespace HardwareStore.Editor
                         exception);
                 }
             }
+
+            ValidateConfigCatalogAssets<ProductConfig>(expectedCount: 2);
+            ValidateConfigCatalogAssets<DeliveryConfig>(expectedCount: 2);
+            ValidateConfigCatalogAssets<OrderConfig>(expectedCount: 2);
 
             string customerVehicleConfigSource = ReadRuntimeSource(
                 "Gameplay", "Configs", nameof(CustomerVehicleConfig) + ".cs");
@@ -643,27 +693,15 @@ namespace HardwareStore.Editor
                 "Gameplay", "StaticData", "StaticDataService.cs");
             Require(!staticDataSource.Contains("_ =", StringComparison.Ordinal),
                 $"{nameof(StaticDataService)} must not validate configs through discarded getter reads.");
+            Require(!staticDataSource.Contains("public ProductConfig Product", StringComparison.Ordinal) &&
+                    !staticDataSource.Contains("public DeliveryConfig Delivery", StringComparison.Ordinal) &&
+                    !staticDataSource.Contains("public OrderConfig Order", StringComparison.Ordinal),
+                $"{nameof(StaticDataService)} must not retain the legacy single-SKU config properties.");
             RequireSourceContains(staticDataSource,
-                "player.Validate()",
-                "interaction.Validate()",
-                "economy.Validate()",
-                "delivery.Validate()",
-                "customerVehicle.Validate()",
-                "order.Validate()",
-                "product.Validate()",
-                "ValidateCompatibility(economy, delivery, order, product)",
-                "where TConfig : ScriptableObject, IValidatableConfig");
-
-            int compatibilityValidation = staticDataSource.IndexOf(
-                "ValidateCompatibility(economy, delivery, order, product)",
-                StringComparison.Ordinal);
-            int firstPublication = staticDataSource.IndexOf("Player = player", StringComparison.Ordinal);
-            int finalPublication = staticDataSource.IndexOf("Product = product", StringComparison.Ordinal);
-            Require(compatibilityValidation >= 0 && firstPublication > compatibilityValidation,
-                $"{nameof(StaticDataService)} must validate all local configs and compatibility " +
-                "before publishing any property.");
-            Require(finalPublication > firstPublication,
-                $"{nameof(StaticDataService)} must publish the complete validated config set atomically.");
+                "GetProduct(ProductTypeId productType)",
+                "GetDelivery(ProductTypeId productType)",
+                "GetOrder(ProductTypeId productType)",
+                "ProductTypes");
         }
 
         private static void ValidateJennyPipeline()
@@ -760,43 +798,87 @@ namespace HardwareStore.Editor
 
         private static void ValidateSupplyChainAssets()
         {
-            ProductConfig productConfig = RequireAsset<ProductConfig>(ProductConfigPath);
-            DeliveryConfig deliveryConfig = RequireAsset<DeliveryConfig>(DeliveryConfigPath);
+            ProductTypeId[] enumValues = Enum.GetValues(typeof(ProductTypeId))
+                .Cast<ProductTypeId>()
+                .ToArray();
+            Require(enumValues.SequenceEqual(ExpectedProductTypes),
+                $"{nameof(ProductTypeId)} must append exactly CementBag = 0 and BoardBundle = 1.");
+
+            ProductConfig cementProductConfig =
+                RequireAsset<ProductConfig>(CementProductConfigPath);
+            ProductConfig boardProductConfig =
+                RequireAsset<ProductConfig>(BoardProductConfigPath);
+            DeliveryConfig cementDeliveryConfig =
+                RequireAsset<DeliveryConfig>(CementDeliveryConfigPath);
+            DeliveryConfig boardDeliveryConfig =
+                RequireAsset<DeliveryConfig>(BoardDeliveryConfigPath);
             CustomerVehicleConfig customerVehicleConfig =
                 RequireAsset<CustomerVehicleConfig>(CustomerVehicleConfigPath);
             EconomyConfig economyConfig = RequireAsset<EconomyConfig>(EconomyConfigPath);
-            OrderConfig orderConfig = RequireAsset<OrderConfig>(OrderConfigPath);
+            OrderConfig cementOrderConfig = RequireAsset<OrderConfig>(CementOrderConfigPath);
+            OrderConfig boardOrderConfig = RequireAsset<OrderConfig>(BoardOrderConfigPath);
 
-            Require(deliveryConfig.ProductType == ProductTypeId.CementBag,
-                $"{DeliveryConfigPath} must deliver {ProductTypeId.CementBag}.");
-            Require(deliveryConfig.ProductCount == 3,
-                $"{DeliveryConfigPath} must contain exactly 3 products for the prototype slice.");
-            Require(deliveryConfig.PurchaseUnitPrice == 200,
-                $"{DeliveryConfigPath} must use a purchase unit price of 200.");
-            Require(deliveryConfig.TotalCost == deliveryConfig.ProductCount * deliveryConfig.PurchaseUnitPrice,
-                $"{DeliveryConfigPath} has an inconsistent total cost.");
+            ProductConfig[] productConfigs = LoadConfigCatalogAssets<ProductConfig>();
+            DeliveryConfig[] deliveryConfigs = LoadConfigCatalogAssets<DeliveryConfig>();
+            OrderConfig[] orderConfigs = LoadConfigCatalogAssets<OrderConfig>();
+            Require(productConfigs.Length == ExpectedProductTypes.Length &&
+                    deliveryConfigs.Length == ExpectedProductTypes.Length &&
+                    orderConfigs.Length == ExpectedProductTypes.Length,
+                "Product, delivery and order catalogs must each contain exactly two assets.");
+            var expectedKeys = new HashSet<ProductTypeId>(ExpectedProductTypes);
+            var productKeys = new HashSet<ProductTypeId>(productConfigs.Select(config => config.ProductType));
+            var deliveryKeys = new HashSet<ProductTypeId>(deliveryConfigs.Select(config => config.ProductType));
+            var orderKeys = new HashSet<ProductTypeId>(orderConfigs.Select(config => config.RequiredProductType));
+            Require(productKeys.SetEquals(expectedKeys) && productKeys.Count == productConfigs.Length,
+                "ProductConfig assets must provide every ProductTypeId exactly once.");
+            Require(deliveryKeys.SetEquals(expectedKeys) && deliveryKeys.Count == deliveryConfigs.Length,
+                "DeliveryConfig assets must have one-to-one key parity with the product catalog.");
+            Require(orderKeys.SetEquals(expectedKeys) && orderKeys.Count == orderConfigs.Length,
+                "OrderConfig assets must have one-to-one key parity with the product catalog.");
+
+            ValidateCatalogEntry(
+                cementProductConfig,
+                cementDeliveryConfig,
+                cementOrderConfig,
+                ProductTypeId.CementBag,
+                displayName: "Цемент 25 кг",
+                unitLabel: "шт.",
+                unitPrice: 350,
+                mass: 25f,
+                carryMovementSpeed: 3.2f,
+                deliveryCount: 3,
+                purchaseUnitPrice: 200,
+                requiredCount: 2,
+                reward: 700);
+            ValidateCatalogEntry(
+                boardProductConfig,
+                boardDeliveryConfig,
+                boardOrderConfig,
+                ProductTypeId.BoardBundle,
+                displayName: "Пачка досок",
+                unitLabel: "шт.",
+                unitPrice: 480,
+                mass: 18f,
+                carryMovementSpeed: 2.6f,
+                deliveryCount: 3,
+                purchaseUnitPrice: 260,
+                requiredCount: 2,
+                reward: 960);
+
             Require(economyConfig.InitialMoney == 1000,
                 $"{EconomyConfigPath} must start the prototype with 1000.");
-            Require(economyConfig.InitialMoney >= deliveryConfig.TotalCost,
-                "Initial money must be sufficient for the configured inbound delivery.");
-            Require(productConfig.ProductType == deliveryConfig.ProductType &&
-                    orderConfig.RequiredProductType == deliveryConfig.ProductType,
-                "Product, delivery and customer order configs must use the same product type.");
-            Require(orderConfig.RequiredProductCount == 2,
-                $"{OrderConfigPath} must require exactly 2 products for the prototype slice.");
-            Require(orderConfig.Reward == 700,
-                $"{OrderConfigPath} must reward 700 for the prototype slice.");
-            Require(deliveryConfig.ProductCount > orderConfig.RequiredProductCount,
-                "The delivery must leave at least one product in storage after the customer order.");
-            Require(Quaternion.Angle(productConfig.HeldRotationOffset, Quaternion.Euler(8f, 0f, 0f)) < 0.01f,
-                $"{ProductConfigPath} must use an 8 degree held rotation offset around X.");
-            Require(Mathf.Approximately(productConfig.DropForwardDistance, 1.15f),
-                $"{ProductConfigPath} must use a drop forward distance of 1.15.");
-            Require(productConfig.WorldInterpolation == RigidbodyInterpolation.Interpolate,
-                $"{ProductConfigPath} must use {RigidbodyInterpolation.Interpolate} world interpolation.");
-            Require(productConfig.WorldCollisionDetection == CollisionDetectionMode.ContinuousSpeculative,
-                $"{ProductConfigPath} must use {CollisionDetectionMode.ContinuousSpeculative} " +
-                "world collision detection.");
+            Require(deliveryConfigs.All(config => economyConfig.InitialMoney >= config.TotalCost),
+                "Initial money must cover either configured inbound delivery.");
+            Require(!Mathf.Approximately(cementProductConfig.Mass, boardProductConfig.Mass) &&
+                    !Mathf.Approximately(
+                        cementProductConfig.CarryMovementSpeed,
+                        boardProductConfig.CarryMovementSpeed),
+                "Cement and board bundles must have distinct mass and carry movement speed.");
+            Require(Quaternion.Angle(
+                        cementProductConfig.HeldRotationOffset,
+                        Quaternion.Euler(8f, 0f, 0f)) < 0.01f &&
+                    Mathf.Approximately(cementProductConfig.DropForwardDistance, 1.15f),
+                $"{CementProductConfigPath} must preserve cement handling offsets.");
             Require(Mathf.Approximately(customerVehicleConfig.ArrivalSpeed, 4f),
                 $"{CustomerVehicleConfigPath} must use an arrival speed of 4.");
             Require(Mathf.Approximately(customerVehicleConfig.DepartureSpeed, 5.25f),
@@ -811,63 +893,28 @@ namespace HardwareStore.Editor
                     Mathf.Approximately(customerVehicleConfig.NextCustomerDelay, 4f),
                 $"{CustomerVehicleConfigPath} must use prototype customer delays of 1 and 4 seconds.");
 
-            GameObject productPrefab = RequireAsset<GameObject>(ProductPrefabPath);
-            ValidatePrefabRoot(productPrefab, ProductPrefabPath, requireUnitScale: false);
-            InteractionView[] productViews =
-                RequireExactlyOneInPrefab<InteractionView>(productPrefab, ProductPrefabPath);
-            EntityBehaviour[] productEntityViews =
-                RequireExactlyOneInPrefab<EntityBehaviour>(productPrefab, ProductPrefabPath);
-            TransformRegistrar[] productTransforms =
-                RequireExactlyOneInPrefab<TransformRegistrar>(productPrefab, ProductPrefabPath);
-            InteractionViewRegistrar[] interactionRegistrars =
-                RequireExactlyOneInPrefab<InteractionViewRegistrar>(productPrefab, ProductPrefabPath);
-            RigidbodyRegistrar[] rigidbodyRegistrars =
-                RequireExactlyOneInPrefab<RigidbodyRegistrar>(productPrefab, ProductPrefabPath);
-            CollidersRegistrar[] collidersRegistrars =
-                RequireExactlyOneInPrefab<CollidersRegistrar>(productPrefab, ProductPrefabPath);
-            EntityComponentRegistrar[] allRegistrars =
-                productPrefab.GetComponentsInChildren<EntityComponentRegistrar>(true);
-            Rigidbody[] rigidbodies = RequireExactlyOneInPrefab<Rigidbody>(productPrefab, ProductPrefabPath);
-            InteractionHighlight[] highlights =
-                RequireExactlyOneInPrefab<InteractionHighlight>(productPrefab, ProductPrefabPath);
-            Collider[] productColliders = productPrefab.GetComponentsInChildren<Collider>(true);
-
-            Require(productViews[0].GetType() == typeof(InteractionView) &&
-                    productViews[0].gameObject == productPrefab &&
-                    productEntityViews[0].gameObject == productPrefab,
-                $"The root view in {ProductPrefabPath} must be a non-specialized InteractionView.");
-            Require(productTransforms[0].gameObject == productPrefab &&
-                    interactionRegistrars[0].gameObject == productPrefab &&
-                    rigidbodyRegistrars[0].gameObject == productPrefab &&
-                    collidersRegistrars[0].gameObject == productPrefab &&
-                    rigidbodies[0].gameObject == productPrefab &&
-                    highlights[0].gameObject == productPrefab,
-                $"All product registrars and required adapters in {ProductPrefabPath} must be on its root.");
-            var expectedProductRegistrarTypes = new HashSet<Type>
-            {
-                typeof(TransformRegistrar),
-                typeof(InteractionViewRegistrar),
-                typeof(RigidbodyRegistrar),
-                typeof(CollidersRegistrar)
-            };
-            Require(allRegistrars.Length == expectedProductRegistrarTypes.Count &&
-                    new HashSet<Type>(allRegistrars.Select(registrar => registrar.GetType()))
-                        .SetEquals(expectedProductRegistrarTypes),
-                $"{ProductPrefabPath} must contain exactly the generic Transform, InteractionView, " +
-                "Rigidbody and Colliders registrars.");
-            Require(productColliders.Length >= 2 &&
-                    productColliders.All(collider => collider.enabled && collider.gameObject.activeSelf),
-                $"Every collider in {ProductPrefabPath} must be enabled on an active object.");
-            Require(productColliders.Count(collider => !collider.isTrigger) == 1,
-                $"{ProductPrefabPath} must contain exactly one solid product collider.");
-            Require(productColliders.Any(collider => collider.isTrigger),
-                $"{ProductPrefabPath} must contain an interaction trigger.");
-            Require(Mathf.Approximately(rigidbodies[0].mass, productConfig.Mass) &&
-                    rigidbodies[0].interpolation == productConfig.WorldInterpolation &&
-                    rigidbodies[0].collisionDetectionMode == productConfig.WorldCollisionDetection,
-                $"The Rigidbody in {ProductPrefabPath} must match {ProductConfigPath} physics values.");
-            Require(productConfig.ViewPrefab == productEntityViews[0],
-                $"{ProductConfigPath} must reference the EntityBehaviour root from {ProductPrefabPath}.");
+            GameObject cementProductPrefab = RequireAsset<GameObject>(CementProductPrefabPath);
+            GameObject boardProductPrefab = RequireAsset<GameObject>(BoardProductPrefabPath);
+            Vector3 cementGeometry = ValidateProductPrefab(
+                cementProductConfig,
+                CementProductConfigPath,
+                cementProductPrefab,
+                CementProductPrefabPath,
+                requireUnitScale: false);
+            Vector3 boardGeometry = ValidateProductPrefab(
+                boardProductConfig,
+                BoardProductConfigPath,
+                boardProductPrefab,
+                BoardProductPrefabPath,
+                requireUnitScale: true);
+            float boardLength = Mathf.Max(boardGeometry.x, boardGeometry.z);
+            float cementLength = Mathf.Max(cementGeometry.x, cementGeometry.z);
+            Require(boardLength >= 1.4f && boardLength <= 1.6f,
+                $"{BoardProductPrefabPath} must be approximately 1.4-1.6 metres long.");
+            Require(boardLength > cementLength + 0.5f,
+                "Board bundle and cement bag must have materially distinct geometry.");
+            Require(boardProductPrefab.GetComponentsInChildren<Renderer>(true).Length >= 6,
+                $"{BoardProductPrefabPath} must visibly contain four boards and retaining straps.");
 
             GameObject deliveryPrefab = RequireAsset<GameObject>(DeliveryVehiclePrefabPath);
             ValidatePrefabRoot(deliveryPrefab, DeliveryVehiclePrefabPath, requireUnitScale: true);
@@ -883,14 +930,16 @@ namespace HardwareStore.Editor
                     deliveryTransforms[0].gameObject == deliveryPrefab &&
                     deliverySlotRegistrars[0].gameObject == deliveryPrefab,
                 $"The delivery view and registrars in {DeliveryVehiclePrefabPath} must be on its root.");
-            Require(deliverySlots.Length == deliveryConfig.ProductCount,
-                $"{DeliveryVehiclePrefabPath} must expose exactly {deliveryConfig.ProductCount} cargo slots.");
+            int maximumDeliverySize = deliveryConfigs.Max(config => config.ProductCount);
+            Require(deliverySlots.Length == maximumDeliverySize,
+                $"{DeliveryVehiclePrefabPath} must expose exactly {maximumDeliverySize} cargo slots.");
             Require(deliverySlots.All(slot => slot.IsChildOf(deliveryPrefab.transform)),
                 $"Every cargo slot in {DeliveryVehiclePrefabPath} must belong to the prefab hierarchy.");
-            Require(!ContainsPrefabInstance(deliveryPrefab, productPrefab),
+            Require(!ContainsPrefabInstance(deliveryPrefab, cementProductPrefab) &&
+                    !ContainsPrefabInstance(deliveryPrefab, boardProductPrefab),
                 $"{DeliveryVehiclePrefabPath} must be empty before runtime cargo spawning.");
-            Require(deliveryConfig.ViewPrefab == deliveryViews[0],
-                $"{DeliveryConfigPath} must reference the EntityBehaviour root from " +
+            Require(deliveryConfigs.All(config => config.ViewPrefab == deliveryViews[0]),
+                $"Every DeliveryConfig must reference the EntityBehaviour root from " +
                 $"{DeliveryVehiclePrefabPath}.");
 
             GameObject customerVehiclePrefab = RequireAsset<GameObject>(CustomerVehiclePrefabPath);
@@ -964,9 +1013,10 @@ namespace HardwareStore.Editor
                         .SetEquals(expectedCustomerRegistrarTypes),
                 $"{CustomerVehiclePrefabPath} must contain exactly the generic Transform, InteractionView, " +
                 "Slots, Rigidbody and Colliders registrars.");
-            Require(customerSlots.Length == orderConfig.RequiredProductCount &&
+            int maximumOrderSize = orderConfigs.Max(config => config.RequiredProductCount);
+            Require(customerSlots.Length == maximumOrderSize &&
                     customerSlots.All(slot => slot.IsChildOf(customerVehiclePrefab.transform)),
-                $"{CustomerVehiclePrefabPath} must expose exactly {orderConfig.RequiredProductCount} " +
+                $"{CustomerVehiclePrefabPath} must expose exactly {maximumOrderSize} " +
                 "customer cargo slots within its hierarchy.");
             Require(customerColliders.Length >= 2 &&
                     customerColliders.All(collider => collider.enabled && collider.gameObject.activeSelf),
@@ -984,11 +1034,126 @@ namespace HardwareStore.Editor
                 new SerializedObject(customerViews[0]).FindProperty("_highlight");
             Require(customerHighlight?.objectReferenceValue == customerHighlights[0],
                 $"The InteractionView in {CustomerVehiclePrefabPath} must reference its loading highlight.");
-            Require(!ContainsPrefabInstance(customerVehiclePrefab, productPrefab),
+            Require(!ContainsPrefabInstance(customerVehiclePrefab, cementProductPrefab) &&
+                    !ContainsPrefabInstance(customerVehiclePrefab, boardProductPrefab),
                 $"{CustomerVehiclePrefabPath} must be empty before runtime order loading.");
             Require(customerVehicleConfig.ViewPrefab == customerViews[0],
                 $"{CustomerVehicleConfigPath} must reference the InteractionView root from " +
                 $"{CustomerVehiclePrefabPath}.");
+        }
+
+        private static void ValidateCatalogEntry(ProductConfig productConfig,
+            DeliveryConfig deliveryConfig, OrderConfig orderConfig, ProductTypeId productType,
+            string displayName, string unitLabel, int unitPrice, float mass, float carryMovementSpeed,
+            int deliveryCount, int purchaseUnitPrice, int requiredCount, int reward)
+        {
+            string productPath = AssetDatabase.GetAssetPath(productConfig);
+            string deliveryPath = AssetDatabase.GetAssetPath(deliveryConfig);
+            string orderPath = AssetDatabase.GetAssetPath(orderConfig);
+            Require(productConfig.ProductType == productType &&
+                    deliveryConfig.ProductType == productType &&
+                    orderConfig.RequiredProductType == productType,
+                $"Catalog entry {productType} must use the same key across product, delivery and order.");
+            Require(productConfig.DisplayName == displayName && productConfig.UnitLabel == unitLabel,
+                $"{productPath} must expose display name '{displayName}' and unit '{unitLabel}'.");
+            Require(productConfig.UnitPrice == unitPrice &&
+                    Mathf.Approximately(productConfig.Mass, mass) &&
+                    Mathf.Approximately(productConfig.CarryMovementSpeed, carryMovementSpeed),
+                $"{productPath} has incorrect sale, mass or carry-speed values.");
+            Require(productConfig.WorldInterpolation == RigidbodyInterpolation.Interpolate &&
+                    productConfig.WorldCollisionDetection ==
+                    CollisionDetectionMode.ContinuousSpeculative,
+                $"{productPath} must use the supported loose-product physics modes.");
+            Require(deliveryConfig.ProductCount == deliveryCount &&
+                    deliveryConfig.PurchaseUnitPrice == purchaseUnitPrice &&
+                    deliveryConfig.TotalCost == deliveryCount * purchaseUnitPrice,
+                $"{deliveryPath} has incorrect delivery quantity, unit cost or total.");
+            Require(orderConfig.RequiredProductCount == requiredCount && orderConfig.Reward == reward,
+                $"{orderPath} has incorrect required quantity or reward.");
+            Require(deliveryConfig.ProductCount > orderConfig.RequiredProductCount,
+                $"Delivery {productType} must leave stock after its matching order.");
+        }
+
+        private static Vector3 ValidateProductPrefab(ProductConfig productConfig, string productConfigPath,
+            GameObject productPrefab, string productPrefabPath, bool requireUnitScale)
+        {
+            ValidatePrefabRoot(productPrefab, productPrefabPath, requireUnitScale);
+            InteractionView[] productViews =
+                RequireExactlyOneInPrefab<InteractionView>(productPrefab, productPrefabPath);
+            EntityBehaviour[] productEntityViews =
+                RequireExactlyOneInPrefab<EntityBehaviour>(productPrefab, productPrefabPath);
+            TransformRegistrar[] productTransforms =
+                RequireExactlyOneInPrefab<TransformRegistrar>(productPrefab, productPrefabPath);
+            InteractionViewRegistrar[] interactionRegistrars =
+                RequireExactlyOneInPrefab<InteractionViewRegistrar>(productPrefab, productPrefabPath);
+            RigidbodyRegistrar[] rigidbodyRegistrars =
+                RequireExactlyOneInPrefab<RigidbodyRegistrar>(productPrefab, productPrefabPath);
+            CollidersRegistrar[] collidersRegistrars =
+                RequireExactlyOneInPrefab<CollidersRegistrar>(productPrefab, productPrefabPath);
+            EntityComponentRegistrar[] allRegistrars =
+                productPrefab.GetComponentsInChildren<EntityComponentRegistrar>(true);
+            Rigidbody[] rigidbodies = RequireExactlyOneInPrefab<Rigidbody>(productPrefab, productPrefabPath);
+            InteractionHighlight[] highlights =
+                RequireExactlyOneInPrefab<InteractionHighlight>(productPrefab, productPrefabPath);
+            Collider[] productColliders = productPrefab.GetComponentsInChildren<Collider>(true);
+
+            Require(productViews[0].GetType() == typeof(InteractionView) &&
+                    productViews[0].gameObject == productPrefab &&
+                    productEntityViews[0].gameObject == productPrefab,
+                $"The root view in {productPrefabPath} must be a non-specialized InteractionView.");
+            Require(productTransforms[0].gameObject == productPrefab &&
+                    interactionRegistrars[0].gameObject == productPrefab &&
+                    rigidbodyRegistrars[0].gameObject == productPrefab &&
+                    collidersRegistrars[0].gameObject == productPrefab &&
+                    rigidbodies[0].gameObject == productPrefab,
+                $"All product registrars, Rigidbody and view in {productPrefabPath} must be on its root.");
+            var expectedRegistrarTypes = new HashSet<Type>
+            {
+                typeof(TransformRegistrar),
+                typeof(InteractionViewRegistrar),
+                typeof(RigidbodyRegistrar),
+                typeof(CollidersRegistrar)
+            };
+            Require(allRegistrars.Length == expectedRegistrarTypes.Count &&
+                    new HashSet<Type>(allRegistrars.Select(registrar => registrar.GetType()))
+                        .SetEquals(expectedRegistrarTypes),
+                $"{productPrefabPath} must contain only the four generic product registrars.");
+            Require(productColliders.Length == 2 &&
+                    productColliders.All(collider => collider.enabled && collider.gameObject.activeSelf),
+                $"{productPrefabPath} must contain one solid collider and one interaction trigger.");
+            Collider solidCollider = productColliders.Single(collider => !collider.isTrigger);
+            Collider triggerCollider = productColliders.Single(collider => collider.isTrigger);
+            Require(solidCollider.gameObject == productPrefab,
+                $"The solid collider in {productPrefabPath} must be on the prefab root.");
+            Require(triggerCollider.gameObject != productPrefab,
+                $"The interaction trigger in {productPrefabPath} must be a separate child collider.");
+            SerializedProperty highlightProperty =
+                new SerializedObject(productViews[0]).FindProperty("_highlight");
+            Require(highlightProperty?.objectReferenceValue == highlights[0],
+                $"The InteractionView in {productPrefabPath} must reference its generic highlight.");
+            Require(Mathf.Approximately(rigidbodies[0].mass, productConfig.Mass) &&
+                    rigidbodies[0].interpolation == productConfig.WorldInterpolation &&
+                    rigidbodies[0].collisionDetectionMode == productConfig.WorldCollisionDetection,
+                $"The Rigidbody in {productPrefabPath} must match {productConfigPath}.");
+            Require(productConfig.ViewPrefab == productEntityViews[0],
+                $"{productConfigPath} must reference the EntityBehaviour root from {productPrefabPath}.");
+
+            return ReadSolidProductGeometry(productPrefab, productPrefabPath);
+        }
+
+        private static Vector3 ReadSolidProductGeometry(GameObject productPrefab,
+            string productPrefabPath)
+        {
+            Collider[] solidColliders = productPrefab.GetComponentsInChildren<Collider>(true)
+                .Where(collider => !collider.isTrigger)
+                .ToArray();
+            Require(solidColliders.Length == 1 && solidColliders[0] is BoxCollider,
+                $"{productPrefabPath} must provide exactly one solid BoxCollider.");
+            BoxCollider boxCollider = (BoxCollider)solidColliders[0];
+            Vector3 lossyScale = boxCollider.transform.lossyScale;
+            return Vector3.Scale(
+                boxCollider.size,
+                new Vector3(Mathf.Abs(lossyScale.x), Mathf.Abs(lossyScale.y), Mathf.Abs(lossyScale.z)));
         }
 
         private static void ValidatePrototypeSceneComposition()
@@ -1067,9 +1232,11 @@ namespace HardwareStore.Editor
                 Require(cameraRegistrars.Length == 0,
                     $"{PrototypeScenePath} must not contain CameraRegistrar; " +
                     "the player view is instantiated from its prefab at runtime.");
-                GameObject productPrefab = RequireAsset<GameObject>(ProductPrefabPath);
-                Require(!ContainsPrefabInstance(scene, productPrefab),
-                    $"{PrototypeScenePath} must not contain a product prefab instance; " +
+                GameObject cementProductPrefab = RequireAsset<GameObject>(CementProductPrefabPath);
+                GameObject boardProductPrefab = RequireAsset<GameObject>(BoardProductPrefabPath);
+                Require(!ContainsPrefabInstance(scene, cementProductPrefab) &&
+                        !ContainsPrefabInstance(scene, boardProductPrefab),
+                    $"{PrototypeScenePath} must not contain product prefab instances; " +
                     "delivery cargo is spawned at runtime.");
 
                 var expectedSpawnIds = new HashSet<SpawnPointId>
@@ -1141,6 +1308,27 @@ namespace HardwareStore.Editor
                 Transform[] storageSlots = ReadSlots(storageSlotsRegistrar, PrototypeScenePath);
                 Require(storageSlots.Length >= RequiredStorageSlotCapacity,
                     $"Storage must expose at least {RequiredStorageSlotCapacity} unique slots.");
+                Vector3 cementGeometry = ReadSolidProductGeometry(
+                    cementProductPrefab,
+                    CementProductPrefabPath);
+                Vector3 boardGeometry = ReadSolidProductGeometry(
+                    boardProductPrefab,
+                    BoardProductPrefabPath);
+                Vector3 maximumGeometry = new(
+                    Mathf.Max(cementGeometry.x, boardGeometry.x),
+                    Mathf.Max(cementGeometry.y, boardGeometry.y),
+                    Mathf.Max(cementGeometry.z, boardGeometry.z));
+                for (int first = 0; first < storageSlots.Length; first++)
+                {
+                    Bounds firstBounds = new(storageSlots[first].position, maximumGeometry);
+                    for (int second = first + 1; second < storageSlots.Length; second++)
+                    {
+                        Bounds secondBounds = new(storageSlots[second].position, maximumGeometry);
+                        Require(!firstBounds.Intersects(secondBounds),
+                            $"Storage slots {storageSlots[first].name} and " +
+                            $"{storageSlots[second].name} overlap for board-bundle geometry.");
+                    }
+                }
                 Collider[] storageInteractionTriggers = storage.View
                     .GetComponentsInChildren<Collider>(true)
                     .Where(collider => collider.isTrigger)
@@ -1160,6 +1348,19 @@ namespace HardwareStore.Editor
                         $"Storage interaction trigger overlaps slot {storageSlot.name} at " +
                         $"{slotPosition}; the receiving target must be spatially separate from stored products.");
                 }
+
+                Transform lumberDisplay = allSceneTransforms.SingleOrDefault(
+                    candidate => candidate.name == "Lumber Display");
+                Require(lumberDisplay != null,
+                    $"{PrototypeScenePath} must contain the functional Lumber Display area.");
+                Require(lumberDisplay.GetComponentsInChildren<Transform>(true)
+                            .Count(candidate => candidate.name.StartsWith(
+                                "Board Display Bundle",
+                                StringComparison.Ordinal)) >= 3 &&
+                        lumberDisplay.GetComponentsInChildren<TextMesh>(true)
+                            .Any(label => label.text.Contains("B-01", StringComparison.Ordinal) &&
+                                          label.text.Contains("ПАЧКА ДОСОК", StringComparison.Ordinal)),
+                    "Lumber Display must visibly expose stocked board bundles, address and product signage.");
 
                 GameObject deliveryPrefab = RequireAsset<GameObject>(DeliveryVehiclePrefabPath);
                 Require(!ContainsPrefabInstance(scene, deliveryPrefab),
@@ -1197,6 +1398,39 @@ namespace HardwareStore.Editor
         private static TAsset RequireAsset<TAsset>(string path) where TAsset : UnityEngine.Object =>
             AssetDatabase.LoadAssetAtPath<TAsset>(path) ??
             throw new InvalidOperationException($"ECS architecture validation failed: asset is missing at {path}.");
+
+        private static TConfig[] LoadConfigCatalogAssets<TConfig>() where TConfig : ScriptableObject =>
+            AssetDatabase.FindAssets($"t:{typeof(TConfig).Name}", new[] { ConfigFolder })
+                .Select(AssetDatabase.GUIDToAssetPath)
+                .Select(AssetDatabase.LoadAssetAtPath<TConfig>)
+                .Where(config => config != null)
+                .Distinct()
+                .OrderBy(config => AssetDatabase.GetAssetPath(config), StringComparer.Ordinal)
+                .ToArray();
+
+        private static void ValidateConfigCatalogAssets<TConfig>(int expectedCount)
+            where TConfig : ScriptableObject, IValidatableConfig
+        {
+            TConfig[] configs = LoadConfigCatalogAssets<TConfig>();
+            Require(configs.Length == expectedCount,
+                $"{ConfigFolder} must contain exactly {expectedCount} {typeof(TConfig).Name} assets, " +
+                $"found {configs.Length}.");
+            foreach (TConfig config in configs)
+            {
+                try
+                {
+                    config.Validate();
+                }
+                catch (Exception exception)
+                {
+                    string path = AssetDatabase.GetAssetPath(config);
+                    throw new InvalidOperationException(
+                        $"ECS architecture validation failed: {path} did not pass " +
+                        $"{nameof(IValidatableConfig)}.{nameof(IValidatableConfig.Validate)}().",
+                        exception);
+                }
+            }
+        }
 
         private static void ValidateExecuteOnlyViewBinder(Type binderType,
             params Type[] constructorParameters)

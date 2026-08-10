@@ -8,6 +8,7 @@ using HardwareStore.Gameplay.Features.Cleanup.Systems;
 using HardwareStore.Gameplay.Features.Customers.Systems;
 using HardwareStore.Gameplay.Features.Delivery.Systems;
 using HardwareStore.Gameplay.Features.Interaction;
+using HardwareStore.Gameplay.Features.Interaction.Systems;
 using HardwareStore.Gameplay.Features.Movement.Systems;
 using HardwareStore.Gameplay.Features.Orders.Systems;
 using HardwareStore.Gameplay.Features.Presentation.Systems;
@@ -35,12 +36,16 @@ namespace HardwareStore.Editor
             Runtime runtime = ResolveRuntime();
             Scenario scenario = ResolveFreshScenario(runtime);
             CustomerVisit visit = SpawnAndParkCustomer(runtime, scenario);
-            DeliveryArrival arrival = PurchaseAndPrepareArrival(runtime, scenario);
+            DeliveryArrival arrival = PurchaseAndPrepareArrival(
+                runtime,
+                scenario,
+                ProductTypeId.CementBag);
 
             Debug.Log(
                 $"[Hardware Store] Visual check prepared: customer visit " +
                 $"{visit.Entity.EntityId}, delivery {arrival.Delivery.EntityId} and " +
-                $"{arrival.Products.Length} cement bags.");
+                $"{arrival.Products.Length} products of type " +
+                $"{arrival.Delivery.ProductType}.");
         }
 
         [MenuItem("Tools/Hardware Store/Run Gameplay Smoke Test")]
@@ -49,34 +54,53 @@ namespace HardwareStore.Editor
             Runtime runtime = ResolveRuntime();
             Scenario scenario = ResolveFreshScenario(runtime);
             int initialMoney = scenario.Store.Money;
-            int deliveryCount = runtime.StaticData.Delivery.ProductCount;
-            int deliveryCost = runtime.StaticData.Delivery.TotalCost;
-            int reward = runtime.StaticData.Order.Reward;
+            ProductTypeId cement = ProductTypeId.CementBag;
+            ProductTypeId boards = ProductTypeId.BoardBundle;
+            var cementDelivery = runtime.StaticData.GetDelivery(cement);
+            var boardDelivery = runtime.StaticData.GetDelivery(boards);
+            var cementOrder = runtime.StaticData.GetOrder(cement);
+            var boardOrder = runtime.StaticData.GetOrder(boards);
 
             ValidateRuntimePlayerView(scenario.Player);
-            Require(scenario.Player.CarryingSpeed < scenario.Player.WalkSpeed &&
-                    scenario.Player.WalkSpeed < scenario.Player.SprintSpeed,
-                "Player movement config must define carrying < walking < sprinting speeds.");
+            Require(scenario.Player.WalkSpeed < scenario.Player.SprintSpeed,
+                "Player movement config must define walking < sprinting speeds.");
+            Require(runtime.StaticData.ProductTypes.SequenceEqual(new[] { cement, boards }),
+                "The smoke test requires the stable CementBag -> BoardBundle order sequence.");
+            Require(scenario.Store.NextOrderSequenceIndex == 0,
+                "A fresh store must begin with the first configured order type.");
             ValidateCooldownPresentation(runtime, scenario);
+            ValidateRejectedDeliveryPurchase(
+                runtime,
+                scenario,
+                cement,
+                "A delivery was purchased without a current customer visit.");
 
             CustomerVisit firstVisit = SpawnAndParkCustomer(runtime, scenario);
-            int requiredProductCount = firstVisit.Entity.RequiredProductCount;
-            Require(deliveryCount > requiredProductCount,
-                "One delivery must leave stock for the cooldown safety check.");
-            Require(scenario.StorageZone.Slots.Length >=
-                    deliveryCount * 2 - requiredProductCount,
-                "The storage zone cannot hold the remaining first delivery and the second delivery.");
+            Require(firstVisit.Entity.RequiredProductType == cement &&
+                    firstVisit.Entity.RequiredProductCount == cementOrder.RequiredProductCount &&
+                    firstVisit.Entity.OrderReward == cementOrder.Reward &&
+                    scenario.Store.NextOrderSequenceIndex == 1,
+                "The first customer visit did not receive the configured cement order.");
 
             AttemptOrderAcceptance(runtime, scenario);
             Require(firstVisit.Entity.isCustomerVisitWaiting,
                 "A customer order was accepted without stock.");
+            ValidateRejectedDeliveryPurchase(
+                runtime,
+                scenario,
+                boards,
+                "A wrong-SKU board delivery was purchased for the cement customer.");
 
-            DeliveryArrival firstArrival = PurchaseAndPrepareArrival(runtime, scenario);
-            Require(scenario.Store.Money == initialMoney - deliveryCost,
+            DeliveryArrival firstArrival = PurchaseAndPrepareArrival(runtime, scenario, cement);
+            Require(scenario.Store.Money == initialMoney - cementDelivery.TotalCost,
                 "The first delivery did not deduct its cost exactly once.");
             TestCarryDropAndRepick(runtime, scenario, firstArrival.Products[0]);
             StoreCompleteDelivery(runtime, scenario, firstVisit.Entity, firstArrival);
             CleanupCompletedDelivery(runtime, scenario, firstArrival);
+            ValidatePhysicalStockFocus(runtime, scenario, firstArrival.Products[0]);
+            Require(CountStockProducts(runtime.Game, scenario.StorageZone.EntityId, cement) ==
+                    cementDelivery.ProductCount,
+                "The cement delivery did not produce the configured typed stock.");
 
             AttemptOrderAcceptance(runtime, scenario);
             Require(firstVisit.Entity.isCustomerVisitLoading &&
@@ -85,46 +109,70 @@ namespace HardwareStore.Editor
 
             GameEntity[] firstOutboundProducts = FindStockProducts(runtime.Game,
                     scenario.StorageZone.EntityId)
-                .Take(requiredProductCount)
+                .Where(product => product.ProductType == cement)
+                .Take(cementOrder.RequiredProductCount)
                 .ToArray();
-            Require(firstOutboundProducts.Length == requiredProductCount,
+            Require(firstOutboundProducts.Length == cementOrder.RequiredProductCount,
                 "The first cycle could not resolve enough stock for its order.");
             LoadAndRewardCustomerOrder(
                 runtime,
                 scenario,
                 firstVisit.Entity,
                 firstOutboundProducts);
-            Require(scenario.Store.Money == initialMoney - deliveryCost + reward,
+            Require(scenario.Store.Money ==
+                    initialMoney - cementDelivery.TotalCost + cementOrder.Reward,
                 "The first cycle balance is not purchase cost plus exactly one reward.");
 
             int firstVisitId = firstVisit.Entity.EntityId;
             DepartAndCleanupCustomer(runtime, scenario, firstVisit, firstOutboundProducts);
             ValidateCooldownSafety(runtime, scenario);
-            int stockAfterFirstCycle = scenario.StorageZone.StorageProductCount;
-            Require(stockAfterFirstCycle == deliveryCount - requiredProductCount,
-                "The first cycle left an incorrect stock count.");
+            Require(CountStockProducts(runtime.Game, scenario.StorageZone.EntityId, cement) == 1 &&
+                    CountStockProducts(runtime.Game, scenario.StorageZone.EntityId, boards) == 0,
+                "The first cycle did not leave exactly one cement bag.");
 
             CustomerVisit secondVisit = SpawnAndParkCustomer(runtime, scenario);
             Require(secondVisit.Entity.EntityId != firstVisitId,
                 "The second customer visit reused the first visit identifier.");
             Require(secondVisit.Entity.Slots.All(slot => slot.childCount == 0),
                 "The second customer vehicle inherited occupied loading slots.");
-            Require(secondVisit.Entity.AvailableProductCount == stockAfterFirstCycle,
-                "The second customer visit did not observe remaining stock.");
+            Require(secondVisit.Entity.RequiredProductType == boards &&
+                    secondVisit.Entity.RequiredProductCount == boardOrder.RequiredProductCount &&
+                    secondVisit.Entity.OrderReward == boardOrder.Reward &&
+                    scenario.Store.NextOrderSequenceIndex == 0,
+                "The second customer visit did not receive the configured board order.");
+            Require(secondVisit.Entity.AvailableProductCount == 0 &&
+                    scenario.StorageZone.StorageProductCount == 1,
+                "Wrong-SKU cement stock was counted as available for the board order.");
 
-            DeliveryArrival secondArrival = PurchaseAndPrepareArrival(runtime, scenario);
+            AttemptOrderAcceptance(runtime, scenario);
+            Require(secondVisit.Entity.isCustomerVisitWaiting &&
+                    !secondVisit.Entity.isCustomerVisitLoading,
+                "The board order was accepted using only wrong-SKU cement stock.");
+
+            DeliveryArrival secondArrival = PurchaseAndPrepareArrival(runtime, scenario, boards);
             Require(scenario.Store.Money ==
-                    initialMoney - deliveryCost + reward - deliveryCost,
+                    initialMoney - cementDelivery.TotalCost + cementOrder.Reward -
+                    boardDelivery.TotalCost,
                 "The second delivery did not deduct its cost exactly once.");
+            TestCarryDropAndRepick(runtime, scenario, secondArrival.Products[0]);
             StoreCompleteDelivery(runtime, scenario, secondVisit.Entity, secondArrival);
             CleanupCompletedDelivery(runtime, scenario, secondArrival);
+            Require(CountStockProducts(runtime.Game, scenario.StorageZone.EntityId, boards) ==
+                    boardDelivery.ProductCount,
+                "The board delivery did not produce the configured typed stock.");
 
             AttemptOrderAcceptance(runtime, scenario);
             Require(secondVisit.Entity.isCustomerVisitLoading,
                 "The second customer visit did not enter loading after replenishment.");
 
+            GameEntity wrongProduct = FindStockProducts(runtime.Game,
+                    scenario.StorageZone.EntityId)
+                .Single(product => product.ProductType == cement);
+            ValidateWrongSkuCannotLoad(runtime, scenario, secondVisit.Entity, wrongProduct);
+
             GameEntity[] secondOutboundProducts = FindStockProducts(runtime.Game,
                     scenario.StorageZone.EntityId)
+                .Where(product => product.ProductType == boards)
                 .Take(secondVisit.Entity.RequiredProductCount)
                 .ToArray();
             Require(secondOutboundProducts.Length == secondVisit.Entity.RequiredProductCount,
@@ -135,11 +183,17 @@ namespace HardwareStore.Editor
                 secondVisit.Entity,
                 secondOutboundProducts);
 
-            int expectedFinalMoney = initialMoney - deliveryCost * 2 + reward * 2;
+            int expectedFinalMoney = initialMoney - cementDelivery.TotalCost +
+                                     cementOrder.Reward - boardDelivery.TotalCost +
+                                     boardOrder.Reward;
             Require(scenario.Store.Money == expectedFinalMoney,
                 "Two cycles did not produce exactly two purchase deductions and two rewards.");
-            int expectedFinalStock = deliveryCount * 2 - requiredProductCount * 2;
-            Require(scenario.StorageZone.StorageProductCount == expectedFinalStock,
+            int expectedFinalStock = cementDelivery.ProductCount + boardDelivery.ProductCount -
+                                     cementOrder.RequiredProductCount -
+                                     boardOrder.RequiredProductCount;
+            Require(scenario.StorageZone.StorageProductCount == expectedFinalStock &&
+                    CountStockProducts(runtime.Game, scenario.StorageZone.EntityId, cement) == 1 &&
+                    CountStockProducts(runtime.Game, scenario.StorageZone.EntityId, boards) == 1,
                 "The second customer cycle left an incorrect stock count.");
 
             int secondVisitId = secondVisit.Entity.EntityId;
@@ -160,7 +214,8 @@ namespace HardwareStore.Editor
                 "The player retained a carrier relation after both cycles.");
 
             Debug.Log(
-                $"[Hardware Store] Gameplay smoke passed: two complete customer cycles, " +
+                $"[Hardware Store] Gameplay smoke passed: cement and boards cycles, " +
+                $"wrong-SKU rejection, both physics flows, " +
                 $"stock {expectedFinalStock}, balance {expectedFinalMoney:N0} ₽.");
         }
 
@@ -186,8 +241,7 @@ namespace HardwareStore.Editor
                 GameMatcher.DropOrigin,
                 GameMatcher.MovementSpeed,
                 GameMatcher.WalkSpeed,
-                GameMatcher.SprintSpeed,
-                GameMatcher.CarryingSpeed)), "player");
+                GameMatcher.SprintSpeed)), "player");
             GameEntity store = RequireSingle(runtime.Game.GetGroup(GameMatcher.AllOf(
                 GameMatcher.EntityId,
                 GameMatcher.Store,
@@ -195,6 +249,7 @@ namespace HardwareStore.Editor
                 GameMatcher.OrderCounterEntityId,
                 GameMatcher.ProcurementTerminalEntityId,
                 GameMatcher.StorageZoneEntityId,
+                GameMatcher.NextOrderSequenceIndex,
                 GameMatcher.StoreSceneBindingsValidated)), "store");
             GameEntity orderCounter = RequireSingle(runtime.Game.GetGroup(GameMatcher.AllOf(
                 GameMatcher.EntityId,
@@ -207,9 +262,7 @@ namespace HardwareStore.Editor
                 GameMatcher.ProcurementTerminal,
                 GameMatcher.StoreEntityId,
                 GameMatcher.StorageZoneEntityId,
-                GameMatcher.ProductType,
-                GameMatcher.DeliveryProductCount,
-                GameMatcher.DeliveryCost,
+                GameMatcher.SelectedProductType,
                 GameMatcher.DeliverySpawnPosition,
                 GameMatcher.DeliverySpawnRotation,
                 GameMatcher.View,
@@ -302,6 +355,12 @@ namespace HardwareStore.Editor
                     "The auto-spawned customer view is not an EntityBehaviour.")
                 : null;
 
+            int resetSequenceIndex = Array.IndexOf(
+                runtime.StaticData.ProductTypes.ToArray(),
+                visit.RequiredProductType);
+            Require(resetSequenceIndex >= 0,
+                "The auto-spawned customer requires a product outside static data.");
+            store.ReplaceNextOrderSequenceIndex(resetSequenceIndex);
             store.AddCustomerCooldownRemaining(
                 runtime.StaticData.CustomerVehicle.FirstCustomerDelay);
             visit.RemoveCustomerVisitStoreEntityId();
@@ -374,8 +433,11 @@ namespace HardwareStore.Editor
                     visit.isInteractable,
                 "The customer visit did not enter its parked waiting state.");
             Require(visit.AvailableProductCount ==
-                    scenario.StorageZone.StorageProductCount,
-                "The parked customer visit does not observe current stock.");
+                    CountStockProducts(
+                        runtime.Game,
+                        scenario.StorageZone.EntityId,
+                        visit.RequiredProductType),
+                "The parked customer visit does not observe current typed stock.");
 
             return new CustomerVisit(visit, view);
         }
@@ -397,12 +459,17 @@ namespace HardwareStore.Editor
 
         private static DeliveryArrival PurchaseAndPrepareArrival(
             Runtime runtime,
-            Scenario scenario)
+            Scenario scenario,
+            ProductTypeId productType)
         {
             Require(runtime.Game.GetEntityWithDeliveryProcurementTerminalEntityId(
                         scenario.ProcurementTerminal.EntityId) == null,
                 "A new delivery cannot be purchased while another is active.");
 
+            SelectProcurementProduct(runtime, scenario, productType);
+            var deliveryConfig = runtime.StaticData.GetDelivery(productType);
+            var productConfig = runtime.StaticData.GetProduct(productType);
+            int moneyBeforePurchase = scenario.Store.Money;
             RequestInteraction(scenario.Player, scenario.ProcurementTerminal);
             runtime.Systems.Create<PurchaseDeliverySystem>().Execute();
             GameEntity delivery = runtime.Game.GetEntityWithDeliveryProcurementTerminalEntityId(
@@ -411,14 +478,18 @@ namespace HardwareStore.Editor
                     delivery.hasDeliveryProcurementTerminalEntityId &&
                     delivery.DeliveryProcurementTerminalEntityId ==
                     scenario.ProcurementTerminal.EntityId &&
-                    delivery.isDeliveryActive,
+                    delivery.isDeliveryActive &&
+                    delivery.ProductType == productType &&
+                    delivery.DeliveryProductCount == deliveryConfig.ProductCount &&
+                    delivery.DeliveryCost == deliveryConfig.TotalCost &&
+                    scenario.Store.Money == moneyBeforePurchase - deliveryConfig.TotalCost,
                 "Purchasing did not create an indexed active delivery.");
             CleanupEvents(runtime);
 
             runtime.Systems.Create<BindEntityViewFromPrefabSystem>().Execute();
             EntityBehaviour deliveryView = RequireRuntimeView(
                 delivery,
-                runtime.StaticData.Delivery.ViewPrefab,
+                deliveryConfig.ViewPrefab,
                 $"delivery {delivery.EntityId}");
             Require(delivery.hasSlots &&
                     delivery.Slots.Length >= delivery.DeliveryProductCount,
@@ -438,9 +509,15 @@ namespace HardwareStore.Editor
             {
                 RequireRuntimeView(
                     product,
-                    runtime.StaticData.Product.ViewPrefab,
+                    productConfig.ViewPrefab,
                     $"product {product.EntityId}");
-                Require(product.isInboundProduct &&
+                Require(product.ProductType == productType &&
+                        product.UnitPrice == productConfig.UnitPrice &&
+                        Mathf.Approximately(product.ProductMass, productConfig.Mass) &&
+                        Mathf.Approximately(
+                            product.CarryMovementSpeed,
+                            productConfig.CarryMovementSpeed) &&
+                        product.isInboundProduct &&
                         product.DeliveryEntityId == delivery.EntityId &&
                         product.hasDeliverySlotIndex &&
                         !product.hasCarrierEntityId &&
@@ -455,6 +532,57 @@ namespace HardwareStore.Editor
             }
 
             return new DeliveryArrival(delivery, deliveryView, products);
+        }
+
+        private static void ValidateRejectedDeliveryPurchase(
+            Runtime runtime,
+            Scenario scenario,
+            ProductTypeId selectedProductType,
+            string failureMessage)
+        {
+            SelectProcurementProduct(runtime, scenario, selectedProductType);
+            int moneyBefore = scenario.Store.Money;
+            RequestInteraction(scenario.Player, scenario.ProcurementTerminal);
+            runtime.Systems.Create<PurchaseDeliverySystem>().Execute();
+            Require(runtime.Game.GetEntityWithDeliveryProcurementTerminalEntityId(
+                        scenario.ProcurementTerminal.EntityId) == null &&
+                    runtime.Game.GetGroup(GameMatcher.Delivery).count == 0 &&
+                    scenario.Store.Money == moneyBefore,
+                failureMessage);
+            CleanupEvents(runtime);
+        }
+
+        private static void SelectProcurementProduct(
+            Runtime runtime,
+            Scenario scenario,
+            ProductTypeId productType)
+        {
+            Require(runtime.StaticData.ProductTypes.Contains(productType),
+                $"Product type {productType} is absent from static data.");
+            Require(runtime.Game.GetEntityWithDeliveryProcurementTerminalEntityId(
+                        scenario.ProcurementTerminal.EntityId) == null,
+                "Procurement selection cannot change during an active delivery.");
+
+            int stepCount = 0;
+            while (scenario.ProcurementTerminal.SelectedProductType != productType &&
+                   stepCount < runtime.StaticData.ProductTypes.Count)
+            {
+                scenario.Player.ReplaceFocusedEntityId(scenario.ProcurementTerminal.EntityId);
+                scenario.Player.ReplaceFocusedInteractionType(
+                    InteractionTypeId.ProcurementTerminal);
+                scenario.Input.isNextPressed = true;
+                runtime.Systems.Create<ChangeProcurementSelectionSystem>().Execute();
+                CleanupEvents(runtime);
+                stepCount++;
+            }
+
+            if (scenario.Player.hasFocusedEntityId)
+                scenario.Player.RemoveFocusedEntityId();
+            if (scenario.Player.hasFocusedInteractionType)
+                scenario.Player.RemoveFocusedInteractionType();
+
+            Require(scenario.ProcurementTerminal.SelectedProductType == productType,
+                $"Procurement selection did not reach {productType}.");
         }
 
         private static void TestCarryDropAndRepick(
@@ -475,7 +603,7 @@ namespace HardwareStore.Editor
             runtime.Systems.Create<ResolveMovementSpeedSystem>().Execute();
             Require(Mathf.Approximately(
                     scenario.Player.MovementSpeed,
-                    scenario.Player.CarryingSpeed),
+                    product.CarryMovementSpeed),
                 "HandsOccupied did not select carrying movement speed.");
 
             scenario.Input.isDropPressed = true;
@@ -491,7 +619,12 @@ namespace HardwareStore.Editor
                     product.hasWorldPosition &&
                     product.hasWorldRotation &&
                     !product.Rigidbody.isKinematic &&
-                    product.Rigidbody.detectCollisions,
+                    product.Rigidbody.useGravity &&
+                    product.Rigidbody.detectCollisions &&
+                    Mathf.Approximately(product.Rigidbody.mass, product.ProductMass) &&
+                    product.Rigidbody.interpolation == product.RigidbodyInterpolationMode &&
+                    product.Rigidbody.collisionDetectionMode ==
+                    product.RigidbodyCollisionDetectionMode,
                 "The dropped product did not return to loose physics.");
 
             PickUpProduct(runtime, scenario, product);
@@ -552,7 +685,10 @@ namespace HardwareStore.Editor
                     $"Product {product.EntityId} did not enter storage correctly.");
                 Require(scenario.StorageZone.StorageProductCount == expectedStock &&
                         scenario.StorageZone.OccupiedStorageSlotCount == expectedStock &&
-                        visit.AvailableProductCount == expectedStock,
+                        visit.AvailableProductCount == CountStockProducts(
+                            runtime.Game,
+                            scenario.StorageZone.EntityId,
+                            visit.RequiredProductType),
                     $"Derived storage state is incorrect after product {product.EntityId}.");
 
                 bool isLast = index == arrival.Products.Length - 1;
@@ -595,6 +731,103 @@ namespace HardwareStore.Editor
                 "The completed delivery survived the destructed pipeline.");
         }
 
+        private static void ValidateWrongSkuCannotLoad(
+            Runtime runtime,
+            Scenario scenario,
+            GameEntity visit,
+            GameEntity wrongProduct)
+        {
+            Require(visit.isCustomerVisitLoading &&
+                    wrongProduct.isInStock &&
+                    wrongProduct.ProductType != visit.RequiredProductType &&
+                    wrongProduct.hasStorageSlotIndex,
+                "Wrong-SKU loading check requires a slotted stock product of another type.");
+
+            int storageSlotIndex = wrongProduct.StorageSlotIndex;
+            int loadedBefore = visit.LoadedProductCount;
+            wrongProduct.RemoveStorageSlotIndex();
+            wrongProduct.AddCarrierEntityId(scenario.Player.EntityId);
+            wrongProduct.isInteractable = false;
+            wrongProduct.isProductPlacementDirty = true;
+            scenario.Player.isHandsOccupied = true;
+            ExecuteProductPlacement(runtime);
+            runtime.Systems.Create<FollowHeldProductSystem>().Execute();
+
+            RequestInteraction(scenario.Player, visit);
+            runtime.Systems.Create<LoadHeldProductSystem>().Execute();
+            Require(visit.LoadedProductCount == loadedBefore &&
+                    !wrongProduct.isProductLoaded &&
+                    !wrongProduct.isLoaded &&
+                    wrongProduct.isInStock &&
+                    wrongProduct.hasCarrierEntityId &&
+                    wrongProduct.CarrierEntityId == scenario.Player.EntityId &&
+                    scenario.Player.isHandsOccupied,
+                "A wrong-SKU stock product was loaded into the customer vehicle.");
+            CleanupEvents(runtime);
+
+            wrongProduct.RemoveCarrierEntityId();
+            wrongProduct.AddStorageSlotIndex(storageSlotIndex);
+            wrongProduct.isInteractable = true;
+            wrongProduct.isProductPlacementDirty = true;
+            scenario.Player.isHandsOccupied = false;
+            ExecuteProductPlacement(runtime);
+            ExecuteStorageState(runtime);
+
+            Require(wrongProduct.isInStock &&
+                    wrongProduct.hasStorageSlotIndex &&
+                    wrongProduct.StorageSlotIndex == storageSlotIndex &&
+                    wrongProduct.Transform.parent ==
+                    scenario.StorageZone.Slots[storageSlotIndex] &&
+                    !wrongProduct.isProductPlacementDirty &&
+                    runtime.Game.GetEntityWithCarrierEntityId(
+                        scenario.Player.EntityId) == null,
+                "Wrong-SKU loading check did not restore the stock product cleanly.");
+        }
+
+        private static void ValidatePhysicalStockFocus(
+            Runtime runtime,
+            Scenario scenario,
+            GameEntity product)
+        {
+            Require(product.isInStock && product.isInteractable && product.hasColliders,
+                "Physical focus check requires an interactable stock product.");
+            Collider solidCollider = product.Colliders.Single(collider => !collider.isTrigger);
+            Transform cameraTransform = scenario.Player.Camera.transform;
+            Vector3 originalPosition = cameraTransform.position;
+            Quaternion originalRotation = cameraTransform.rotation;
+
+            try
+            {
+                Vector3 target = solidCollider.bounds.center;
+                cameraTransform.SetPositionAndRotation(
+                    target - Vector3.forward * 1.8f,
+                    Quaternion.LookRotation(Vector3.forward, Vector3.up));
+                Physics.SyncTransforms();
+                if (scenario.Player.hasFocusedEntityId)
+                    scenario.Player.RemoveFocusedEntityId();
+                if (scenario.Player.hasFocusedInteractionType)
+                    scenario.Player.RemoveFocusedInteractionType();
+
+                runtime.Systems.Create<DetectFocusedInteractableSystem>().Execute();
+                runtime.Systems.Create<ClassifyFocusedInteractionSystem>().Execute();
+                Require(scenario.Player.hasFocusedEntityId &&
+                        scenario.Player.FocusedEntityId == product.EntityId &&
+                        scenario.Player.hasFocusedInteractionType &&
+                        scenario.Player.FocusedInteractionType == InteractionTypeId.Product,
+                    "Physical interaction focus did not resolve the stocked product; " +
+                    "a storage-zone trigger may be occluding it.");
+            }
+            finally
+            {
+                cameraTransform.SetPositionAndRotation(originalPosition, originalRotation);
+                Physics.SyncTransforms();
+                if (scenario.Player.hasFocusedEntityId)
+                    scenario.Player.RemoveFocusedEntityId();
+                if (scenario.Player.hasFocusedInteractionType)
+                    scenario.Player.RemoveFocusedInteractionType();
+            }
+        }
+
         private static void LoadAndRewardCustomerOrder(
             Runtime runtime,
             Scenario scenario,
@@ -607,11 +840,14 @@ namespace HardwareStore.Editor
 
             foreach (GameEntity product in products)
             {
+                string displayName = runtime.StaticData
+                    .GetProduct(product.ProductType)
+                    .DisplayName;
                 scenario.Player.ReplaceFocusedEntityId(product.EntityId);
                 ExecuteInteractionPrompts(runtime);
                 Require(scenario.Player.isFocusInteractionAvailable &&
                         scenario.Player.InteractionPrompt ==
-                        "E — взять мешок со склада",
+                        $"E — взять со склада • товар: {displayName}",
                     $"Stock product {product.EntityId} has no active-order prompt.");
                 scenario.Player.RemoveFocusedEntityId();
 
@@ -809,8 +1045,11 @@ namespace HardwareStore.Editor
         private static void ExecuteStorageState(Runtime runtime) =>
             runtime.Systems.Create<StorageStateFeature>().Execute();
 
-        private static void ExecuteInteractionPrompts(Runtime runtime) =>
+        private static void ExecuteInteractionPrompts(Runtime runtime)
+        {
+            runtime.Systems.Create<ClassifyFocusedInteractionSystem>().Execute();
             runtime.Systems.Create<InteractionPromptFeature>().Execute();
+        }
 
         private static void ExecuteProductPlacement(Runtime runtime) =>
             runtime.Systems.Create<ProductPlacementFeature>().Execute();
@@ -893,6 +1132,13 @@ namespace HardwareStore.Editor
                 .Where(product => product.StorageZoneEntityId == storageZoneEntityId)
                 .OrderBy(product => product.EntityId)
                 .ToArray();
+
+        private static int CountStockProducts(
+            GameContext context,
+            int storageZoneEntityId,
+            ProductTypeId productType) =>
+            FindStockProducts(context, storageZoneEntityId)
+                .Count(product => product.ProductType == productType);
 
         private static EntityBehaviour RequireRuntimeView(
             GameEntity entity,

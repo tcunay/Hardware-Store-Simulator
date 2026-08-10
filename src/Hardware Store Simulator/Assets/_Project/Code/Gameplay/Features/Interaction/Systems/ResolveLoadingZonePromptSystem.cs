@@ -1,17 +1,22 @@
 using System;
 using Entitas;
+using HardwareStore.Gameplay.Configs;
 using HardwareStore.Gameplay.Components;
+using HardwareStore.Gameplay.StaticData;
 
 namespace HardwareStore.Gameplay.Features.Interaction.Systems
 {
     public sealed class ResolveLoadingZonePromptSystem : IExecuteSystem
     {
         private readonly GameContext _gameContext;
+        private readonly IStaticDataService _staticData;
         private readonly IGroup<GameEntity> _players;
 
-        public ResolveLoadingZonePromptSystem(GameContext gameContext)
+        public ResolveLoadingZonePromptSystem(GameContext gameContext,
+            IStaticDataService staticData)
         {
             _gameContext = gameContext;
+            _staticData = staticData;
             _players = gameContext.GetGroup(GameMatcher.AllOf(
                 GameMatcher.Player,
                 GameMatcher.EntityId,
@@ -69,8 +74,11 @@ namespace HardwareStore.Gameplay.Features.Interaction.Systems
 
                 if (!player.isHandsOccupied)
                 {
+                    ProductConfig requiredProduct =
+                        _staticData.GetProduct(loadingZone.RequiredProductType);
                     player.SetInteractionPrompt(
-                        "Принесите сюда товар со склада",
+                        $"Принесите товар со склада • товар: " +
+                        $"{requiredProduct.DisplayName}",
                         false);
                     continue;
                 }
@@ -84,8 +92,13 @@ namespace HardwareStore.Gameplay.Features.Interaction.Systems
                                  heldProduct.ProductType == loadingZone.RequiredProductType;
                 if (!available)
                 {
+                    ProductConfig requiredProduct =
+                        _staticData.GetProduct(loadingZone.RequiredProductType);
+                    ProductConfig heldProductConfig =
+                        _staticData.GetProduct(heldProduct.ProductType);
                     player.SetInteractionPrompt(
-                        "Для заказа нужен принятый на склад цемент",
+                        $"Для заказа нужен товар: {requiredProduct.DisplayName} • " +
+                        $"в руках: {heldProductConfig.DisplayName}",
                         false);
                     continue;
                 }
@@ -98,7 +111,10 @@ namespace HardwareStore.Gameplay.Features.Interaction.Systems
                     continue;
                 }
 
-                player.SetInteractionPrompt("E — загрузить мешок клиенту", true);
+                ProductConfig product = _staticData.GetProduct(heldProduct.ProductType);
+                player.SetInteractionPrompt(
+                    $"E — загрузить клиенту • товар: {product.DisplayName}",
+                    true);
             }
         }
     }

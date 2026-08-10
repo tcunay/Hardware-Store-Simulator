@@ -27,11 +27,18 @@ namespace HardwareStore.Editor
         private const string ProjectContextPath = "Assets/Resources/ProjectContext.prefab";
         private const string ConfigFolder = "Assets/Resources/Configs";
         private const string PlayerPrefabPath = "Assets/_Project/Prefabs/Gameplay/Player.prefab";
-        private const string ProductPrefabPath = "Assets/_Project/Prefabs/Gameplay/CementBag.prefab";
+        private const string CementProductPrefabPath = "Assets/_Project/Prefabs/Gameplay/CementBag.prefab";
+        private const string BoardProductPrefabPath = "Assets/_Project/Prefabs/Gameplay/BoardBundle.prefab";
         private const string DeliveryVehiclePrefabPath = "Assets/_Project/Prefabs/Gameplay/DeliveryTruck.prefab";
         private const string CustomerVehiclePrefabPath =
             "Assets/_Project/Prefabs/Gameplay/CustomerVehicle.prefab";
-        private const int StorageSlotCapacity = 6;
+        private const string CementProductConfigName = "ProductConfig";
+        private const string BoardProductConfigName = "ProductConfig_BoardBundle";
+        private const string CementDeliveryConfigName = "DeliveryConfig";
+        private const string BoardDeliveryConfigName = "DeliveryConfig_BoardBundle";
+        private const string CementOrderConfigName = "OrderConfig";
+        private const string BoardOrderConfigName = "OrderConfig_BoardBundle";
+        private const int StorageSlotCapacity = 9;
 
         [MenuItem("Tools/Hardware Store/Build Prototype Yard")]
         public static void BuildPrototypeYard()
@@ -51,13 +58,27 @@ namespace HardwareStore.Editor
             EnsureFolder(ConfigFolder);
             EnsureConfigAssets();
             PlayerConfig playerConfig = LoadConfig<PlayerConfig>("PlayerConfig");
-            DeliveryConfig deliveryConfig = LoadConfig<DeliveryConfig>("DeliveryConfig");
+            DeliveryConfig cementDeliveryConfig =
+                LoadConfig<DeliveryConfig>(CementDeliveryConfigName);
+            DeliveryConfig boardDeliveryConfig =
+                LoadConfig<DeliveryConfig>(BoardDeliveryConfigName);
             CustomerVehicleConfig customerVehicleConfig =
                 LoadConfig<CustomerVehicleConfig>("CustomerVehicleConfig");
             EconomyConfig economyConfig = LoadConfig<EconomyConfig>("EconomyConfig");
-            ProductConfig productConfig = LoadConfig<ProductConfig>("ProductConfig");
-            OrderConfig orderConfig = LoadConfig<OrderConfig>("OrderConfig");
-            ConfigurePrototypeConfigs(deliveryConfig, economyConfig, productConfig, orderConfig);
+            ProductConfig cementProductConfig =
+                LoadConfig<ProductConfig>(CementProductConfigName);
+            ProductConfig boardProductConfig =
+                LoadConfig<ProductConfig>(BoardProductConfigName);
+            OrderConfig cementOrderConfig = LoadConfig<OrderConfig>(CementOrderConfigName);
+            OrderConfig boardOrderConfig = LoadConfig<OrderConfig>(BoardOrderConfigName);
+            ConfigurePrototypeConfigs(
+                cementDeliveryConfig,
+                boardDeliveryConfig,
+                economyConfig,
+                cementProductConfig,
+                boardProductConfig,
+                cementOrderConfig,
+                boardOrderConfig);
             EnsurePlayerPrefab(playerConfig);
             EnsureProjectContextPrefab();
 
@@ -67,6 +88,7 @@ namespace HardwareStore.Editor
             Material brandOrange = GetOrCreateMaterial("BrandOrange", new Color(0.95f, 0.31f, 0.055f), 0.22f, true);
             Material cement = GetOrCreateMaterial("CementBag", new Color(0.67f, 0.62f, 0.50f), 0.03f);
             Material timber = GetOrCreateMaterial("Timber", new Color(0.48f, 0.27f, 0.11f), 0.14f);
+            Material boardStrap = GetOrCreateMaterial("BoardStrap", new Color(0.1f, 0.12f, 0.11f), 0.38f);
             Material darkMetal = GetOrCreateMaterial("DarkMetal", new Color(0.075f, 0.085f, 0.095f), 0.52f);
             Material truckPaint = GetOrCreateMaterial("TruckPaint", new Color(0.095f, 0.34f, 0.53f), 0.42f);
             Material loadingGreen = GetOrCreateMaterial("LoadingGreen", new Color(0.08f, 0.78f, 0.36f), 0.18f, true);
@@ -74,9 +96,20 @@ namespace HardwareStore.Editor
             Material white = GetOrCreateMaterial("White", new Color(0.82f, 0.84f, 0.82f), 0.18f);
             Material yellow = GetOrCreateMaterial("SafetyYellow", new Color(0.95f, 0.65f, 0.08f), 0.18f);
 
-            EnsureProductPrefab(productConfig, cement);
-            EnsureDeliveryVehiclePrefab(deliveryConfig, yellow, darkMetal, glass, timber);
-            EnsureCustomerVehiclePrefab(customerVehicleConfig, orderConfig, truckPaint, darkMetal, glass,
+            EnsureCementProductPrefab(cementProductConfig, cement);
+            EnsureBoardProductPrefab(boardProductConfig, timber, boardStrap);
+            EnsureDeliveryVehiclePrefab(
+                new[] { cementDeliveryConfig, boardDeliveryConfig },
+                yellow,
+                darkMetal,
+                glass,
+                timber);
+            EnsureCustomerVehiclePrefab(
+                customerVehicleConfig,
+                new[] { cementOrderConfig, boardOrderConfig },
+                truckPaint,
+                darkMetal,
+                glass,
                 loadingGreen);
 
             Scene scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
@@ -87,11 +120,25 @@ namespace HardwareStore.Editor
             BuildYard(environment.transform, asphalt, concrete, brandBlue, white, yellow);
             (SceneViewMarker orderCounter, SceneViewMarker procurementTerminal) =
                 BuildShop(environment.transform, concrete, brandBlue, brandOrange, darkMetal, glass);
-            SceneViewMarker storageZone = BuildCementStorage(environment.transform, concrete, brandBlue, timber,
-                darkMetal, brandOrange, productConfig);
+            SceneViewMarker storageZone = BuildMaterialsStorage(
+                environment.transform,
+                concrete,
+                brandBlue,
+                timber,
+                darkMetal,
+                brandOrange,
+                cementProductConfig,
+                boardProductConfig);
             SceneRouteMarker[] customerVehicleRoutes = BuildCustomerVehicleRoutes(
                 environment.transform, asphalt, white, loadingGreen);
-            BuildLumberArea(environment.transform, concrete, brandBlue, timber, darkMetal);
+            BuildLumberArea(
+                environment.transform,
+                concrete,
+                brandBlue,
+                brandOrange,
+                timber,
+                darkMetal,
+                boardProductConfig);
             SpawnPointMarker deliveryVehicleSpawnPoint =
                 BuildInboundDeliveryBay(environment.transform, asphalt, yellow);
 
@@ -247,10 +294,11 @@ namespace HardwareStore.Editor
             return (orderCounter, procurementTerminal);
         }
 
-        private static SceneViewMarker BuildCementStorage(Transform parent, Material concrete, Material brandBlue,
-            Material timber, Material darkMetal, Material brandOrange, ProductConfig productConfig)
+        private static SceneViewMarker BuildMaterialsStorage(Transform parent, Material concrete,
+            Material brandBlue, Material timber, Material darkMetal, Material brandOrange,
+            ProductConfig cementProductConfig, ProductConfig boardProductConfig)
         {
-            GameObject storage = CreateEmpty("Cement Storage", parent);
+            GameObject storage = CreateEmpty("Materials Storage", parent);
             CreateCube("Storage Pad", storage.transform, new Vector3(5f, 0.1f, 6.5f),
                 new Vector3(7.5f, 0.2f, 6.5f), concrete);
             CreateCube("Roof", storage.transform, new Vector3(5f, 3.6f, 6.5f),
@@ -264,26 +312,34 @@ namespace HardwareStore.Editor
             foreach (Vector3 post in posts)
                 CreateCube("Canopy Post", storage.transform, post, new Vector3(0.24f, 3.6f, 0.24f), darkMetal);
 
-            CreateCube("Pallet Beam A", storage.transform, new Vector3(5f, 0.25f, 5.05f),
-                new Vector3(2.9f, 0.18f, 0.28f), timber);
-            CreateCube("Pallet Beam B", storage.transform, new Vector3(5f, 0.25f, 5.75f),
-                new Vector3(2.9f, 0.18f, 0.28f), timber);
+            for (int row = 0; row < 3; row++)
+            {
+                float z = 4.4f + row * 2.05f;
+                CreateCube($"Pallet Beam {row + 1} A", storage.transform,
+                    new Vector3(4.3f, 0.25f, z - 0.22f),
+                    new Vector3(5.8f, 0.18f, 0.18f), timber);
+                CreateCube($"Pallet Beam {row + 1} B", storage.transform,
+                    new Vector3(4.3f, 0.25f, z + 0.22f),
+                    new Vector3(5.8f, 0.18f, 0.18f), timber);
+            }
 
             GameObject slotsRoot = CreateEmpty("Storage Slots", storage.transform);
             Transform[] slots = new Transform[StorageSlotCapacity];
-            const int bagsPerRow = 3;
+            const int slotsPerRow = 3;
             for (int i = 0; i < slots.Length; i++)
             {
-                int column = i % bagsPerRow;
-                int row = i / bagsPerRow;
+                int column = i % slotsPerRow;
+                int row = i / slotsPerRow;
                 GameObject slot = CreateEmpty($"Stock Slot {i + 1}", slotsRoot.transform);
-                slot.transform.position = new Vector3(4.05f + column * 0.95f,
-                    0.55f + row * 0.33f, 5.4f);
+                slot.transform.position = new Vector3(
+                    2.4f + column * 1.9f,
+                    0.55f,
+                    4.4f + row * 2.05f);
                 slots[i] = slot.transform;
             }
 
             GameObject target = CreateCube("Storage Intake Target", storage.transform,
-                new Vector3(7.5f, 0.24f, 5.4f), new Vector3(1.45f, 0.12f, 2.4f), brandOrange);
+                new Vector3(8.15f, 0.24f, 6.45f), new Vector3(1f, 0.12f, 3.4f), brandOrange);
             BoxCollider storageInteraction = target.GetComponent<BoxCollider>();
             storageInteraction.isTrigger = true;
             storageInteraction.center = new Vector3(0f, 5f, 0f);
@@ -297,7 +353,9 @@ namespace HardwareStore.Editor
             SceneViewMarker storageMarker = target.AddComponent<SceneViewMarker>();
             storageMarker.Configure(SceneViewId.StorageZone);
 
-            CreateWorldLabel("Cement Sign", storage.transform, $"ЦЕМЕНТ • {productConfig.Mass:0.#} КГ",
+            CreateWorldLabel("Materials Sign", storage.transform,
+                $"СКЛАД • {cementProductConfig.DisplayName.ToUpperInvariant()} • " +
+                boardProductConfig.DisplayName.ToUpperInvariant(),
                 new Vector3(5f, 2.7f, 3.25f),
                 Quaternion.identity, 0.035f, brandOrange.color);
             CreateWorldLabel("Storage Intake Label", target.transform, "ПРИЁМКА",
@@ -348,7 +406,7 @@ namespace HardwareStore.Editor
         }
 
         private static void BuildLumberArea(Transform parent, Material concrete, Material brandBlue,
-            Material timber, Material darkMetal)
+            Material brandOrange, Material timber, Material darkMetal, ProductConfig boardProductConfig)
         {
             GameObject lumber = CreateEmpty("Lumber Display", parent);
             CreateCube("Lumber Pad", lumber.transform, new Vector3(12f, 0.08f, 6f),
@@ -369,6 +427,25 @@ namespace HardwareStore.Editor
                         new Vector3(0.72f, 0.18f, 6.6f), timber);
                 }
             }
+
+            CreateCube("Lumber Pick Face", lumber.transform, new Vector3(12f, 0.2f, 2.35f),
+                new Vector3(3.5f, 0.08f, 0.9f), brandOrange, false);
+            for (int bundle = 0; bundle < 3; bundle++)
+            {
+                GameObject displayBundle = CreateEmpty($"Board Display Bundle {bundle + 1}", lumber.transform);
+                displayBundle.transform.position = new Vector3(10.65f + bundle * 1.35f, 0.42f, 2.35f);
+                for (int board = 0; board < 4; board++)
+                {
+                    CreateCube($"Display Board {board + 1}", displayBundle.transform,
+                        new Vector3(0f, board * 0.065f, 0f),
+                        new Vector3(1.15f, 0.055f, 0.42f), timber, false, true);
+                }
+            }
+
+            CreateWorldLabel("Lumber Display Sign", lumber.transform,
+                $"B-01 • {boardProductConfig.DisplayName.ToUpperInvariant()} • " +
+                $"{boardProductConfig.UnitPrice:N0} ₽ / {boardProductConfig.UnitLabel.ToUpperInvariant()}",
+                new Vector3(12f, 2.7f, 1.68f), Quaternion.identity, 0.03f, brandOrange.color);
         }
 
         private static SpawnPointMarker BuildInboundDeliveryBay(Transform parent, Material asphalt,
@@ -407,7 +484,7 @@ namespace HardwareStore.Editor
             return marker;
         }
 
-        private static void EnsureProductPrefab(ProductConfig productConfig, Material cementMaterial)
+        private static void EnsureCementProductPrefab(ProductConfig productConfig, Material cementMaterial)
         {
             GameObject product = GameObject.CreatePrimitive(PrimitiveType.Cube);
             product.name = "Cement Bag";
@@ -440,13 +517,16 @@ namespace HardwareStore.Editor
                 product.AddComponent<RigidbodyRegistrar>();
                 product.AddComponent<CollidersRegistrar>();
 
-                GameObject prefab = PrefabUtility.SaveAsPrefabAsset(product, ProductPrefabPath);
+                GameObject prefab = PrefabUtility.SaveAsPrefabAsset(product, CementProductPrefabPath);
                 if (prefab == null)
-                    throw new InvalidOperationException($"Could not create product prefab at {ProductPrefabPath}.");
+                {
+                    throw new InvalidOperationException(
+                        $"Could not create product prefab at {CementProductPrefabPath}.");
+                }
 
                 EntityBehaviour prefabView = prefab.GetComponent<EntityBehaviour>() ??
                                              throw new InvalidOperationException(
-                                                 $"Product prefab at {ProductPrefabPath} has no view root.");
+                                                 $"Product prefab at {CementProductPrefabPath} has no view root.");
                 AssignViewPrefab(productConfig, prefabView);
             }
             finally
@@ -455,9 +535,88 @@ namespace HardwareStore.Editor
             }
         }
 
-        private static void EnsureDeliveryVehiclePrefab(DeliveryConfig deliveryConfig, Material inboundYellow,
+        private static void EnsureBoardProductPrefab(ProductConfig productConfig, Material timber,
+            Material strapMaterial)
+        {
+            GameObject product = CreateEmpty("Board Bundle");
+
+            try
+            {
+                product.transform.SetPositionAndRotation(Vector3.zero, Quaternion.identity);
+                product.transform.localScale = Vector3.one;
+                product.SetActive(true);
+
+                Rigidbody body = product.AddComponent<Rigidbody>();
+                body.mass = productConfig.Mass;
+                body.isKinematic = true;
+                body.useGravity = false;
+                body.interpolation = productConfig.WorldInterpolation;
+                body.collisionDetectionMode = productConfig.WorldCollisionDetection;
+
+                BoxCollider solidCollider = product.AddComponent<BoxCollider>();
+                solidCollider.center = new Vector3(0f, 0.12f, 0f);
+                solidCollider.size = new Vector3(1.55f, 0.3f, 0.46f);
+
+                GameObject visualRoot = CreateEmpty("Board Bundle Visual", product.transform);
+                InteractionHighlight highlight = null;
+                for (int index = 0; index < 4; index++)
+                {
+                    GameObject board = CreateCube(
+                        $"Board {index + 1}",
+                        visualRoot.transform,
+                        new Vector3(index % 2 == 0 ? -0.025f : 0.025f, index * 0.065f, 0f),
+                        new Vector3(1.52f, 0.055f, 0.4f),
+                        timber,
+                        false,
+                        true);
+                    if (index == 0)
+                        highlight = board.AddComponent<InteractionHighlight>();
+                }
+
+                CreateCube("Left Strap", visualRoot.transform, new Vector3(-0.48f, 0.1f, 0f),
+                    new Vector3(0.055f, 0.28f, 0.44f), strapMaterial, false, true);
+                CreateCube("Right Strap", visualRoot.transform, new Vector3(0.48f, 0.1f, 0f),
+                    new Vector3(0.055f, 0.28f, 0.44f), strapMaterial, false, true);
+
+                GameObject interactionArea = CreateEmpty("Interaction Area", product.transform);
+                BoxCollider interactionCollider = interactionArea.AddComponent<BoxCollider>();
+                interactionCollider.isTrigger = true;
+                interactionCollider.center = new Vector3(0f, 0.35f, 0f);
+                interactionCollider.size = new Vector3(2.15f, 1.75f, 1.15f);
+
+                InteractionView interactionView = product.AddComponent<InteractionView>();
+                interactionView.Configure(highlight ?? throw new InvalidOperationException(
+                    "Board bundle visual must provide an interaction highlight."));
+                product.AddComponent<TransformRegistrar>();
+                product.AddComponent<InteractionViewRegistrar>();
+                product.AddComponent<RigidbodyRegistrar>();
+                product.AddComponent<CollidersRegistrar>();
+
+                GameObject prefab = PrefabUtility.SaveAsPrefabAsset(product, BoardProductPrefabPath);
+                if (prefab == null)
+                {
+                    throw new InvalidOperationException(
+                        $"Could not create product prefab at {BoardProductPrefabPath}.");
+                }
+
+                EntityBehaviour prefabView = prefab.GetComponent<EntityBehaviour>() ??
+                                             throw new InvalidOperationException(
+                                                 $"Product prefab at {BoardProductPrefabPath} has no view root.");
+                AssignViewPrefab(productConfig, prefabView);
+            }
+            finally
+            {
+                Object.DestroyImmediate(product);
+            }
+        }
+
+        private static void EnsureDeliveryVehiclePrefab(IReadOnlyCollection<DeliveryConfig> deliveryConfigs,
+            Material inboundYellow,
             Material darkMetal, Material glass, Material timber)
         {
+            if (deliveryConfigs == null || deliveryConfigs.Count == 0)
+                throw new ArgumentException("At least one delivery config is required.", nameof(deliveryConfigs));
+
             GameObject vehicle = CreateEmpty("Delivery Truck");
 
             try
@@ -493,14 +652,12 @@ namespace HardwareStore.Editor
                     darkMetal);
 
                 GameObject slotsRoot = CreateEmpty("Cargo Slots", vehicle.transform);
-                Transform[] cargoSlots = new Transform[deliveryConfig.ProductCount];
+                int cargoSlotCapacity = deliveryConfigs.Max(config => config.ProductCount);
+                Transform[] cargoSlots = new Transform[cargoSlotCapacity];
                 for (int index = 0; index < cargoSlots.Length; index++)
                 {
-                    int row = index / 2;
-                    bool centeredLastSlot = cargoSlots.Length % 2 == 1 && index == cargoSlots.Length - 1;
-                    float x = centeredLastSlot ? 0f : -0.48f + index % 2 * 0.96f;
                     GameObject slot = CreateEmpty($"Cargo Slot {index + 1}", slotsRoot.transform);
-                    slot.transform.localPosition = new Vector3(x, 1.28f, -1.3f + row * 0.92f);
+                    slot.transform.localPosition = new Vector3(0f, 1.28f, -1.8f + index * 0.92f);
                     cargoSlots[index] = slot.transform;
                 }
 
@@ -518,7 +675,8 @@ namespace HardwareStore.Editor
                                              throw new InvalidOperationException(
                                                  $"Delivery vehicle prefab at {DeliveryVehiclePrefabPath} " +
                                                  "has no EntityBehaviour root.");
-                AssignViewPrefab(deliveryConfig, prefabView);
+                foreach (DeliveryConfig deliveryConfig in deliveryConfigs)
+                    AssignViewPrefab(deliveryConfig, prefabView);
             }
             finally
             {
@@ -526,9 +684,13 @@ namespace HardwareStore.Editor
             }
         }
 
-        private static void EnsureCustomerVehiclePrefab(CustomerVehicleConfig config, OrderConfig orderConfig,
+        private static void EnsureCustomerVehiclePrefab(CustomerVehicleConfig config,
+            IReadOnlyCollection<OrderConfig> orderConfigs,
             Material truckPaint, Material darkMetal, Material glass, Material loadingGreen)
         {
+            if (orderConfigs == null || orderConfigs.Count == 0)
+                throw new ArgumentException("At least one order config is required.", nameof(orderConfigs));
+
             GameObject vehicle = CreateEmpty("Customer Vehicle");
 
             try
@@ -590,14 +752,12 @@ namespace HardwareStore.Editor
                 interactionCollider.size = new Vector3(3.2f, 3f, 2.6f);
 
                 GameObject slotsRoot = CreateEmpty("Customer Cargo Slots", vehicle.transform);
-                Transform[] slots = new Transform[orderConfig.RequiredProductCount];
+                int cargoSlotCapacity = orderConfigs.Max(orderConfig => orderConfig.RequiredProductCount);
+                Transform[] slots = new Transform[cargoSlotCapacity];
                 for (int index = 0; index < slots.Length; index++)
                 {
-                    int row = index / 2;
-                    bool centeredLastSlot = slots.Length % 2 == 1 && index == slots.Length - 1;
-                    float x = centeredLastSlot ? 0f : -0.48f + index % 2 * 0.96f;
-                    GameObject slot = CreateEmpty($"Bag Slot {index + 1}", slotsRoot.transform);
-                    slot.transform.localPosition = new Vector3(x, 1.16f, -2.25f + row * 0.92f);
+                    GameObject slot = CreateEmpty($"Cargo Slot {index + 1}", slotsRoot.transform);
+                    slot.transform.localPosition = new Vector3(0f, 1.16f, -2.25f + index * 0.92f);
                     slots[index] = slot.transform;
                 }
 
@@ -881,45 +1041,115 @@ namespace HardwareStore.Editor
         {
             EnsureConfigAsset<PlayerConfig>("PlayerConfig");
             EnsureConfigAsset<InteractionConfig>("InteractionConfig");
-            EnsureConfigAsset<OrderConfig>("OrderConfig");
-            EnsureConfigAsset<ProductConfig>("ProductConfig");
-            EnsureConfigAsset<DeliveryConfig>("DeliveryConfig");
+            EnsureConfigAsset<OrderConfig>(CementOrderConfigName);
+            EnsureConfigAsset<OrderConfig>(BoardOrderConfigName);
+            EnsureConfigAsset<ProductConfig>(CementProductConfigName);
+            EnsureConfigAsset<ProductConfig>(BoardProductConfigName);
+            EnsureConfigAsset<DeliveryConfig>(CementDeliveryConfigName);
+            EnsureConfigAsset<DeliveryConfig>(BoardDeliveryConfigName);
             EnsureConfigAsset<CustomerVehicleConfig>("CustomerVehicleConfig");
             EnsureConfigAsset<EconomyConfig>("EconomyConfig");
         }
 
-        private static void ConfigurePrototypeConfigs(DeliveryConfig deliveryConfig, EconomyConfig economyConfig,
-            ProductConfig productConfig, OrderConfig orderConfig)
+        private static void ConfigurePrototypeConfigs(
+            DeliveryConfig cementDeliveryConfig,
+            DeliveryConfig boardDeliveryConfig,
+            EconomyConfig economyConfig,
+            ProductConfig cementProductConfig,
+            ProductConfig boardProductConfig,
+            OrderConfig cementOrderConfig,
+            OrderConfig boardOrderConfig)
         {
-            SerializedObject delivery = new(deliveryConfig);
-            RequireSerializedProperty(delivery, "_productType").intValue = (int)ProductTypeId.CementBag;
-            RequireSerializedProperty(delivery, "_productCount").intValue = 3;
-            RequireSerializedProperty(delivery, "_purchaseUnitPrice").intValue = 200;
-            delivery.ApplyModifiedPropertiesWithoutUndo();
-            EditorUtility.SetDirty(deliveryConfig);
+            ConfigureDeliveryConfig(
+                cementDeliveryConfig,
+                ProductTypeId.CementBag,
+                productCount: 3,
+                purchaseUnitPrice: 200);
+            ConfigureDeliveryConfig(
+                boardDeliveryConfig,
+                ProductTypeId.BoardBundle,
+                productCount: 3,
+                purchaseUnitPrice: 260);
 
             SerializedObject economy = new(economyConfig);
             RequireSerializedProperty(economy, "_initialMoney").intValue = 1000;
             economy.ApplyModifiedPropertiesWithoutUndo();
             EditorUtility.SetDirty(economyConfig);
 
-            SerializedObject product = new(productConfig);
-            RequireSerializedProperty(product, "_productType").intValue = (int)ProductTypeId.CementBag;
-            RequireSerializedProperty(product, "_heldRotationEuler").vector3Value = new Vector3(8f, 0f, 0f);
-            RequireSerializedProperty(product, "_dropForwardDistance").floatValue = 1.15f;
+            ConfigureProductConfig(
+                cementProductConfig,
+                ProductTypeId.CementBag,
+                displayName: "Цемент 25 кг",
+                unitLabel: "шт.",
+                unitPrice: 350,
+                mass: 25f,
+                carryMovementSpeed: 3.2f,
+                heldRotationEuler: new Vector3(8f, 0f, 0f),
+                dropForwardDistance: 1.15f);
+            ConfigureProductConfig(
+                boardProductConfig,
+                ProductTypeId.BoardBundle,
+                displayName: "Пачка досок",
+                unitLabel: "шт.",
+                unitPrice: 480,
+                mass: 18f,
+                carryMovementSpeed: 2.6f,
+                heldRotationEuler: Vector3.zero,
+                dropForwardDistance: 1.35f);
+
+            ConfigureOrderConfig(
+                cementOrderConfig,
+                ProductTypeId.CementBag,
+                requiredProductCount: 2,
+                reward: 700);
+            ConfigureOrderConfig(
+                boardOrderConfig,
+                ProductTypeId.BoardBundle,
+                requiredProductCount: 2,
+                reward: 960);
+        }
+
+        private static void ConfigureDeliveryConfig(DeliveryConfig config, ProductTypeId productType,
+            int productCount, int purchaseUnitPrice)
+        {
+            SerializedObject delivery = new(config);
+            RequireSerializedProperty(delivery, "_productType").intValue = (int)productType;
+            RequireSerializedProperty(delivery, "_productCount").intValue = productCount;
+            RequireSerializedProperty(delivery, "_purchaseUnitPrice").intValue = purchaseUnitPrice;
+            delivery.ApplyModifiedPropertiesWithoutUndo();
+            EditorUtility.SetDirty(config);
+        }
+
+        private static void ConfigureProductConfig(ProductConfig config, ProductTypeId productType,
+            string displayName, string unitLabel, int unitPrice, float mass, float carryMovementSpeed,
+            Vector3 heldRotationEuler, float dropForwardDistance)
+        {
+            SerializedObject product = new(config);
+            RequireSerializedProperty(product, "_productType").intValue = (int)productType;
+            RequireSerializedProperty(product, "_displayName").stringValue = displayName;
+            RequireSerializedProperty(product, "_unitLabel").stringValue = unitLabel;
+            RequireSerializedProperty(product, "_unitPrice").intValue = unitPrice;
+            RequireSerializedProperty(product, "_mass").floatValue = mass;
+            RequireSerializedProperty(product, "_carryMovementSpeed").floatValue = carryMovementSpeed;
+            RequireSerializedProperty(product, "_heldRotationEuler").vector3Value = heldRotationEuler;
+            RequireSerializedProperty(product, "_dropForwardDistance").floatValue = dropForwardDistance;
             RequireSerializedProperty(product, "_worldInterpolation").intValue =
                 (int)RigidbodyInterpolation.Interpolate;
             RequireSerializedProperty(product, "_worldCollisionDetection").intValue =
                 (int)CollisionDetectionMode.ContinuousSpeculative;
             product.ApplyModifiedPropertiesWithoutUndo();
-            EditorUtility.SetDirty(productConfig);
+            EditorUtility.SetDirty(config);
+        }
 
-            SerializedObject order = new(orderConfig);
-            RequireSerializedProperty(order, "_requiredProductType").intValue = (int)ProductTypeId.CementBag;
-            RequireSerializedProperty(order, "_requiredProductCount").intValue = 2;
-            RequireSerializedProperty(order, "_reward").intValue = 700;
+        private static void ConfigureOrderConfig(OrderConfig config, ProductTypeId productType,
+            int requiredProductCount, int reward)
+        {
+            SerializedObject order = new(config);
+            RequireSerializedProperty(order, "_requiredProductType").intValue = (int)productType;
+            RequireSerializedProperty(order, "_requiredProductCount").intValue = requiredProductCount;
+            RequireSerializedProperty(order, "_reward").intValue = reward;
             order.ApplyModifiedPropertiesWithoutUndo();
-            EditorUtility.SetDirty(orderConfig);
+            EditorUtility.SetDirty(config);
         }
 
         private static void AssignViewPrefab(ScriptableObject config, EntityBehaviour prefabView)

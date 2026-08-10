@@ -10,7 +10,6 @@ namespace HardwareStore.Gameplay.Components
     [Game] public class DropOriginComponent : IComponent { public Transform Value; }
     [Game] public class WalkSpeed : IComponent { public float Value; }
     [Game] public class SprintSpeed : IComponent { public float Value; }
-    [Game] public class CarryingSpeed : IComponent { public float Value; }
     [Game] public class Gravity : IComponent { public float Value; }
     [Game] public class VerticalVelocity : IComponent { public float Value; }
     [Game] public class HorizontalSpeed : IComponent { public float Value; }

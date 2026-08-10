@@ -1,5 +1,6 @@
 using HardwareStore.Common.Entity;
 using HardwareStore.Common.Extensions;
+using HardwareStore.Gameplay.Components;
 using HardwareStore.Gameplay.Configs;
 using HardwareStore.Gameplay.StaticData;
 using HardwareStore.Infrastructure.Identifiers;
@@ -18,9 +19,10 @@ namespace HardwareStore.Gameplay.Factories
             _staticData = staticData;
         }
 
-        public GameEntity CreateInbound(Pose at, int deliveryEntityId, int deliverySlotIndex)
+        public GameEntity CreateInbound(ProductTypeId productType, Pose at, int deliveryEntityId,
+            int deliverySlotIndex)
         {
-            ProductConfig config = _staticData.Product;
+            ProductConfig config = _staticData.GetProduct(productType);
             return CreateEntity.Empty(_identifiers.Next())
                 .AddViewPrefab(config.ViewPrefab)
                 .AddSpawnPosition(at.position)
@@ -30,6 +32,7 @@ namespace HardwareStore.Gameplay.Factories
                 .AddProductType(config.ProductType)
                 .AddUnitPrice(config.UnitPrice)
                 .AddProductMass(config.Mass)
+                .AddCarryMovementSpeed(config.CarryMovementSpeed)
                 .AddHeldRotationOffset(config.HeldRotationOffset)
                 .AddDropForwardDistance(config.DropForwardDistance)
                 .AddRigidbodyInterpolationMode(config.WorldInterpolation)

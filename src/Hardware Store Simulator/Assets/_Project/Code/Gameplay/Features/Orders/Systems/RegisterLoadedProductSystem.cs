@@ -1,21 +1,26 @@
 using System;
 using System.Collections.Generic;
 using Entitas;
+using HardwareStore.Gameplay.Configs;
 using HardwareStore.Gameplay.Components;
 using HardwareStore.Gameplay.Factories;
+using HardwareStore.Gameplay.StaticData;
 
 namespace HardwareStore.Gameplay.Features.Orders.Systems
 {
     public sealed class RegisterLoadedProductSystem : IExecuteSystem
     {
         private readonly IGameEventFactory _events;
+        private readonly IStaticDataService _staticData;
         private readonly GameContext _gameContext;
         private readonly IGroup<GameEntity> _loadedProducts;
         private readonly List<GameEntity> _buffer = new(8);
 
-        public RegisterLoadedProductSystem(GameContext gameContext, IGameEventFactory events)
+        public RegisterLoadedProductSystem(GameContext gameContext,
+            IStaticDataService staticData, IGameEventFactory events)
         {
             _gameContext = gameContext;
+            _staticData = staticData;
             _events = events;
             _loadedProducts = gameContext.GetGroup(GameMatcher.AllOf(
                     GameMatcher.Product,
@@ -52,7 +57,11 @@ namespace HardwareStore.Gameplay.Features.Orders.Systems
                 product.isProductLoaded = false;
                 if (loaded < required)
                 {
-                    _events.EmitNotification($"Мешок загружен: {loaded}/{required}");
+                    ProductConfig productConfig =
+                        _staticData.GetProduct(product.ProductType);
+                    _events.EmitNotification(
+                        $"Товар загружен • {productConfig.DisplayName}: " +
+                        $"{loaded}/{required} {productConfig.UnitLabel}");
                     _events.EmitAudio(AudioCueId.Load);
                 }
             }

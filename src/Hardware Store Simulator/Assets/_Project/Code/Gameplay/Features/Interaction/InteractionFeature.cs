@@ -9,6 +9,8 @@ namespace HardwareStore.Gameplay.Features.Interaction
         {
             Add(systems.Create<DetectFocusedInteractableSystem>());
             Add(systems.Create<UpdateFocusHighlightSystem>());
+            Add(systems.Create<ClassifyFocusedInteractionSystem>());
+            Add(systems.Create<ChangeProcurementSelectionSystem>());
             Add(systems.Create<InteractionPromptFeature>());
             Add(systems.Create<EmitInteractionRequestSystem>());
         }

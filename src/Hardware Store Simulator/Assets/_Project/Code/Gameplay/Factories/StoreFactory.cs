@@ -29,6 +29,7 @@ namespace HardwareStore.Gameplay.Factories
             GameEntity store = CreateEntity.Empty(_identifiers.Next())
                 .AddMoney(_staticData.Economy.InitialMoney)
                 .AddCustomerCooldownRemaining(_staticData.CustomerVehicle.FirstCustomerDelay)
+                .AddNextOrderSequenceIndex(0)
                 .With(x => x.isStore = true);
 
             GameEntity orderCounter = _interactionTargetFactory.CreateOrderCounter(store.EntityId);

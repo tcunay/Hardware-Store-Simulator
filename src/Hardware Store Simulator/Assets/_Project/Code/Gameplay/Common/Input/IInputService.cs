@@ -9,6 +9,8 @@ namespace HardwareStore.Gameplay.Common.Input
         bool SprintHeld { get; }
         bool InteractPressedThisFrame { get; }
         bool DropPressedThisFrame { get; }
+        bool PreviousPressedThisFrame { get; }
+        bool NextPressedThisFrame { get; }
         bool ToggleCursorPressedThisFrame { get; }
         bool LookUsesPointer { get; }
     }

@@ -15,7 +15,6 @@ MonoBehaviour:
   _viewPrefab: {fileID: 5941482161185957268, guid: 82352e4c532b842dda4f13781fb27fc4, type: 3}
   _walkSpeed: 5.2
   _sprintSpeed: 8
-  _carryingSpeed: 3.2
   _gravity: -24
   _mouseSensitivity: 0.1
   _gamepadLookSpeed: 150

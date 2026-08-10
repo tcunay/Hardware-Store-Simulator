@@ -30,7 +30,6 @@ namespace HardwareStore.Gameplay.Factories
                 .AddSpawnRotation(at.rotation)
                 .AddWalkSpeed(player.WalkSpeed)
                 .AddSprintSpeed(player.SprintSpeed)
-                .AddCarryingSpeed(player.CarryingSpeed)
                 .AddGravity(player.Gravity)
                 .AddVerticalVelocity(0f)
                 .AddHorizontalSpeed(0f)

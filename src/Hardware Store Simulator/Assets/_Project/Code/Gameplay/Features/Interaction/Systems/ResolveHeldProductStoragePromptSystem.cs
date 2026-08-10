@@ -1,17 +1,22 @@
 using System;
 using Entitas;
+using HardwareStore.Gameplay.Configs;
 using HardwareStore.Gameplay.Components;
+using HardwareStore.Gameplay.StaticData;
 
 namespace HardwareStore.Gameplay.Features.Interaction.Systems
 {
     public sealed class ResolveHeldProductStoragePromptSystem : IExecuteSystem
     {
         private readonly GameContext _gameContext;
+        private readonly IStaticDataService _staticData;
         private readonly IGroup<GameEntity> _players;
 
-        public ResolveHeldProductStoragePromptSystem(GameContext gameContext)
+        public ResolveHeldProductStoragePromptSystem(GameContext gameContext,
+            IStaticDataService staticData)
         {
             _gameContext = gameContext;
+            _staticData = staticData;
             _players = gameContext.GetGroup(GameMatcher.AllOf(
                 GameMatcher.Player,
                 GameMatcher.EntityId,
@@ -76,7 +81,10 @@ namespace HardwareStore.Gameplay.Features.Interaction.Systems
                     continue;
                 }
 
-                player.SetInteractionPrompt("E — принять мешок на склад", true);
+                ProductConfig product = _staticData.GetProduct(heldProduct.ProductType);
+                player.SetInteractionPrompt(
+                    $"E — принять на склад • товар: {product.DisplayName}",
+                    true);
             }
         }
 
@@ -85,12 +93,15 @@ namespace HardwareStore.Gameplay.Features.Interaction.Systems
             GameEntity store,
             GameEntity heldProduct)
         {
+            ProductConfig heldProductConfig =
+                _staticData.GetProduct(heldProduct.ProductType);
             GameEntity customerVisit =
                 _gameContext.GetEntityWithCustomerVisitStoreEntityId(store.EntityId);
             if (customerVisit == null)
             {
                 player.SetInteractionPrompt(
-                    "Нет активного заказа — положите мешок клавишей G",
+                    $"Нет активного заказа • в руках: {heldProductConfig.DisplayName} • " +
+                    "G — бросить",
                     false);
                 return;
             }
@@ -98,7 +109,8 @@ namespace HardwareStore.Gameplay.Features.Interaction.Systems
             if (customerVisit.isCustomerVisitArriving)
             {
                 player.SetInteractionPrompt(
-                    "Клиент подъезжает — пока положите мешок клавишей G",
+                    $"Клиент подъезжает • в руках: {heldProductConfig.DisplayName} • " +
+                    "G — бросить",
                     false);
                 return;
             }
@@ -107,7 +119,8 @@ namespace HardwareStore.Gameplay.Features.Interaction.Systems
                 customerVisit.isCustomerVisitCompleted)
             {
                 player.SetInteractionPrompt(
-                    "Клиент уезжает — положите мешок клавишей G",
+                    $"Клиент уезжает • в руках: {heldProductConfig.DisplayName} • " +
+                    "G — бросить",
                     false);
                 return;
             }
@@ -124,10 +137,14 @@ namespace HardwareStore.Gameplay.Features.Interaction.Systems
                     $"Customer visit {customerVisit.EntityId} has no valid lifecycle state.");
             }
 
+            ProductConfig requiredProduct =
+                _staticData.GetProduct(customerVisit.RequiredProductType);
             player.SetInteractionPrompt(
                 heldProduct.ProductType == customerVisit.RequiredProductType
-                    ? "Отнесите мешок в машину клиента"
-                    : "Для активного заказа нужен другой товар",
+                    ? $"Отнесите товар в машину клиента • товар: " +
+                      $"{heldProductConfig.DisplayName}"
+                    : $"Для заказа нужен товар: {requiredProduct.DisplayName} • " +
+                      $"в руках: {heldProductConfig.DisplayName}",
                 false);
         }
     }

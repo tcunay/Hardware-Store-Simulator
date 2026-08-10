@@ -1,18 +1,23 @@
 using Entitas;
+using HardwareStore.Gameplay.Configs;
 using HardwareStore.Gameplay.Components;
 using HardwareStore.Gameplay.Factories;
+using HardwareStore.Gameplay.StaticData;
 
 namespace HardwareStore.Gameplay.Features.Orders.Systems
 {
     public sealed class AcceptOrderSystem : IExecuteSystem
     {
         private readonly GameContext _gameContext;
+        private readonly IStaticDataService _staticData;
         private readonly IGameEventFactory _events;
         private readonly IGroup<GameEntity> _requests;
 
-        public AcceptOrderSystem(GameContext gameContext, IGameEventFactory events)
+        public AcceptOrderSystem(GameContext gameContext, IStaticDataService staticData,
+            IGameEventFactory events)
         {
             _gameContext = gameContext;
+            _staticData = staticData;
             _events = events;
             _requests = gameContext.GetGroup(GameMatcher.AllOf(
                 GameMatcher.InteractionRequest,
@@ -52,8 +57,11 @@ namespace HardwareStore.Gameplay.Features.Orders.Systems
 
                 customerVisit.isCustomerVisitWaiting = false;
                 customerVisit.isCustomerVisitLoading = true;
+                ProductConfig product =
+                    _staticData.GetProduct(customerVisit.RequiredProductType);
                 _events.EmitNotification(
-                    $"Заказ принят: {customerVisit.RequiredProductCount} мешков цемента");
+                    $"Заказ принят • товар: {product.DisplayName} • количество: " +
+                    $"{customerVisit.RequiredProductCount} {product.UnitLabel}");
                 _events.EmitAudio(AudioCueId.OrderAccepted);
             }
         }

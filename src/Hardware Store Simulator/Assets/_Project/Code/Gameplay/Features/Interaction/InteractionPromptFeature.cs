@@ -7,7 +7,6 @@ namespace HardwareStore.Gameplay.Features.Interaction
     {
         public InteractionPromptFeature(ISystemFactory systems)
         {
-            Add(systems.Create<ClassifyFocusedInteractionSystem>());
             Add(systems.Create<ClearInteractionPromptSystem>());
             Add(systems.Create<ResolveProcurementTerminalPromptSystem>());
             Add(systems.Create<ResolveEmptyHandsStoragePromptSystem>());

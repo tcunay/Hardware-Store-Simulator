@@ -1,18 +1,24 @@
 using System;
 using Entitas;
+using HardwareStore.Gameplay.Configs;
+using HardwareStore.Gameplay.Components;
 using HardwareStore.Gameplay.Presentation;
+using HardwareStore.Gameplay.StaticData;
 
 namespace HardwareStore.Gameplay.Features.Presentation.Systems
 {
     public sealed class PresentHudSystem : IExecuteSystem
     {
         private readonly GameContext _gameContext;
+        private readonly IStaticDataService _staticData;
         private readonly IHudService _hud;
         private readonly IGroup<GameEntity> _players;
 
-        public PresentHudSystem(GameContext gameContext, IHudService hud)
+        public PresentHudSystem(GameContext gameContext, IStaticDataService staticData,
+            IHudService hud)
         {
             _gameContext = gameContext;
+            _staticData = staticData;
             _hud = hud;
             _players = gameContext.GetGroup(GameMatcher.AllOf(
                 GameMatcher.Player,
@@ -35,15 +41,22 @@ namespace HardwareStore.Gameplay.Features.Presentation.Systems
                         procurementTerminal.EntityId);
 
                 bool hasActiveDelivery = delivery != null;
+                ProductTypeId deliveryProductType = hasActiveDelivery
+                    ? delivery.ProductType
+                    : procurementTerminal.SelectedProductType;
+                ProductConfig deliveryProduct =
+                    _staticData.GetProduct(deliveryProductType);
                 int deliveryStockedCount = 0;
-                int deliveryProductCount = procurementTerminal.DeliveryProductCount;
+                int deliveryProductCount = hasActiveDelivery
+                    ? delivery.DeliveryProductCount
+                    : _staticData.GetDelivery(deliveryProductType).ProductCount;
                 if (hasActiveDelivery)
-                {
                     deliveryStockedCount = delivery.StockedProductCount;
-                    deliveryProductCount = delivery.DeliveryProductCount;
-                }
 
                 HudOrderState orderState;
+                ProductTypeId requiredProductType = deliveryProductType;
+                ProductConfig requiredProduct = deliveryProduct;
+                int availableProductCount = 0;
                 int loadedProductCount = 0;
                 int requiredProductCount = 0;
                 GameEntity customerVisit =
@@ -51,6 +64,9 @@ namespace HardwareStore.Gameplay.Features.Presentation.Systems
                 if (customerVisit != null)
                 {
                     orderState = ResolveOrderState(customerVisit);
+                    requiredProductType = customerVisit.RequiredProductType;
+                    requiredProduct = _staticData.GetProduct(requiredProductType);
+                    availableProductCount = customerVisit.AvailableProductCount;
                     loadedProductCount = customerVisit.LoadedProductCount;
                     requiredProductCount = customerVisit.RequiredProductCount;
                 }
@@ -59,15 +75,32 @@ namespace HardwareStore.Gameplay.Features.Presentation.Systems
                     orderState = HudOrderState.NoCustomer;
                 }
 
+                string carriedProductDisplayName = string.Empty;
+                if (player.isHandsOccupied)
+                {
+                    GameEntity carriedProduct =
+                        _gameContext.GetEntityWithCarrierEntityId(player.EntityId);
+                    carriedProductDisplayName =
+                        _staticData.GetProduct(carriedProduct.ProductType).DisplayName;
+                }
+
                 _hud.Present(new HudSnapshot(
                     orderState,
+                    requiredProductType,
+                    requiredProduct.DisplayName,
+                    requiredProduct.UnitLabel,
+                    availableProductCount,
                     loadedProductCount,
                     requiredProductCount,
                     store.Money,
                     storageZone.StorageProductCount,
                     hasActiveDelivery,
+                    deliveryProductType,
+                    deliveryProduct.DisplayName,
+                    deliveryProduct.UnitLabel,
                     deliveryStockedCount,
                     deliveryProductCount,
+                    carriedProductDisplayName,
                     player.hasInteractionPrompt ? player.InteractionPrompt : string.Empty,
                     player.hasFocusedEntityId,
                     player.isFocusInteractionAvailable,
