@@ -10,6 +10,7 @@ namespace HardwareStore.Gameplay.Presentation
         private static readonly CultureInfo RussianCulture = CultureInfo.GetCultureInfo("ru-RU");
 
         private HudSnapshot _snapshot;
+        private ConsultationSnapshot? _consultation;
         private bool _hasSnapshot;
         private string _notification = string.Empty;
         private float _notificationUntil;
@@ -17,6 +18,9 @@ namespace HardwareStore.Gameplay.Presentation
         private GUIStyle _bodyStyle;
         private GUIStyle _promptStyle;
         private GUIStyle _centerStyle;
+        private GUIStyle _cardTitleStyle;
+        private GUIStyle _cardBodyStyle;
+        private GUIStyle _cardMetaStyle;
         private float _canvasWidth;
         private float _canvasHeight;
 
@@ -25,6 +29,9 @@ namespace HardwareStore.Gameplay.Presentation
             _snapshot = snapshot;
             _hasSnapshot = true;
         }
+
+        public void PresentConsultation(ConsultationSnapshot? snapshot) =>
+            _consultation = snapshot;
 
         public void Show(string message)
         {
@@ -43,12 +50,21 @@ namespace HardwareStore.Gameplay.Presentation
                 return;
 
             Matrix4x4 previousMatrix = GUI.matrix;
-            float scale = Mathf.Max(1f, Mathf.Min(Screen.width / 1600f, Screen.height / 900f));
+            float scale = Mathf.Max(0.65f,
+                Mathf.Min(Screen.width / 1600f, Screen.height / 900f));
             _canvasWidth = Screen.width / scale;
             _canvasHeight = Screen.height / scale;
             GUI.matrix = Matrix4x4.Scale(new Vector3(scale, scale, 1f));
 
             EnsureStyles();
+            if (_consultation.HasValue)
+            {
+                DrawConsultation(_consultation.Value);
+                DrawNotification();
+                GUI.matrix = previousMatrix;
+                return;
+            }
+
             DrawStatusPanel();
             DrawCrosshair();
             DrawInteractionPrompt();
@@ -105,9 +121,104 @@ namespace HardwareStore.Gameplay.Presentation
                 : string.Empty;
             string controls =
                 $"WASD — идти   Shift — бег   E — действие   G — бросить   " +
-                $"1/2 — выбор товара   Esc — курсор{carried}";
+                $"←/→ — выбор товара   Esc — курсор{carried}";
             Rect rect = new(22f, _canvasHeight - 54f, _canvasWidth - 44f, 34f);
             GUI.Label(rect, controls, _bodyStyle);
+        }
+
+        private void DrawConsultation(ConsultationSnapshot consultation)
+        {
+            DrawPanel(
+                new Rect(0f, 0f, _canvasWidth, _canvasHeight),
+                new Color(0.015f, 0.02f, 0.025f, 0.92f));
+
+            float panelWidth = Mathf.Min(1260f, _canvasWidth - 48f);
+            float panelHeight = Mathf.Min(700f, _canvasHeight - 64f);
+            Rect panel = new(
+                (_canvasWidth - panelWidth) * 0.5f,
+                (_canvasHeight - panelHeight) * 0.5f,
+                panelWidth,
+                panelHeight);
+            DrawPanel(panel, new Color(0.055f, 0.065f, 0.075f, 0.98f));
+
+            GUI.Label(
+                new Rect(panel.x + 32f, panel.y + 24f, panel.width - 64f, 34f),
+                "КОНСУЛЬТАЦИЯ КЛИЕНТА",
+                _titleStyle);
+            GUI.Label(
+                new Rect(panel.x + 32f, panel.y + 64f, panel.width - 64f, 34f),
+                consultation.ProjectTitle,
+                _centerStyle);
+            GUI.Label(
+                new Rect(panel.x + 56f, panel.y + 104f, panel.width - 112f, 54f),
+                consultation.CustomerRequest,
+                _cardBodyStyle);
+
+            const float cardGap = 18f;
+            float cardsLeft = panel.x + 28f;
+            float cardsWidth = panel.width - 56f;
+            float cardWidth = (cardsWidth - cardGap * 2f) / 3f;
+            float cardTop = panel.y + 174f;
+            float cardHeight = panel.height - 254f;
+            for (int index = 0; index < consultation.Offers.Count; index++)
+            {
+                ConsultationOfferSnapshot offer = consultation.Offers[index];
+                Rect border = new(
+                    cardsLeft + index * (cardWidth + cardGap),
+                    cardTop,
+                    cardWidth,
+                    cardHeight);
+                DrawPanel(
+                    border,
+                    offer.Selected
+                        ? new Color(1f, 0.56f, 0.12f, 1f)
+                        : new Color(0.16f, 0.18f, 0.2f, 1f));
+                Rect card = new(
+                    border.x + 3f,
+                    border.y + 3f,
+                    border.width - 6f,
+                    border.height - 6f);
+                DrawPanel(
+                    card,
+                    offer.Selected
+                        ? new Color(0.13f, 0.095f, 0.055f, 0.98f)
+                        : new Color(0.075f, 0.085f, 0.095f, 0.98f));
+
+                GUI.Label(
+                    new Rect(card.x + 18f, card.y + 16f, card.width - 36f, 34f),
+                    $"ВАРИАНТ {offer.Index + 1} • {offer.Title}",
+                    _cardTitleStyle);
+                GUI.Label(
+                    new Rect(card.x + 18f, card.y + 56f, card.width - 36f, 76f),
+                    offer.Description,
+                    _cardBodyStyle);
+
+                string details =
+                    $"Товар: {offer.ProductDisplayName}\n" +
+                    $"Объём: {offer.RequiredProductCount} {offer.ProductUnitLabel}\n" +
+                    $"В наличии: {offer.AvailableProductCount}/" +
+                    $"{offer.RequiredProductCount} {offer.ProductUnitLabel}\n" +
+                    $"Выручка: {offer.Revenue.ToString("N0", RussianCulture)} ₽\n" +
+                    $"Ожидаемая прибыль: " +
+                    $"{offer.ExpectedProfit.ToString("N0", RussianCulture)} ₽";
+                GUI.Label(
+                    new Rect(card.x + 18f, card.y + 144f, card.width - 36f, 152f),
+                    details,
+                    _cardMetaStyle);
+
+                if (offer.Selected)
+                {
+                    GUI.Label(
+                        new Rect(card.x + 18f, card.yMax - 52f, card.width - 36f, 34f),
+                        "ВЫБРАНО",
+                        _promptStyle);
+                }
+            }
+
+            GUI.Label(
+                new Rect(panel.x + 28f, panel.yMax - 58f, panel.width - 56f, 34f),
+                "← — предыдущее   → — следующее   Enter — подтвердить   Esc — закрыть",
+                _promptStyle);
         }
 
         private void DrawNotification()
@@ -144,6 +255,7 @@ namespace HardwareStore.Gameplay.Presentation
             {
                 HudOrderState.NoCustomer => "Ожидаем следующего клиента",
                 HudOrderState.Arriving => "Клиент подъезжает",
+                HudOrderState.Consulting => "Обсудить проект с клиентом у стойки",
                 HudOrderState.Waiting when
                     _snapshot.AvailableProductCount < _snapshot.RequiredCount =>
                     $"Пополнить товар • {_snapshot.RequiredProductDisplayName}: " +
@@ -166,6 +278,9 @@ namespace HardwareStore.Gameplay.Presentation
         {
             if (_snapshot.OrderState == HudOrderState.NoCustomer)
                 return $"Товаров на складе: {_snapshot.StockCount}";
+
+            if (_snapshot.OrderState is HudOrderState.Arriving or HudOrderState.Consulting)
+                return $"Запрос клиента • {_snapshot.RequiredProductDisplayName}";
 
             return $"Доступно • {_snapshot.RequiredProductDisplayName}: " +
                    $"{_snapshot.AvailableProductCount} " +
@@ -196,6 +311,22 @@ namespace HardwareStore.Gameplay.Presentation
             _centerStyle = new GUIStyle(_promptStyle)
             {
                 fontSize = 22
+            };
+            _cardTitleStyle = new GUIStyle(_promptStyle)
+            {
+                fontSize = 20,
+                alignment = TextAnchor.MiddleLeft,
+                normal = { textColor = new Color(1f, 0.72f, 0.28f) }
+            };
+            _cardBodyStyle = new GUIStyle(_bodyStyle)
+            {
+                fontSize = 16,
+                wordWrap = true,
+                alignment = TextAnchor.UpperLeft
+            };
+            _cardMetaStyle = new GUIStyle(_cardBodyStyle)
+            {
+                fontSize = 17
             };
         }
 

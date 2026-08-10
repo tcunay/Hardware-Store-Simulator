@@ -24,7 +24,9 @@ namespace HardwareStore.Gameplay.Features.Movement.Systems
             foreach (InputEntity input in _inputs)
             foreach (GameEntity player in _players)
             {
-                Vector2 move = Vector2.ClampMagnitude(input.MoveInput, 1f);
+                Vector2 move = player.hasConsultationVisitEntityId
+                    ? Vector2.zero
+                    : Vector2.ClampMagnitude(input.MoveInput, 1f);
                 Transform playerTransform = player.Transform;
                 Vector3 direction = playerTransform.right * move.x + playerTransform.forward * move.y;
                 player.ReplaceMoveDirection(direction);

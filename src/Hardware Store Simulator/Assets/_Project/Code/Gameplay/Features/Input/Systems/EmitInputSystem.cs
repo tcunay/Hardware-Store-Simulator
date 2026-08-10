@@ -22,6 +22,7 @@ namespace HardwareStore.Gameplay.Features.Input.Systems
                 input.ReplaceLookInput(_inputService.Look);
                 input.isSprintHeld = _inputService.SprintHeld;
                 input.isInteractPressed = _inputService.InteractPressedThisFrame;
+                input.isConfirmPressed = _inputService.ConfirmPressedThisFrame;
                 input.isDropPressed = _inputService.DropPressedThisFrame;
                 input.isPreviousPressed = _inputService.PreviousPressedThisFrame;
                 input.isNextPressed = _inputService.NextPressedThisFrame;

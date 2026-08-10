@@ -8,6 +8,7 @@ namespace HardwareStore.Gameplay.Components
     [Input] public class LookInput : IComponent { public Vector2 Value; }
     [Input] public class SprintHeld : IComponent { }
     [Input] public class InteractPressed : IComponent { }
+    [Input] public class ConfirmPressed : IComponent { }
     [Input] public class DropPressed : IComponent { }
     [Input] public class PreviousPressed : IComponent { }
     [Input] public class NextPressed : IComponent { }

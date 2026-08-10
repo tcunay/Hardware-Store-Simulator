@@ -15,7 +15,8 @@ namespace HardwareStore.Gameplay.Features.Interaction.Systems
                 GameMatcher.Player,
                 GameMatcher.Camera,
                 GameMatcher.InteractionDistance,
-                GameMatcher.AimAssistRadius));
+                GameMatcher.AimAssistRadius)
+                .NoneOf(GameMatcher.ConsultationVisitEntityId));
         }
 
         public void Execute()

@@ -9,6 +9,7 @@ namespace HardwareStore.Gameplay.Features.Presentation
         {
             Add(systems.Create<PresentInteractionHighlightsSystem>());
             Add(systems.Create<PresentHudSystem>());
+            Add(systems.Create<PresentConsultationSystem>());
             Add(systems.Create<PlayAudioCuesSystem>());
             Add(systems.Create<PresentNotificationsSystem>());
         }

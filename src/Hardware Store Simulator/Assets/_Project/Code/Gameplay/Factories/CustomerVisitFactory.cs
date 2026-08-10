@@ -15,14 +15,14 @@ namespace HardwareStore.Gameplay.Factories
 
         private readonly IIdentifierService _identifiers;
         private readonly IStaticDataService _staticData;
-        private readonly IOrderFactory _orderFactory;
+        private readonly IConsultationOfferFactory _consultationOffers;
 
         public CustomerVisitFactory(IIdentifierService identifiers, IStaticDataService staticData,
-            IOrderFactory orderFactory)
+            IConsultationOfferFactory consultationOffers)
         {
             _identifiers = identifiers;
             _staticData = staticData;
-            _orderFactory = orderFactory;
+            _consultationOffers = consultationOffers;
         }
 
         public GameEntity Create(GameEntity store, Pose[] arrivalRoute, Pose[] departureRoute)
@@ -42,12 +42,17 @@ namespace HardwareStore.Gameplay.Factories
             }
 
             ProductTypeId productType = _staticData.ProductTypes[orderSequenceIndex];
+            OrderConfig order = _staticData.GetOrder(productType);
 
             GameEntity customerVisit = CreateEntity.Empty(_identifiers.Next())
                 .AddViewPrefab(config.ViewPrefab)
                 .AddSpawnPosition(arrival[0].position)
                 .AddSpawnRotation(arrival[0].rotation)
                 .AddCustomerVisitStoreEntityId(store.EntityId)
+                .AddStorageZoneEntityId(store.StorageZoneEntityId)
+                .AddRequestedProductType(productType)
+                .AddCustomerProjectTitle(order.CustomerProjectTitle)
+                .AddCustomerRequest(order.CustomerRequest)
                 .AddRoute(arrival)
                 .AddDepartureRoute(departure)
                 .AddRouteWaypointIndex(1)
@@ -59,10 +64,7 @@ namespace HardwareStore.Gameplay.Factories
                 .With(x => x.isCustomerVisitArriving = true)
                 .With(x => x.isLoadingZone = true);
 
-            _orderFactory.AddOrderComponents(
-                customerVisit,
-                store.StorageZoneEntityId,
-                productType);
+            _consultationOffers.CreateOffers(customerVisit);
             store.ReplaceNextOrderSequenceIndex(
                 (orderSequenceIndex + 1) % _staticData.ProductTypes.Count);
             store.RemoveCustomerCooldownRemaining();

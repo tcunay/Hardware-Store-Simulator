@@ -1,38 +1,56 @@
 using System;
-using HardwareStore.Common.Entity;
 using HardwareStore.Common.Extensions;
-using HardwareStore.Gameplay.Components;
-using HardwareStore.Gameplay.StaticData;
 
 namespace HardwareStore.Gameplay.Factories
 {
     public sealed class OrderFactory : IOrderFactory
     {
-        private readonly IStaticDataService _staticData;
-
-        public OrderFactory(IStaticDataService staticData) => _staticData = staticData;
-
-        public GameEntity AddOrderComponents(GameEntity customerVisit, int storageZoneEntityId,
-            ProductTypeId productType)
+        public GameEntity AddOrderComponents(GameEntity customerVisit,
+            GameEntity selectedOffer)
         {
             if (customerVisit == null)
                 throw new ArgumentNullException(nameof(customerVisit));
-            if (!customerVisit.isCustomerVisit || !customerVisit.isCustomerVehicle ||
-                !customerVisit.hasCustomerVisitStoreEntityId || customerVisit.isOrder)
+            if (selectedOffer == null)
+                throw new ArgumentNullException(nameof(selectedOffer));
+            if (!customerVisit.isCustomerVisit ||
+                !customerVisit.isCustomerVisitConsulting ||
+                !customerVisit.hasEntityId ||
+                !customerVisit.hasRequestedProductType ||
+                !customerVisit.hasStorageZoneEntityId || customerVisit.isOrder)
             {
                 throw new InvalidOperationException(
-                    "Order components require a fresh configured customer visit.");
+                    "Order components require a consulting customer visit.");
+            }
+            if (!selectedOffer.isConsultationOffer ||
+                !selectedOffer.isSelectedConsultationOffer ||
+                !selectedOffer.hasCustomerVisitEntityId ||
+                !selectedOffer.hasStorageZoneEntityId ||
+                !selectedOffer.hasRequiredProductType ||
+                !selectedOffer.hasRequiredProductCount ||
+                !selectedOffer.hasAvailableProductCount ||
+                !selectedOffer.hasOrderReward ||
+                !selectedOffer.hasExpectedProfit)
+            {
+                throw new InvalidOperationException(
+                    "Order components require a complete selected consultation offer.");
+            }
+            if (selectedOffer.CustomerVisitEntityId != customerVisit.EntityId ||
+                selectedOffer.StorageZoneEntityId != customerVisit.StorageZoneEntityId ||
+                selectedOffer.RequiredProductType != customerVisit.RequestedProductType)
+            {
+                throw new InvalidOperationException(
+                    "The selected consultation offer does not belong to the customer visit.");
             }
 
-            var config = _staticData.GetOrder(productType);
-            return customerVisit
-                .AddStorageZoneEntityId(storageZoneEntityId)
-                .AddRequiredProductType(config.RequiredProductType)
-                .AddRequiredProductCount(config.RequiredProductCount)
-                .AddAvailableProductCount(0)
+            customerVisit
+                .AddRequiredProductType(selectedOffer.RequiredProductType)
+                .AddRequiredProductCount(selectedOffer.RequiredProductCount)
+                .AddAvailableProductCount(selectedOffer.AvailableProductCount)
                 .AddLoadedProductCount(0)
-                .AddOrderReward(config.Reward)
+                .AddOrderReward(selectedOffer.OrderReward)
+                .AddExpectedProfit(selectedOffer.ExpectedProfit)
                 .With(x => x.isOrder = true);
+            return customerVisit;
         }
     }
 }

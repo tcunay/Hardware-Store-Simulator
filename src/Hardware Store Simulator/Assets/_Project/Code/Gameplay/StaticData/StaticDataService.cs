@@ -147,31 +147,40 @@ namespace HardwareStore.Gameplay.StaticData
                         "unit price.");
                 }
 
-                int expectedReward;
-                try
+                int maximumRequiredProductCount = 0;
+                foreach (OrderOfferDefinition offer in order.Offers)
                 {
-                    expectedReward = checked(product.UnitPrice * order.RequiredProductCount);
-                }
-                catch (OverflowException exception)
-                {
-                    throw new InvalidOperationException(
-                        $"Retail order total for {productType} must fit a 32-bit signed integer.",
-                        exception);
+                    int expectedReward;
+                    try
+                    {
+                        expectedReward = checked(product.UnitPrice * offer.RequiredProductCount);
+                    }
+                    catch (OverflowException exception)
+                    {
+                        throw new InvalidOperationException(
+                            $"Retail offer total for {productType} must fit a 32-bit signed " +
+                            "integer.",
+                            exception);
+                    }
+
+                    if (offer.Reward != expectedReward)
+                    {
+                        throw new InvalidOperationException(
+                            $"Offer reward for {productType} must equal retail unit price " +
+                            $"{product.UnitPrice} multiplied by required product count " +
+                            $"{offer.RequiredProductCount} ({expectedReward}).");
+                    }
+
+                    maximumRequiredProductCount = Math.Max(
+                        maximumRequiredProductCount,
+                        offer.RequiredProductCount);
                 }
 
-                if (order.Reward != expectedReward)
+                if (delivery.ProductCount < maximumRequiredProductCount)
                 {
                     throw new InvalidOperationException(
-                        $"Order reward for {productType} must equal retail unit price " +
-                        $"{product.UnitPrice} multiplied by required product count " +
-                        $"{order.RequiredProductCount} ({expectedReward}).");
-                }
-
-                if (delivery.ProductCount <= order.RequiredProductCount)
-                {
-                    throw new InvalidOperationException(
-                        $"Delivery for {productType} must leave at least one product in stock " +
-                        "after its customer order.");
+                        $"Delivery for {productType} contains {delivery.ProductCount} products, " +
+                        $"but its largest offer requires {maximumRequiredProductCount}.");
                 }
             }
 
@@ -190,8 +199,10 @@ namespace HardwareStore.Gameplay.StaticData
 
                 try
                 {
+                    int minimumOfferReward = order.Offers
+                        .Min(offer => offer.Reward);
                     projectedMoney = checked(
-                        projectedMoney - delivery.TotalCost + order.Reward);
+                        projectedMoney - delivery.TotalCost + minimumOfferReward);
                 }
                 catch (OverflowException exception)
                 {

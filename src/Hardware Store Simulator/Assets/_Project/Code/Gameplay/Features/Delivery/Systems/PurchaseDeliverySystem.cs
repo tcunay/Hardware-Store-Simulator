@@ -71,6 +71,16 @@ namespace HardwareStore.Gameplay.Features.Delivery.Systems
                     continue;
                 }
 
+                if (customerVisit.isCustomerVisitArriving ||
+                    customerVisit.isCustomerVisitConsulting)
+                {
+                    _events.EmitNotification(
+                        customerVisit.isCustomerVisitArriving
+                            ? "Дождитесь клиента, чтобы согласовать предложение"
+                            : "Сначала согласуйте предложение с клиентом у стойки");
+                    continue;
+                }
+
                 if (terminal.SelectedProductType != customerVisit.RequiredProductType)
                 {
                     ProductConfig requiredProduct =

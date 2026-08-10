@@ -125,6 +125,15 @@ namespace HardwareStore.Gameplay.Features.Interaction.Systems
                 return;
             }
 
+            if (customerVisit.isCustomerVisitConsulting)
+            {
+                player.SetInteractionPrompt(
+                    $"Сначала согласуйте предложение • в руках: " +
+                    $"{heldProductConfig.DisplayName} • G — бросить",
+                    false);
+                return;
+            }
+
             if (customerVisit.isCustomerVisitWaiting)
             {
                 player.SetInteractionPrompt("Сначала примите заказ у стойки", false);

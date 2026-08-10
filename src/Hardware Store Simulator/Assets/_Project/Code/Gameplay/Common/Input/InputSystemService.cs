@@ -11,6 +11,7 @@ namespace HardwareStore.Gameplay.Common.Input
         private InputAction _move;
         private InputAction _look;
         private InputAction _interact;
+        private InputAction _confirm;
         private InputAction _drop;
         private InputAction _previous;
         private InputAction _next;
@@ -20,6 +21,7 @@ namespace HardwareStore.Gameplay.Common.Input
         public Vector2 Look => _look.ReadValue<Vector2>();
         public bool SprintHeld => _sprint.IsPressed();
         public bool InteractPressedThisFrame => _interact.WasPressedThisFrame();
+        public bool ConfirmPressedThisFrame => _confirm.WasPressedThisFrame();
         public bool DropPressedThisFrame => _drop.WasPressedThisFrame();
         public bool PreviousPressedThisFrame => _previous.WasPressedThisFrame();
         public bool NextPressedThisFrame => _next.WasPressedThisFrame();
@@ -33,6 +35,7 @@ namespace HardwareStore.Gameplay.Common.Input
             _move = _playerMap.FindAction("Move", true);
             _look = _playerMap.FindAction("Look", true);
             _interact = _playerMap.FindAction("Interact", true);
+            _confirm = _playerMap.FindAction("Confirm", true);
             _drop = _playerMap.FindAction("Drop", true);
             _previous = _playerMap.FindAction("Previous", true);
             _next = _playerMap.FindAction("Next", true);

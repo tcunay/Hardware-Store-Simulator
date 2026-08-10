@@ -64,11 +64,31 @@ namespace HardwareStore.Gameplay.Features.Presentation.Systems
                 if (customerVisit != null)
                 {
                     orderState = ResolveOrderState(customerVisit);
-                    requiredProductType = customerVisit.RequiredProductType;
+                    bool hasOrder = customerVisit.isOrder;
+                    bool requiresOrder = orderState is not (
+                        HudOrderState.Arriving or HudOrderState.Consulting);
+                    if (hasOrder != requiresOrder)
+                    {
+                        throw new InvalidOperationException(
+                            $"Customer visit {customerVisit.EntityId} has an order that does " +
+                            "not match its lifecycle state.");
+                    }
+                    if (!hasOrder && !customerVisit.hasRequestedProductType)
+                    {
+                        throw new InvalidOperationException(
+                            $"Customer visit {customerVisit.EntityId} has no requested product.");
+                    }
+
+                    requiredProductType = hasOrder
+                        ? customerVisit.RequiredProductType
+                        : customerVisit.RequestedProductType;
                     requiredProduct = _staticData.GetProduct(requiredProductType);
-                    availableProductCount = customerVisit.AvailableProductCount;
-                    loadedProductCount = customerVisit.LoadedProductCount;
-                    requiredProductCount = customerVisit.RequiredProductCount;
+                    if (hasOrder)
+                    {
+                        availableProductCount = customerVisit.AvailableProductCount;
+                        loadedProductCount = customerVisit.LoadedProductCount;
+                        requiredProductCount = customerVisit.RequiredProductCount;
+                    }
                 }
                 else
                 {
@@ -114,6 +134,8 @@ namespace HardwareStore.Gameplay.Features.Presentation.Systems
             ValidateSingleLifecycleState(customerVisit);
             if (customerVisit.isCustomerVisitArriving)
                 return HudOrderState.Arriving;
+            if (customerVisit.isCustomerVisitConsulting)
+                return HudOrderState.Consulting;
             if (customerVisit.isCustomerVisitDeparting)
                 return HudOrderState.Departing;
             if (customerVisit.isCustomerVisitWaiting)
@@ -131,6 +153,7 @@ namespace HardwareStore.Gameplay.Features.Presentation.Systems
         {
             int lifecycleStateCount =
                 (customerVisit.isCustomerVisitArriving ? 1 : 0) +
+                (customerVisit.isCustomerVisitConsulting ? 1 : 0) +
                 (customerVisit.isCustomerVisitWaiting ? 1 : 0) +
                 (customerVisit.isCustomerVisitLoading ? 1 : 0) +
                 (customerVisit.isCustomerVisitCompleted ? 1 : 0) +

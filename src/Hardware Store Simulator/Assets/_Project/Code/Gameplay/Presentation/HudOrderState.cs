@@ -4,6 +4,7 @@ namespace HardwareStore.Gameplay.Presentation
     {
         NoCustomer,
         Arriving,
+        Consulting,
         Waiting,
         Active,
         Completed,

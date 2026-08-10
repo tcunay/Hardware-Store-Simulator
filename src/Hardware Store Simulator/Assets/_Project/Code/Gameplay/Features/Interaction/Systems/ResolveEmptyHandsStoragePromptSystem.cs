@@ -83,6 +83,17 @@ namespace HardwareStore.Gameplay.Features.Interaction.Systems
                     continue;
                 }
 
+                if (customerVisit.isCustomerVisitConsulting)
+                {
+                    ProductConfig requestedProduct =
+                        _staticData.GetProduct(customerVisit.RequestedProductType);
+                    player.SetInteractionPrompt(
+                        $"Сначала согласуйте предложение • запрос: " +
+                        $"{requestedProduct.DisplayName}",
+                        false);
+                    continue;
+                }
+
                 if (customerVisit.isCustomerVisitLoading)
                 {
                     ProductConfig product =

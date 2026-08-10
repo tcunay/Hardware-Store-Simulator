@@ -22,6 +22,7 @@ using HardwareStore.Infrastructure.View.Systems;
 using UnityEditor;
 using UnityEditor.SceneManagement;
 using UnityEngine;
+using UnityEngine.InputSystem;
 using UnityEngine.SceneManagement;
 using Zenject;
 
@@ -32,6 +33,7 @@ namespace HardwareStore.Editor
         private const string MenuPath = "Tools/Hardware Store/Validate ECS Architecture";
         private const string ProjectContextPath = "Assets/Resources/ProjectContext.prefab";
         private const string PrototypeScenePath = "Assets/Scenes/Prototype_Yard.unity";
+        private const string InputActionsPath = "Assets/InputSystem_Actions.inputactions";
         private const string PlayerConfigPath = "Assets/Resources/Configs/PlayerConfig.asset";
         private const string InteractionConfigPath = "Assets/Resources/Configs/InteractionConfig.asset";
         private const string PlayerPrefabPath = "Assets/_Project/Prefabs/Gameplay/Player.prefab";
@@ -68,6 +70,7 @@ namespace HardwareStore.Editor
             typeof(LookInput),
             typeof(SprintHeld),
             typeof(InteractPressed),
+            typeof(ConfirmPressed),
             typeof(DropPressed),
             typeof(PreviousPressed),
             typeof(NextPressed),
@@ -172,10 +175,12 @@ namespace HardwareStore.Editor
 
             ValidateComponentShapes(componentTypes);
             ValidateRegistries(componentTypes);
+            ValidateInputContract();
             ValidateLegacyTypesAreAbsent(runtimeTypes);
             ValidateStoreArchitecture(componentTypes);
             ValidateEntityViewBindingBoundary(runtimeTypes, componentTypes);
             ValidateEntityIndices(runtimeTypes, componentTypes);
+            ValidateConsultationArchitecture(runtimeTypes, componentTypes);
             ValidateGameplayConfigBoundary(runtimeTypes);
             ValidateJennyPipeline();
             ValidateProjectContextPrefab();
@@ -241,6 +246,74 @@ namespace HardwareStore.Editor
             Require(gameTypes.SetEquals(discoveredTypes),
                 DescribeSetMismatch("Combined Game/Input registries", discoveredTypes, gameTypes));
         }
+
+        private static void ValidateInputContract()
+        {
+            InputActionAsset inputActions = AssetDatabase.LoadAssetAtPath<InputActionAsset>(
+                InputActionsPath);
+            Require(inputActions != null,
+                $"{InputActionsPath} must contain the gameplay Input Actions asset.");
+
+            InputActionMap playerMap = inputActions.FindActionMap("Player");
+            Require(playerMap != null,
+                $"{InputActionsPath} must contain the Player action map.");
+
+            InputAction move = playerMap.FindAction("Move");
+            InputAction previous = playerMap.FindAction("Previous");
+            InputAction next = playerMap.FindAction("Next");
+            InputAction confirm = playerMap.FindAction("Confirm");
+            Require(move != null && previous != null && next != null && confirm != null,
+                "Player input must expose Move, Previous, Next and Confirm actions.");
+
+            Require(HasBinding(previous, "<Keyboard>/leftArrow") &&
+                    HasBinding(next, "<Keyboard>/rightArrow"),
+                "Consultation navigation must use the keyboard left and right arrows.");
+            Require(!HasAnyBinding(previous,
+                        "<Keyboard>/1",
+                        "<Keyboard>/2",
+                        "<Keyboard>/digit1",
+                        "<Keyboard>/digit2") &&
+                    !HasAnyBinding(next,
+                        "<Keyboard>/1",
+                        "<Keyboard>/2",
+                        "<Keyboard>/digit1",
+                        "<Keyboard>/digit2"),
+                "Consultation navigation must not retain the legacy 1/2 keyboard bindings.");
+            Require(!HasAnyBinding(move,
+                    "<Keyboard>/leftArrow",
+                    "<Keyboard>/rightArrow",
+                    "<Keyboard>/upArrow",
+                    "<Keyboard>/downArrow"),
+                "Move must not consume keyboard arrows reserved for modal navigation.");
+            Require(HasBinding(confirm, "<Keyboard>/enter") &&
+                    HasBinding(confirm, "<Keyboard>/numpadEnter"),
+                "Consultation confirmation must accept Enter and Numpad Enter through Confirm.");
+            Require(HasOnlyBindings(confirm,
+                    "<Keyboard>/enter",
+                    "<Keyboard>/numpadEnter",
+                    "<Gamepad>/buttonSouth"),
+                "Confirm may only use Enter, Numpad Enter and gamepad button South; " +
+                "mouse, touch, joystick and XR bindings are forbidden.");
+        }
+
+        private static bool HasBinding(InputAction action, string path) =>
+            action.bindings.Any(binding =>
+                string.Equals(binding.path, path, StringComparison.OrdinalIgnoreCase));
+
+        private static bool HasAnyBinding(InputAction action, params string[] paths) =>
+            paths.Any(path => HasBinding(action, path));
+
+        private static bool HasOnlyBindings(InputAction action, params string[] paths) =>
+            action.bindings.Any(binding =>
+                paths.Any(path => string.Equals(
+                    binding.path,
+                    path,
+                    StringComparison.OrdinalIgnoreCase))) &&
+            action.bindings.All(binding =>
+                paths.Any(path => string.Equals(
+                    binding.path,
+                    path,
+                    StringComparison.OrdinalIgnoreCase)));
 
         private static void ValidateRegistry(string name, string[] componentNames, Type[] componentTypes)
         {
@@ -463,6 +536,7 @@ namespace HardwareStore.Editor
                 typeof(Order),
                 typeof(LoadingZone),
                 typeof(CustomerVisitArriving),
+                typeof(CustomerVisitConsulting),
                 typeof(CustomerVisitWaiting),
                 typeof(CustomerVisitLoading),
                 typeof(CustomerVisitCompleted),
@@ -548,8 +622,16 @@ namespace HardwareStore.Editor
                 nameof(IOrderFactory.AddOrderComponents),
                 typeof(GameEntity),
                 typeof(GameEntity),
-                typeof(int),
-                typeof(ProductTypeId));
+                typeof(GameEntity));
+            Require(typeof(IConsultationOfferFactory).IsAssignableFrom(
+                    typeof(ConsultationOfferFactory)),
+                $"{nameof(ConsultationOfferFactory)} must implement " +
+                $"{nameof(IConsultationOfferFactory)}.");
+            RequireMethod(
+                typeof(IConsultationOfferFactory),
+                nameof(IConsultationOfferFactory.CreateOffers),
+                typeof(void),
+                typeof(GameEntity));
 
             string customerVisitFactorySource = ReadRuntimeSource(
                 "Gameplay", "Factories", "CustomerVisitFactory.cs");
@@ -559,15 +641,36 @@ namespace HardwareStore.Editor
                 "isCustomerVisitArriving = true",
                 "isLoadingZone = true",
                 "AddCustomerVisitStoreEntityId",
-                "_orderFactory.AddOrderComponents");
+                "AddRequestedProductType",
+                "AddCustomerProjectTitle",
+                "AddCustomerRequest",
+                "_consultationOffers.CreateOffers");
+            Require(!customerVisitFactorySource.Contains(
+                    "_orderFactory",
+                    StringComparison.Ordinal),
+                $"{nameof(CustomerVisitFactory)} must not create the order before consultation.");
             string orderFactorySource = ReadRuntimeSource(
                 "Gameplay", "Factories", "OrderFactory.cs");
             RequireSourceContains(orderFactorySource,
                 "AddOrderComponents",
-                "_staticData.GetOrder(productType)",
+                "selectedOffer.RequiredProductType",
+                "selectedOffer.RequiredProductCount",
+                "selectedOffer.OrderReward",
                 "isOrder = true");
             Require(!orderFactorySource.Contains("CreateEntity.", StringComparison.Ordinal),
                 $"{nameof(OrderFactory)} must enrich the unified CustomerVisit entity, not create another one.");
+
+            string consultationOfferFactorySource = ReadRuntimeSource(
+                "Gameplay", "Factories", "ConsultationOfferFactory.cs");
+            RequireSourceContains(consultationOfferFactorySource,
+                "CreateEntity.Empty",
+                "AddCustomerVisitEntityId",
+                "AddOfferIndex",
+                "AddOfferTitle",
+                "AddOfferDescription",
+                "AddExpectedProfit",
+                "isConsultationOffer = true",
+                "isSelectedConsultationOffer");
 
             string completeCustomerVisitSource = ReadRuntimeSource(
                 "Gameplay", "Features", "Customers", "Systems",
@@ -676,6 +779,40 @@ namespace HardwareStore.Editor
             ValidateConfigCatalogAssets<DeliveryConfig>(expectedCount: 2);
             ValidateConfigCatalogAssets<OrderConfig>(expectedCount: 2);
 
+            Require(typeof(OrderOfferDefinition).IsSealed &&
+                    typeof(OrderOfferDefinition).IsSerializable,
+                $"{nameof(OrderOfferDefinition)} must be a serializable sealed value definition.");
+            Require(typeof(OrderOfferDefinition).GetConstructor(new[]
+                    {
+                        typeof(string),
+                        typeof(string),
+                        typeof(int),
+                        typeof(int)
+                    }) != null,
+                $"{nameof(OrderOfferDefinition)} must expose its complete four-value constructor.");
+            PropertyInfo offersProperty = typeof(OrderConfig).GetProperty(
+                nameof(OrderConfig.Offers),
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.DeclaredOnly);
+            Require(offersProperty?.PropertyType ==
+                    typeof(IReadOnlyList<OrderOfferDefinition>),
+                $"{nameof(OrderConfig)}.{nameof(OrderConfig.Offers)} must expose a read-only list.");
+            RequireMethod(
+                typeof(OrderConfig),
+                nameof(OrderConfig.Configure),
+                typeof(void),
+                typeof(ProductTypeId),
+                typeof(string),
+                typeof(string),
+                typeof(int),
+                typeof(OrderOfferDefinition[]));
+
+            string orderConfigSource = ReadRuntimeSource(
+                "Gameplay", "Configs", nameof(OrderConfig) + ".cs");
+            RequireSourceContains(orderConfigSource,
+                "(OrderOfferDefinition[])offers.Clone()",
+                "Validate();",
+                "strictly increasing product counts");
+
             string customerVehicleConfigSource = ReadRuntimeSource(
                 "Gameplay", "Configs", nameof(CustomerVehicleConfig) + ".cs");
             int lastConfigurationAssignment = customerVehicleConfigSource.IndexOf(
@@ -702,6 +839,213 @@ namespace HardwareStore.Editor
                 "GetDelivery(ProductTypeId productType)",
                 "GetOrder(ProductTypeId productType)",
                 "ProductTypes");
+        }
+
+        private static void ValidateConsultationArchitecture(
+            Type[] runtimeTypes,
+            IEnumerable<Type> componentTypes)
+        {
+            var discoveredComponents = new HashSet<Type>(componentTypes);
+            Type[] consultationComponents =
+            {
+                typeof(CustomerVisitConsulting),
+                typeof(RequestedProductType),
+                typeof(CustomerProjectTitle),
+                typeof(CustomerRequest),
+                typeof(ConsultationVisitEntityId),
+                typeof(ConsultationOffer),
+                typeof(OfferIndex),
+                typeof(OfferTitle),
+                typeof(OfferDescription),
+                typeof(ExpectedProfit),
+                typeof(SelectedConsultationOffer)
+            };
+            foreach (Type component in consultationComponents)
+            {
+                Require(discoveredComponents.Contains(component),
+                    $"Consultation requires the {component.Name} Game component.");
+            }
+
+            string[] executeSystemNames =
+            {
+                "CycleConsultationOfferSystem",
+                "ConfirmConsultationOfferSystem",
+                "CancelConsultationSystem",
+                "OpenConsultationSystem"
+            };
+            foreach (string systemName in executeSystemNames)
+            {
+                Type systemType = runtimeTypes.SingleOrDefault(type => type.Name == systemName);
+                Require(systemType != null && typeof(IExecuteSystem).IsAssignableFrom(systemType),
+                    $"{systemName} must be an executable Entitas system.");
+            }
+
+            string consultationFeatureSource = ReadRuntimeSource(
+                "Gameplay", "Features", "Consultation", "ConsultationFeature.cs");
+            int previousSystemPosition = -1;
+            foreach (string systemName in executeSystemNames)
+            {
+                int systemPosition = consultationFeatureSource.IndexOf(
+                    systemName,
+                    StringComparison.Ordinal);
+                Require(systemPosition > previousSystemPosition,
+                    $"ConsultationFeature must execute {string.Join(" -> ", executeSystemNames)}.");
+                previousSystemPosition = systemPosition;
+            }
+
+            string storeFeatureSource = ReadRuntimeSource("Gameplay", "StoreFeature.cs");
+            RequireSourceContains(storeFeatureSource, "ConsultationFeature");
+
+            string bootstrapSource = ReadRuntimeSource(
+                "Infrastructure", "Installers", "BootstrapInstaller.cs");
+            RequireSourceContains(bootstrapSource,
+                "Bind<IConsultationOfferFactory>().To<ConsultationOfferFactory>().AsSingle()");
+
+            string arrivalSource = ReadRuntimeSource(
+                "Gameplay", "Features", "Customers", "Systems",
+                "CompleteCustomerVehicleArrivalSystem.cs");
+            RequireSourceContains(arrivalSource,
+                "GameMatcher.RequestedProductType",
+                "GameMatcher.CustomerProjectTitle",
+                "GameMatcher.CustomerRequest",
+                "isCustomerVisitConsulting = true");
+            Require(!arrivalSource.Contains("GameMatcher.Order", StringComparison.Ordinal) &&
+                    !arrivalSource.Contains("GameMatcher.RequiredProductCount", StringComparison.Ordinal),
+                "A parked customer must enter consultation before order components exist.");
+
+            string openSource = ReadRuntimeSource(
+                "Gameplay", "Features", "Consultation", "Systems",
+                "OpenConsultationSystem.cs");
+            RequireSourceContains(openSource,
+                "GameMatcher.InteractionRequest",
+                "isCustomerVisitConsulting",
+                "AddConsultationVisitEntityId",
+                "Vector3.zero");
+            Require(openSource.Contains("isHandsOccupied", StringComparison.Ordinal),
+                "Consultation must not open while the player carries a product.");
+
+            string cycleSource = ReadRuntimeSource(
+                "Gameplay", "Features", "Consultation", "Systems",
+                "CycleConsultationOfferSystem.cs");
+            RequireSourceContains(cycleSource,
+                "InputMatcher.PreviousPressed",
+                "InputMatcher.NextPressed",
+                "GameMatcher.ConsultationVisitEntityId",
+                "GetEntitiesWithCustomerVisitEntityId",
+                "isSelectedConsultationOffer");
+
+            string confirmSource = ReadRuntimeSource(
+                "Gameplay", "Features", "Consultation", "Systems",
+                "ConfirmConsultationOfferSystem.cs");
+            RequireSourceContains(confirmSource,
+                "InputMatcher.ConfirmPressed",
+                "GameMatcher.ConsultationVisitEntityId",
+                "GetEntitiesWithCustomerVisitEntityId",
+                "_orderFactory.AddOrderComponents",
+                "RemoveRequestedProductType",
+                "RemoveConsultationVisitEntityId",
+                "isCustomerVisitConsulting = false",
+                "isCustomerVisitWaiting = true",
+                "isDestructed = true");
+
+            string cancelSource = ReadRuntimeSource(
+                "Gameplay", "Features", "Consultation", "Systems",
+                "CancelConsultationSystem.cs");
+            RequireSourceContains(cancelSource,
+                "InputMatcher.ToggleCursorPressed",
+                "GameMatcher.ConsultationVisitEntityId",
+                "RemoveConsultationVisitEntityId");
+            Require(!cancelSource.Contains("isDestructed = true", StringComparison.Ordinal),
+                "Cancelling consultation must preserve its offer entities.");
+
+            string emitInteractionSource = ReadRuntimeSource(
+                "Gameplay", "Features", "Interaction", "Systems",
+                "EmitInteractionRequestSystem.cs");
+            string moveSource = ReadRuntimeSource(
+                "Gameplay", "Features", "Movement", "Systems",
+                "SetMoveDirectionFromInputSystem.cs");
+            string lookSource = ReadRuntimeSource(
+                "Gameplay", "Features", "Player", "Systems",
+                "ApplyLookInputSystem.cs");
+            string toggleCursorSource = ReadRuntimeSource(
+                "Gameplay", "Features", "Player", "Systems",
+                "ToggleCursorSystem.cs");
+            string dropSource = ReadRuntimeSource(
+                "Gameplay", "Features", "Carrying", "Systems",
+                "DropHeldProductSystem.cs");
+            string focusSource = ReadRuntimeSource(
+                "Gameplay", "Features", "Interaction", "Systems",
+                "DetectFocusedInteractableSystem.cs");
+            string highlightSource = ReadRuntimeSource(
+                "Gameplay", "Features", "Interaction", "Systems",
+                "UpdateFocusHighlightSystem.cs");
+            string procurementSelectionSource = ReadRuntimeSource(
+                "Gameplay", "Features", "Interaction", "Systems",
+                "ChangeProcurementSelectionSystem.cs");
+            foreach ((string source, string owner) in new[]
+                     {
+                         (emitInteractionSource, "interaction requests"),
+                         (lookSource, "look input"),
+                         (toggleCursorSource, "cursor toggling"),
+                         (dropSource, "dropping products"),
+                         (focusSource, "world focus detection"),
+                         (highlightSource, "world focus highlights"),
+                         (procurementSelectionSource, "procurement selection")
+                     })
+            {
+                Require(source.Contains("GameMatcher.ConsultationVisitEntityId", StringComparison.Ordinal),
+                    $"Modal consultation must capture {owner}.");
+            }
+            RequireSourceContains(moveSource,
+                "hasConsultationVisitEntityId",
+                "Vector2.zero");
+
+            string purchaseSource = ReadRuntimeSource(
+                "Gameplay", "Features", "Delivery", "Systems",
+                "PurchaseDeliverySystem.cs");
+            Require(purchaseSource.Contains("isCustomerVisitConsulting", StringComparison.Ordinal),
+                "Procurement must reject a delivery before consultation forms an order.");
+
+            string[] promptSystemFiles =
+            {
+                "ResolveProcurementTerminalPromptSystem.cs",
+                "ResolveEmptyHandsStoragePromptSystem.cs",
+                "ResolveHeldProductStoragePromptSystem.cs",
+                "ResolveOrderCounterPromptSystem.cs",
+                "ResolveProductPromptSystem.cs",
+                "ResolveLoadingZonePromptSystem.cs"
+            };
+            foreach (string promptSystemFile in promptSystemFiles)
+            {
+                string promptSource = ReadRuntimeSource(
+                    "Gameplay", "Features", "Interaction", "Systems", promptSystemFile);
+                Require(promptSource.Contains("isCustomerVisitConsulting", StringComparison.Ordinal),
+                    $"{promptSystemFile} must present the pre-order consultation state before " +
+                    "reading order components.");
+            }
+
+            RequireMethod(
+                typeof(IHudService),
+                nameof(IHudService.PresentConsultation),
+                typeof(void),
+                typeof(ConsultationSnapshot?));
+            ConstructorInfo consultationSnapshotConstructor = typeof(ConsultationSnapshot)
+                .GetConstructor(new[]
+                {
+                    typeof(string),
+                    typeof(string),
+                    typeof(ConsultationOfferSnapshot[])
+                });
+            Require(consultationSnapshotConstructor != null,
+                $"{nameof(ConsultationSnapshot)} must expose project, request and three offer cards.");
+            string presentConsultationSource = ReadRuntimeSource(
+                "Gameplay", "Features", "Presentation", "Systems",
+                "PresentConsultationSystem.cs");
+            RequireSourceContains(presentConsultationSource,
+                "GameMatcher.ConsultationVisitEntityId",
+                "GetEntitiesWithCustomerVisitEntityId",
+                "OrderBy(offer => offer.OfferIndex)",
+                "PresentConsultation");
         }
 
         private static void ValidateJennyPipeline()
@@ -848,8 +1192,10 @@ namespace HardwareStore.Editor
                 carryMovementSpeed: 3.2f,
                 deliveryCount: 3,
                 purchaseUnitPrice: 200,
-                requiredCount: 2,
-                reward: 700);
+                customerProjectTitle: "Стяжка в мастерской",
+                customerRequest:
+                    "Нужно подготовить материал для небольшой стяжки. " +
+                    "Предложите подходящий запас.");
             ValidateCatalogEntry(
                 boardProductConfig,
                 boardDeliveryConfig,
@@ -862,11 +1208,12 @@ namespace HardwareStore.Editor
                 carryMovementSpeed: 2.6f,
                 deliveryCount: 3,
                 purchaseUnitPrice: 260,
-                requiredCount: 2,
-                reward: 960);
+                customerProjectTitle: "Полки для мастерской",
+                customerRequest:
+                    "Нужно собрать рабочие полки. Предложите объём с подходящим запасом.");
 
-            Require(economyConfig.InitialMoney == 1000,
-                $"{EconomyConfigPath} must start the prototype with 1000.");
+            Require(economyConfig.InitialMoney == 1100,
+                $"{EconomyConfigPath} must start the prototype with 1100.");
             Require(deliveryConfigs.All(config => economyConfig.InitialMoney >= config.TotalCost),
                 "Initial money must cover either configured inbound delivery.");
             Require(!Mathf.Approximately(cementProductConfig.Mass, boardProductConfig.Mass) &&
@@ -1013,7 +1360,9 @@ namespace HardwareStore.Editor
                         .SetEquals(expectedCustomerRegistrarTypes),
                 $"{CustomerVehiclePrefabPath} must contain exactly the generic Transform, InteractionView, " +
                 "Slots, Rigidbody and Colliders registrars.");
-            int maximumOrderSize = orderConfigs.Max(config => config.RequiredProductCount);
+            int maximumOrderSize = orderConfigs
+                .SelectMany(config => config.Offers)
+                .Max(offer => offer.RequiredProductCount);
             Require(customerSlots.Length == maximumOrderSize &&
                     customerSlots.All(slot => slot.IsChildOf(customerVehiclePrefab.transform)),
                 $"{CustomerVehiclePrefabPath} must expose exactly {maximumOrderSize} " +
@@ -1045,7 +1394,8 @@ namespace HardwareStore.Editor
         private static void ValidateCatalogEntry(ProductConfig productConfig,
             DeliveryConfig deliveryConfig, OrderConfig orderConfig, ProductTypeId productType,
             string displayName, string unitLabel, int unitPrice, float mass, float carryMovementSpeed,
-            int deliveryCount, int purchaseUnitPrice, int requiredCount, int reward)
+            int deliveryCount, int purchaseUnitPrice, string customerProjectTitle,
+            string customerRequest)
         {
             string productPath = AssetDatabase.GetAssetPath(productConfig);
             string deliveryPath = AssetDatabase.GetAssetPath(deliveryConfig);
@@ -1068,10 +1418,31 @@ namespace HardwareStore.Editor
                     deliveryConfig.PurchaseUnitPrice == purchaseUnitPrice &&
                     deliveryConfig.TotalCost == deliveryCount * purchaseUnitPrice,
                 $"{deliveryPath} has incorrect delivery quantity, unit cost or total.");
-            Require(orderConfig.RequiredProductCount == requiredCount && orderConfig.Reward == reward,
-                $"{orderPath} has incorrect required quantity or reward.");
-            Require(deliveryConfig.ProductCount > orderConfig.RequiredProductCount,
-                $"Delivery {productType} must leave stock after its matching order.");
+            Require(orderConfig.CustomerProjectTitle == customerProjectTitle &&
+                    orderConfig.CustomerRequest == customerRequest,
+                $"{orderPath} has incorrect project presentation text.");
+            Require(orderConfig.DefaultOfferIndex == 1,
+                $"{orderPath} must select its standard offer by default.");
+            Require(orderConfig.Offers.Count == 3,
+                $"{orderPath} must expose exactly economy, standard and professional offers.");
+
+            string[] expectedTitles = { "Эконом", "Стандарт", "Профи" };
+            for (int index = 0; index < orderConfig.Offers.Count; index++)
+            {
+                OrderOfferDefinition offer = orderConfig.Offers[index];
+                int expectedCount = index + 1;
+                Require(offer.Title == expectedTitles[index] &&
+                        !string.IsNullOrWhiteSpace(offer.Description),
+                    $"{orderPath} offer {index} must have the expected title and a visible trade-off.");
+                Require(offer.RequiredProductCount == expectedCount,
+                    $"{orderPath} offer quantities must increase exactly from one to three.");
+                Require(offer.Reward == checked(unitPrice * expectedCount),
+                    $"{orderPath} offer {index} reward must equal retail price multiplied by quantity.");
+            }
+
+            int maximumOfferSize = orderConfig.Offers.Max(offer => offer.RequiredProductCount);
+            Require(deliveryConfig.ProductCount >= maximumOfferSize,
+                $"Delivery {productType} must contain enough products for its largest offer.");
         }
 
         private static Vector3 ValidateProductPrefab(ProductConfig productConfig, string productConfigPath,

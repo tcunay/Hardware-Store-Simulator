@@ -110,6 +110,14 @@ namespace HardwareStore.Gameplay.Features.Interaction.Systems
                     continue;
                 }
 
+                if (customerVisit.isCustomerVisitConsulting)
+                {
+                    player.SetInteractionPrompt(
+                        "Сначала согласуйте предложение с клиентом у стойки",
+                        false);
+                    continue;
+                }
+
                 if (customerVisit.isCustomerVisitWaiting)
                 {
                     player.SetInteractionPrompt(

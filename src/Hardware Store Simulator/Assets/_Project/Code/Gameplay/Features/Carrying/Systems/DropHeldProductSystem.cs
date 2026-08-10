@@ -23,7 +23,8 @@ namespace HardwareStore.Gameplay.Features.Carrying.Systems
                 GameMatcher.Player,
                 GameMatcher.EntityId,
                 GameMatcher.HandsOccupied,
-                GameMatcher.DropOrigin));
+                GameMatcher.DropOrigin)
+                .NoneOf(GameMatcher.ConsultationVisitEntityId));
             _inputs = inputContext.GetGroup(InputMatcher.AllOf(
                 InputMatcher.InputState,
                 InputMatcher.DropPressed));

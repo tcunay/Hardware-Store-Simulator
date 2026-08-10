@@ -9,7 +9,7 @@ namespace HardwareStore.Gameplay.Features.StorageState
         {
             Add(systems.Create<RefreshStorageOccupiedSlotCountSystem>());
             Add(systems.Create<RefreshStorageProductCountSystem>());
-            Add(systems.Create<RefreshOrderAvailableProductCountSystem>());
+            Add(systems.Create<RefreshRequiredProductAvailabilitySystem>());
         }
     }
 }

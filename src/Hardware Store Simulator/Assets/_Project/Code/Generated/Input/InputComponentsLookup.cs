@@ -8,20 +8,22 @@
 //------------------------------------------------------------------------------
 public static class InputComponentsLookup {
 
-    public const int DropPressed = 0;
-    public const int InputState = 1;
-    public const int InteractPressed = 2;
-    public const int LookInput = 3;
-    public const int MoveInput = 4;
-    public const int NextPressed = 5;
-    public const int PointerLook = 6;
-    public const int PreviousPressed = 7;
-    public const int SprintHeld = 8;
-    public const int ToggleCursorPressed = 9;
+    public const int ConfirmPressed = 0;
+    public const int DropPressed = 1;
+    public const int InputState = 2;
+    public const int InteractPressed = 3;
+    public const int LookInput = 4;
+    public const int MoveInput = 5;
+    public const int NextPressed = 6;
+    public const int PointerLook = 7;
+    public const int PreviousPressed = 8;
+    public const int SprintHeld = 9;
+    public const int ToggleCursorPressed = 10;
 
-    public const int TotalComponents = 10;
+    public const int TotalComponents = 11;
 
     public static readonly string[] componentNames = {
+        "ConfirmPressed",
         "DropPressed",
         "InputState",
         "InteractPressed",
@@ -35,6 +37,7 @@ public static class InputComponentsLookup {
     };
 
     public static readonly System.Type[] componentTypes = {
+        typeof(HardwareStore.Gameplay.Components.ConfirmPressed),
         typeof(HardwareStore.Gameplay.Components.DropPressed),
         typeof(HardwareStore.Gameplay.Components.InputState),
         typeof(HardwareStore.Gameplay.Components.InteractPressed),

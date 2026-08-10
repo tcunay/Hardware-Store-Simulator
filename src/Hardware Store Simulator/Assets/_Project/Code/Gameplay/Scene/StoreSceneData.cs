@@ -142,6 +142,12 @@ namespace HardwareStore.Gameplay.Scene
             _hud.Present(snapshot);
         }
 
+        public void PresentConsultation(ConsultationSnapshot? snapshot)
+        {
+            EnsureRegistered();
+            _hud.PresentConsultation(snapshot);
+        }
+
         private void EnsureRegistered()
         {
             if (!IsRegistered)

@@ -14,6 +14,7 @@ namespace HardwareStore.Gameplay.Features.Cleanup.Systems
             foreach (InputEntity input in _inputs)
             {
                 input.isInteractPressed = false;
+                input.isConfirmPressed = false;
                 input.isDropPressed = false;
                 input.isPreviousPressed = false;
                 input.isNextPressed = false;

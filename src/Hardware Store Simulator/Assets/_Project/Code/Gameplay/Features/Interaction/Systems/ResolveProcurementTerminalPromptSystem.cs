@@ -81,12 +81,23 @@ namespace HardwareStore.Gameplay.Features.Interaction.Systems
                     continue;
                 }
 
+                if (customerVisit.isCustomerVisitArriving ||
+                    customerVisit.isCustomerVisitConsulting)
+                {
+                    player.SetInteractionPrompt(
+                        customerVisit.isCustomerVisitArriving
+                            ? "Клиент подъезжает — дождитесь начала консультации"
+                            : "Сначала согласуйте предложение с клиентом у стойки",
+                        false);
+                    continue;
+                }
+
                 if (terminal.SelectedProductType != customerVisit.RequiredProductType)
                 {
                     ProductConfig requiredProduct =
                         _staticData.GetProduct(customerVisit.RequiredProductType);
                     player.SetInteractionPrompt(
-                        $"1/2 — выбрать товар для заказа: {requiredProduct.DisplayName}",
+                        $"←/→ — выбрать товар для заказа: {requiredProduct.DisplayName}",
                         false);
                     continue;
                 }
@@ -112,7 +123,7 @@ namespace HardwareStore.Gameplay.Features.Interaction.Systems
                 }
 
                 player.SetInteractionPrompt(
-                    $"1/2 — {selectedProduct.DisplayName} • E — заказать " +
+                    $"←/→ — {selectedProduct.DisplayName} • E — заказать " +
                     $"{selectedDelivery.ProductCount} {selectedProduct.UnitLabel} за " +
                     $"{selectedDelivery.TotalCost:N0} ₽",
                     true);

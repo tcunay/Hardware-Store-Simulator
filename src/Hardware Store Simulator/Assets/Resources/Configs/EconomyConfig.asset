@@ -12,4 +12,4 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: c6ab322f749434dc682117c41f0fbdf6, type: 3}
   m_Name: EconomyConfig
   m_EditorClassIdentifier: Assembly-CSharp::HardwareStore.Gameplay.Configs.EconomyConfig
-  _initialMoney: 1000
+  _initialMoney: 1100

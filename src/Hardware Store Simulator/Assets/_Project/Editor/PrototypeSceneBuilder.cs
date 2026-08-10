@@ -752,7 +752,9 @@ namespace HardwareStore.Editor
                 interactionCollider.size = new Vector3(3.2f, 3f, 2.6f);
 
                 GameObject slotsRoot = CreateEmpty("Customer Cargo Slots", vehicle.transform);
-                int cargoSlotCapacity = orderConfigs.Max(orderConfig => orderConfig.RequiredProductCount);
+                int cargoSlotCapacity = orderConfigs
+                    .SelectMany(orderConfig => orderConfig.Offers)
+                    .Max(offer => offer.RequiredProductCount);
                 Transform[] slots = new Transform[cargoSlotCapacity];
                 for (int index = 0; index < slots.Length; index++)
                 {
@@ -1072,7 +1074,7 @@ namespace HardwareStore.Editor
                 purchaseUnitPrice: 260);
 
             SerializedObject economy = new(economyConfig);
-            RequireSerializedProperty(economy, "_initialMoney").intValue = 1000;
+            RequireSerializedProperty(economy, "_initialMoney").intValue = 1100;
             economy.ApplyModifiedPropertiesWithoutUndo();
             EditorUtility.SetDirty(economyConfig);
 
@@ -1100,13 +1102,18 @@ namespace HardwareStore.Editor
             ConfigureOrderConfig(
                 cementOrderConfig,
                 ProductTypeId.CementBag,
-                requiredProductCount: 2,
-                reward: 700);
+                customerProjectTitle: "Стяжка в мастерской",
+                customerRequest:
+                    "Нужно подготовить материал для небольшой стяжки. " +
+                    "Предложите подходящий запас.",
+                unitPrice: 350);
             ConfigureOrderConfig(
                 boardOrderConfig,
                 ProductTypeId.BoardBundle,
-                requiredProductCount: 2,
-                reward: 960);
+                customerProjectTitle: "Полки для мастерской",
+                customerRequest:
+                    "Нужно собрать рабочие полки. Предложите объём с подходящим запасом.",
+                unitPrice: 480);
         }
 
         private static void ConfigureDeliveryConfig(DeliveryConfig config, ProductTypeId productType,
@@ -1141,14 +1148,36 @@ namespace HardwareStore.Editor
             EditorUtility.SetDirty(config);
         }
 
-        private static void ConfigureOrderConfig(OrderConfig config, ProductTypeId productType,
-            int requiredProductCount, int reward)
+        private static void ConfigureOrderConfig(
+            OrderConfig config,
+            ProductTypeId productType,
+            string customerProjectTitle,
+            string customerRequest,
+            int unitPrice)
         {
-            SerializedObject order = new(config);
-            RequireSerializedProperty(order, "_requiredProductType").intValue = (int)productType;
-            RequireSerializedProperty(order, "_requiredProductCount").intValue = requiredProductCount;
-            RequireSerializedProperty(order, "_reward").intValue = reward;
-            order.ApplyModifiedPropertiesWithoutUndo();
+            config.Configure(
+                productType,
+                customerProjectTitle,
+                customerRequest,
+                defaultOfferIndex: 1,
+                offers: new[]
+                {
+                    new OrderOfferDefinition(
+                        "Эконом",
+                        "Минимальный объём без запаса.",
+                        requiredProductCount: 1,
+                        reward: unitPrice),
+                    new OrderOfferDefinition(
+                        "Стандарт",
+                        "Рекомендуемый объём с небольшим запасом.",
+                        requiredProductCount: 2,
+                        reward: checked(unitPrice * 2)),
+                    new OrderOfferDefinition(
+                        "Профи",
+                        "Максимальный запас на исправление ошибок.",
+                        requiredProductCount: 3,
+                        reward: checked(unitPrice * 3))
+                });
             EditorUtility.SetDirty(config);
         }
 

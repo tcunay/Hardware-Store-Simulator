@@ -21,7 +21,8 @@ namespace HardwareStore.Gameplay.Features.Player.Systems
                 GameMatcher.MouseSensitivity,
                 GameMatcher.GamepadLookSpeed,
                 GameMatcher.MaxPitch,
-                GameMatcher.CursorLocked));
+                GameMatcher.CursorLocked)
+                .NoneOf(GameMatcher.ConsultationVisitEntityId));
             _inputs = inputContext.GetGroup(InputMatcher.AllOf(
                 InputMatcher.InputState,
                 InputMatcher.LookInput));

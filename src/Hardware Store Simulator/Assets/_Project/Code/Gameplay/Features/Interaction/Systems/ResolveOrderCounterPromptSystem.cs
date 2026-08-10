@@ -56,6 +56,16 @@ namespace HardwareStore.Gameplay.Features.Interaction.Systems
                     continue;
                 }
 
+                if (customerVisit.isCustomerVisitConsulting)
+                {
+                    player.SetInteractionPrompt(
+                        player.isHandsOccupied
+                            ? "Освободите руки перед консультацией"
+                            : $"E — обсудить проект • {customerVisit.CustomerProjectTitle}",
+                        !player.isHandsOccupied);
+                    continue;
+                }
+
                 if (customerVisit.isCustomerVisitWaiting)
                 {
                     ProductConfig product =

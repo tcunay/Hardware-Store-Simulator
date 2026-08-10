@@ -13,7 +13,8 @@ namespace HardwareStore.Gameplay.Features.Interaction.Systems
         public UpdateFocusHighlightSystem(GameContext gameContext)
         {
             _gameContext = gameContext;
-            _players = gameContext.GetGroup(GameMatcher.AllOf(GameMatcher.Player));
+            _players = gameContext.GetGroup(GameMatcher.AllOf(GameMatcher.Player)
+                .NoneOf(GameMatcher.ConsultationVisitEntityId));
             _highlighted = gameContext.GetGroup(GameMatcher.AllOf(
                 GameMatcher.Highlighted,
                 GameMatcher.EntityId));

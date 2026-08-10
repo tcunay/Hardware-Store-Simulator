@@ -8,6 +8,7 @@ namespace HardwareStore.Gameplay.Common.Input
         Vector2 Look { get; }
         bool SprintHeld { get; }
         bool InteractPressedThisFrame { get; }
+        bool ConfirmPressedThisFrame { get; }
         bool DropPressedThisFrame { get; }
         bool PreviousPressedThisFrame { get; }
         bool NextPressedThisFrame { get; }

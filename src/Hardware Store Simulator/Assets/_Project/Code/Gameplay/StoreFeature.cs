@@ -1,5 +1,6 @@
 using HardwareStore.Gameplay.Features.Carrying;
 using HardwareStore.Gameplay.Features.Cleanup;
+using HardwareStore.Gameplay.Features.Consultation;
 using HardwareStore.Gameplay.Features.Customers;
 using HardwareStore.Gameplay.Features.Delivery;
 using HardwareStore.Gameplay.Features.Input;
@@ -25,6 +26,7 @@ namespace HardwareStore.Gameplay
             Add(systems.Create<InputFeature>());
             Add(systems.Create<PlayerFeature>());
             Add(systems.Create<InteractionFeature>());
+            Add(systems.Create<ConsultationFeature>());
             Add(systems.Create<DeliveryFeature>());
             Add(systems.Create<OrdersFeature>());
             Add(systems.Create<CarryingFeature>());

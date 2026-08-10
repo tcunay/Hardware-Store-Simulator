@@ -1,10 +1,7 @@
-using HardwareStore.Gameplay.Components;
-
 namespace HardwareStore.Gameplay.Factories
 {
     public interface IOrderFactory
     {
-        GameEntity AddOrderComponents(GameEntity customerVisit, int storageZoneEntityId,
-            ProductTypeId productType);
+        GameEntity AddOrderComponents(GameEntity customerVisit, GameEntity selectedOffer);
     }
 }

@@ -12,7 +12,8 @@ namespace HardwareStore.Gameplay.Features.Player.Systems
         public ToggleCursorSystem(GameContext gameContext, InputContext inputContext, ICursorService cursor)
         {
             _cursor = cursor;
-            _players = gameContext.GetGroup(GameMatcher.AllOf(GameMatcher.Player));
+            _players = gameContext.GetGroup(GameMatcher.AllOf(GameMatcher.Player)
+                .NoneOf(GameMatcher.ConsultationVisitEntityId));
             _inputs = inputContext.GetGroup(InputMatcher.AllOf(
                 InputMatcher.InputState,
                 InputMatcher.ToggleCursorPressed));

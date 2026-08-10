@@ -1,0 +1,43 @@
+using System.Collections.Generic;
+using Entitas;
+using HardwareStore.Gameplay.Common.Cursor;
+using UnityEngine;
+
+namespace HardwareStore.Gameplay.Features.Consultation.Systems
+{
+    public sealed class CancelConsultationSystem : IExecuteSystem
+    {
+        private readonly ICursorService _cursor;
+        private readonly IGroup<GameEntity> _players;
+        private readonly IGroup<InputEntity> _inputs;
+        private readonly List<GameEntity> _playerBuffer = new(1);
+
+        public CancelConsultationSystem(GameContext gameContext,
+            InputContext inputContext, ICursorService cursor)
+        {
+            _cursor = cursor;
+            _players = gameContext.GetGroup(GameMatcher.AllOf(
+                GameMatcher.Player,
+                GameMatcher.MoveDirection,
+                GameMatcher.ConsultationVisitEntityId));
+            _inputs = inputContext.GetGroup(InputMatcher.AllOf(
+                InputMatcher.InputState,
+                InputMatcher.ToggleCursorPressed));
+        }
+
+        public void Execute()
+        {
+            foreach (InputEntity ignored in _inputs)
+            foreach (GameEntity player in _players.GetEntities(_playerBuffer))
+            {
+                player.RemoveConsultationVisitEntityId();
+                player.ReplaceMoveDirection(Vector3.zero);
+                if (player.hasInteractionPrompt)
+                    player.RemoveInteractionPrompt();
+                player.isFocusInteractionAvailable = false;
+                player.isCursorLocked = true;
+                _cursor.SetLocked(true);
+            }
+        }
+    }
+}
