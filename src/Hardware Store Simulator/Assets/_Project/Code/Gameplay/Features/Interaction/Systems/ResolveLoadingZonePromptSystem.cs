@@ -39,7 +39,7 @@ namespace HardwareStore.Gameplay.Features.Interaction.Systems
                 if (loadingZone.isCustomerVisitArriving)
                 {
                     player.SetInteractionPrompt(
-                        "Клиент подъезжает — дождитесь остановки машины",
+                        "Клиент прибывает и направляется к стойке — дождитесь консультации",
                         false);
                     continue;
                 }
@@ -47,7 +47,15 @@ namespace HardwareStore.Gameplay.Features.Interaction.Systems
                 if (loadingZone.isCustomerVisitDeparting)
                 {
                     player.SetInteractionPrompt(
-                        "Клиент уезжает — загрузка завершена",
+                        "Машина клиента уезжает — загрузка завершена",
+                        false);
+                    continue;
+                }
+
+                if (loadingZone.isCustomerVisitReturning)
+                {
+                    player.SetInteractionPrompt(
+                        "Клиент возвращается к машине — загрузка завершена",
                         false);
                     continue;
                 }

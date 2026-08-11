@@ -19,6 +19,7 @@ namespace HardwareStore.Gameplay.StaticData
         public PlayerConfig Player { get; private set; }
         public InteractionConfig Interaction { get; private set; }
         public EconomyConfig Economy { get; private set; }
+        public CustomerConfig Customer { get; private set; }
         public CustomerVehicleConfig CustomerVehicle { get; private set; }
         public IReadOnlyList<ProductTypeId> ProductTypes =>
             _productTypes ?? throw new InvalidOperationException(
@@ -29,6 +30,7 @@ namespace HardwareStore.Gameplay.StaticData
             PlayerConfig player = Load<PlayerConfig>(nameof(PlayerConfig));
             InteractionConfig interaction = Load<InteractionConfig>(nameof(InteractionConfig));
             EconomyConfig economy = Load<EconomyConfig>(nameof(EconomyConfig));
+            CustomerConfig customer = Load<CustomerConfig>(nameof(CustomerConfig));
             CustomerVehicleConfig customerVehicle =
                 Load<CustomerVehicleConfig>(nameof(CustomerVehicleConfig));
             Dictionary<ProductTypeId, ProductConfig> products = LoadCatalog<ProductConfig>(
@@ -44,6 +46,7 @@ namespace HardwareStore.Gameplay.StaticData
             player.Validate();
             interaction.Validate();
             economy.Validate();
+            customer.Validate();
             customerVehicle.Validate();
             ValidateProductTypeCoverage(products);
             ValidateExactKeyParity(products, deliveries, orders);
@@ -52,6 +55,7 @@ namespace HardwareStore.Gameplay.StaticData
             Player = player;
             Interaction = interaction;
             Economy = economy;
+            Customer = customer;
             CustomerVehicle = customerVehicle;
             _products = products;
             _deliveries = deliveries;

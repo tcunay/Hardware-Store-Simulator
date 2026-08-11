@@ -64,6 +64,7 @@ namespace HardwareStore.Gameplay.Features.Delivery.Systems
                 }
 
                 if (customerVisit.isCustomerVisitCompleted ||
+                    customerVisit.isCustomerVisitReturning ||
                     customerVisit.isCustomerVisitDeparting)
                 {
                     _events.EmitNotification(

@@ -8,6 +8,7 @@ namespace HardwareStore.Gameplay.Presentation
         Waiting,
         Active,
         Completed,
+        Returning,
         Departing
     }
 }

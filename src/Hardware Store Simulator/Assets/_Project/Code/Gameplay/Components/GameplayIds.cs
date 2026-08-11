@@ -16,7 +16,9 @@ namespace HardwareStore.Gameplay.Components
     public enum SceneRouteId
     {
         CustomerVehicleArrival,
-        CustomerVehicleDeparture
+        CustomerVehicleDeparture,
+        CustomerWalkToCounter,
+        CustomerWalkToVehicle
     }
 
     public enum ProductTypeId

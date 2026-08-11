@@ -69,6 +69,7 @@ namespace HardwareStore.Infrastructure.Installers
             Container.Bind<IPlayerFactory>().To<PlayerFactory>().AsSingle();
             Container.Bind<IStoreFactory>().To<StoreFactory>().AsSingle();
             Container.Bind<ICustomerVisitFactory>().To<CustomerVisitFactory>().AsSingle();
+            Container.Bind<ICustomerFactory>().To<CustomerFactory>().AsSingle();
             Container.Bind<IConsultationOfferFactory>().To<ConsultationOfferFactory>().AsSingle();
             Container.Bind<IOrderFactory>().To<OrderFactory>().AsSingle();
             Container.Bind<IProductFactory>().To<ProductFactory>().AsSingle();

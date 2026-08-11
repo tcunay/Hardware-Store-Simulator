@@ -6,20 +6,19 @@ using UnityEngine;
 
 namespace HardwareStore.Gameplay.Features.Customers.Systems
 {
-    public sealed class MoveCustomerVehicleRouteSystem : IExecuteSystem
+    public sealed class MoveRouteSystem : IExecuteSystem
     {
         private const float WaypointRotationTolerance = 0.1f;
 
         private readonly ITimeService _time;
-        private readonly IGroup<GameEntity> _vehicles;
-        private readonly List<GameEntity> _buffer = new(4);
+        private readonly IGroup<GameEntity> _routeMovers;
+        private readonly List<GameEntity> _buffer = new(8);
 
-        public MoveCustomerVehicleRouteSystem(GameContext gameContext, ITimeService time)
+        public MoveRouteSystem(GameContext gameContext, ITimeService time)
         {
             _time = time;
-            _vehicles = gameContext.GetGroup(GameMatcher.AllOf(
-                    GameMatcher.CustomerVisit,
-                    GameMatcher.CustomerVehicle,
+            _routeMovers = gameContext.GetGroup(GameMatcher.AllOf(
+                    GameMatcher.RouteMover,
                     GameMatcher.EntityId,
                     GameMatcher.Route,
                     GameMatcher.RouteWaypointIndex,
@@ -28,9 +27,6 @@ namespace HardwareStore.Gameplay.Features.Customers.Systems
                     GameMatcher.WaypointTolerance,
                     GameMatcher.Transform,
                     GameMatcher.Rigidbody)
-                .AnyOf(
-                    GameMatcher.CustomerVisitArriving,
-                    GameMatcher.CustomerVisitDeparting)
                 .NoneOf(
                     GameMatcher.RouteCompleted,
                     GameMatcher.Destructed));
@@ -38,47 +34,44 @@ namespace HardwareStore.Gameplay.Features.Customers.Systems
 
         public void Execute()
         {
-            foreach (GameEntity vehicle in _vehicles.GetEntities(_buffer))
-                Move(vehicle);
+            foreach (GameEntity routeMover in _routeMovers.GetEntities(_buffer))
+                Move(routeMover);
         }
 
-        private void Move(GameEntity vehicle)
+        private void Move(GameEntity routeMover)
         {
-            if (vehicle.isCustomerVisitArriving == vehicle.isCustomerVisitDeparting)
-                throw new InvalidOperationException(
-                    $"Moving customer vehicle {vehicle.EntityId} must have exactly one route state.");
-
-            Pose[] route = vehicle.Route;
-            int waypointIndex = vehicle.RouteWaypointIndex;
+            Pose[] route = routeMover.Route;
+            int waypointIndex = routeMover.RouteWaypointIndex;
             if (route == null || route.Length < 2)
                 throw new InvalidOperationException(
-                    $"Customer vehicle {vehicle.EntityId} has an invalid route.");
+                    $"Route mover {routeMover.EntityId} has an invalid route.");
             if (waypointIndex <= 0 || waypointIndex >= route.Length)
                 throw new InvalidOperationException(
-                    $"Customer vehicle {vehicle.EntityId} has invalid waypoint index {waypointIndex}.");
+                    $"Route mover {routeMover.EntityId} has invalid waypoint index " +
+                    $"{waypointIndex}.");
 
-            Rigidbody body = vehicle.Rigidbody;
+            Rigidbody body = routeMover.Rigidbody;
             if (!body.isKinematic)
                 throw new InvalidOperationException(
-                    $"Customer vehicle {vehicle.EntityId} requires a kinematic rigidbody.");
+                    $"Route mover {routeMover.EntityId} requires a kinematic rigidbody.");
             if (body.interpolation != RigidbodyInterpolation.None)
                 throw new InvalidOperationException(
-                    $"Customer vehicle {vehicle.EntityId} requires rigidbody interpolation None.");
+                    $"Route mover {routeMover.EntityId} requires rigidbody interpolation None.");
 
             Pose target = route[waypointIndex];
             float deltaTime = _time.DeltaTime;
             Vector3 position = Vector3.MoveTowards(
                 body.position,
                 target.position,
-                vehicle.MovementSpeed * deltaTime);
+                routeMover.MovementSpeed * deltaTime);
             Quaternion rotation = Quaternion.RotateTowards(
                 body.rotation,
                 target.rotation,
-                vehicle.RotationSpeed * deltaTime);
+                routeMover.RotationSpeed * deltaTime);
 
             bool positionReached =
                 (position - target.position).sqrMagnitude <=
-                vehicle.WaypointTolerance * vehicle.WaypointTolerance;
+                routeMover.WaypointTolerance * routeMover.WaypointTolerance;
             bool rotationReached =
                 Quaternion.Angle(rotation, target.rotation) <= WaypointRotationTolerance;
             bool waypointReached = positionReached && rotationReached;
@@ -90,16 +83,16 @@ namespace HardwareStore.Gameplay.Features.Customers.Systems
 
             body.position = position;
             body.rotation = rotation;
-            vehicle.Transform.SetPositionAndRotation(position, rotation);
+            routeMover.Transform.SetPositionAndRotation(position, rotation);
 
             if (!waypointReached)
                 return;
 
             int nextWaypointIndex = waypointIndex + 1;
             if (nextWaypointIndex < route.Length)
-                vehicle.ReplaceRouteWaypointIndex(nextWaypointIndex);
+                routeMover.ReplaceRouteWaypointIndex(nextWaypointIndex);
             else
-                vehicle.isRouteCompleted = true;
+                routeMover.isRouteCompleted = true;
         }
     }
 }

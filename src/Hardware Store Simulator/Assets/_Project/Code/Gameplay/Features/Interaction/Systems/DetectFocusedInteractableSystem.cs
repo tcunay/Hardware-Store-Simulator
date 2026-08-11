@@ -5,11 +5,13 @@ namespace HardwareStore.Gameplay.Features.Interaction.Systems
 {
     public sealed class DetectFocusedInteractableSystem : IExecuteSystem
     {
+        private readonly GameContext _gameContext;
         private readonly IInteractionPhysicsService _physics;
         private readonly IGroup<GameEntity> _players;
 
         public DetectFocusedInteractableSystem(GameContext gameContext, IInteractionPhysicsService physics)
         {
+            _gameContext = gameContext;
             _physics = physics;
             _players = gameContext.GetGroup(GameMatcher.AllOf(
                 GameMatcher.Player,
@@ -26,12 +28,16 @@ namespace HardwareStore.Gameplay.Features.Interaction.Systems
                 if (_physics.TryGetFocusedEntity(player.Camera,
                         player.InteractionDistance, player.AimAssistRadius, out int entityId))
                 {
-                    player.ReplaceFocusedEntityId(entityId);
+                    GameEntity target = _gameContext.GetEntityWithEntityId(entityId);
+                    if (target != null && target.isInteractable && !target.isDestructed)
+                    {
+                        player.ReplaceFocusedEntityId(entityId);
+                        continue;
+                    }
                 }
-                else if (player.hasFocusedEntityId)
-                {
+
+                if (player.hasFocusedEntityId)
                     player.RemoveFocusedEntityId();
-                }
             }
         }
     }

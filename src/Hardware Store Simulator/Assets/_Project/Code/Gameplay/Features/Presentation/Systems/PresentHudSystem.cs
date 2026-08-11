@@ -136,6 +136,8 @@ namespace HardwareStore.Gameplay.Features.Presentation.Systems
                 return HudOrderState.Arriving;
             if (customerVisit.isCustomerVisitConsulting)
                 return HudOrderState.Consulting;
+            if (customerVisit.isCustomerVisitReturning)
+                return HudOrderState.Returning;
             if (customerVisit.isCustomerVisitDeparting)
                 return HudOrderState.Departing;
             if (customerVisit.isCustomerVisitWaiting)
@@ -157,6 +159,7 @@ namespace HardwareStore.Gameplay.Features.Presentation.Systems
                 (customerVisit.isCustomerVisitWaiting ? 1 : 0) +
                 (customerVisit.isCustomerVisitLoading ? 1 : 0) +
                 (customerVisit.isCustomerVisitCompleted ? 1 : 0) +
+                (customerVisit.isCustomerVisitReturning ? 1 : 0) +
                 (customerVisit.isCustomerVisitDeparting ? 1 : 0);
             if (lifecycleStateCount != 1)
                 throw new InvalidOperationException(

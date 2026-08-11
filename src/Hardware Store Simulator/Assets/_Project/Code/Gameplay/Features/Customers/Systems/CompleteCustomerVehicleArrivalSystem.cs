@@ -1,6 +1,10 @@
 using System;
 using System.Collections.Generic;
 using Entitas;
+using HardwareStore.Gameplay.Components;
+using HardwareStore.Gameplay.Factories;
+using HardwareStore.Gameplay.Scene;
+using UnityEngine;
 
 namespace HardwareStore.Gameplay.Features.Customers.Systems
 {
@@ -9,12 +13,17 @@ namespace HardwareStore.Gameplay.Features.Customers.Systems
         private const int ConsultationOfferCount = 3;
 
         private readonly GameContext _gameContext;
+        private readonly ICustomerFactory _customerFactory;
+        private readonly IStoreSceneData _sceneData;
         private readonly IGroup<GameEntity> _visits;
         private readonly List<GameEntity> _buffer = new(4);
 
-        public CompleteCustomerVehicleArrivalSystem(GameContext gameContext)
+        public CompleteCustomerVehicleArrivalSystem(GameContext gameContext,
+            ICustomerFactory customerFactory, IStoreSceneData sceneData)
         {
             _gameContext = gameContext;
+            _customerFactory = customerFactory;
+            _sceneData = sceneData;
             _visits = gameContext.GetGroup(GameMatcher.AllOf(
                     GameMatcher.CustomerVisit,
                     GameMatcher.CustomerVehicle,
@@ -79,13 +88,19 @@ namespace HardwareStore.Gameplay.Features.Customers.Systems
                     throw new InvalidOperationException(
                         $"Customer visit {visit.EntityId} has {visit.Slots.Length} loading slots, " +
                         $"but its largest offer requires {maximumRequiredProductCount} products.");
+                if (_gameContext.GetEntityWithCustomerActorVisitEntityId(visit.EntityId) != null)
+                    throw new InvalidOperationException(
+                        $"Customer visit {visit.EntityId} already has a customer actor.");
 
-                visit.isCustomerVisitArriving = false;
+                Pose[] routeToCounter =
+                    _sceneData.GetRoute(SceneRouteId.CustomerWalkToCounter);
+                Pose[] routeToVehicle =
+                    _sceneData.GetRoute(SceneRouteId.CustomerWalkToVehicle);
+                _customerFactory.Create(visit, routeToCounter, routeToVehicle);
+
                 visit.isRouteCompleted = false;
                 visit.RemoveRoute();
                 visit.RemoveRouteWaypointIndex();
-                visit.isCustomerVisitConsulting = true;
-                visit.isInteractable = true;
             }
         }
     }

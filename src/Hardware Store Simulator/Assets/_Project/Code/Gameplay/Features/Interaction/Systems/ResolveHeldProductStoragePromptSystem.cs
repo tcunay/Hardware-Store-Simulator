@@ -109,17 +109,19 @@ namespace HardwareStore.Gameplay.Features.Interaction.Systems
             if (customerVisit.isCustomerVisitArriving)
             {
                 player.SetInteractionPrompt(
-                    $"Клиент подъезжает • в руках: {heldProductConfig.DisplayName} • " +
+                    $"Клиент прибывает и направляется к стойке • в руках: " +
+                    $"{heldProductConfig.DisplayName} • " +
                     "G — бросить",
                     false);
                 return;
             }
 
-            if (customerVisit.isCustomerVisitDeparting ||
+            if (customerVisit.isCustomerVisitReturning ||
+                customerVisit.isCustomerVisitDeparting ||
                 customerVisit.isCustomerVisitCompleted)
             {
                 player.SetInteractionPrompt(
-                    $"Клиент уезжает • в руках: {heldProductConfig.DisplayName} • " +
+                    $"Заказ завершён • в руках: {heldProductConfig.DisplayName} • " +
                     "G — бросить",
                     false);
                 return;

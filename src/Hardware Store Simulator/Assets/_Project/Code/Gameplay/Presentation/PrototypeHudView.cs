@@ -254,7 +254,7 @@ namespace HardwareStore.Gameplay.Presentation
             return _snapshot.OrderState switch
             {
                 HudOrderState.NoCustomer => "Ожидаем следующего клиента",
-                HudOrderState.Arriving => "Клиент подъезжает",
+                HudOrderState.Arriving => "Клиент прибывает и направляется к стойке",
                 HudOrderState.Consulting => "Обсудить проект с клиентом у стойки",
                 HudOrderState.Waiting when
                     _snapshot.AvailableProductCount < _snapshot.RequiredCount =>
@@ -269,7 +269,8 @@ namespace HardwareStore.Gameplay.Presentation
                     $"{_snapshot.LoadedCount}/{_snapshot.RequiredCount} " +
                     $"{_snapshot.RequiredProductUnitLabel}",
                 HudOrderState.Completed => "Заказ выполнен • автомобиль загружен",
-                HudOrderState.Departing => "Клиент уезжает",
+                HudOrderState.Returning => "Клиент возвращается к машине",
+                HudOrderState.Departing => "Машина клиента уезжает",
                 _ => throw new ArgumentOutOfRangeException()
             };
         }

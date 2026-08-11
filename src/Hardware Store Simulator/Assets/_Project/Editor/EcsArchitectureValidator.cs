@@ -9,6 +9,7 @@ using HardwareStore.Gameplay.Common.Registrars;
 using HardwareStore.Gameplay.Components;
 using HardwareStore.Gameplay.Configs;
 using HardwareStore.Gameplay.Factories;
+using HardwareStore.Gameplay.Features.Customers.Systems;
 using HardwareStore.Gameplay.Presentation;
 using HardwareStore.Gameplay.Registrars;
 using HardwareStore.Gameplay.Scene;
@@ -46,6 +47,8 @@ namespace HardwareStore.Editor
             "Assets/Resources/Configs/DeliveryConfig_BoardBundle.asset";
         private const string CustomerVehicleConfigPath =
             "Assets/Resources/Configs/CustomerVehicleConfig.asset";
+        private const string CustomerConfigPath =
+            "Assets/Resources/Configs/CustomerConfig.asset";
         private const string EconomyConfigPath = "Assets/Resources/Configs/EconomyConfig.asset";
         private const string CementOrderConfigPath = "Assets/Resources/Configs/OrderConfig.asset";
         private const string BoardOrderConfigPath =
@@ -55,6 +58,8 @@ namespace HardwareStore.Editor
         private const string DeliveryVehiclePrefabPath = "Assets/_Project/Prefabs/Gameplay/DeliveryTruck.prefab";
         private const string CustomerVehiclePrefabPath =
             "Assets/_Project/Prefabs/Gameplay/CustomerVehicle.prefab";
+        private const string CustomerPrefabPath =
+            "Assets/_Project/Prefabs/Gameplay/Customer.prefab";
         private const int RequiredStorageSlotCapacity = 9;
 
         private static readonly ProductTypeId[] ExpectedProductTypes =
@@ -101,6 +106,9 @@ namespace HardwareStore.Editor
             "CustomerVehicleView",
             "CustomerVehicleRegistrar",
             "CustomerVehicleViewRegistrar",
+            "CustomerView",
+            "CustomerTransformRegistrar",
+            "CustomerRigidbodyRegistrar",
             "ProductView",
             "ProductViewRegistrar",
             "ProductViewComponent",
@@ -140,6 +148,7 @@ namespace HardwareStore.Editor
             typeof(EconomyConfig),
             typeof(DeliveryConfig),
             typeof(CustomerVehicleConfig),
+            typeof(CustomerConfig),
             typeof(OrderConfig),
             typeof(ProductConfig)
         };
@@ -149,7 +158,8 @@ namespace HardwareStore.Editor
             (typeof(PlayerConfig), PlayerConfigPath),
             (typeof(InteractionConfig), InteractionConfigPath),
             (typeof(EconomyConfig), EconomyConfigPath),
-            (typeof(CustomerVehicleConfig), CustomerVehicleConfigPath)
+            (typeof(CustomerVehicleConfig), CustomerVehicleConfigPath),
+            (typeof(CustomerConfig), CustomerConfigPath)
         };
 
         [MenuItem(MenuPath, priority = 120)]
@@ -540,6 +550,7 @@ namespace HardwareStore.Editor
                 typeof(CustomerVisitWaiting),
                 typeof(CustomerVisitLoading),
                 typeof(CustomerVisitCompleted),
+                typeof(CustomerVisitReturning),
                 typeof(CustomerVisitDeparting)
             };
             foreach (Type role in customerVisitRoles)
@@ -550,6 +561,25 @@ namespace HardwareStore.Editor
 
             Require(discoveredComponents.Contains(typeof(CustomerVisitEntityId)),
                 $"{nameof(CustomerVisitEntityId)} must relate loaded products to their visit.");
+            Require(discoveredComponents.Contains(typeof(Customer)),
+                $"{nameof(Customer)} must identify the runtime customer actor.");
+            Require(discoveredComponents.Contains(typeof(RouteMover)),
+                $"{nameof(RouteMover)} must opt runtime actors into generic route movement.");
+            Require(discoveredComponents.Contains(typeof(CustomerActorVisitEntityId)),
+                $"{nameof(CustomerActorVisitEntityId)} must uniquely relate the customer actor " +
+                "to its visit.");
+            Type[] customerActorComponents =
+            {
+                typeof(CustomerApproachingCounter),
+                typeof(CustomerWaitingAtCounter),
+                typeof(CustomerReturningToVehicle),
+                typeof(CustomerReturnRoute)
+            };
+            foreach (Type actorComponent in customerActorComponents)
+            {
+                Require(discoveredComponents.Contains(actorComponent),
+                    $"Runtime customers require the {actorComponent.Name} Game component.");
+            }
             Require(discoveredComponents.Contains(typeof(CustomerVisitStoreEntityId)),
                 $"{nameof(CustomerVisitStoreEntityId)} must uniquely relate the active visit to its store.");
             Require(discoveredComponents.Contains(typeof(DeliveryProcurementTerminalEntityId)),
@@ -569,6 +599,9 @@ namespace HardwareStore.Editor
             RequireComponentIndexAttribute(
                 typeof(CustomerVisitEntityId),
                 "Entitas.CodeGeneration.Attributes.EntityIndexAttribute");
+            RequireComponentIndexAttribute(
+                typeof(CustomerActorVisitEntityId),
+                "Entitas.CodeGeneration.Attributes.PrimaryEntityIndexAttribute");
 
             RequireGeneratedIndexApi(
                 runtimeTypes,
@@ -585,6 +618,10 @@ namespace HardwareStore.Editor
             RequireGeneratedIndexApi(
                 runtimeTypes,
                 "GetEntityWithDeliveryProcurementTerminalEntityId",
+                typeof(GameEntity));
+            RequireGeneratedIndexApi(
+                runtimeTypes,
+                "GetEntityWithCustomerActorVisitEntityId",
                 typeof(GameEntity));
 
             string combinedRuntimeSource = string.Join(
@@ -607,6 +644,11 @@ namespace HardwareStore.Editor
                     @"\.GetEntityWithDeliveryProcurementTerminalEntityId\s*\("),
                 $"Runtime delivery logic must consume the " +
                 $"{nameof(DeliveryProcurementTerminalEntityId)} primary index.");
+            Require(Regex.IsMatch(
+                    combinedRuntimeSource,
+                    @"\.GetEntityWithCustomerActorVisitEntityId\s*\("),
+                $"Runtime customer lifecycle must consume the " +
+                $"{nameof(CustomerActorVisitEntityId)} primary index.");
 
             Require(typeof(ICustomerVisitFactory).IsAssignableFrom(typeof(CustomerVisitFactory)),
                 $"{nameof(CustomerVisitFactory)} must implement {nameof(ICustomerVisitFactory)}.");
@@ -632,6 +674,19 @@ namespace HardwareStore.Editor
                 nameof(IConsultationOfferFactory.CreateOffers),
                 typeof(void),
                 typeof(GameEntity));
+            Require(typeof(ICustomerFactory).IsAssignableFrom(typeof(CustomerFactory)),
+                $"{nameof(CustomerFactory)} must implement {nameof(ICustomerFactory)}.");
+            RequireMethod(
+                typeof(ICustomerFactory),
+                nameof(ICustomerFactory.Create),
+                typeof(GameEntity),
+                typeof(GameEntity),
+                typeof(Pose[]),
+                typeof(Pose[]));
+            string bootstrapSource = ReadRuntimeSource(
+                "Infrastructure", "Installers", "BootstrapInstaller.cs");
+            RequireSourceContains(bootstrapSource,
+                "Bind<ICustomerFactory>().To<CustomerFactory>().AsSingle()");
 
             string customerVisitFactorySource = ReadRuntimeSource(
                 "Gameplay", "Factories", "CustomerVisitFactory.cs");
@@ -639,6 +694,7 @@ namespace HardwareStore.Editor
                 "isCustomerVisit = true",
                 "isCustomerVehicle = true",
                 "isCustomerVisitArriving = true",
+                "isRouteMover = true",
                 "isLoadingZone = true",
                 "AddCustomerVisitStoreEntityId",
                 "AddRequestedProductType",
@@ -671,6 +727,49 @@ namespace HardwareStore.Editor
                 "AddExpectedProfit",
                 "isConsultationOffer = true",
                 "isSelectedConsultationOffer");
+
+            string customerFactorySource = ReadRuntimeSource(
+                "Gameplay", "Factories", "CustomerFactory.cs");
+            RequireSourceContains(customerFactorySource,
+                "CreateEntity.Empty",
+                "AddCustomerActorVisitEntityId",
+                "AddCustomerReturnRoute",
+                "isCustomer = true",
+                "isCustomerApproachingCounter = true",
+                "isRouteMover = true");
+
+            string routeMovementSource = ReadRuntimeSource(
+                "Gameplay", "Features", "Customers", "Systems", "MoveRouteSystem.cs");
+            Require(runtimeTypes.Contains(typeof(MoveRouteSystem)),
+                $"{nameof(MoveRouteSystem)} must remain part of Assembly-CSharp.");
+            RequireSourceContains(routeMovementSource,
+                "GameMatcher.RouteMover",
+                "GameMatcher.Route",
+                "GameMatcher.RouteWaypointIndex",
+                "GameMatcher.MovementSpeed",
+                "GameMatcher.RotationSpeed",
+                "GameMatcher.WaypointTolerance",
+                "GameMatcher.Transform",
+                "GameMatcher.Rigidbody",
+                "GameMatcher.RouteCompleted",
+                "GameMatcher.Destructed");
+            Require(!routeMovementSource.Contains("GameMatcher.Customer", StringComparison.Ordinal) &&
+                    !routeMovementSource.Contains("GameMatcher.CustomerVehicle", StringComparison.Ordinal),
+                $"{nameof(MoveRouteSystem)} must move any RouteMover instead of depending on a " +
+                "customer role.");
+
+            string completeCustomerReturnSource = ReadRuntimeSource(
+                "Gameplay", "Features", "Customers", "Systems",
+                "CompleteCustomerReturnSystem.cs");
+            int removeActorRelation = completeCustomerReturnSource.IndexOf(
+                "RemoveCustomerActorVisitEntityId",
+                StringComparison.Ordinal);
+            int destructCustomerActor = completeCustomerReturnSource.IndexOf(
+                "isDestructed = true",
+                StringComparison.Ordinal);
+            Require(removeActorRelation >= 0 && destructCustomerActor > removeActorRelation,
+                $"{nameof(CustomerActorVisitEntityId)} must be removed before the customer actor " +
+                "enters the Destructed pipeline.");
 
             string completeCustomerVisitSource = ReadRuntimeSource(
                 "Gameplay", "Features", "Customers", "Systems",
@@ -729,6 +828,11 @@ namespace HardwareStore.Editor
                 typeof(ProductTypeId));
             RequireMethod(staticDataType, nameof(IStaticDataService.GetOrder), typeof(OrderConfig),
                 typeof(ProductTypeId));
+            PropertyInfo customerProperty = staticDataType.GetProperty(
+                nameof(IStaticDataService.Customer),
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.DeclaredOnly);
+            Require(customerProperty?.PropertyType == typeof(CustomerConfig),
+                $"{nameof(IStaticDataService)} must expose the validated {nameof(CustomerConfig)}.");
 
             foreach (Type configType in ExpectedGameplayConfigTypes)
             {
@@ -826,6 +930,29 @@ namespace HardwareStore.Editor
                     explicitConfigurationValidation > lastConfigurationAssignment,
                 $"{nameof(CustomerVehicleConfig)}.Configure must assign all values and then call Validate().");
 
+            RequireMethod(
+                typeof(CustomerConfig),
+                nameof(CustomerConfig.Configure),
+                typeof(void),
+                typeof(EntityBehaviour),
+                typeof(float),
+                typeof(float),
+                typeof(float));
+            string customerConfigSource = ReadRuntimeSource(
+                "Gameplay", "Configs", nameof(CustomerConfig) + ".cs");
+            int lastCustomerConfigurationAssignment = customerConfigSource.IndexOf(
+                "_waypointTolerance = waypointTolerance",
+                StringComparison.Ordinal);
+            int explicitCustomerConfigurationValidation = customerConfigSource.IndexOf(
+                "Validate();",
+                lastCustomerConfigurationAssignment >= 0
+                    ? lastCustomerConfigurationAssignment
+                    : 0,
+                StringComparison.Ordinal);
+            Require(lastCustomerConfigurationAssignment >= 0 &&
+                    explicitCustomerConfigurationValidation > lastCustomerConfigurationAssignment,
+                $"{nameof(CustomerConfig)}.Configure must assign all values and then call Validate().");
+
             string staticDataSource = ReadRuntimeSource(
                 "Gameplay", "StaticData", "StaticDataService.cs");
             Require(!staticDataSource.Contains("_ =", StringComparison.Ordinal),
@@ -838,7 +965,8 @@ namespace HardwareStore.Editor
                 "GetProduct(ProductTypeId productType)",
                 "GetDelivery(ProductTypeId productType)",
                 "GetOrder(ProductTypeId productType)",
-                "ProductTypes");
+                "ProductTypes",
+                "CustomerConfig Customer");
         }
 
         private static void ValidateConsultationArchitecture(
@@ -908,10 +1036,25 @@ namespace HardwareStore.Editor
                 "GameMatcher.RequestedProductType",
                 "GameMatcher.CustomerProjectTitle",
                 "GameMatcher.CustomerRequest",
-                "isCustomerVisitConsulting = true");
+                "SceneRouteId.CustomerWalkToCounter",
+                "SceneRouteId.CustomerWalkToVehicle",
+                "_customerFactory.Create");
             Require(!arrivalSource.Contains("GameMatcher.Order", StringComparison.Ordinal) &&
-                    !arrivalSource.Contains("GameMatcher.RequiredProductCount", StringComparison.Ordinal),
+                    !arrivalSource.Contains("GameMatcher.RequiredProductCount", StringComparison.Ordinal) &&
+                    !arrivalSource.Contains("isCustomerVisitConsulting = true", StringComparison.Ordinal),
                 "A parked customer must enter consultation before order components exist.");
+
+            string approachSource = ReadRuntimeSource(
+                "Gameplay", "Features", "Customers", "Systems",
+                "CompleteCustomerApproachSystem.cs");
+            RequireSourceContains(approachSource,
+                "GameMatcher.CustomerApproachingCounter",
+                "GameMatcher.CustomerActorVisitEntityId",
+                "GameMatcher.RouteCompleted",
+                "isCustomerApproachingCounter = false",
+                "isCustomerWaitingAtCounter = true",
+                "isCustomerVisitArriving = false",
+                "isCustomerVisitConsulting = true");
 
             string openSource = ReadRuntimeSource(
                 "Gameplay", "Features", "Consultation", "Systems",
@@ -1158,6 +1301,7 @@ namespace HardwareStore.Editor
                 RequireAsset<DeliveryConfig>(BoardDeliveryConfigPath);
             CustomerVehicleConfig customerVehicleConfig =
                 RequireAsset<CustomerVehicleConfig>(CustomerVehicleConfigPath);
+            CustomerConfig customerConfig = RequireAsset<CustomerConfig>(CustomerConfigPath);
             EconomyConfig economyConfig = RequireAsset<EconomyConfig>(EconomyConfigPath);
             OrderConfig cementOrderConfig = RequireAsset<OrderConfig>(CementOrderConfigPath);
             OrderConfig boardOrderConfig = RequireAsset<OrderConfig>(BoardOrderConfigPath);
@@ -1239,6 +1383,12 @@ namespace HardwareStore.Editor
             Require(Mathf.Approximately(customerVehicleConfig.FirstCustomerDelay, 1f) &&
                     Mathf.Approximately(customerVehicleConfig.NextCustomerDelay, 4f),
                 $"{CustomerVehicleConfigPath} must use prototype customer delays of 1 and 4 seconds.");
+            Require(Mathf.Approximately(customerConfig.MovementSpeed, 2.4f),
+                $"{CustomerConfigPath} must use a customer movement speed of 2.4.");
+            Require(Mathf.Approximately(customerConfig.RotationSpeed, 360f),
+                $"{CustomerConfigPath} must use a customer rotation speed of 360 degrees per second.");
+            Require(Mathf.Approximately(customerConfig.WaypointTolerance, 0.08f),
+                $"{CustomerConfigPath} must use a waypoint tolerance of 0.08.");
 
             GameObject cementProductPrefab = RequireAsset<GameObject>(CementProductPrefabPath);
             GameObject boardProductPrefab = RequireAsset<GameObject>(BoardProductPrefabPath);
@@ -1389,6 +1539,55 @@ namespace HardwareStore.Editor
             Require(customerVehicleConfig.ViewPrefab == customerViews[0],
                 $"{CustomerVehicleConfigPath} must reference the InteractionView root from " +
                 $"{CustomerVehiclePrefabPath}.");
+
+            GameObject customerPrefab = RequireAsset<GameObject>(CustomerPrefabPath);
+            ValidatePrefabRoot(customerPrefab, CustomerPrefabPath, requireUnitScale: true);
+            EntityBehaviour[] customerActorViews =
+                RequireExactlyOneInPrefab<EntityBehaviour>(customerPrefab, CustomerPrefabPath);
+            TransformRegistrar[] customerActorTransforms =
+                RequireExactlyOneInPrefab<TransformRegistrar>(customerPrefab, CustomerPrefabPath);
+            RigidbodyRegistrar[] customerActorRigidbodyRegistrars =
+                RequireExactlyOneInPrefab<RigidbodyRegistrar>(customerPrefab, CustomerPrefabPath);
+            Rigidbody[] customerActorRigidbodies =
+                RequireExactlyOneInPrefab<Rigidbody>(customerPrefab, CustomerPrefabPath);
+            EntityComponentRegistrar[] customerActorRegistrars =
+                customerPrefab.GetComponentsInChildren<EntityComponentRegistrar>(true);
+            Collider[] customerActorColliders =
+                customerPrefab.GetComponentsInChildren<Collider>(true);
+            Renderer[] customerActorRenderers =
+                customerPrefab.GetComponentsInChildren<Renderer>(true);
+
+            Require(customerActorViews[0].GetType() == typeof(EntityBehaviour) &&
+                    customerActorViews[0].gameObject == customerPrefab &&
+                    customerActorTransforms[0].gameObject == customerPrefab &&
+                    customerActorRigidbodyRegistrars[0].gameObject == customerPrefab &&
+                    customerActorRigidbodies[0].gameObject == customerPrefab,
+                $"{CustomerPrefabPath} must use only the generic EntityBehaviour, Transform and " +
+                "Rigidbody boundary on its root.");
+            var expectedCustomerActorRegistrarTypes = new HashSet<Type>
+            {
+                typeof(TransformRegistrar),
+                typeof(RigidbodyRegistrar)
+            };
+            Require(customerActorRegistrars.Length == expectedCustomerActorRegistrarTypes.Count &&
+                    new HashSet<Type>(customerActorRegistrars.Select(registrar => registrar.GetType()))
+                        .SetEquals(expectedCustomerActorRegistrarTypes),
+                $"{CustomerPrefabPath} must contain exactly the generic Transform and Rigidbody " +
+                "registrars.");
+            Require(customerActorColliders.Length == 0 &&
+                    customerPrefab.GetComponentsInChildren<InteractionView>(true).Length == 0 &&
+                    customerPrefab.GetComponentsInChildren<CollidersRegistrar>(true).Length == 0,
+                $"{CustomerPrefabPath} must not expose interaction or collider gameplay adapters.");
+            Require(customerActorRenderers.Length >= 8,
+                $"{CustomerPrefabPath} must contain a visible low-poly customer silhouette.");
+            Rigidbody customerActorBody = customerActorRigidbodies[0];
+            Require(customerActorBody.isKinematic && !customerActorBody.useGravity &&
+                    customerActorBody.interpolation == RigidbodyInterpolation.None,
+                $"The Rigidbody in {CustomerPrefabPath} must be kinematic, gravity-free and use " +
+                $"{RigidbodyInterpolation.None} interpolation.");
+            Require(customerConfig.ViewPrefab == customerActorViews[0],
+                $"{CustomerConfigPath} must reference the EntityBehaviour root from " +
+                $"{CustomerPrefabPath}.");
         }
 
         private static void ValidateCatalogEntry(ProductConfig productConfig,
@@ -1622,11 +1821,14 @@ namespace HardwareStore.Editor
                 var expectedRouteIds = new HashSet<SceneRouteId>
                 {
                     SceneRouteId.CustomerVehicleArrival,
-                    SceneRouteId.CustomerVehicleDeparture
+                    SceneRouteId.CustomerVehicleDeparture,
+                    SceneRouteId.CustomerWalkToCounter,
+                    SceneRouteId.CustomerWalkToVehicle
                 };
                 var actualRouteIds = new HashSet<SceneRouteId>(routes.Select(marker => marker.Id));
                 Require(routes.Length == expectedRouteIds.Count && actualRouteIds.SetEquals(expectedRouteIds),
-                    $"{PrototypeScenePath} must contain exactly one marker for each customer vehicle route.");
+                    $"{PrototypeScenePath} must contain exactly one marker for both vehicle and " +
+                    "customer actor routes.");
 
                 var routeWaypoints = new Dictionary<SceneRouteId, Transform[]>();
                 foreach (SceneRouteMarker route in routes)
@@ -1634,7 +1836,7 @@ namespace HardwareStore.Editor
                     Transform[] waypoints = ReadObjectArray<Transform>(
                         new SerializedObject(route), "_waypoints", route.name);
                     Require(waypoints.Length == 4,
-                        $"Scene route {route.Id} must contain entry, gate, apron and terminal waypoints.");
+                        $"Scene route {route.Id} must contain exactly four authored waypoints.");
                     Require(waypoints.All(waypoint => waypoint.gameObject.scene == scene &&
                                                        waypoint.IsChildOf(route.transform)),
                         $"Every waypoint of scene route {route.Id} must belong to its marker hierarchy " +
@@ -1648,11 +1850,45 @@ namespace HardwareStore.Editor
                         Quaternion.Angle(arrivalParking.rotation, departureParking.rotation) < 0.01f,
                     "Customer vehicle arrival must end at the exact pose where departure begins.");
 
+                Transform[] walkToCounter = routeWaypoints[SceneRouteId.CustomerWalkToCounter];
+                Transform[] walkToVehicle = routeWaypoints[SceneRouteId.CustomerWalkToVehicle];
+                Require(Vector3.Distance(walkToCounter[^1].position, walkToVehicle[0].position) < 0.001f &&
+                        Quaternion.Angle(walkToCounter[^1].rotation, walkToVehicle[0].rotation) < 0.01f,
+                    "Customer return route must begin at the exact counter position where the " +
+                    "approach route ends, without a pose discontinuity.");
+                Require(Vector3.Distance(walkToCounter[0].position, walkToVehicle[^1].position) < 0.001f,
+                    "Customer return route must end at the exact vehicle-door position where the " +
+                    "approach route begins.");
+                Require(Vector3.Distance(arrivalParking.position, walkToCounter[0].position) < 2.5f,
+                    "Customer approach route must begin beside the parked vehicle.");
+
                 Transform[] allSceneTransforms = scene.GetRootGameObjects()
                     .SelectMany(root => root.GetComponentsInChildren<Transform>(true))
                     .ToArray();
                 Require(allSceneTransforms.All(candidate => candidate.name != "Customer Truck"),
                     $"{PrototypeScenePath} must not contain the legacy static Customer Truck.");
+                Require(allSceneTransforms.All(candidate => candidate.name != "Customer"),
+                    $"{PrototypeScenePath} must not contain a static Customer; the actor is " +
+                    "instantiated from its runtime prefab.");
+                Transform customerCounter = allSceneTransforms.SingleOrDefault(candidate =>
+                    candidate.name == "Counter" && candidate.parent != null &&
+                    candidate.parent.name == "Sales Kiosk");
+                Require(customerCounter != null,
+                    $"{PrototypeScenePath} must contain the Sales Kiosk customer counter.");
+                Transform customerOrderTerminal = allSceneTransforms.SingleOrDefault(candidate =>
+                    candidate.name == "Customer Order Terminal" && candidate.parent != null &&
+                    candidate.parent.name == "Sales Kiosk");
+                Require(customerOrderTerminal != null,
+                    $"{PrototypeScenePath} must contain the customer order terminal.");
+                Bounds customerCounterBounds = customerCounter.GetComponent<Renderer>().bounds;
+                Bounds customerOrderTerminalBounds =
+                    customerOrderTerminal.GetComponent<Renderer>().bounds;
+                Vector3 customerCounterPosition = walkToCounter[^1].position;
+                Require(customerCounterPosition.z < customerCounterBounds.min.z - 0.2f &&
+                        customerCounterPosition.x > customerOrderTerminalBounds.min.x &&
+                        customerCounterPosition.x < customerOrderTerminalBounds.max.x,
+                    "Customer walk route must end on the accessible visitor side, aligned with " +
+                    "the customer order terminal rather than the divider between terminals.");
 
                 var expectedSceneViewIds = new HashSet<SceneViewId>
                 {

@@ -32,6 +32,8 @@ namespace HardwareStore.Editor
         private const string DeliveryVehiclePrefabPath = "Assets/_Project/Prefabs/Gameplay/DeliveryTruck.prefab";
         private const string CustomerVehiclePrefabPath =
             "Assets/_Project/Prefabs/Gameplay/CustomerVehicle.prefab";
+        private const string CustomerPrefabPath =
+            "Assets/_Project/Prefabs/Gameplay/Customer.prefab";
         private const string CementProductConfigName = "ProductConfig";
         private const string BoardProductConfigName = "ProductConfig_BoardBundle";
         private const string CementDeliveryConfigName = "DeliveryConfig";
@@ -64,6 +66,7 @@ namespace HardwareStore.Editor
                 LoadConfig<DeliveryConfig>(BoardDeliveryConfigName);
             CustomerVehicleConfig customerVehicleConfig =
                 LoadConfig<CustomerVehicleConfig>("CustomerVehicleConfig");
+            CustomerConfig customerConfig = LoadConfig<CustomerConfig>("CustomerConfig");
             EconomyConfig economyConfig = LoadConfig<EconomyConfig>("EconomyConfig");
             ProductConfig cementProductConfig =
                 LoadConfig<ProductConfig>(CementProductConfigName);
@@ -111,6 +114,7 @@ namespace HardwareStore.Editor
                 darkMetal,
                 glass,
                 loadingGreen);
+            EnsureCustomerPrefab(customerConfig, brandOrange, brandBlue, darkMetal);
 
             Scene scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
             ConfigureEnvironment();
@@ -129,7 +133,7 @@ namespace HardwareStore.Editor
                 brandOrange,
                 cementProductConfig,
                 boardProductConfig);
-            SceneRouteMarker[] customerVehicleRoutes = BuildCustomerVehicleRoutes(
+            SceneRouteMarker[] customerRoutes = BuildCustomerRoutes(
                 environment.transform, asphalt, white, loadingGreen);
             BuildLumberArea(
                 environment.transform,
@@ -150,7 +154,7 @@ namespace HardwareStore.Editor
             PrototypeSceneInitializer initializer = systems.AddComponent<PrototypeSceneInitializer>();
             initializer.Configure(
                 new[] { playerSpawnPoint, deliveryVehicleSpawnPoint },
-                customerVehicleRoutes,
+                customerRoutes,
                 new[] { orderCounter, procurementTerminal, storageZone },
                 hud,
                 audio);
@@ -252,12 +256,6 @@ namespace HardwareStore.Editor
                 new Vector3(4.5f, 1.44f, 0.86f), darkMetal);
             CreateCube("Counter Top", shop.transform, new Vector3(-9f, 1.49f, 1.65f),
                 new Vector3(4.7f, 0.12f, 1.02f), brandOrange);
-
-            GameObject customer = CreateCapsule("Customer", shop.transform, new Vector3(-9f, 1f, 3.05f),
-                new Vector3(0.62f, 1f, 0.62f), brandOrange);
-            Object.DestroyImmediate(customer.GetComponent<Collider>());
-            CreateCube("Customer Vest", customer.transform, new Vector3(0f, 0.15f, 0f),
-                new Vector3(1.05f, 0.8f, 1.02f), brandBlue, false, true);
 
             GameObject terminal = CreateCube("Customer Order Terminal", shop.transform,
                 new Vector3(-7.9f, 1.15f, 1.16f), new Vector3(1.7f, 0.72f, 0.12f), brandOrange);
@@ -363,7 +361,7 @@ namespace HardwareStore.Editor
             return storageMarker;
         }
 
-        private static SceneRouteMarker[] BuildCustomerVehicleRoutes(Transform parent, Material asphalt,
+        private static SceneRouteMarker[] BuildCustomerRoutes(Transform parent, Material asphalt,
             Material white, Material loadingGreen)
         {
             GameObject traffic = CreateEmpty("Customer Vehicle Traffic", parent);
@@ -402,7 +400,30 @@ namespace HardwareStore.Editor
                     new Pose(new Vector3(0f, 0.02f, -22f), Quaternion.identity)
                 });
 
-            return new[] { arrival, departure };
+            SceneRouteMarker walkToCounter = CreateSceneRoute(
+                "Customer Walk To Counter Route",
+                traffic.transform,
+                SceneRouteId.CustomerWalkToCounter,
+                new[]
+                {
+                    new Pose(new Vector3(4.55f, 0.02f, -2.35f), Quaternion.Euler(0f, -90f, 0f)),
+                    new Pose(new Vector3(1.8f, 0.02f, -1.85f), Quaternion.Euler(0f, -80f, 0f)),
+                    new Pose(new Vector3(-4.4f, 0.02f, 0f), Quaternion.Euler(0f, -75f, 0f)),
+                    new Pose(new Vector3(-7.25f, 0.02f, 0.55f), Quaternion.identity)
+                });
+            SceneRouteMarker walkToVehicle = CreateSceneRoute(
+                "Customer Walk To Vehicle Route",
+                traffic.transform,
+                SceneRouteId.CustomerWalkToVehicle,
+                new[]
+                {
+                    new Pose(new Vector3(-7.25f, 0.02f, 0.55f), Quaternion.identity),
+                    new Pose(new Vector3(-4.4f, 0.02f, 0f), Quaternion.Euler(0f, 105f, 0f)),
+                    new Pose(new Vector3(1.8f, 0.02f, -1.85f), Quaternion.Euler(0f, 105f, 0f)),
+                    new Pose(new Vector3(4.55f, 0.02f, -2.35f), Quaternion.Euler(0f, 90f, 0f))
+                });
+
+            return new[] { arrival, departure, walkToCounter, walkToVehicle };
         }
 
         private static void BuildLumberArea(Transform parent, Material concrete, Material brandBlue,
@@ -800,6 +821,71 @@ namespace HardwareStore.Editor
             }
         }
 
+        private static void EnsureCustomerPrefab(CustomerConfig config, Material jacket,
+            Material workwear, Material shoes)
+        {
+            GameObject customer = CreateEmpty("Customer");
+
+            try
+            {
+                customer.transform.SetLocalPositionAndRotation(Vector3.zero, Quaternion.identity);
+                customer.transform.localScale = Vector3.one;
+                customer.SetActive(true);
+
+                Rigidbody body = customer.AddComponent<Rigidbody>();
+                body.mass = 80f;
+                body.isKinematic = true;
+                body.useGravity = false;
+                body.interpolation = RigidbodyInterpolation.None;
+                body.collisionDetectionMode = CollisionDetectionMode.ContinuousSpeculative;
+
+                CreateCube("Torso", customer.transform, new Vector3(0f, 1.18f, 0f),
+                    new Vector3(0.62f, 0.78f, 0.34f), jacket, false, true);
+                CreateCube("Work Vest", customer.transform, new Vector3(0f, 1.2f, -0.18f),
+                    new Vector3(0.66f, 0.54f, 0.05f), workwear, false, true);
+                CreateCube("Head", customer.transform, new Vector3(0f, 1.82f, 0f),
+                    new Vector3(0.38f, 0.38f, 0.38f), jacket, false, true);
+                CreateCube("Left Arm", customer.transform, new Vector3(-0.42f, 1.18f, 0f),
+                    new Vector3(0.16f, 0.72f, 0.18f), jacket, false, true);
+                CreateCube("Right Arm", customer.transform, new Vector3(0.42f, 1.18f, 0f),
+                    new Vector3(0.16f, 0.72f, 0.18f), jacket, false, true);
+                CreateCube("Left Leg", customer.transform, new Vector3(-0.17f, 0.48f, 0f),
+                    new Vector3(0.22f, 0.72f, 0.24f), workwear, false, true);
+                CreateCube("Right Leg", customer.transform, new Vector3(0.17f, 0.48f, 0f),
+                    new Vector3(0.22f, 0.72f, 0.24f), workwear, false, true);
+                CreateCube("Left Shoe", customer.transform, new Vector3(-0.17f, 0.11f, 0.08f),
+                    new Vector3(0.24f, 0.14f, 0.4f), shoes, false, true);
+                CreateCube("Right Shoe", customer.transform, new Vector3(0.17f, 0.11f, 0.08f),
+                    new Vector3(0.24f, 0.14f, 0.4f), shoes, false, true);
+
+                customer.AddComponent<EntityBehaviour>();
+                customer.AddComponent<TransformRegistrar>();
+                customer.AddComponent<RigidbodyRegistrar>();
+
+                GameObject prefab = PrefabUtility.SaveAsPrefabAsset(customer, CustomerPrefabPath);
+                if (prefab == null)
+                {
+                    throw new InvalidOperationException(
+                        $"Could not create customer prefab at {CustomerPrefabPath}.");
+                }
+
+                EntityBehaviour prefabView = prefab.GetComponent<EntityBehaviour>() ??
+                                             throw new InvalidOperationException(
+                                                 $"Customer prefab at {CustomerPrefabPath} " +
+                                                 "has no EntityBehaviour root.");
+                config.Configure(
+                    prefabView,
+                    movementSpeed: 2.4f,
+                    rotationSpeed: 360f,
+                    waypointTolerance: 0.08f);
+                EditorUtility.SetDirty(config);
+            }
+            finally
+            {
+                Object.DestroyImmediate(customer);
+            }
+        }
+
         private static void EnsurePlayerPrefab(PlayerConfig playerConfig)
         {
             GameObject player = CreateEmpty("Player");
@@ -942,18 +1028,6 @@ namespace HardwareStore.Editor
             return cube;
         }
 
-        private static GameObject CreateCapsule(string name, Transform parent, Vector3 position, Vector3 scale,
-            Material material)
-        {
-            GameObject capsule = GameObject.CreatePrimitive(PrimitiveType.Capsule);
-            capsule.name = name;
-            capsule.transform.SetParent(parent, true);
-            capsule.transform.position = position;
-            capsule.transform.localScale = scale;
-            capsule.GetComponent<Renderer>().sharedMaterial = material;
-            return capsule;
-        }
-
         private static void CreateLocalWheel(string name, Transform parent, Vector3 localPosition,
             Material material)
         {
@@ -1050,6 +1124,7 @@ namespace HardwareStore.Editor
             EnsureConfigAsset<DeliveryConfig>(CementDeliveryConfigName);
             EnsureConfigAsset<DeliveryConfig>(BoardDeliveryConfigName);
             EnsureConfigAsset<CustomerVehicleConfig>("CustomerVehicleConfig");
+            EnsureConfigAsset<CustomerConfig>("CustomerConfig");
             EnsureConfigAsset<EconomyConfig>("EconomyConfig");
         }
 

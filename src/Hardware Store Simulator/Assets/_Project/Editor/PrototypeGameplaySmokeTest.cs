@@ -78,6 +78,7 @@ namespace HardwareStore.Editor
                 "A delivery was purchased without a current customer visit.");
 
             CustomerVisit firstVisit = SpawnAndParkCustomer(runtime, scenario);
+            int firstCustomerActorId = firstVisit.Actor.EntityId;
             Require(firstVisit.Entity.RequestedProductType == cement &&
                     firstVisit.Entity.CustomerProjectTitle == cementOrder.CustomerProjectTitle &&
                     firstVisit.Entity.CustomerRequest == cementOrder.CustomerRequest &&
@@ -154,6 +155,8 @@ namespace HardwareStore.Editor
             CustomerVisit secondVisit = SpawnAndParkCustomer(runtime, scenario);
             Require(secondVisit.Entity.EntityId != firstVisitId,
                 "The second customer visit reused the first visit identifier.");
+            Require(secondVisit.Actor.EntityId != firstCustomerActorId,
+                "The second customer actor reused the first actor identifier.");
             Require(secondVisit.Entity.Slots.All(slot => slot.childCount == 0),
                 "The second customer vehicle inherited occupied loading slots.");
             Require(secondVisit.Entity.RequestedProductType == boards &&
@@ -242,6 +245,7 @@ namespace HardwareStore.Editor
             Require(runtime.Game.GetEntityWithEntityId(firstVisitId) == null &&
                     runtime.Game.GetEntityWithEntityId(secondVisitId) == null &&
                     runtime.Game.GetGroup(GameMatcher.CustomerVisit).count == 0 &&
+                    runtime.Game.GetGroup(GameMatcher.Customer).count == 0 &&
                     runtime.Game.GetGroup(GameMatcher.Order).count == 0 &&
                     runtime.Game.GetGroup(GameMatcher.ConsultationOffer).count == 0 &&
                     runtime.Game.GetGroup(GameMatcher.ConsultationVisitEntityId).count == 0,
@@ -256,7 +260,8 @@ namespace HardwareStore.Editor
 
             Debug.Log(
                 $"[Hardware Store] Gameplay smoke passed: modal consultation, min/max offers, " +
-                $"cement and boards cycles, wrong-SKU rejection, both physics flows, " +
+                $"walking customer NPC lifecycle, cement and boards cycles, " +
+                $"wrong-SKU rejection, both physics flows, " +
                 $"stock {expectedFinalStock}, balance {expectedFinalMoney:N0} ₽.");
         }
 
@@ -348,6 +353,8 @@ namespace HardwareStore.Editor
                 "The smoke test must start without an active delivery.");
             Require(FindProducts(runtime.Game).Length == 0,
                 "The smoke test must start without runtime products.");
+            Require(runtime.Game.GetGroup(GameMatcher.Customer).count == 0,
+                "The smoke test must start without a customer actor.");
             Require(!player.isHandsOccupied &&
                     runtime.Game.GetEntityWithCarrierEntityId(player.EntityId) == null,
                 "The smoke test must start with empty hands.");
@@ -396,9 +403,15 @@ namespace HardwareStore.Editor
                 "The smoke test can only reset an untouched auto-spawned customer visit.");
 
             int visitId = visit.EntityId;
+            GameEntity actor =
+                runtime.Game.GetEntityWithCustomerActorVisitEntityId(visit.EntityId);
             EntityBehaviour view = visit.hasView
                 ? visit.View as EntityBehaviour ?? throw new InvalidOperationException(
                     "The auto-spawned customer view is not an EntityBehaviour.")
+                : null;
+            EntityBehaviour actorView = actor != null && actor.hasView
+                ? actor.View as EntityBehaviour ?? throw new InvalidOperationException(
+                    "The auto-spawned customer actor view is not an EntityBehaviour.")
                 : null;
 
             int resetSequenceIndex = Array.IndexOf(
@@ -413,6 +426,11 @@ namespace HardwareStore.Editor
             int[] offerIds = offers.Select(offer => offer.EntityId).ToArray();
             foreach (GameEntity offer in offers)
                 offer.isDestructed = true;
+            if (actor != null)
+            {
+                actor.RemoveCustomerActorVisitEntityId();
+                actor.isDestructed = true;
+            }
             visit.RemoveCustomerVisitStoreEntityId();
             visit.isDestructed = true;
             runtime.Systems.Create<CleanupDestructedViewsSystem>().Cleanup();
@@ -422,7 +440,9 @@ namespace HardwareStore.Editor
                     !visit.hasCustomerVisitStoreEntityId &&
                     runtime.Game.GetEntityWithEntityId(visitId) == null &&
                     offerIds.All(id => runtime.Game.GetEntityWithEntityId(id) == null) &&
-                    (view == null || !view.HasEntity),
+                    runtime.Game.GetGroup(GameMatcher.Customer).count == 0 &&
+                    (view == null || !view.HasEntity) &&
+                    (actorView == null || !actorView.HasEntity),
                 "The untouched auto-spawned customer did not reset to cooldown.");
         }
 
@@ -443,7 +463,8 @@ namespace HardwareStore.Editor
         {
             Require(runtime.Game.GetEntityWithCustomerVisitStoreEntityId(
                         scenario.Store.EntityId) == null &&
-                    scenario.Store.hasCustomerCooldownRemaining,
+                    scenario.Store.hasCustomerCooldownRemaining &&
+                    runtime.Game.GetGroup(GameMatcher.Customer).count == 0,
                 "A customer can only spawn from between-visits cooldown.");
 
             scenario.Store.ReplaceCustomerCooldownRemaining(0f);
@@ -499,6 +520,55 @@ namespace HardwareStore.Editor
 
             ForceRouteEndpoint(runtime, visit);
             runtime.Systems.Create<CompleteCustomerVehicleArrivalSystem>().Execute();
+            Require(visit.isCustomerVisitArriving &&
+                    !visit.isCustomerVisitConsulting &&
+                    !visit.isInteractable &&
+                    !visit.isRouteCompleted &&
+                    !visit.hasRoute &&
+                    !visit.hasRouteWaypointIndex,
+                "The parked vehicle did not wait for its customer to reach the counter.");
+
+            scenario.Player.ReplaceFocusedEntityId(scenario.OrderCounter.EntityId);
+            ExecuteInteractionPrompts(runtime);
+            Require(scenario.Player.hasInteractionPrompt &&
+                    scenario.Player.InteractionPrompt.IndexOf(
+                        "направляется",
+                        StringComparison.OrdinalIgnoreCase) >= 0 &&
+                    !scenario.Player.isFocusInteractionAvailable,
+                "The parked arrival state did not present the walk to the counter.");
+            scenario.Player.RemoveFocusedEntityId();
+            ExecuteInteractionPrompts(runtime);
+
+            GameEntity actor =
+                runtime.Game.GetEntityWithCustomerActorVisitEntityId(visit.EntityId);
+            Require(actor != null &&
+                    runtime.Game.GetGroup(GameMatcher.Customer).count == 1 &&
+                    actor.EntityId != visit.EntityId &&
+                    actor.isCustomer &&
+                    actor.isCustomerApproachingCounter &&
+                    !actor.isCustomerWaitingAtCounter &&
+                    !actor.isCustomerReturningToVehicle &&
+                    actor.isRouteMover &&
+                    actor.CustomerActorVisitEntityId == visit.EntityId &&
+                    actor.hasRoute &&
+                    actor.hasCustomerReturnRoute &&
+                    actor.hasRouteWaypointIndex &&
+                    actor.hasMovementSpeed &&
+                    actor.hasRotationSpeed &&
+                    actor.hasWaypointTolerance &&
+                    !actor.hasView,
+                "Vehicle arrival did not create exactly one approaching customer actor.");
+
+            runtime.Systems.Create<BindEntityViewFromPrefabSystem>().Execute();
+            EntityBehaviour actorView = RequireRuntimeView(
+                actor,
+                runtime.StaticData.Customer.ViewPrefab,
+                $"customer actor {actor.EntityId}");
+            Require(actor.hasTransform && actor.hasRigidbody && actor.Rigidbody.isKinematic,
+                "The customer actor view did not register route-movement data.");
+
+            ForceRouteEndpoint(runtime, actor);
+            runtime.Systems.Create<CompleteCustomerApproachSystem>().Execute();
             ExecuteStorageState(runtime);
             Require(visit.isCustomerVisitConsulting &&
                     !visit.isCustomerVisitArriving &&
@@ -509,6 +579,16 @@ namespace HardwareStore.Editor
                     !visit.hasRouteWaypointIndex &&
                     visit.isInteractable,
                 "The customer visit did not enter its parked consultation state.");
+            Require(actor.isCustomerWaitingAtCounter &&
+                    !actor.isCustomerApproachingCounter &&
+                    !actor.isCustomerReturningToVehicle &&
+                    !actor.isRouteCompleted &&
+                    !actor.hasRoute &&
+                    !actor.hasRouteWaypointIndex &&
+                    actor.hasCustomerActorVisitEntityId &&
+                    actor.CustomerActorVisitEntityId == visit.EntityId &&
+                    !actor.isDestructed,
+                "The customer actor did not enter its counter waiting state.");
             int typedStock = CountStockProducts(
                 runtime.Game,
                 scenario.StorageZone.EntityId,
@@ -516,7 +596,7 @@ namespace HardwareStore.Editor
             Require(offers.All(offer => offer.AvailableProductCount == typedStock),
                 "The parked consultation offers do not observe current typed stock.");
 
-            return new CustomerVisit(visit, view);
+            return new CustomerVisit(visit, view, actor, actorView);
         }
 
         private static void OpenConsultation(
@@ -702,19 +782,21 @@ namespace HardwareStore.Editor
             return selected[0];
         }
 
-        private static void ForceRouteEndpoint(Runtime runtime, GameEntity visit)
+        private static void ForceRouteEndpoint(Runtime runtime, GameEntity routeMover)
         {
-            Require(visit.hasRoute && visit.Route.Length >= 2,
-                $"Customer visit {visit.EntityId} has no route to force.");
-            Pose destination = visit.Route[^1];
-            visit.ReplaceRouteWaypointIndex(visit.Route.Length - 1);
-            visit.Rigidbody.position = destination.position;
-            visit.Rigidbody.rotation = destination.rotation;
-            visit.Transform.SetPositionAndRotation(destination.position, destination.rotation);
+            Require(routeMover.isRouteMover &&
+                    routeMover.hasRoute &&
+                    routeMover.Route.Length >= 2,
+                $"Route mover {routeMover.EntityId} has no route to force.");
+            Pose destination = routeMover.Route[^1];
+            routeMover.ReplaceRouteWaypointIndex(routeMover.Route.Length - 1);
+            routeMover.Rigidbody.position = destination.position;
+            routeMover.Rigidbody.rotation = destination.rotation;
+            routeMover.Transform.SetPositionAndRotation(destination.position, destination.rotation);
             Physics.SyncTransforms();
-            runtime.Systems.Create<MoveCustomerVehicleRouteSystem>().Execute();
-            Require(visit.isRouteCompleted,
-                $"Customer visit {visit.EntityId} did not complete its forced route.");
+            runtime.Systems.Create<MoveRouteSystem>().Execute();
+            Require(routeMover.isRouteCompleted,
+                $"Route mover {routeMover.EntityId} did not complete its forced route.");
         }
 
         private static DeliveryArrival PurchaseAndPrepareArrival(
@@ -1181,9 +1263,12 @@ namespace HardwareStore.Editor
             GameEntity[] loadedProducts)
         {
             GameEntity entity = visit.Entity;
+            GameEntity actor = visit.Actor;
             Require(entity.isCustomerVisitCompleted &&
                     entity.isOrderRewarded &&
-                    !entity.hasCustomerDepartureDelayRemaining,
+                    !entity.hasCustomerDepartureDelayRemaining &&
+                    actor.isCustomerWaitingAtCounter &&
+                    actor.CustomerActorVisitEntityId == entity.EntityId,
                 "Only a completed and rewarded customer visit may depart.");
 
             runtime.Systems.Create<BeginCustomerVehicleDepartureDelaySystem>().Execute();
@@ -1197,13 +1282,52 @@ namespace HardwareStore.Editor
             Require(entity.CustomerDepartureDelayRemaining >= 0f,
                 "The departure delay ticked below zero.");
             entity.ReplaceCustomerDepartureDelayRemaining(0f);
-            runtime.Systems.Create<BeginCustomerVehicleDepartureSystem>().Execute();
-            Require(entity.isCustomerVisitDeparting &&
+            runtime.Systems.Create<BeginCustomerReturnSystem>().Execute();
+            Require(entity.isCustomerVisitReturning &&
                     !entity.isCustomerVisitCompleted &&
+                    !entity.isCustomerVisitDeparting &&
                     !entity.isInteractable &&
                     !entity.hasCustomerDepartureDelayRemaining &&
-                    entity.hasRoute,
-                "The customer visit did not begin departure.");
+                    !entity.hasRoute &&
+                    actor.isCustomerReturningToVehicle &&
+                    !actor.isCustomerWaitingAtCounter &&
+                    actor.hasRoute &&
+                    actor.hasRouteWaypointIndex &&
+                    actor.hasCustomerActorVisitEntityId &&
+                    !actor.isDestructed,
+                "The customer did not begin returning to the parked vehicle.");
+
+            ValidateReturningInteractionPrompts(runtime, scenario, entity);
+
+            runtime.Systems.Create<CompleteCustomerReturnSystem>().Execute();
+            runtime.Systems.Create<CompleteCustomerVehicleDepartureSystem>().Execute();
+            Require(entity.isCustomerVisitReturning &&
+                    !entity.isCustomerVisitDeparting &&
+                    !entity.hasRoute &&
+                    actor.hasCustomerActorVisitEntityId &&
+                    !actor.isDestructed,
+                "The vehicle departed before its customer completed the return route.");
+
+            int actorId = actor.EntityId;
+            ForceRouteEndpoint(runtime, actor);
+            runtime.Systems.Create<CompleteCustomerReturnSystem>().Execute();
+            Require(entity.isCustomerVisitDeparting &&
+                    !entity.isCustomerVisitReturning &&
+                    entity.hasRoute &&
+                    entity.hasRouteWaypointIndex &&
+                    actor.isDestructed &&
+                    !actor.hasCustomerActorVisitEntityId &&
+                    runtime.Game.GetEntityWithCustomerActorVisitEntityId(entity.EntityId) == null,
+                "The completed customer return did not release the primary relation before " +
+                "starting vehicle departure.");
+
+            runtime.Systems.Create<CleanupDestructedViewsSystem>().Cleanup();
+            Require(!visit.ActorView.HasEntity && visit.View.HasEntity,
+                "Customer return cleanup did not release only the actor view.");
+            runtime.Systems.Create<CleanupDestructedEntitiesSystem>().Cleanup();
+            Require(runtime.Game.GetEntityWithEntityId(actorId) == null &&
+                    runtime.Game.GetGroup(GameMatcher.Customer).count == 0,
+                "The returned customer actor survived the Destructed pipeline.");
 
             ForceRouteEndpoint(runtime, entity);
             EntityBehaviour[] loadedViews = loadedProducts
@@ -1229,6 +1353,7 @@ namespace HardwareStore.Editor
 
             runtime.Systems.Create<CleanupDestructedViewsSystem>().Cleanup();
             Require(!visit.View.HasEntity &&
+                    !visit.ActorView.HasEntity &&
                     loadedViews.All(view => !view.HasEntity),
                 "Customer cleanup retained a nested view binding.");
             runtime.Systems.Create<CleanupDestructedEntitiesSystem>().Cleanup();
@@ -1237,9 +1362,63 @@ namespace HardwareStore.Editor
             Require(runtime.Game.GetEntityWithEntityId(visitId) == null &&
                     loadedProductIds.All(productId =>
                         runtime.Game.GetEntityWithEntityId(productId) == null) &&
-                    runtime.Game.GetGroup(GameMatcher.Loaded).count == 0,
+                    runtime.Game.GetGroup(GameMatcher.Loaded).count == 0 &&
+                    runtime.Game.GetGroup(GameMatcher.Customer).count == 0 &&
+                    runtime.Game.GetEntityWithCustomerActorVisitEntityId(visitId) == null,
                 "A departed customer graph survived cleanup.");
             ExecuteStorageState(runtime);
+        }
+
+        private static void ValidateReturningInteractionPrompts(
+            Runtime runtime,
+            Scenario scenario,
+            GameEntity visit)
+        {
+            scenario.Player.ReplaceFocusedEntityId(scenario.OrderCounter.EntityId);
+            ExecuteInteractionPrompts(runtime);
+            Require(scenario.Player.hasInteractionPrompt &&
+                    scenario.Player.InteractionPrompt.IndexOf(
+                        "возвращается",
+                        StringComparison.OrdinalIgnoreCase) >= 0 &&
+                    !scenario.Player.isFocusInteractionAvailable,
+                "The order counter remained interactive while the customer was returning.");
+
+            scenario.Player.ReplaceFocusedEntityId(scenario.ProcurementTerminal.EntityId);
+            ExecuteInteractionPrompts(runtime);
+            Require(scenario.Player.hasInteractionPrompt &&
+                    scenario.Player.InteractionPrompt.IndexOf(
+                        "заказ выполнен",
+                        StringComparison.OrdinalIgnoreCase) >= 0 &&
+                    !scenario.Player.isFocusInteractionAvailable,
+                "Procurement remained available while the customer was returning.");
+
+            int moneyBeforeRejectedPurchase = scenario.Store.Money;
+            RequestInteraction(scenario.Player, scenario.ProcurementTerminal);
+            runtime.Systems.Create<PurchaseDeliverySystem>().Execute();
+            Require(scenario.Store.Money == moneyBeforeRejectedPurchase &&
+                    runtime.Game.GetEntityWithDeliveryProcurementTerminalEntityId(
+                        scenario.ProcurementTerminal.EntityId) == null,
+                "A delivery was purchased while the customer was returning.");
+            CleanupEvents(runtime);
+
+            Require(!visit.isInteractable,
+                "The loading zone remained interactable while the customer was returning.");
+
+            GameEntity stockProduct = FindStockProducts(
+                    runtime.Game,
+                    scenario.StorageZone.EntityId)
+                .First();
+            scenario.Player.ReplaceFocusedEntityId(stockProduct.EntityId);
+            ExecuteInteractionPrompts(runtime);
+            Require(scenario.Player.hasInteractionPrompt &&
+                    scenario.Player.InteractionPrompt.IndexOf(
+                        "возвращается",
+                        StringComparison.OrdinalIgnoreCase) >= 0 &&
+                    !scenario.Player.isFocusInteractionAvailable,
+                "Stock remained available while the customer was returning.");
+
+            scenario.Player.RemoveFocusedEntityId();
+            ExecuteInteractionPrompts(runtime);
         }
 
         private static void ValidateCooldownSafety(Runtime runtime, Scenario scenario)
@@ -1272,7 +1451,8 @@ namespace HardwareStore.Editor
             runtime.Systems.Create<SpawnCustomerVisitSystem>().Execute();
             Require(cooldown > 0f &&
                     runtime.Game.GetEntityWithCustomerVisitStoreEntityId(
-                        scenario.Store.EntityId) == null,
+                        scenario.Store.EntityId) == null &&
+                    runtime.Game.GetGroup(GameMatcher.Customer).count == 0,
                 "A customer spawned before cooldown elapsed.");
         }
 
@@ -1523,14 +1703,22 @@ namespace HardwareStore.Editor
 
         private readonly struct CustomerVisit
         {
-            public CustomerVisit(GameEntity entity, EntityBehaviour view)
+            public CustomerVisit(
+                GameEntity entity,
+                EntityBehaviour view,
+                GameEntity actor,
+                EntityBehaviour actorView)
             {
                 Entity = entity;
                 View = view;
+                Actor = actor;
+                ActorView = actorView;
             }
 
             public GameEntity Entity { get; }
             public EntityBehaviour View { get; }
+            public GameEntity Actor { get; }
+            public EntityBehaviour ActorView { get; }
         }
 
         private readonly struct DeliveryArrival

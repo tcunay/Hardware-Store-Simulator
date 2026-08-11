@@ -46,13 +46,19 @@ namespace HardwareStore.Gameplay.Features.Interaction.Systems
                 }
                 if (customerVisit.isCustomerVisitArriving)
                 {
-                    player.SetInteractionPrompt("Клиент подъезжает", false);
+                    player.SetInteractionPrompt("Клиент направляется к стойке", false);
                     continue;
                 }
 
                 if (customerVisit.isCustomerVisitDeparting)
                 {
-                    player.SetInteractionPrompt("Клиент уезжает", false);
+                    player.SetInteractionPrompt("Машина клиента уезжает", false);
+                    continue;
+                }
+
+                if (customerVisit.isCustomerVisitReturning)
+                {
+                    player.SetInteractionPrompt("Клиент возвращается к машине", false);
                     continue;
                 }
 

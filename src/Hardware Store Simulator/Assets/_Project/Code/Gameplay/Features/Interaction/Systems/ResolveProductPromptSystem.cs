@@ -97,15 +97,18 @@ namespace HardwareStore.Gameplay.Features.Interaction.Systems
                 if (customerVisit.isCustomerVisitArriving)
                 {
                     player.SetInteractionPrompt(
-                        "Клиент подъезжает — дождитесь его остановки",
+                        "Клиент прибывает и направляется к стойке — дождитесь консультации",
                         false);
                     continue;
                 }
 
-                if (customerVisit.isCustomerVisitDeparting)
+                if (customerVisit.isCustomerVisitReturning ||
+                    customerVisit.isCustomerVisitDeparting)
                 {
                     player.SetInteractionPrompt(
-                        "Клиент уезжает — ожидайте следующего",
+                        customerVisit.isCustomerVisitReturning
+                            ? "Клиент возвращается к машине — ожидайте следующего"
+                            : "Машина клиента уезжает — ожидайте следующего",
                         false);
                     continue;
                 }

@@ -62,6 +62,7 @@ namespace HardwareStore.Gameplay.Factories
                 .With(x => x.isCustomerVisit = true)
                 .With(x => x.isCustomerVehicle = true)
                 .With(x => x.isCustomerVisitArriving = true)
+                .With(x => x.isRouteMover = true)
                 .With(x => x.isLoadingZone = true);
 
             _consultationOffers.CreateOffers(customerVisit);

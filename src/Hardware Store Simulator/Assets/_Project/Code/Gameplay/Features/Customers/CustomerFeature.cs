@@ -9,11 +9,13 @@ namespace HardwareStore.Gameplay.Features.Customers
         {
             Add(systems.Create<TickCustomerCooldownSystem>());
             Add(systems.Create<SpawnCustomerVisitSystem>());
-            Add(systems.Create<MoveCustomerVehicleRouteSystem>());
+            Add(systems.Create<MoveRouteSystem>());
             Add(systems.Create<CompleteCustomerVehicleArrivalSystem>());
+            Add(systems.Create<CompleteCustomerApproachSystem>());
             Add(systems.Create<BeginCustomerVehicleDepartureDelaySystem>());
             Add(systems.Create<TickCustomerVehicleDepartureDelaySystem>());
-            Add(systems.Create<BeginCustomerVehicleDepartureSystem>());
+            Add(systems.Create<BeginCustomerReturnSystem>());
+            Add(systems.Create<CompleteCustomerReturnSystem>());
             Add(systems.Create<CompleteCustomerVehicleDepartureSystem>());
         }
     }

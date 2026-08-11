@@ -59,6 +59,7 @@ public partial class Contexts : Entitas.IContexts {
 public partial class Contexts {
 
     public const string CarrierEntityId = "CarrierEntityId";
+    public const string CustomerActorVisitEntityId = "CustomerActorVisitEntityId";
     public const string CustomerVisitEntityId = "CustomerVisitEntityId";
     public const string CustomerVisitStoreEntityId = "CustomerVisitStoreEntityId";
     public const string DeliveryProcurementTerminalEntityId = "DeliveryProcurementTerminalEntityId";
@@ -70,6 +71,11 @@ public partial class Contexts {
             CarrierEntityId,
             game.GetGroup(GameMatcher.CarrierEntityId),
             (e, c) => ((HardwareStore.Gameplay.Components.CarrierEntityId)c).Value));
+
+        game.AddEntityIndex(new Entitas.PrimaryEntityIndex<GameEntity, int>(
+            CustomerActorVisitEntityId,
+            game.GetGroup(GameMatcher.CustomerActorVisitEntityId),
+            (e, c) => ((HardwareStore.Gameplay.Components.CustomerActorVisitEntityId)c).Value));
 
         game.AddEntityIndex(new Entitas.EntityIndex<GameEntity, int>(
             CustomerVisitEntityId,
@@ -97,6 +103,10 @@ public static class ContextsExtensions {
 
     public static GameEntity GetEntityWithCarrierEntityId(this GameContext context, int Value) {
         return ((Entitas.PrimaryEntityIndex<GameEntity, int>)context.GetEntityIndex(Contexts.CarrierEntityId)).GetEntity(Value);
+    }
+
+    public static GameEntity GetEntityWithCustomerActorVisitEntityId(this GameContext context, int Value) {
+        return ((Entitas.PrimaryEntityIndex<GameEntity, int>)context.GetEntityIndex(Contexts.CustomerActorVisitEntityId)).GetEntity(Value);
     }
 
     public static System.Collections.Generic.HashSet<GameEntity> GetEntitiesWithCustomerVisitEntityId(this GameContext context, int Value) {

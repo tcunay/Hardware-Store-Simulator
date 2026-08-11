@@ -73,6 +73,7 @@ namespace HardwareStore.Gameplay.Features.Interaction.Systems
                 }
 
                 if (customerVisit.isCustomerVisitCompleted ||
+                    customerVisit.isCustomerVisitReturning ||
                     customerVisit.isCustomerVisitDeparting)
                 {
                     player.SetInteractionPrompt(
@@ -86,7 +87,7 @@ namespace HardwareStore.Gameplay.Features.Interaction.Systems
                 {
                     player.SetInteractionPrompt(
                         customerVisit.isCustomerVisitArriving
-                            ? "Клиент подъезжает — дождитесь начала консультации"
+                            ? "Клиент прибывает — дождитесь начала консультации"
                             : "Сначала согласуйте предложение с клиентом у стойки",
                         false);
                     continue;
