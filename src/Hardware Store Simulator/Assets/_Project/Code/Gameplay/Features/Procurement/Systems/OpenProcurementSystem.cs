@@ -2,7 +2,9 @@ using System;
 using System.Linq;
 using Entitas;
 using HardwareStore.Gameplay.Common.Cursor;
+using HardwareStore.Gameplay.Common.Economy;
 using HardwareStore.Gameplay.Components;
+using HardwareStore.Gameplay.Configs;
 using HardwareStore.Gameplay.Factories;
 using HardwareStore.Gameplay.Localization;
 using HardwareStore.Gameplay.StaticData;
@@ -15,16 +17,19 @@ namespace HardwareStore.Gameplay.Features.Procurement.Systems
         private readonly GameContext _gameContext;
         private readonly ICursorService _cursor;
         private readonly IStaticDataService _staticData;
+        private readonly IProcurementSolvencyService _solvency;
         private readonly IGameEventFactory _events;
         private readonly IGroup<GameEntity> _requests;
 
         public OpenProcurementSystem(GameContext gameContext, ICursorService cursor,
-            IStaticDataService staticData, IGameEventFactory events)
+            IStaticDataService staticData, IGameEventFactory events,
+            IProcurementSolvencyService solvency)
         {
             _gameContext = gameContext;
             _cursor = cursor;
             _staticData = staticData;
             _events = events;
+            _solvency = solvency;
             _requests = gameContext.GetGroup(GameMatcher.AllOf(
                 GameMatcher.InteractionRequest,
                 GameMatcher.SourceEntityId,
@@ -37,11 +42,17 @@ namespace HardwareStore.Gameplay.Features.Procurement.Systems
             {
                 GameEntity terminal =
                     _gameContext.GetEntityWithEntityId(request.TargetEntityId);
+                if (terminal == null)
+                    throw new InvalidOperationException(
+                        $"Interaction targets missing entity {request.TargetEntityId}.");
                 if (!terminal.isProcurementTerminal)
                     continue;
 
                 GameEntity player =
                     _gameContext.GetEntityWithEntityId(request.SourceEntityId);
+                if (player == null)
+                    throw new InvalidOperationException(
+                        $"Interaction source {request.SourceEntityId} does not exist.");
                 Open(player, terminal);
             }
         }
@@ -82,8 +93,7 @@ namespace HardwareStore.Gameplay.Features.Procurement.Systems
                     LocalizationKey.NotificationAcceptCurrentDeliveryFirst));
                 return;
             }
-            if (!TrySelectDeficitProduct(terminal))
-                return;
+            SelectOpeningProduct(terminal);
 
             player.AddProcurementTerminalEntityId(terminal.EntityId);
             player.isModalOpen = true;
@@ -131,51 +141,33 @@ namespace HardwareStore.Gameplay.Features.Procurement.Systems
             }
         }
 
-        private bool TrySelectDeficitProduct(GameEntity terminal)
+        private void SelectOpeningProduct(GameEntity terminal)
         {
+            ProcurementPurchaseEvaluation evaluation = _solvency.EvaluatePurchase(
+                terminal.EntityId,
+                terminal.SelectedProductType);
+            if (evaluation.DemandKind == ProcurementDemandKind.ProjectForecast)
+            {
+                SelectForecastProduct(terminal, evaluation.ProjectType);
+                return;
+            }
+
             GameEntity visit = _gameContext.GetEntityWithCustomerVisitStoreEntityId(
                 terminal.StoreEntityId);
-            if (visit == null)
-            {
-                _events.EmitNotification(LocalizedTexts.Text(
-                    LocalizationKey.NotificationWaitForCustomer));
-                return false;
-            }
-            if (visit.isCustomerVisitCompleted || visit.isCustomerVisitReturning ||
-                visit.isCustomerVisitDeparting)
-            {
-                _events.EmitNotification(LocalizedTexts.Text(
-                    LocalizationKey.NotificationOrderCompletedWaitCustomer));
-                return false;
-            }
-            if (visit.isCustomerVisitArriving || visit.isCustomerVisitConsulting)
-            {
-                _events.EmitNotification(
-                    visit.isCustomerVisitArriving
-                        ? LocalizedTexts.Text(
-                            LocalizationKey.NotificationWaitForCustomerConsultation)
-                        : LocalizedTexts.Text(
-                            LocalizationKey.NotificationConsultAtCounterFirst));
-                return false;
-            }
-            if (!visit.isOrder ||
-                (!visit.isCustomerVisitWaiting && !visit.isCustomerVisitLoading))
-            {
-                throw new InvalidOperationException(
-                    $"Customer visit {visit.EntityId} cannot open procurement.");
-            }
-            if (!visit.hasStorageZoneEntityId ||
+            if (visit == null || !visit.isOrder ||
+                !visit.isCustomerVisitLoading ||
+                !visit.hasStorageZoneEntityId ||
                 visit.StorageZoneEntityId != terminal.StorageZoneEntityId)
             {
                 throw new InvalidOperationException(
-                    $"Order {visit.EntityId} references an invalid storage zone.");
+                    $"Terminal {terminal.EntityId} resolved a missing active order.");
             }
 
             GameEntity[] lines =
                 _gameContext.GetEntitiesWithOrderEntityId(visit.EntityId).ToArray();
             ValidateOrderLines(visit, lines);
             if (HasDeficit(lines, terminal.SelectedProductType))
-                return true;
+                return;
 
             foreach (ProductTypeId productType in _staticData.ProductTypes)
             {
@@ -183,12 +175,37 @@ namespace HardwareStore.Gameplay.Features.Procurement.Systems
                     continue;
 
                 terminal.ReplaceSelectedProductType(productType);
-                return true;
+                return;
+            }
+        }
+
+        private void SelectForecastProduct(
+            GameEntity terminal,
+            CustomerProjectTypeId projectType)
+        {
+            CustomerProjectConfig project = _staticData.GetProject(projectType);
+            ProductTypeId firstProjectProduct = default;
+            bool hasFirstProduct = false;
+            bool selectedBelongsToProject = false;
+            foreach (CustomerProjectOfferDefinition offer in project.Offers)
+            foreach (CustomerProjectLineDefinition line in offer.Lines)
+            {
+                if (!hasFirstProduct)
+                {
+                    firstProjectProduct = line.ProductType;
+                    hasFirstProduct = true;
+                }
+                if (line.ProductType == terminal.SelectedProductType)
+                    selectedBelongsToProject = true;
             }
 
-            _events.EmitNotification(LocalizedTexts.Text(
-                LocalizationKey.NotificationProcurementNotRequired));
-            return false;
+            if (!hasFirstProduct)
+            {
+                throw new InvalidOperationException(
+                    $"Forecast project {projectType} has no configured product lines.");
+            }
+            if (!selectedBelongsToProject)
+                terminal.ReplaceSelectedProductType(firstProjectProduct);
         }
 
         private static void ValidateOrderLines(GameEntity visit, GameEntity[] lines)

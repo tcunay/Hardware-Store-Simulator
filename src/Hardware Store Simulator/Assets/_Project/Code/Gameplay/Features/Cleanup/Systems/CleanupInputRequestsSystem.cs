@@ -16,6 +16,7 @@ namespace HardwareStore.Gameplay.Features.Cleanup.Systems
                 input.isInteractPressed = false;
                 input.isConfirmPressed = false;
                 input.isDropPressed = false;
+                input.isTrolleyPressed = false;
                 input.isPreviousPressed = false;
                 input.isNextPressed = false;
                 input.isToggleCursorPressed = false;

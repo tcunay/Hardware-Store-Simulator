@@ -67,14 +67,6 @@ namespace HardwareStore.Gameplay.Features.Interaction.Systems
                     continue;
                 }
 
-                if (loadingZone.isCustomerVisitWaiting)
-                {
-                    player.SetInteractionPrompt(
-                        LocalizedTexts.Text(LocalizationKey.PromptLoadingAcceptOrderFirst),
-                        false);
-                    continue;
-                }
-
                 if (loadingZone.isCustomerVisitCompleted)
                 {
                     player.SetInteractionPrompt(

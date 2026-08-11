@@ -7,18 +7,24 @@ namespace HardwareStore.Gameplay.Presentation
     {
         public ProcurementProductSnapshot(int index, ProductTypeId productType,
             int deliveryProductCount, int deliveryCost, int moneyAfterPurchase,
-            int availableProductCount, int remainingRequiredProductCount,
-            int deficitProductCount, ProcurementPurchaseState purchaseState,
-            bool selected)
+            int availableProductCount, int minimumRequiredProductCount,
+            int maximumRequiredProductCount, int remainingRequiredProductCount,
+            int deficitProductCount, ProcurementPurchaseState purchaseState, bool selected)
         {
             if (index < 0)
                 throw new ArgumentOutOfRangeException(nameof(index));
+            if (!Enum.IsDefined(typeof(ProductTypeId), productType))
+                throw new ArgumentOutOfRangeException(nameof(productType));
             if (deliveryProductCount <= 0)
                 throw new ArgumentOutOfRangeException(nameof(deliveryProductCount));
             if (deliveryCost < 0)
                 throw new ArgumentOutOfRangeException(nameof(deliveryCost));
             if (availableProductCount < 0)
                 throw new ArgumentOutOfRangeException(nameof(availableProductCount));
+            if (minimumRequiredProductCount < 0)
+                throw new ArgumentOutOfRangeException(nameof(minimumRequiredProductCount));
+            if (maximumRequiredProductCount < minimumRequiredProductCount)
+                throw new ArgumentOutOfRangeException(nameof(maximumRequiredProductCount));
             if (remainingRequiredProductCount < 0)
             {
                 throw new ArgumentOutOfRangeException(
@@ -29,6 +35,8 @@ namespace HardwareStore.Gameplay.Presentation
             {
                 throw new ArgumentOutOfRangeException(nameof(deficitProductCount));
             }
+            if (!Enum.IsDefined(typeof(ProcurementPurchaseState), purchaseState))
+                throw new ArgumentOutOfRangeException(nameof(purchaseState));
 
             Index = index;
             ProductType = productType;
@@ -36,6 +44,8 @@ namespace HardwareStore.Gameplay.Presentation
             DeliveryCost = deliveryCost;
             MoneyAfterPurchase = moneyAfterPurchase;
             AvailableProductCount = availableProductCount;
+            MinimumRequiredProductCount = minimumRequiredProductCount;
+            MaximumRequiredProductCount = maximumRequiredProductCount;
             RemainingRequiredProductCount = remainingRequiredProductCount;
             DeficitProductCount = deficitProductCount;
             PurchaseState = purchaseState;
@@ -48,6 +58,8 @@ namespace HardwareStore.Gameplay.Presentation
         public int DeliveryCost { get; }
         public int MoneyAfterPurchase { get; }
         public int AvailableProductCount { get; }
+        public int MinimumRequiredProductCount { get; }
+        public int MaximumRequiredProductCount { get; }
         public int RemainingRequiredProductCount { get; }
         public int DeficitProductCount { get; }
         public ProcurementPurchaseState PurchaseState { get; }

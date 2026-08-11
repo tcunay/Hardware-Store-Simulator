@@ -27,7 +27,7 @@ namespace HardwareStore.Gameplay.Features.Trolley.Systems
                 .NoneOf(GameMatcher.ModalOpen));
             _inputs = inputContext.GetGroup(InputMatcher.AllOf(
                 InputMatcher.InputState,
-                InputMatcher.DropPressed));
+                InputMatcher.TrolleyPressed));
         }
 
         public void Execute()

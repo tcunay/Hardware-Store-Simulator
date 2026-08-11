@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using HardwareStore.Gameplay.Common.Economy;
 using HardwareStore.Gameplay.Components;
 
 namespace HardwareStore.Gameplay.Presentation
@@ -8,9 +9,18 @@ namespace HardwareStore.Gameplay.Presentation
     {
         private const int ProductCardCount = 2;
 
-        public ProcurementSnapshot(CustomerProjectTypeId projectType, int money,
-            int freeStorageSlotCount, ProcurementProductSnapshot[] products)
+        public ProcurementSnapshot(
+            ProcurementDemandKind demandKind,
+            CustomerProjectTypeId projectType,
+            int money,
+            int freeStorageSlotCount,
+            ProcurementProductSnapshot[] products)
         {
+            if (!Enum.IsDefined(typeof(ProcurementDemandKind), demandKind))
+                throw new ArgumentOutOfRangeException(nameof(demandKind));
+            if (!Enum.IsDefined(typeof(CustomerProjectTypeId), projectType))
+                throw new ArgumentOutOfRangeException(nameof(projectType));
+            DemandKind = demandKind;
             ProjectType = projectType;
             if (money < 0)
                 throw new ArgumentOutOfRangeException(nameof(money));
@@ -36,6 +46,25 @@ namespace HardwareStore.Gameplay.Presentation
                 }
                 if (products[index].Selected)
                     selectedCount++;
+                if (demandKind == ProcurementDemandKind.ProjectForecast)
+                {
+                    if (products[index].RemainingRequiredProductCount != 0 ||
+                        products[index].DeficitProductCount != 0)
+                    {
+                        throw new ArgumentException(
+                            "Forecast procurement cards cannot contain confirmed-order counts.",
+                            nameof(products));
+                    }
+                }
+                else if (products[index].MinimumRequiredProductCount !=
+                         products[index].RemainingRequiredProductCount ||
+                         products[index].MaximumRequiredProductCount !=
+                         products[index].RemainingRequiredProductCount)
+                {
+                    throw new ArgumentException(
+                        "Confirmed-order procurement cards must expose one exact demand count.",
+                        nameof(products));
+                }
                 for (int previous = 0; previous < index; previous++)
                 {
                     if (products[previous].ProductType == products[index].ProductType)
@@ -59,6 +88,7 @@ namespace HardwareStore.Gameplay.Presentation
             Products = Array.AsReadOnly((ProcurementProductSnapshot[])products.Clone());
         }
 
+        public ProcurementDemandKind DemandKind { get; }
         public CustomerProjectTypeId ProjectType { get; }
         public int Money { get; }
         public int FreeStorageSlotCount { get; }

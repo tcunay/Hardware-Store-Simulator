@@ -2,10 +2,9 @@ namespace HardwareStore.Gameplay.Presentation
 {
     public enum ProcurementPurchaseState
     {
-        NotRequired = 0,
-        StockSufficient = 1,
-        InsufficientStorage = 2,
-        InsufficientMoney = 3,
-        Available = 4
+        Available = 0,
+        InsufficientStorage = 1,
+        InsufficientMoney = 2,
+        PlanWouldBecomeUnfulfillable = 3
     }
 }

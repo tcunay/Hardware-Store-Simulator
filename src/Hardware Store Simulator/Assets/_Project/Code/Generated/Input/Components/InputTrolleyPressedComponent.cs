@@ -6,19 +6,19 @@
 //     the code is regenerated.
 // </auto-generated>
 //------------------------------------------------------------------------------
-public sealed partial class GameMatcher {
+public sealed partial class InputMatcher {
 
-    static Entitas.IMatcher<GameEntity> _matcherCustomerVisitWaiting;
+    static Entitas.IMatcher<InputEntity> _matcherTrolleyPressed;
 
-    public static Entitas.IMatcher<GameEntity> CustomerVisitWaiting {
+    public static Entitas.IMatcher<InputEntity> TrolleyPressed {
         get {
-            if (_matcherCustomerVisitWaiting == null) {
-                var matcher = (Entitas.Matcher<GameEntity>)Entitas.Matcher<GameEntity>.AllOf(GameComponentsLookup.CustomerVisitWaiting);
-                matcher.componentNames = GameComponentsLookup.componentNames;
-                _matcherCustomerVisitWaiting = matcher;
+            if (_matcherTrolleyPressed == null) {
+                var matcher = (Entitas.Matcher<InputEntity>)Entitas.Matcher<InputEntity>.AllOf(InputComponentsLookup.TrolleyPressed);
+                matcher.componentNames = InputComponentsLookup.componentNames;
+                _matcherTrolleyPressed = matcher;
             }
 
-            return _matcherCustomerVisitWaiting;
+            return _matcherTrolleyPressed;
         }
     }
 }
@@ -31,20 +31,20 @@ public sealed partial class GameMatcher {
 //     the code is regenerated.
 // </auto-generated>
 //------------------------------------------------------------------------------
-public partial class GameEntity {
+public partial class InputEntity {
 
-    static readonly HardwareStore.Gameplay.Components.CustomerVisitWaiting customerVisitWaitingComponent = new HardwareStore.Gameplay.Components.CustomerVisitWaiting();
+    static readonly HardwareStore.Gameplay.Components.TrolleyPressed trolleyPressedComponent = new HardwareStore.Gameplay.Components.TrolleyPressed();
 
-    public bool isCustomerVisitWaiting {
-        get { return HasComponent(GameComponentsLookup.CustomerVisitWaiting); }
+    public bool isTrolleyPressed {
+        get { return HasComponent(InputComponentsLookup.TrolleyPressed); }
         set {
-            if (value != isCustomerVisitWaiting) {
-                var index = GameComponentsLookup.CustomerVisitWaiting;
+            if (value != isTrolleyPressed) {
+                var index = InputComponentsLookup.TrolleyPressed;
                 if (value) {
                     var componentPool = GetComponentPool(index);
                     var component = componentPool.Count > 0
                             ? componentPool.Pop()
-                            : customerVisitWaitingComponent;
+                            : trolleyPressedComponent;
 
                     AddComponent(index, component);
                 } else {

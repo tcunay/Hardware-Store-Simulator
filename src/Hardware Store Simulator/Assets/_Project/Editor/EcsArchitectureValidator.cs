@@ -5,6 +5,8 @@ using System.Linq;
 using System.Reflection;
 using System.Text.RegularExpressions;
 using Entitas;
+using HardwareStore.Gameplay.Common.Economy;
+using HardwareStore.Gameplay.Common.Input;
 using HardwareStore.Gameplay.Common.Registrars;
 using HardwareStore.Gameplay.Common.Physics;
 using HardwareStore.Gameplay.Components;
@@ -99,6 +101,7 @@ namespace HardwareStore.Editor
             typeof(InteractPressed),
             typeof(ConfirmPressed),
             typeof(DropPressed),
+            typeof(TrolleyPressed),
             typeof(PreviousPressed),
             typeof(NextPressed),
             typeof(ToggleCursorPressed),
@@ -149,6 +152,9 @@ namespace HardwareStore.Editor
             "OrderActive",
             "OrderCompleted",
             "OrderCompletedEvent",
+            "CustomerVisitWaiting",
+            "AcceptOrderSystem",
+            "OrdersFeature",
             "LoadingZoneEntityId",
             "HeldProductId",
             "Carried",
@@ -303,8 +309,13 @@ namespace HardwareStore.Editor
             InputAction previous = playerMap.FindAction("Previous");
             InputAction next = playerMap.FindAction("Next");
             InputAction confirm = playerMap.FindAction("Confirm");
-            Require(move != null && previous != null && next != null && confirm != null,
-                "Player input must expose Move, Previous, Next and Confirm actions.");
+            InputAction interact = playerMap.FindAction("Interact");
+            InputAction drop = playerMap.FindAction("Drop");
+            InputAction trolley = playerMap.FindAction("Trolley");
+            Require(move != null && previous != null && next != null && confirm != null &&
+                    interact != null && drop != null && trolley != null,
+                "Player input must expose Move, modal navigation, E interaction, G drop and " +
+                "the dedicated F trolley action.");
 
             Require(HasBinding(previous, "<Keyboard>/leftArrow") &&
                     HasBinding(next, "<Keyboard>/rightArrow"),
@@ -335,6 +346,49 @@ namespace HardwareStore.Editor
                     "<Gamepad>/buttonSouth"),
                 "Confirm may only use Enter, Numpad Enter and gamepad button South; " +
                 "mouse, touch, joystick and XR bindings are forbidden.");
+            Require(trolley.type == InputActionType.Button &&
+                    string.Equals(
+                        trolley.expectedControlType,
+                        "Button",
+                        StringComparison.Ordinal) &&
+                    HasBinding(trolley, "<Keyboard>/f") &&
+                    HasBinding(trolley, "<Gamepad>/buttonWest") &&
+                    HasOnlyBindings(trolley,
+                        "<Keyboard>/f",
+                        "<Gamepad>/buttonWest"),
+                "Trolley attach/detach must use only keyboard F and gamepad button West.");
+            Require(HasBinding(interact, "<Keyboard>/e") &&
+                    HasBinding(interact, "<Gamepad>/buttonNorth") &&
+                    HasOnlyBindings(interact,
+                        "<Keyboard>/e",
+                        "<Gamepad>/buttonNorth") &&
+                    HasBinding(drop, "<Keyboard>/g") &&
+                    HasBinding(drop, "<Gamepad>/buttonEast") &&
+                    HasOnlyBindings(drop,
+                        "<Keyboard>/g",
+                        "<Gamepad>/buttonEast"),
+                "E must remain the world/product action and G must remain product drop; " +
+                "neither action may alias the dedicated trolley input.");
+
+            PropertyInfo trolleyPressedProperty = typeof(IInputService).GetProperty(
+                nameof(IInputService.TrolleyPressedThisFrame),
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.DeclaredOnly);
+            Require(trolleyPressedProperty?.PropertyType == typeof(bool),
+                $"{nameof(IInputService)} must expose one-frame trolley input explicitly.");
+            string inputServiceSource = ReadRuntimeSource(
+                "Gameplay", "Common", "Input", nameof(InputSystemService) + ".cs");
+            RequireSourceContains(inputServiceSource,
+                "_playerMap.FindAction(\"Trolley\", true)",
+                "TrolleyPressedThisFrame => _trolley.WasPressedThisFrame()");
+            string emitInputSource = ReadRuntimeSource(
+                "Gameplay", "Features", "Input", "Systems", "EmitInputSystem.cs");
+            RequireSourceContains(emitInputSource,
+                "input.isTrolleyPressed = _inputService.TrolleyPressedThisFrame");
+            string cleanupInputSource = ReadRuntimeSource(
+                "Gameplay", "Features", "Cleanup", "Systems",
+                "CleanupInputRequestsSystem.cs");
+            RequireSourceContains(cleanupInputSource,
+                "input.isTrolleyPressed = false");
         }
 
         private static bool HasBinding(InputAction action, string path) =>
@@ -578,7 +632,6 @@ namespace HardwareStore.Editor
                 typeof(LoadingZone),
                 typeof(CustomerVisitArriving),
                 typeof(CustomerVisitConsulting),
-                typeof(CustomerVisitWaiting),
                 typeof(CustomerVisitLoading),
                 typeof(CustomerVisitCompleted),
                 typeof(CustomerVisitReturning),
@@ -1518,6 +1571,42 @@ namespace HardwareStore.Editor
                 }
             }
 
+            string detachTrolleySource = ReadRuntimeSource(
+                "Gameplay", "Features", "Trolley", "Systems",
+                "DetachPushedTrolleySystem.cs");
+            RequireSourceContains(detachTrolleySource,
+                "GameMatcher.HandsOccupied",
+                "GameMatcher.PushingTrolley",
+                "InputMatcher.InputState",
+                "InputMatcher.TrolleyPressed",
+                "trolley.RemoveTrolleyPusherEntityId()",
+                "player.isPushingTrolley = false",
+                "player.isHandsOccupied = false");
+            Require(!detachTrolleySource.Contains(
+                        "InputMatcher.DropPressed", StringComparison.Ordinal) &&
+                    !detachTrolleySource.Contains(
+                        "InputMatcher.InteractPressed", StringComparison.Ordinal),
+                "Neither E world interaction nor G product drop may detach a pushed trolley; " +
+                "detach belongs only to F.");
+
+            string startTrolleySource = ReadRuntimeSource(
+                "Gameplay", "Features", "Trolley", "Systems",
+                "StartPushingTrolleySystem.cs");
+            RequireSourceContains(startTrolleySource,
+                "GameMatcher.FocusedEntityId",
+                "GameMatcher.FocusedInteractionType",
+                "InputMatcher.TrolleyPressed",
+                "InteractionTypeId.PlatformTrolley",
+                "InteractionTypeId.Product",
+                "focusedTarget.hasTrolleyEntityId",
+                "focusedTarget.hasTrolleySlotIndex",
+                "GetEntitiesWithTrolleyEntityId(trolley.EntityId)",
+                "trolley.AddTrolleyPusherEntityId(player.EntityId)",
+                "focusedTarget.isHighlighted = false");
+            Require(!startTrolleySource.Contains(
+                    "GameMatcher.InteractionRequest", StringComparison.Ordinal),
+                "F trolley attachment must not consume or synthesize an E interaction request.");
+
             string trolleyMovementFeatureSource = ReadRuntimeSource(
                 "Gameplay", "Features", "Trolley", "TrolleyMovementFeature.cs");
             Require(CountOccurrences(
@@ -1561,6 +1650,17 @@ namespace HardwareStore.Editor
                 "Add(systems.Create<ResolveTrolleyUpgradeTerminalPromptSystem>())",
                 "Add(systems.Create<ResolvePlatformTrolleyPromptSystem>())",
                 "Trolley terminal and runtime trolley prompts must remain explicit systems.");
+            string platformTrolleyPromptSource = ReadRuntimeSource(
+                "Gameplay", "Features", "Interaction", "Systems",
+                "ResolvePlatformTrolleyPromptSystem.cs");
+            RequireSourceContains(platformTrolleyPromptSource,
+                "InteractionTypeId.Product",
+                "ResolveProductTrolleyPrompt(player)",
+                "product.hasTrolleyEntityId",
+                "product.hasTrolleySlotIndex",
+                "LocalizationKey.PromptProductAndTrolleyActions",
+                "bool productActionAvailable = player.isFocusInteractionAvailable",
+                "productActionAvailable");
 
             string progressionSource = ReadRuntimeSource(
                 "Gameplay", "Features", "Trolley", "Systems",
@@ -1587,9 +1687,11 @@ namespace HardwareStore.Editor
                 "LocalizationKey.NotificationTrolleyAlreadyPurchased",
                 "!store.isTrolleyUpgradeUnlocked",
                 "store.Money < _config.PurchasePrice",
-                "checked(store.Money - _config.PurchasePrice)",
+                "_economySolvency.EvaluateDebit(",
+                "EconomyDebitAvailability.DemandWouldBecomeInsolvent",
+                "LocalizationKey.NotificationTrolleyPurchaseWouldBlockProjects",
                 "_trolleys.Create(spawnPose, store.EntityId)",
-                "store.ReplaceMoney(moneyAfterPurchase)");
+                "store.ReplaceMoney(debit.MoneyAfterDebit)");
             RequireSourceOrder(
                 purchaseSource,
                 "GetEntityWithTrolleyStoreEntityId(store.EntityId)",
@@ -1597,9 +1699,24 @@ namespace HardwareStore.Editor
                 "Purchase must reject an existing trolley before creating another one.");
             RequireSourceOrder(
                 purchaseSource,
+                "_economySolvency.EvaluateDebit(",
                 "_trolleys.Create(spawnPose, store.EntityId)",
-                "store.ReplaceMoney(moneyAfterPurchase)",
+                "Purchase must re-evaluate the protected economy before creating a trolley.");
+            RequireSourceOrder(
+                purchaseSource,
+                "_trolleys.Create(spawnPose, store.EntityId)",
+                "store.ReplaceMoney(debit.MoneyAfterDebit)",
                 "Purchase must create one trolley and then commit its single debit.");
+
+            string trolleyPromptSource = ReadRuntimeSource(
+                "Gameplay", "Features", "Interaction", "Systems",
+                "ResolveTrolleyUpgradeTerminalPromptSystem.cs");
+            RequireSourceContains(trolleyPromptSource,
+                "_solvency.EvaluateDebit(",
+                "EconomyDebitAvailability.Available",
+                "EconomyDebitAvailability.InsufficientMoney",
+                "EconomyDebitAvailability.DemandWouldBecomeInsolvent",
+                "LocalizationKey.PromptTrolleyPurchaseWouldBlockProjects");
 
             string loadTrolleySource = ReadRuntimeSource(
                 "Gameplay", "Features", "Trolley", "Systems",
@@ -1734,6 +1851,8 @@ namespace HardwareStore.Editor
                 { LocalizationKey.PromptReleaseTrolley, 0 },
                 { LocalizationKey.PromptReleaseTrolleyFirst, 0 },
                 { LocalizationKey.PromptFreeHandsForTrolleyUpgrade, 0 },
+                { LocalizationKey.PromptTrolleyPurchaseWouldBlockProjects, 0 },
+                { LocalizationKey.PromptProductAndTrolleyActions, 1 },
                 { LocalizationKey.NotificationTrolleyUnlocked, 1 },
                 { LocalizationKey.NotificationTrolleyUpgradeLocked, 2 },
                 { LocalizationKey.NotificationTrolleyInsufficientMoney, 1 },
@@ -1742,6 +1861,7 @@ namespace HardwareStore.Editor
                 { LocalizationKey.NotificationTrolleyFull, 0 },
                 { LocalizationKey.NotificationReleaseTrolleyFirst, 0 },
                 { LocalizationKey.NotificationFreeHandsForTrolleyUpgrade, 0 },
+                { LocalizationKey.NotificationTrolleyPurchaseWouldBlockProjects, 0 },
                 { LocalizationKey.WorldTrolleyUpgrade, 1 }
             };
             Dictionary<LocalizationKey, LocalizationEntry> localizationEntries =
@@ -1784,6 +1904,18 @@ namespace HardwareStore.Editor
                 .Where(key => key != LocalizationKey.None)
                 .ToArray();
             string[] localizationKeyNames = Enum.GetNames(typeof(LocalizationKey));
+            string[] removedWaitingLocalizationKeys =
+            {
+                "HudObjectiveWaitingForStock",
+                "HudObjectiveWaitingReady",
+                "NotificationOrderStockMissingOne",
+                "NotificationOrderStockMissingTwo",
+                "NotificationOrderAccepted"
+            };
+            Require(!removedWaitingLocalizationKeys.Any(removedKey =>
+                    localizationKeyNames.Contains(removedKey, StringComparer.Ordinal)),
+                "Direct offer confirmation must not retain localization keys for the removed " +
+                "waiting/accept-order step.");
             int[] localizationKeyValues = localizationKeyNames
                 .Select(name => (int)Enum.Parse(typeof(LocalizationKey), name))
                 .ToArray();
@@ -2340,8 +2472,13 @@ namespace HardwareStore.Editor
                 "RemoveConsultationVisitEntityId",
                 "isModalOpen = false",
                 "isCustomerVisitConsulting = false",
-                "isCustomerVisitWaiting = true",
+                "isCustomerVisitLoading = true",
+                "_events.EmitAudio(AudioCueId.OrderAccepted)",
                 "isDestructed = true");
+            Require(!confirmSource.Contains(
+                    "isCustomerVisitWaiting", StringComparison.Ordinal),
+                "Confirming an offer must activate loading in the same Enter action without " +
+                "a legacy waiting state or repeated E acceptance.");
 
             string cancelSource = ReadRuntimeSource(
                 "Gameplay", "Features", "Consultation", "Systems",
@@ -2357,7 +2494,6 @@ namespace HardwareStore.Editor
 
             string[] promptSystemFiles =
             {
-                "ResolveProcurementTerminalPromptSystem.cs",
                 "ResolveEmptyHandsStoragePromptSystem.cs",
                 "ResolveOrderCounterPromptSystem.cs",
                 "ResolveProductPromptSystem.cs",
@@ -2623,10 +2759,9 @@ namespace HardwareStore.Editor
                 "player.isHandsOccupied",
                 "player.isModalOpen",
                 "GetEntityWithDeliveryProcurementTerminalEntityId",
-                "TrySelectDeficitProduct",
-                "visit == null",
-                "isCustomerVisitConsulting",
-                "HasDeficit",
+                "SelectOpeningProduct(terminal)",
+                "_solvency.EvaluatePurchase(",
+                "ProcurementDemandKind.ProjectForecast",
                 "AddProcurementTerminalEntityId",
                 "isModalOpen = true",
                 "ReplaceMoveDirection(Vector3.zero)");
@@ -2676,14 +2811,14 @@ namespace HardwareStore.Editor
                 "player.isModalOpen",
                 "player.hasProcurementTerminalEntityId",
                 "GetEntityWithDeliveryProcurementTerminalEntityId",
-                "customerVisit == null",
-                "isCustomerVisitConsulting",
-                "selectedLine == null",
-                "selectedLine.AvailableProductCount >= remainingCount",
-                "freeSlotCount < deliveryConfig.ProductCount",
-                "store.Money < deliveryConfig.TotalCost",
+                "_solvency.EvaluatePurchase(",
+                "ProcurementPurchaseAvailability.InsufficientStorage",
+                "ProcurementPurchaseAvailability.InsufficientMoney",
+                "ProcurementPurchaseAvailability.DemandWouldBecomeInsolvent",
+                "LocalizationKey.NotificationPurchaseWouldBlockOrder",
+                "LocalizationKey.NotificationPurchaseWouldBlockForecast",
                 "_deliveryFactory.Create",
-                "store.ReplaceMoney",
+                "store.ReplaceMoney(evaluation.MoneyAfterPurchase)",
                 "request.isPurchaseDeliverySucceeded = true");
             Require(!purchaseSource.Contains("GameMatcher.InteractionRequest", StringComparison.Ordinal),
                 "Purchasing must consume only the dedicated purchase request.");
@@ -2772,13 +2907,62 @@ namespace HardwareStore.Editor
             RequireSourceContains(promptSource,
                 "player.isHandsOccupied",
                 "GetEntityWithDeliveryProcurementTerminalEntityId",
-                "customerVisit == null",
-                "isCustomerVisitConsulting",
-                "HasOrderDeficit",
                 "LocalizationKey.PromptOpenProcurement");
             Require(!promptSource.Contains("InputMatcher.PreviousPressed", StringComparison.Ordinal) &&
-                    !promptSource.Contains("InputMatcher.NextPressed", StringComparison.Ordinal),
-                "Procurement selection controls must live in the modal, not in a world prompt.");
+                    !promptSource.Contains("InputMatcher.NextPressed", StringComparison.Ordinal) &&
+                    !promptSource.Contains("GetEntityWithCustomerVisitStoreEntityId",
+                        StringComparison.Ordinal) &&
+                    !promptSource.Contains("HasOrderDeficit", StringComparison.Ordinal) &&
+                    !promptSource.Contains("LocalizationKey.PromptWaitForCustomer",
+                        StringComparison.Ordinal) &&
+                    !promptSource.Contains("LocalizationKey.PromptStockSufficient",
+                        StringComparison.Ordinal),
+                "A delivery-free, hands-free procurement terminal must stay available in " +
+                "every customer lifecycle; selection controls remain modal-only.");
+
+            Require(typeof(IProcurementSolvencyService).IsAssignableFrom(
+                        typeof(ProcurementSolvencyService)) &&
+                    typeof(IEconomySolvencyService).IsAssignableFrom(
+                        typeof(ProcurementSolvencyService)),
+                $"{nameof(ProcurementSolvencyService)} must be the shared procurement and " +
+                "generic debit policy service.");
+            Require(typeof(ProcurementSolvencyService).GetConstructor(new[]
+                    {
+                        typeof(GameContext),
+                        typeof(IStaticDataService)
+                    }) != null,
+                $"{nameof(ProcurementSolvencyService)} must depend only on ECS state and " +
+                "validated static data.");
+            RequireMethod(
+                typeof(IProcurementSolvencyService),
+                nameof(IProcurementSolvencyService.EvaluatePurchase),
+                typeof(ProcurementPurchaseEvaluation),
+                typeof(int),
+                typeof(ProductTypeId));
+            RequireMethod(
+                typeof(IEconomySolvencyService),
+                nameof(IEconomySolvencyService.EvaluateDebit),
+                typeof(EconomyDebitEvaluation),
+                typeof(int),
+                typeof(int));
+            string solvencySource = ReadRuntimeSource(
+                "Gameplay", "Common", "Economy",
+                nameof(ProcurementSolvencyService) + ".cs");
+            RequireSourceContains(solvencySource,
+                "MaximumProjectionLeafCount = 4096",
+                "storageZone.Slots.Length",
+                "checked(",
+                "IncludeCommittedDelivery(state, terminalState.Terminal)",
+                "int forecastDepth = projectCount",
+                "AreForecastPathsSolvent(",
+                "remainingProjectCount - 1",
+                "foreach (CustomerProjectOfferDefinition offer in project.Offers)",
+                "completed.OccupiedSlotCount + additionalProductCount >",
+                "completed.Capacity");
+            string bootstrapSource = ReadRuntimeSource(
+                "Infrastructure", "Installers", nameof(BootstrapInstaller) + ".cs");
+            RequireSourceContains(bootstrapSource,
+                "BindInterfacesTo<ProcurementSolvencyService>().AsSingle()");
 
             RequireMethod(
                 typeof(IHudService),
@@ -2787,17 +2971,20 @@ namespace HardwareStore.Editor
                 typeof(ProcurementSnapshot?));
             Require(typeof(ProcurementSnapshot).GetConstructor(new[]
                     {
+                        typeof(ProcurementDemandKind),
                         typeof(CustomerProjectTypeId),
                         typeof(int),
                         typeof(int),
                         typeof(ProcurementProductSnapshot[])
                     }) != null,
-                $"{nameof(ProcurementSnapshot)} must expose project, money, free storage " +
-                "and exactly two product cards.");
+                $"{nameof(ProcurementSnapshot)} must expose demand kind, project, money, " +
+                "free storage and exactly two product cards.");
             Require(typeof(ProcurementProductSnapshot).GetConstructor(new[]
                     {
                         typeof(int),
                         typeof(ProductTypeId),
+                        typeof(int),
+                        typeof(int),
                         typeof(int),
                         typeof(int),
                         typeof(int),
@@ -2817,6 +3004,7 @@ namespace HardwareStore.Editor
                 typeof(IReadOnlyList<ProcurementProductSnapshot>));
             ValidateSnapshotProperties(
                 typeof(ProcurementSnapshot),
+                (nameof(ProcurementSnapshot.DemandKind), typeof(ProcurementDemandKind)),
                 (nameof(ProcurementSnapshot.ProjectType), typeof(CustomerProjectTypeId)),
                 (nameof(ProcurementSnapshot.Money), typeof(int)),
                 (nameof(ProcurementSnapshot.FreeStorageSlotCount), typeof(int)),
@@ -2830,6 +3018,8 @@ namespace HardwareStore.Editor
                 (nameof(ProcurementProductSnapshot.DeliveryCost), typeof(int)),
                 (nameof(ProcurementProductSnapshot.MoneyAfterPurchase), typeof(int)),
                 (nameof(ProcurementProductSnapshot.AvailableProductCount), typeof(int)),
+                (nameof(ProcurementProductSnapshot.MinimumRequiredProductCount), typeof(int)),
+                (nameof(ProcurementProductSnapshot.MaximumRequiredProductCount), typeof(int)),
                 (nameof(ProcurementProductSnapshot.RemainingRequiredProductCount), typeof(int)),
                 (nameof(ProcurementProductSnapshot.DeficitProductCount), typeof(int)),
                 (nameof(ProcurementProductSnapshot.PurchaseState),
@@ -2849,6 +3039,8 @@ namespace HardwareStore.Editor
             RequireSourceContains(procurementProductSnapshotSource,
                 "public readonly struct ProcurementProductSnapshot",
                 "MoneyAfterPurchase",
+                "MinimumRequiredProductCount",
+                "MaximumRequiredProductCount",
                 "DeficitProductCount",
                 "PurchaseState",
                 "PurchaseAvailable",
@@ -2861,12 +3053,17 @@ namespace HardwareStore.Editor
                 "GameMatcher.ModalOpen",
                 "GameMatcher.ProcurementTerminalEntityId",
                 "PresentProcurement(null)",
+                "_solvency.EvaluatePurchase(",
+                "ProcurementDemandKind.ProjectForecast",
+                "ProcurementDemandKind.ConfirmedOrder",
                 "GetEntitiesWithOrderEntityId",
                 "OrderBy(line => line.LineIndex)",
                 "_staticData.ProductTypes.ToArray()",
+                "minimumRequiredProductCount",
+                "maximumRequiredProductCount",
                 "remainingRequiredProductCount",
                 "deficitProductCount",
-                "moneyAfterPurchase",
+                "MapPurchaseState(evaluation.Availability)",
                 "PresentProcurement(new ProcurementSnapshot");
 
             string presentationFeatureSource = ReadRuntimeSource(
@@ -2887,9 +3084,359 @@ namespace HardwareStore.Editor
             RequireSourceContains(hudViewSource,
                 "DrawProcurement",
                 "LocalizationKey.HudProcurementTitle",
+                "LocalizationKey.HudProcurementForecastTitle",
                 "LocalizationKey.HudProcurementOrderTitle",
+                "LocalizationKey.HudProcurementForecastProductDetails",
                 "LocalizationKey.HudProcurementProductDetails",
+                "LocalizationKey.ProcurementStatusPlanWouldBlockOrder",
+                "LocalizationKey.ProcurementStatusPlanWouldBlockForecast",
+                "LocalizationKey.ProcurementStatusPrepurchaseAvailable",
                 "LocalizationKey.HudProcurementControls");
+
+            var procurementLocalizationArities = new Dictionary<LocalizationKey, int>
+            {
+                { LocalizationKey.HudProcurementForecastTitle, 1 },
+                { LocalizationKey.HudProcurementForecastProductDetails, 7 },
+                { LocalizationKey.ProcurementStatusPlanWouldBlockOrder, 0 },
+                { LocalizationKey.ProcurementStatusPlanWouldBlockForecast, 0 },
+                { LocalizationKey.ProcurementStatusPrepurchaseAvailable, 0 },
+                { LocalizationKey.NotificationPurchaseWouldBlockOrder, 0 },
+                { LocalizationKey.NotificationPurchaseWouldBlockForecast, 0 }
+            };
+            Dictionary<LocalizationKey, LocalizationEntry> localizationEntries =
+                new RussianLocalizationCatalog().Entries.ToDictionary(entry => entry.Key);
+            foreach ((LocalizationKey key, int argumentCount) in
+                     procurementLocalizationArities)
+            {
+                Require(localizationEntries.TryGetValue(key, out LocalizationEntry entry) &&
+                        entry.ArgumentCount == argumentCount,
+                    $"Russian procurement localization {key} must exist with arity " +
+                    $"{argumentCount}.");
+            }
+        }
+
+        private static void ValidateBoundedProcurementSolvencyPolicy(int storageCapacity)
+        {
+            Require(storageCapacity > 0,
+                "Bounded procurement validation requires positive authored storage capacity.");
+            Require(ExpectedProductTypes.Length == 2 && ExpectedProjectTypes.Length > 0,
+                "Bounded procurement validation currently models the two-product prototype.");
+
+            ProductConfig[] products =
+            {
+                RequireAsset<ProductConfig>(CementProductConfigPath),
+                RequireAsset<ProductConfig>(BoardProductConfigPath)
+            };
+            DeliveryConfig[] deliveries =
+            {
+                RequireAsset<DeliveryConfig>(CementDeliveryConfigPath),
+                RequireAsset<DeliveryConfig>(BoardDeliveryConfigPath)
+            };
+            CustomerProjectConfig[] projects =
+            {
+                RequireAsset<CustomerProjectConfig>(CementProjectConfigPath),
+                RequireAsset<CustomerProjectConfig>(LumberProjectConfigPath),
+                RequireAsset<CustomerProjectConfig>(WorkbenchProjectConfigPath)
+            };
+            for (int index = 0; index < ExpectedProductTypes.Length; index++)
+            {
+                Require(products[index].ProductType == ExpectedProductTypes[index] &&
+                        deliveries[index].ProductType == ExpectedProductTypes[index],
+                    "Bounded procurement assets must preserve product catalog ordering.");
+            }
+            for (int index = 0; index < ExpectedProjectTypes.Length; index++)
+            {
+                Require(projects[index].ProjectType == ExpectedProjectTypes[index],
+                    "Bounded procurement assets must preserve project sequence ordering.");
+            }
+
+            int saturationMoney = 0;
+            int maximumCycleNetLoss = 0;
+            foreach (CustomerProjectConfig project in projects)
+            {
+                int maximumProjectCost = 0;
+                foreach (CustomerProjectOfferDefinition offer in project.Offers)
+                {
+                    ResolveBoundedOffer(
+                        offer,
+                        products,
+                        deliveries,
+                        out _,
+                        out _,
+                        out int purchaseCost,
+                        out int reward);
+                    maximumProjectCost = Math.Max(maximumProjectCost, purchaseCost);
+                    maximumCycleNetLoss = Math.Max(
+                        maximumCycleNetLoss,
+                        Math.Max(0, checked(purchaseCost - reward)));
+                }
+
+                saturationMoney = checked(saturationMoney + maximumProjectCost);
+            }
+
+            // Derive a conservative bound from the actual assets: enough money to buy the
+            // most expensive offer of every project, plus the worst single-offer net debit.
+            int maximumMoney = checked(saturationMoney + maximumCycleNetLoss);
+            int expectedLeafCount = projects.Aggregate(
+                1,
+                (count, project) => checked(count * project.Offers.Count));
+            Require(expectedLeafCount > 0 && expectedLeafCount <= 4096,
+                "Bounded procurement validation exceeds the runtime projection leaf cap.");
+
+            int validatedStateCount = 0;
+            for (int projectOffset = 0; projectOffset < projects.Length; projectOffset++)
+            for (int firstStock = 0; firstStock <= storageCapacity; firstStock++)
+            for (int secondStock = 0;
+                 secondStock <= storageCapacity - firstStock;
+                 secondStock++)
+            {
+                bool reachedSolventMoney = false;
+                for (int money = 0; money <= maximumMoney; money++)
+                {
+                    var state = new BoundedProjectionState(
+                        money,
+                        firstStock,
+                        secondStock);
+                    bool solvent = AreAllBoundedForecastPathsSolvent(
+                        state,
+                        projectOffset,
+                        projects.Length,
+                        storageCapacity,
+                        products,
+                        deliveries,
+                        projects,
+                        out int leafCount);
+                    if (reachedSolventMoney && !solvent)
+                    {
+                        throw new InvalidOperationException(
+                            "Procurement solvency must be monotonic as available money grows.");
+                    }
+                    if (solvent)
+                    {
+                        reachedSolventMoney = true;
+                        Require(leafCount == expectedLeafCount,
+                            "A safe procurement state must preserve every full-cycle offer " +
+                            "leaf across the configured project horizon.");
+                        Require(AreAllBoundedOneStepSuccessorsSafe(
+                                state,
+                                projectOffset,
+                                storageCapacity,
+                                products,
+                                deliveries,
+                                projects,
+                                expectedLeafCount),
+                            "A safe procurement state must remain full-horizon safe after " +
+                            "every offer of its current project.");
+                    }
+
+                    validatedStateCount++;
+                }
+            }
+
+            Require(validatedStateCount > 0,
+                "Bounded procurement validation did not inspect any economy states.");
+        }
+
+        private static bool AreAllBoundedOneStepSuccessorsSafe(
+            BoundedProjectionState state,
+            int projectSequenceIndex,
+            int storageCapacity,
+            ProductConfig[] products,
+            DeliveryConfig[] deliveries,
+            CustomerProjectConfig[] projects,
+            int expectedLeafCount)
+        {
+            int nextProjectSequenceIndex =
+                (projectSequenceIndex + 1) % projects.Length;
+            foreach (CustomerProjectOfferDefinition offer in
+                     projects[projectSequenceIndex].Offers)
+            {
+                if (!TryCompleteBoundedOffer(
+                        state,
+                        offer,
+                        storageCapacity,
+                        products,
+                        deliveries,
+                        out BoundedProjectionState afterOffer))
+                {
+                    return false;
+                }
+                if (!AreAllBoundedForecastPathsSolvent(
+                        afterOffer,
+                        nextProjectSequenceIndex,
+                        projects.Length,
+                        storageCapacity,
+                        products,
+                        deliveries,
+                        projects,
+                        out int leafCount) ||
+                    leafCount != expectedLeafCount)
+                {
+                    return false;
+                }
+            }
+
+            return true;
+        }
+
+        private static bool AreAllBoundedForecastPathsSolvent(
+            BoundedProjectionState state,
+            int projectSequenceIndex,
+            int remainingProjectCount,
+            int storageCapacity,
+            ProductConfig[] products,
+            DeliveryConfig[] deliveries,
+            CustomerProjectConfig[] projects,
+            out int leafCount)
+        {
+            if (remainingProjectCount == 0)
+            {
+                leafCount = 1;
+                return true;
+            }
+
+            leafCount = 0;
+            CustomerProjectConfig project = projects[projectSequenceIndex];
+            foreach (CustomerProjectOfferDefinition offer in project.Offers)
+            {
+                if (!TryCompleteBoundedOffer(
+                        state,
+                        offer,
+                        storageCapacity,
+                        products,
+                        deliveries,
+                        out BoundedProjectionState afterOffer))
+                {
+                    return false;
+                }
+
+                if (!AreAllBoundedForecastPathsSolvent(
+                        afterOffer,
+                        (projectSequenceIndex + 1) % projects.Length,
+                        remainingProjectCount - 1,
+                        storageCapacity,
+                        products,
+                        deliveries,
+                        projects,
+                        out int childLeafCount))
+                {
+                    return false;
+                }
+
+                leafCount = checked(leafCount + childLeafCount);
+            }
+
+            return true;
+        }
+
+        private static bool TryCompleteBoundedOffer(
+            BoundedProjectionState state,
+            CustomerProjectOfferDefinition offer,
+            int storageCapacity,
+            ProductConfig[] products,
+            DeliveryConfig[] deliveries,
+            out BoundedProjectionState completed)
+        {
+            ResolveBoundedOffer(
+                offer,
+                products,
+                deliveries,
+                out int firstRequired,
+                out int secondRequired,
+                out _,
+                out int reward);
+
+            int firstMissing = Math.Max(0, firstRequired - state.FirstStock);
+            int secondMissing = Math.Max(0, secondRequired - state.SecondStock);
+            int firstBatchCount = checked(
+                (firstMissing + deliveries[0].ProductCount - 1) /
+                deliveries[0].ProductCount);
+            int secondBatchCount = checked(
+                (secondMissing + deliveries[1].ProductCount - 1) /
+                deliveries[1].ProductCount);
+            int firstPurchased = checked(firstBatchCount * deliveries[0].ProductCount);
+            int secondPurchased = checked(secondBatchCount * deliveries[1].ProductCount);
+            int purchaseCost = checked(
+                checked(firstBatchCount * deliveries[0].TotalCost) +
+                checked(secondBatchCount * deliveries[1].TotalCost));
+            int occupiedBeforePurchase = checked(state.FirstStock + state.SecondStock);
+            int occupiedAfterPurchase = checked(
+                occupiedBeforePurchase + firstPurchased + secondPurchased);
+            if (state.Money < purchaseCost || occupiedAfterPurchase > storageCapacity)
+            {
+                completed = default;
+                return false;
+            }
+
+            completed = new BoundedProjectionState(
+                checked(state.Money - purchaseCost + reward),
+                checked(state.FirstStock + firstPurchased - firstRequired),
+                checked(state.SecondStock + secondPurchased - secondRequired));
+            Require(completed.Money >= 0 &&
+                    completed.FirstStock >= 0 &&
+                    completed.SecondStock >= 0 &&
+                    completed.FirstStock + completed.SecondStock <= storageCapacity,
+                "A bounded procurement transition produced invalid economy state.");
+            return true;
+        }
+
+        private static void ResolveBoundedOffer(
+            CustomerProjectOfferDefinition offer,
+            ProductConfig[] products,
+            DeliveryConfig[] deliveries,
+            out int firstRequired,
+            out int secondRequired,
+            out int purchaseCostFromEmpty,
+            out int reward)
+        {
+            firstRequired = 0;
+            secondRequired = 0;
+            reward = 0;
+            foreach (CustomerProjectLineDefinition line in offer.Lines)
+            {
+                int productIndex = Array.IndexOf(ExpectedProductTypes, line.ProductType);
+                Require(productIndex >= 0,
+                    $"Bounded procurement offer references unknown product {line.ProductType}.");
+                if (productIndex == 0)
+                {
+                    Require(firstRequired == 0,
+                        "Bounded procurement offers cannot duplicate product lines.");
+                    firstRequired = line.RequiredCount;
+                }
+                else
+                {
+                    Require(secondRequired == 0,
+                        "Bounded procurement offers cannot duplicate product lines.");
+                    secondRequired = line.RequiredCount;
+                }
+
+                reward = checked(
+                    reward + checked(products[productIndex].UnitPrice * line.RequiredCount));
+            }
+
+            int firstBatchCount = checked(
+                (firstRequired + deliveries[0].ProductCount - 1) /
+                deliveries[0].ProductCount);
+            int secondBatchCount = checked(
+                (secondRequired + deliveries[1].ProductCount - 1) /
+                deliveries[1].ProductCount);
+            purchaseCostFromEmpty = checked(
+                checked(firstBatchCount * deliveries[0].TotalCost) +
+                checked(secondBatchCount * deliveries[1].TotalCost));
+        }
+
+        private readonly struct BoundedProjectionState
+        {
+            public BoundedProjectionState(int money, int firstStock, int secondStock)
+            {
+                Money = money;
+                FirstStock = firstStock;
+                SecondStock = secondStock;
+            }
+
+            public int Money { get; }
+            public int FirstStock { get; }
+            public int SecondStock { get; }
         }
 
         private static void ValidateJennyPipeline()
@@ -3440,10 +3987,12 @@ namespace HardwareStore.Editor
             Require(trolleyColliders.Length == 2 &&
                     trolleyBodyCollider != null && !trolleyBodyCollider.isTrigger &&
                     trolleyBodyCollider.gameObject.layer == ignoreRaycastLayer &&
-                    trolleyInteractionCollider != null && trolleyInteractionCollider.isTrigger &&
+                    trolleyInteractionCollider != null &&
+                    trolleyInteractionCollider.enabled &&
+                    trolleyInteractionCollider.isTrigger &&
                     trolleyInteractionCollider.gameObject.layer != ignoreRaycastLayer,
                 $"{PlatformTrolleyPrefabPath} must keep its solid body on Ignore Raycast and " +
-                "expose one raycastable interaction trigger.");
+                "expose exactly one enabled, raycastable trolley interaction point.");
             BoxCollider trolleyBodyBox = trolleyBodyCollider as BoxCollider;
             BoxCollider trolleyHandleTrigger = trolleyInteractionCollider as BoxCollider;
             Require(trolleyBodyBox != null &&
@@ -4028,6 +4577,7 @@ namespace HardwareStore.Editor
                 Transform[] storageSlots = ReadSlots(storageSlotsRegistrar, PrototypeScenePath);
                 Require(storageSlots.Length >= RequiredStorageSlotCapacity,
                     $"Storage must expose at least {RequiredStorageSlotCapacity} unique slots.");
+                ValidateBoundedProcurementSolvencyPolicy(storageSlots.Length);
                 Vector3 cementGeometry = ReadSolidProductGeometry(
                     cementProductPrefab,
                     CementProductPrefabPath);

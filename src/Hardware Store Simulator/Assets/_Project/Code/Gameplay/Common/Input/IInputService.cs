@@ -10,6 +10,7 @@ namespace HardwareStore.Gameplay.Common.Input
         bool InteractPressedThisFrame { get; }
         bool ConfirmPressedThisFrame { get; }
         bool DropPressedThisFrame { get; }
+        bool TrolleyPressedThisFrame { get; }
         bool PreviousPressedThisFrame { get; }
         bool NextPressedThisFrame { get; }
         bool ToggleCursorPressedThisFrame { get; }

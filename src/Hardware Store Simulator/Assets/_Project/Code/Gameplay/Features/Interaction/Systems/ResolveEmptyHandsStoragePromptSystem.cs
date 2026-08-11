@@ -127,33 +127,6 @@ namespace HardwareStore.Gameplay.Features.Interaction.Systems
                     continue;
                 }
 
-                if (customerVisit.isCustomerVisitWaiting)
-                {
-                    GameEntity[] lines = GetOrderLines(customerVisit);
-                    GameEntity deficitLine = lines.FirstOrDefault(line =>
-                        line.AvailableProductCount < line.RequiredProductCount);
-                    if (deficitLine == null)
-                    {
-                        player.SetInteractionPrompt(
-                            LocalizedTexts.Text(
-                                LocalizationKey.PromptAllLinesReadyAcceptOrder),
-                            false);
-                    }
-                    else
-                    {
-                        player.SetInteractionPrompt(
-                            LocalizedTexts.Text(
-                                LocalizationKey.PromptNeedProductDelivery,
-                                LocalizedTexts.ProductName(deficitLine.ProductType),
-                                deficitLine.AvailableProductCount,
-                                deficitLine.RequiredProductCount,
-                                LocalizedTexts.ProductUnit(deficitLine.ProductType)),
-                            false);
-                    }
-
-                    continue;
-                }
-
                 if (!customerVisit.isCustomerVisitCompleted)
                     throw new InvalidOperationException(
                         $"Customer visit {customerVisit.EntityId} has no valid lifecycle state.");

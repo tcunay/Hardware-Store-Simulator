@@ -32,7 +32,6 @@ namespace HardwareStore.Gameplay
             Add(systems.Create<ProcurementFeature>());
             Add(systems.Create<ConsultationFeature>());
             Add(systems.Create<DeliveryFeature>());
-            Add(systems.Create<OrdersFeature>());
             Add(systems.Create<CarryingFeature>());
             Add(systems.Create<OrderProgressFeature>());
             Add(systems.Create<TrolleyFeature>());

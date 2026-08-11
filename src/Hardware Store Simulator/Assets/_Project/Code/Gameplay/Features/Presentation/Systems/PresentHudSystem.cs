@@ -224,8 +224,6 @@ namespace HardwareStore.Gameplay.Features.Presentation.Systems
                 return HudOrderState.Returning;
             if (customerVisit.isCustomerVisitDeparting)
                 return HudOrderState.Departing;
-            if (customerVisit.isCustomerVisitWaiting)
-                return HudOrderState.Waiting;
             if (customerVisit.isCustomerVisitLoading)
                 return HudOrderState.Active;
             if (customerVisit.isCustomerVisitCompleted)
@@ -240,7 +238,6 @@ namespace HardwareStore.Gameplay.Features.Presentation.Systems
             int lifecycleStateCount =
                 (customerVisit.isCustomerVisitArriving ? 1 : 0) +
                 (customerVisit.isCustomerVisitConsulting ? 1 : 0) +
-                (customerVisit.isCustomerVisitWaiting ? 1 : 0) +
                 (customerVisit.isCustomerVisitLoading ? 1 : 0) +
                 (customerVisit.isCustomerVisitCompleted ? 1 : 0) +
                 (customerVisit.isCustomerVisitReturning ? 1 : 0) +

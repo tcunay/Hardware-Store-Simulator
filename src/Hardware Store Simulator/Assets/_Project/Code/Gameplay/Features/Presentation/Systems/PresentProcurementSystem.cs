@@ -1,6 +1,7 @@
 using System;
 using System.Linq;
 using Entitas;
+using HardwareStore.Gameplay.Common.Economy;
 using HardwareStore.Gameplay.Components;
 using HardwareStore.Gameplay.Configs;
 using HardwareStore.Gameplay.Presentation;
@@ -14,19 +15,30 @@ namespace HardwareStore.Gameplay.Features.Presentation.Systems
 
         private readonly GameContext _gameContext;
         private readonly IStaticDataService _staticData;
+        private readonly IProcurementSolvencyService _solvency;
         private readonly IHudService _hud;
         private readonly IGroup<GameEntity> _players;
+        private readonly IGroup<GameEntity> _stockedProducts;
 
         public PresentProcurementSystem(GameContext gameContext,
-            IStaticDataService staticData, IHudService hud)
+            IStaticDataService staticData,
+            IProcurementSolvencyService solvency,
+            IHudService hud)
         {
             _gameContext = gameContext;
             _staticData = staticData;
+            _solvency = solvency;
             _hud = hud;
             _players = gameContext.GetGroup(GameMatcher.AllOf(
                 GameMatcher.Player,
                 GameMatcher.ModalOpen,
                 GameMatcher.ProcurementTerminalEntityId));
+            _stockedProducts = gameContext.GetGroup(GameMatcher.AllOf(
+                    GameMatcher.Product,
+                    GameMatcher.InStock,
+                    GameMatcher.StorageZoneEntityId,
+                    GameMatcher.ProductType)
+                .NoneOf(GameMatcher.Destructed));
         }
 
         public void Execute()
@@ -68,23 +80,6 @@ namespace HardwareStore.Gameplay.Features.Presentation.Systems
 
             GameEntity visit = _gameContext.GetEntityWithCustomerVisitStoreEntityId(
                 store.EntityId);
-            ValidateOrder(visit, store, storageZone);
-            var indexedOrderLines =
-                _gameContext.GetEntitiesWithOrderEntityId(visit.EntityId);
-            foreach (GameEntity line in indexedOrderLines)
-            {
-                if (!line.hasLineIndex)
-                {
-                    throw new InvalidOperationException(
-                        $"Order {visit.EntityId} contains a line without an index.");
-                }
-            }
-
-            GameEntity[] orderLines = indexedOrderLines
-                .OrderBy(line => line.LineIndex)
-                .ToArray();
-            ValidateOrderLines(visit, storageZone, orderLines);
-
             ProductTypeId[] productTypes = _staticData.ProductTypes.ToArray();
             if (productTypes.Length != ProductCardCount)
             {
@@ -93,6 +88,29 @@ namespace HardwareStore.Gameplay.Features.Presentation.Systems
                     $"product types, found {productTypes.Length}.");
             }
 
+            var evaluations = new ProcurementPurchaseEvaluation[productTypes.Length];
+            for (int index = 0; index < productTypes.Length; index++)
+            {
+                evaluations[index] = _solvency.EvaluatePurchase(
+                    terminal.EntityId,
+                    productTypes[index]);
+            }
+            ProcurementDemandKind demandKind = evaluations[0].DemandKind;
+            CustomerProjectTypeId projectType = evaluations[0].ProjectType;
+            for (int index = 1; index < evaluations.Length; index++)
+            {
+                if (evaluations[index].DemandKind != demandKind ||
+                    evaluations[index].ProjectType != projectType)
+                {
+                    throw new InvalidOperationException(
+                        "One procurement catalog cannot mix different demand plans.");
+                }
+            }
+
+            GameEntity[] orderLines = demandKind == ProcurementDemandKind.ConfirmedOrder
+                ? GetConfirmedOrderLines(visit, store, storageZone)
+                : Array.Empty<GameEntity>();
+            CustomerProjectConfig project = _staticData.GetProject(projectType);
             int freeStorageSlotCount =
                 storageZone.Slots.Length - storageZone.OccupiedStorageSlotCount;
             var products = new ProcurementProductSnapshot[productTypes.Length];
@@ -102,13 +120,15 @@ namespace HardwareStore.Gameplay.Features.Presentation.Systems
                     index,
                     productTypes[index],
                     terminal,
-                    store,
-                    freeStorageSlotCount,
+                    storageZone,
+                    evaluations[index],
+                    project,
                     orderLines);
             }
 
             _hud.PresentProcurement(new ProcurementSnapshot(
-                visit.CustomerProjectType,
+                demandKind,
+                projectType,
                 store.Money,
                 freeStorageSlotCount,
                 products));
@@ -118,8 +138,9 @@ namespace HardwareStore.Gameplay.Features.Presentation.Systems
             int index,
             ProductTypeId productType,
             GameEntity terminal,
-            GameEntity store,
-            int freeStorageSlotCount,
+            GameEntity storageZone,
+            ProcurementPurchaseEvaluation evaluation,
+            CustomerProjectConfig project,
             GameEntity[] orderLines)
         {
             GameEntity orderLine = null;
@@ -132,7 +153,15 @@ namespace HardwareStore.Gameplay.Features.Presentation.Systems
                 break;
             }
 
-            int availableProductCount = orderLine?.AvailableProductCount ?? 0;
+            int availableProductCount = CountAvailableProducts(
+                storageZone.EntityId,
+                productType);
+            if (orderLine != null &&
+                orderLine.AvailableProductCount != availableProductCount)
+            {
+                throw new InvalidOperationException(
+                    $"Order line {orderLine.EntityId} has stale product availability.");
+            }
             int remainingRequiredProductCount = orderLine == null
                 ? 0
                 : orderLine.RequiredProductCount - orderLine.LoadedProductCount;
@@ -140,42 +169,108 @@ namespace HardwareStore.Gameplay.Features.Presentation.Systems
                 0,
                 remainingRequiredProductCount - availableProductCount);
             DeliveryConfig delivery = _staticData.GetDelivery(productType);
-            int moneyAfterPurchase = checked(store.Money - delivery.TotalCost);
-
-            ProcurementPurchaseState purchaseState;
-            if (orderLine == null)
+            if (evaluation.DeliveryProductCount != delivery.ProductCount ||
+                evaluation.DeliveryCost != delivery.TotalCost)
             {
-                purchaseState = ProcurementPurchaseState.NotRequired;
+                throw new InvalidOperationException(
+                    $"Procurement evaluation for {productType} disagrees with static data.");
             }
-            else if (deficitProductCount == 0)
-            {
-                purchaseState = ProcurementPurchaseState.StockSufficient;
-            }
-            else if (freeStorageSlotCount < delivery.ProductCount)
-            {
-                purchaseState = ProcurementPurchaseState.InsufficientStorage;
-            }
-            else if (moneyAfterPurchase < 0)
-            {
-                purchaseState = ProcurementPurchaseState.InsufficientMoney;
-            }
-            else
-            {
-                purchaseState = ProcurementPurchaseState.Available;
-            }
+            ResolveDemandRange(
+                evaluation.DemandKind,
+                project,
+                productType,
+                remainingRequiredProductCount,
+                out int minimumRequiredProductCount,
+                out int maximumRequiredProductCount);
 
             return new ProcurementProductSnapshot(
                 index,
                 productType,
                 delivery.ProductCount,
                 delivery.TotalCost,
-                moneyAfterPurchase,
+                evaluation.MoneyAfterPurchase,
                 availableProductCount,
+                minimumRequiredProductCount,
+                maximumRequiredProductCount,
                 remainingRequiredProductCount,
                 deficitProductCount,
-                purchaseState,
+                MapPurchaseState(evaluation.Availability),
                 terminal.SelectedProductType == productType);
         }
+
+        private int CountAvailableProducts(int storageZoneEntityId, ProductTypeId productType)
+        {
+            int count = 0;
+            foreach (GameEntity product in _stockedProducts)
+            {
+                if (product.StorageZoneEntityId == storageZoneEntityId &&
+                    product.ProductType == productType)
+                {
+                    count++;
+                }
+            }
+
+            return count;
+        }
+
+        private static void ResolveDemandRange(
+            ProcurementDemandKind demandKind,
+            CustomerProjectConfig project,
+            ProductTypeId productType,
+            int remainingRequiredProductCount,
+            out int minimumRequiredProductCount,
+            out int maximumRequiredProductCount)
+        {
+            if (demandKind == ProcurementDemandKind.ConfirmedOrder)
+            {
+                minimumRequiredProductCount = remainingRequiredProductCount;
+                maximumRequiredProductCount = remainingRequiredProductCount;
+                return;
+            }
+            if (demandKind != ProcurementDemandKind.ProjectForecast)
+                throw new ArgumentOutOfRangeException(nameof(demandKind), demandKind, null);
+
+            minimumRequiredProductCount = int.MaxValue;
+            maximumRequiredProductCount = 0;
+            foreach (CustomerProjectOfferDefinition offer in project.Offers)
+            {
+                int requiredCount = 0;
+                foreach (CustomerProjectLineDefinition line in offer.Lines)
+                {
+                    if (line.ProductType == productType)
+                    {
+                        requiredCount = line.RequiredCount;
+                        break;
+                    }
+                }
+
+                minimumRequiredProductCount = Math.Min(
+                    minimumRequiredProductCount,
+                    requiredCount);
+                maximumRequiredProductCount = Math.Max(
+                    maximumRequiredProductCount,
+                    requiredCount);
+            }
+
+            if (minimumRequiredProductCount == int.MaxValue)
+                throw new InvalidOperationException(
+                    $"Project {project.ProjectType} has no procurement offers.");
+        }
+
+        private static ProcurementPurchaseState MapPurchaseState(
+            ProcurementPurchaseAvailability availability) =>
+            availability switch
+            {
+                ProcurementPurchaseAvailability.Available =>
+                    ProcurementPurchaseState.Available,
+                ProcurementPurchaseAvailability.InsufficientStorage =>
+                    ProcurementPurchaseState.InsufficientStorage,
+                ProcurementPurchaseAvailability.InsufficientMoney =>
+                    ProcurementPurchaseState.InsufficientMoney,
+                ProcurementPurchaseAvailability.DemandWouldBecomeInsolvent =>
+                    ProcurementPurchaseState.PlanWouldBecomeUnfulfillable,
+                _ => throw new ArgumentOutOfRangeException(nameof(availability), availability, null)
+            };
 
         private static void ValidateTerminal(GameEntity player, GameEntity terminal)
         {
@@ -217,6 +312,30 @@ namespace HardwareStore.Gameplay.Features.Presentation.Systems
             }
         }
 
+        private GameEntity[] GetConfirmedOrderLines(
+            GameEntity visit,
+            GameEntity store,
+            GameEntity storageZone)
+        {
+            ValidateOrder(visit, store, storageZone);
+            var indexedOrderLines =
+                _gameContext.GetEntitiesWithOrderEntityId(visit.EntityId);
+            foreach (GameEntity line in indexedOrderLines)
+            {
+                if (!line.hasLineIndex)
+                {
+                    throw new InvalidOperationException(
+                        $"Order {visit.EntityId} contains a line without an index.");
+                }
+            }
+
+            GameEntity[] orderLines = indexedOrderLines
+                .OrderBy(line => line.LineIndex)
+                .ToArray();
+            ValidateOrderLines(visit, storageZone, orderLines);
+            return orderLines;
+        }
+
         private static void ValidateOrder(
             GameEntity visit,
             GameEntity store,
@@ -225,7 +344,7 @@ namespace HardwareStore.Gameplay.Features.Presentation.Systems
             if (visit == null || !visit.isCustomerVisit || !visit.isOrder ||
                 !visit.hasEntityId || !visit.hasCustomerProjectType ||
                 !visit.hasStorageZoneEntityId ||
-                (!visit.isCustomerVisitWaiting && !visit.isCustomerVisitLoading) ||
+                !visit.isCustomerVisitLoading ||
                 visit.StorageZoneEntityId != storageZone.EntityId)
             {
                 throw new InvalidOperationException(

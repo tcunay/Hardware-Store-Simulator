@@ -1,5 +1,6 @@
 using HardwareStore.Gameplay.Common.Collisions;
 using HardwareStore.Gameplay.Common.Cursor;
+using HardwareStore.Gameplay.Common.Economy;
 using HardwareStore.Gameplay.Common.Input;
 using HardwareStore.Gameplay.Common.Physics;
 using HardwareStore.Gameplay.Common.Time;
@@ -62,6 +63,7 @@ namespace HardwareStore.Infrastructure.Installers
             Container.Bind<ILocalizationCatalog>().To<RussianLocalizationCatalog>().AsSingle();
             Container.BindInterfacesAndSelfTo<LocalizationService>().AsSingle();
             Container.BindInterfacesAndSelfTo<StaticDataService>().AsSingle();
+            Container.BindInterfacesTo<ProcurementSolvencyService>().AsSingle();
             Container.BindInterfacesAndSelfTo<InputSystemService>().AsSingle();
             Container.BindInterfacesTo<StoreSceneData>().AsSingle();
         }

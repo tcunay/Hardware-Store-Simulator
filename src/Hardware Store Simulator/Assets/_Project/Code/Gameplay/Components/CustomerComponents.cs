@@ -10,7 +10,6 @@ namespace HardwareStore.Gameplay.Components
     [Game] public class RouteMover : IComponent { }
     [Game] public class CustomerVisitArriving : IComponent { }
     [Game] public class CustomerVisitConsulting : IComponent { }
-    [Game] public class CustomerVisitWaiting : IComponent { }
     [Game] public class CustomerVisitLoading : IComponent { }
     [Game] public class CustomerVisitCompleted : IComponent { }
     [Game] public class CustomerVisitReturning : IComponent { }

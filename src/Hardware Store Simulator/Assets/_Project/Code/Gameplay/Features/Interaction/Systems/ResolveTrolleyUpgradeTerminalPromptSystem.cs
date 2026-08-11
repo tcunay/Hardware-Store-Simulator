@@ -1,5 +1,6 @@
 using System;
 using Entitas;
+using HardwareStore.Gameplay.Common.Economy;
 using HardwareStore.Gameplay.Components;
 using HardwareStore.Gameplay.Configs;
 using HardwareStore.Gameplay.Localization;
@@ -11,14 +12,17 @@ namespace HardwareStore.Gameplay.Features.Interaction.Systems
     {
         private readonly GameContext _gameContext;
         private readonly IStaticDataService _staticData;
+        private readonly IEconomySolvencyService _solvency;
         private readonly IGroup<GameEntity> _players;
 
         public ResolveTrolleyUpgradeTerminalPromptSystem(
             GameContext gameContext,
-            IStaticDataService staticData)
+            IStaticDataService staticData,
+            IEconomySolvencyService solvency)
         {
             _gameContext = gameContext;
             _staticData = staticData;
+            _solvency = solvency;
             _players = gameContext.GetGroup(GameMatcher.AllOf(
                 GameMatcher.Player,
                 GameMatcher.StoreEntityId,
@@ -69,16 +73,34 @@ namespace HardwareStore.Gameplay.Features.Interaction.Systems
                     continue;
                 }
 
-                bool affordable = store.Money >= config.PurchasePrice;
-                player.SetInteractionPrompt(
-                    affordable
-                        ? LocalizedTexts.Text(
-                            LocalizationKey.PromptPurchaseTrolley,
-                            config.PurchasePrice)
-                        : LocalizedTexts.Text(
-                            LocalizationKey.PromptTrolleyInsufficientMoney,
-                            config.PurchasePrice),
-                    affordable);
+                EconomyDebitEvaluation evaluation = _solvency.EvaluateDebit(
+                    store.EntityId,
+                    config.PurchasePrice);
+                switch (evaluation.Availability)
+                {
+                    case EconomyDebitAvailability.Available:
+                        player.SetInteractionPrompt(
+                            LocalizedTexts.Text(
+                                LocalizationKey.PromptPurchaseTrolley,
+                                config.PurchasePrice),
+                            true);
+                        break;
+                    case EconomyDebitAvailability.InsufficientMoney:
+                        player.SetInteractionPrompt(
+                            LocalizedTexts.Text(
+                                LocalizationKey.PromptTrolleyInsufficientMoney,
+                                config.PurchasePrice),
+                            false);
+                        break;
+                    case EconomyDebitAvailability.DemandWouldBecomeInsolvent:
+                        player.SetInteractionPrompt(
+                            LocalizedTexts.Text(
+                                LocalizationKey.PromptTrolleyPurchaseWouldBlockProjects),
+                            false);
+                        break;
+                    default:
+                        throw new ArgumentOutOfRangeException();
+                }
             }
         }
 

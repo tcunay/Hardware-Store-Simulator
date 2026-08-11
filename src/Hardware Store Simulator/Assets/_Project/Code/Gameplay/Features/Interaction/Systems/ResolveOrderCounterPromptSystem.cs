@@ -1,5 +1,4 @@
 using System;
-using System.Linq;
 using Entitas;
 using HardwareStore.Gameplay.Components;
 using HardwareStore.Gameplay.Localization;
@@ -84,34 +83,6 @@ namespace HardwareStore.Gameplay.Features.Interaction.Systems
                     continue;
                 }
 
-                if (customerVisit.isCustomerVisitWaiting)
-                {
-                    GameEntity[] lines = GetOrderLines(customerVisit);
-                    GameEntity deficitLine = lines.FirstOrDefault(line =>
-                        line.AvailableProductCount < line.RequiredProductCount);
-                    if (deficitLine == null)
-                    {
-                        int totalUnitCount = lines.Sum(line => line.RequiredProductCount);
-                        player.SetInteractionPrompt(
-                            LocalizedTexts.Text(
-                                LocalizationKey.PromptAcceptOrder,
-                                lines.Length,
-                                totalUnitCount),
-                            true);
-                        continue;
-                    }
-
-                    player.SetInteractionPrompt(
-                        LocalizedTexts.Text(
-                            LocalizationKey.PromptMissingProduct,
-                            LocalizedTexts.ProductName(deficitLine.ProductType),
-                            deficitLine.AvailableProductCount,
-                            deficitLine.RequiredProductCount,
-                            LocalizedTexts.ProductUnit(deficitLine.ProductType)),
-                        false);
-                    continue;
-                }
-
                 if (customerVisit.isCustomerVisitLoading)
                 {
                     player.SetInteractionPrompt(
@@ -132,18 +103,5 @@ namespace HardwareStore.Gameplay.Features.Interaction.Systems
             }
         }
 
-        private GameEntity[] GetOrderLines(GameEntity order)
-        {
-            GameEntity[] lines = _gameContext
-                .GetEntitiesWithOrderEntityId(order.EntityId)
-                .Where(line => line.isOrderLine && !line.isDestructed)
-                .OrderBy(line => line.LineIndex)
-                .ToArray();
-            if (lines.Length == 0)
-                throw new InvalidOperationException(
-                    $"Order {order.EntityId} has no active product lines.");
-
-            return lines;
-        }
     }
 }

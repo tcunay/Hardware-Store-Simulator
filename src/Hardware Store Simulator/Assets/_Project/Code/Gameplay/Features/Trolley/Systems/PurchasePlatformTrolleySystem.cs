@@ -1,5 +1,6 @@
 using System;
 using Entitas;
+using HardwareStore.Gameplay.Common.Economy;
 using HardwareStore.Gameplay.Configs;
 using HardwareStore.Gameplay.Factories;
 using HardwareStore.Gameplay.Localization;
@@ -13,17 +14,19 @@ namespace HardwareStore.Gameplay.Features.Trolley.Systems
         private readonly GameContext _gameContext;
         private readonly PlatformTrolleyConfig _config;
         private readonly IPlatformTrolleyFactory _trolleys;
+        private readonly IEconomySolvencyService _economySolvency;
         private readonly IGameEventFactory _events;
         private readonly IGroup<GameEntity> _requests;
 
         public PurchasePlatformTrolleySystem(GameContext gameContext,
             IStaticDataService staticData, IPlatformTrolleyFactory trolleys,
-            IGameEventFactory events)
+            IGameEventFactory events, IEconomySolvencyService economySolvency)
         {
             _gameContext = gameContext;
             _config = staticData.PlatformTrolley;
             _trolleys = trolleys;
             _events = events;
+            _economySolvency = economySolvency;
             _requests = gameContext.GetGroup(GameMatcher.AllOf(
                 GameMatcher.InteractionRequest,
                 GameMatcher.SourceEntityId,
@@ -36,6 +39,10 @@ namespace HardwareStore.Gameplay.Features.Trolley.Systems
             {
                 GameEntity terminal =
                     _gameContext.GetEntityWithEntityId(request.TargetEntityId);
+                if (terminal == null)
+                    throw new InvalidOperationException(
+                        $"Trolley interaction targets missing entity " +
+                        $"{request.TargetEntityId}.");
                 if (!terminal.isTrolleyUpgradeTerminal)
                     continue;
 
@@ -81,12 +88,28 @@ namespace HardwareStore.Gameplay.Features.Trolley.Systems
                     continue;
                 }
 
-                int moneyAfterPurchase = checked(store.Money - _config.PurchasePrice);
+                EconomyDebitEvaluation debit = _economySolvency.EvaluateDebit(
+                    store.EntityId,
+                    _config.PurchasePrice);
+                if (debit.Availability ==
+                    EconomyDebitAvailability.DemandWouldBecomeInsolvent)
+                {
+                    _events.EmitNotification(LocalizedTexts.Text(
+                        LocalizationKey.NotificationTrolleyPurchaseWouldBlockProjects));
+                    continue;
+                }
+                if (!debit.CanDebit)
+                {
+                    throw new InvalidOperationException(
+                        $"Trolley debit evaluation for store {store.EntityId} disagrees " +
+                        "with the validated money balance.");
+                }
+
                 var spawnPose = new Pose(
                     terminal.TrolleySpawnPosition,
                     terminal.TrolleySpawnRotation);
                 _trolleys.Create(spawnPose, store.EntityId);
-                store.ReplaceMoney(moneyAfterPurchase);
+                store.ReplaceMoney(debit.MoneyAfterDebit);
                 _events.EmitNotification(LocalizedTexts.Text(
                     LocalizationKey.NotificationTrolleyPurchased,
                     _config.PurchasePrice));

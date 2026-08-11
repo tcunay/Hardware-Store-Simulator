@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using Entitas;
 using HardwareStore.Gameplay.Common.Cursor;
+using HardwareStore.Gameplay.Components;
 using HardwareStore.Gameplay.Factories;
 using HardwareStore.Gameplay.Localization;
 using UnityEngine;
@@ -83,7 +84,7 @@ namespace HardwareStore.Gameplay.Features.Consultation.Systems
                     totalRequiredCount,
                     selectedOffer.OrderReward));
             visit.isCustomerVisitConsulting = false;
-            visit.isCustomerVisitWaiting = true;
+            visit.isCustomerVisitLoading = true;
             DestructOffers();
 
             player.RemoveConsultationVisitEntityId();
@@ -94,6 +95,7 @@ namespace HardwareStore.Gameplay.Features.Consultation.Systems
             player.isFocusInteractionAvailable = false;
             player.isCursorLocked = true;
             _cursor.SetLocked(true);
+            _events.EmitAudio(AudioCueId.OrderAccepted);
         }
 
         private int CountRequiredProducts(GameEntity offer)

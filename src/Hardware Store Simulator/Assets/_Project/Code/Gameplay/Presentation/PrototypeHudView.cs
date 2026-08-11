@@ -1,4 +1,5 @@
 using System;
+using HardwareStore.Gameplay.Common.Economy;
 using HardwareStore.Gameplay.Localization;
 using UnityEngine;
 using Zenject;
@@ -316,7 +317,9 @@ namespace HardwareStore.Gameplay.Presentation
             GUI.Label(
                 new Rect(panel.x + 32f, panel.y + 58f, panel.width - 64f, 34f),
                 Resolve(
-                    LocalizationKey.HudProcurementOrderTitle,
+                    procurement.DemandKind == ProcurementDemandKind.ProjectForecast
+                        ? LocalizationKey.HudProcurementForecastTitle
+                        : LocalizationKey.HudProcurementOrderTitle,
                     LocalizedTexts.ProjectTitle(procurement.ProjectType)),
                 _centerStyle);
             GUI.Label(
@@ -361,15 +364,26 @@ namespace HardwareStore.Gameplay.Presentation
                         .ToUpper(_localization.Culture),
                     _cardTitleStyle);
 
-                string details = Resolve(
-                    LocalizationKey.HudProcurementProductDetails,
-                    product.DeliveryProductCount,
-                    LocalizedTexts.ProductUnit(product.ProductType),
-                    product.DeliveryCost,
-                    product.MoneyAfterPurchase,
-                    product.RemainingRequiredProductCount,
-                    product.AvailableProductCount,
-                    product.DeficitProductCount);
+                string details = procurement.DemandKind ==
+                                 ProcurementDemandKind.ProjectForecast
+                    ? Resolve(
+                        LocalizationKey.HudProcurementForecastProductDetails,
+                        product.DeliveryProductCount,
+                        LocalizedTexts.ProductUnit(product.ProductType),
+                        product.DeliveryCost,
+                        product.MoneyAfterPurchase,
+                        product.MinimumRequiredProductCount,
+                        product.MaximumRequiredProductCount,
+                        product.AvailableProductCount)
+                    : Resolve(
+                        LocalizationKey.HudProcurementProductDetails,
+                        product.DeliveryProductCount,
+                        LocalizedTexts.ProductUnit(product.ProductType),
+                        product.DeliveryCost,
+                        product.MoneyAfterPurchase,
+                        product.RemainingRequiredProductCount,
+                        product.AvailableProductCount,
+                        product.DeficitProductCount);
                 GUI.Label(
                     new Rect(card.x + 24f, card.y + 76f, card.width - 48f, 250f),
                     details,
@@ -437,13 +451,6 @@ namespace HardwareStore.Gameplay.Presentation
                 HudOrderState.NoCustomer => Resolve(LocalizationKey.HudObjectiveNoCustomer),
                 HudOrderState.Arriving => Resolve(LocalizationKey.HudObjectiveArriving),
                 HudOrderState.Consulting => Resolve(LocalizationKey.HudObjectiveConsulting),
-                HudOrderState.Waiting when !AreAllOrderLinesAvailable() =>
-                    Resolve(LocalizationKey.HudObjectiveWaitingForStock,
-                        _snapshot.TotalAvailableProductCount,
-                        _snapshot.TotalRequiredProductCount),
-                HudOrderState.Waiting =>
-                    Resolve(LocalizationKey.HudObjectiveWaitingReady,
-                        _snapshot.TotalRequiredProductCount),
                 HudOrderState.Active =>
                     Resolve(LocalizationKey.HudObjectiveLoading,
                         _snapshot.TotalLoadedProductCount,
@@ -469,21 +476,6 @@ namespace HardwareStore.Gameplay.Presentation
                 _snapshot.OrderLines.Count, _snapshot.StockCount);
         }
 
-        private bool AreAllOrderLinesAvailable()
-        {
-            if (_snapshot.OrderLines.Count == 0)
-                return false;
-
-            for (int index = 0; index < _snapshot.OrderLines.Count; index++)
-            {
-                OrderLineSnapshot line = _snapshot.OrderLines[index];
-                if (line.AvailableProductCount < line.RequiredProductCount)
-                    return false;
-            }
-
-            return true;
-        }
-
         private string BuildOfferLineDetails(ConsultationOfferSnapshot offer)
         {
             var lines = new string[offer.Lines.Count + 1];
@@ -507,10 +499,6 @@ namespace HardwareStore.Gameplay.Presentation
             ProcurementProductSnapshot product) =>
             product.PurchaseState switch
             {
-                ProcurementPurchaseState.NotRequired =>
-                    Resolve(LocalizationKey.ProcurementStatusNotRequired),
-                ProcurementPurchaseState.StockSufficient =>
-                    Resolve(LocalizationKey.ProcurementStatusStockSufficient),
                 ProcurementPurchaseState.InsufficientStorage => Resolve(
                     LocalizationKey.ProcurementStatusInsufficientStorage,
                     procurement.FreeStorageSlotCount,
@@ -518,8 +506,14 @@ namespace HardwareStore.Gameplay.Presentation
                 ProcurementPurchaseState.InsufficientMoney => Resolve(
                     LocalizationKey.ProcurementStatusInsufficientMoney,
                     product.DeliveryCost),
+                ProcurementPurchaseState.PlanWouldBecomeUnfulfillable => Resolve(
+                    procurement.DemandKind == ProcurementDemandKind.ConfirmedOrder
+                        ? LocalizationKey.ProcurementStatusPlanWouldBlockOrder
+                        : LocalizationKey.ProcurementStatusPlanWouldBlockForecast),
                 ProcurementPurchaseState.Available =>
-                    Resolve(LocalizationKey.ProcurementStatusAvailable),
+                    Resolve(procurement.DemandKind == ProcurementDemandKind.ProjectForecast
+                        ? LocalizationKey.ProcurementStatusPrepurchaseAvailable
+                        : LocalizationKey.ProcurementStatusAvailable),
                 _ => throw new ArgumentOutOfRangeException()
             };
 

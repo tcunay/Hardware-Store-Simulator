@@ -124,14 +124,6 @@ namespace HardwareStore.Gameplay.Features.Interaction.Systems
                     continue;
                 }
 
-                if (customerVisit.isCustomerVisitWaiting)
-                {
-                    player.SetInteractionPrompt(
-                        LocalizedTexts.Text(LocalizationKey.PromptAcceptOrderFirst),
-                        false);
-                    continue;
-                }
-
                 if (customerVisit.isCustomerVisitCompleted)
                 {
                     player.SetInteractionPrompt(

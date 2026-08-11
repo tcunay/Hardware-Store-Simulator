@@ -1,11 +1,9 @@
 using System;
-using System.Collections.Generic;
 using Entitas;
-using HardwareStore.Gameplay.Configs;
+using HardwareStore.Gameplay.Common.Economy;
 using HardwareStore.Gameplay.Components;
 using HardwareStore.Gameplay.Factories;
 using HardwareStore.Gameplay.Localization;
-using HardwareStore.Gameplay.StaticData;
 using UnityEngine;
 
 namespace HardwareStore.Gameplay.Features.Delivery.Systems
@@ -13,16 +11,17 @@ namespace HardwareStore.Gameplay.Features.Delivery.Systems
     public sealed class PurchaseDeliverySystem : IExecuteSystem
     {
         private readonly GameContext _gameContext;
-        private readonly IStaticDataService _staticData;
+        private readonly IProcurementSolvencyService _solvency;
         private readonly IDeliveryFactory _deliveryFactory;
         private readonly IGameEventFactory _events;
         private readonly IGroup<GameEntity> _requests;
 
-        public PurchaseDeliverySystem(GameContext gameContext, IStaticDataService staticData,
+        public PurchaseDeliverySystem(GameContext gameContext,
+            IProcurementSolvencyService solvency,
             IDeliveryFactory deliveryFactory, IGameEventFactory events)
         {
             _gameContext = gameContext;
-            _staticData = staticData;
+            _solvency = solvency;
             _deliveryFactory = deliveryFactory;
             _events = events;
             _requests = gameContext.GetGroup(GameMatcher.AllOf(
@@ -37,6 +36,9 @@ namespace HardwareStore.Gameplay.Features.Delivery.Systems
             {
                 GameEntity terminal =
                     _gameContext.GetEntityWithEntityId(request.TargetEntityId);
+                if (terminal == null)
+                    throw new InvalidOperationException(
+                        $"Purchase request targets missing entity {request.TargetEntityId}.");
                 if (!terminal.isProcurementTerminal)
                     throw new InvalidOperationException(
                         $"Purchase request targets non-procurement entity " +
@@ -47,13 +49,15 @@ namespace HardwareStore.Gameplay.Features.Delivery.Systems
 
                 GameEntity player =
                     _gameContext.GetEntityWithEntityId(request.SourceEntityId);
-                if (!player.isPlayer || !player.isModalOpen ||
+                if (player == null || !player.isPlayer || !player.isModalOpen ||
+                    !player.hasEntityId || !player.hasStoreEntityId ||
                     !player.hasProcurementTerminalEntityId ||
                     player.ProcurementTerminalEntityId != terminal.EntityId ||
                     player.StoreEntityId != terminal.StoreEntityId)
                 {
                     throw new InvalidOperationException(
-                        $"Purchase request source {player.EntityId} does not own procurement " +
+                        $"Purchase request source {request.SourceEntityId} does not own " +
+                        "procurement " +
                         $"modal for terminal {terminal.EntityId}.");
                 }
 
@@ -67,118 +71,53 @@ namespace HardwareStore.Gameplay.Features.Delivery.Systems
 
                 GameEntity store =
                     _gameContext.GetEntityWithEntityId(terminal.StoreEntityId);
-                GameEntity customerVisit =
-                    _gameContext.GetEntityWithCustomerVisitStoreEntityId(store.EntityId);
-                if (customerVisit == null)
+                ProcurementPurchaseEvaluation evaluation = _solvency.EvaluatePurchase(
+                    terminal.EntityId,
+                    terminal.SelectedProductType);
+                if (evaluation.Availability ==
+                    ProcurementPurchaseAvailability.InsufficientStorage)
                 {
-                    _events.EmitNotification(LocalizedTexts.Text(
-                        LocalizationKey.NotificationWaitForCustomer));
-                    continue;
-                }
-
-                if (customerVisit.isCustomerVisitCompleted ||
-                    customerVisit.isCustomerVisitReturning ||
-                    customerVisit.isCustomerVisitDeparting)
-                {
-                    _events.EmitNotification(LocalizedTexts.Text(
-                        LocalizationKey.NotificationOrderCompletedWaitCustomer));
-                    continue;
-                }
-
-                if (customerVisit.isCustomerVisitArriving ||
-                    customerVisit.isCustomerVisitConsulting)
-                {
-                    _events.EmitNotification(
-                        customerVisit.isCustomerVisitArriving
-                            ? LocalizedTexts.Text(
-                                LocalizationKey.NotificationWaitForCustomerConsultation)
-                            : LocalizedTexts.Text(
-                                LocalizationKey.NotificationConsultAtCounterFirst));
-                    continue;
-                }
-
-                if (!customerVisit.isOrder || !customerVisit.hasEntityId ||
-                    (!customerVisit.isCustomerVisitWaiting &&
-                     !customerVisit.isCustomerVisitLoading))
-                {
-                    throw new InvalidOperationException(
-                        $"Customer visit {customerVisit.EntityId} cannot procure order stock.");
-                }
-
-                GameEntity selectedLine = null;
-                var requiredLines = new List<GameEntity>(2);
-                foreach (GameEntity line in
-                         _gameContext.GetEntitiesWithOrderEntityId(customerVisit.EntityId))
-                {
-                    ValidateOrderLine(customerVisit, line);
-                    requiredLines.Add(line);
-                    if (line.ProductType != terminal.SelectedProductType)
-                        continue;
-                    if (selectedLine != null)
-                        throw new InvalidOperationException(
-                            $"Customer visit {customerVisit.EntityId} has duplicate order " +
-                            $"lines for {line.ProductType}.");
-
-                    selectedLine = line;
-                }
-
-                if (requiredLines.Count == 0)
-                    throw new InvalidOperationException(
-                        $"Customer visit {customerVisit.EntityId} has no order lines.");
-                if (selectedLine == null)
-                {
-                    requiredLines.Sort((left, right) =>
-                        left.LineIndex.CompareTo(right.LineIndex));
-                    LocalizedText notification = requiredLines.Count switch
+                    GameEntity storageZone = _gameContext.GetEntityWithEntityId(
+                        terminal.StorageZoneEntityId);
+                    if (storageZone == null || !storageZone.isStorageZone ||
+                        !storageZone.hasSlots ||
+                        !storageZone.hasOccupiedStorageSlotCount)
                     {
-                        1 => LocalizedTexts.Text(
-                            LocalizationKey.NotificationCurrentOrderNeedsOneProduct,
-                            LocalizedTexts.ProductName(requiredLines[0].ProductType)),
-                        2 => LocalizedTexts.Text(
-                            LocalizationKey.NotificationCurrentOrderNeedsTwoProducts,
-                            LocalizedTexts.ProductName(requiredLines[0].ProductType),
-                            LocalizedTexts.ProductName(requiredLines[1].ProductType)),
-                        _ => throw new InvalidOperationException(
-                            $"Customer visit {customerVisit.EntityId} has more than two " +
-                            "order lines.")
-                    };
-                    _events.EmitNotification(notification);
-                    continue;
-                }
-
-                int remainingCount =
-                    selectedLine.RequiredProductCount - selectedLine.LoadedProductCount;
-                if (selectedLine.AvailableProductCount >= remainingCount)
-                {
-                    _events.EmitNotification(LocalizedTexts.Text(
-                        LocalizationKey.NotificationProductStockSufficient,
-                        LocalizedTexts.ProductName(selectedLine.ProductType),
-                        selectedLine.AvailableProductCount,
-                        remainingCount));
-                    continue;
-                }
-
-                GameEntity storageZone =
-                    _gameContext.GetEntityWithEntityId(terminal.StorageZoneEntityId);
-                DeliveryConfig deliveryConfig =
-                    _staticData.GetDelivery(terminal.SelectedProductType);
-                int freeSlotCount = storageZone.Slots.Length - storageZone.OccupiedStorageSlotCount;
-                if (freeSlotCount < deliveryConfig.ProductCount)
-                {
+                        throw new InvalidOperationException(
+                            $"Procurement terminal {terminal.EntityId} has invalid storage " +
+                            "after solvency evaluation.");
+                    }
+                    int freeSlotCount = checked(
+                        storageZone.Slots.Length -
+                        storageZone.OccupiedStorageSlotCount);
                     _events.EmitNotification(LocalizedTexts.Text(
                         LocalizationKey.NotificationStorageSpaceInsufficient,
                         freeSlotCount,
-                        deliveryConfig.ProductCount));
+                        evaluation.DeliveryProductCount));
                     continue;
                 }
 
-                if (store.Money < deliveryConfig.TotalCost)
+                if (evaluation.Availability ==
+                    ProcurementPurchaseAvailability.InsufficientMoney)
                 {
                     _events.EmitNotification(LocalizedTexts.Text(
                         LocalizationKey.NotificationMoneyInsufficient,
-                        deliveryConfig.TotalCost));
+                        evaluation.DeliveryCost));
                     continue;
                 }
+
+                if (evaluation.Availability ==
+                    ProcurementPurchaseAvailability.DemandWouldBecomeInsolvent)
+                {
+                    _events.EmitNotification(LocalizedTexts.Text(
+                        evaluation.DemandKind == ProcurementDemandKind.ConfirmedOrder
+                            ? LocalizationKey.NotificationPurchaseWouldBlockOrder
+                            : LocalizationKey.NotificationPurchaseWouldBlockForecast));
+                    continue;
+                }
+                if (!evaluation.CanPurchase)
+                    throw new InvalidOperationException(
+                        $"Unhandled procurement evaluation {evaluation.Availability}.");
 
                 var deliveryPose = new Pose(
                     terminal.DeliverySpawnPosition,
@@ -189,7 +128,14 @@ namespace HardwareStore.Gameplay.Features.Delivery.Systems
                     store.EntityId,
                     deliveryPose);
 
-                store.ReplaceMoney(store.Money - delivery.DeliveryCost);
+                if (delivery.DeliveryProductCount != evaluation.DeliveryProductCount ||
+                    delivery.DeliveryCost != evaluation.DeliveryCost)
+                {
+                    throw new InvalidOperationException(
+                        $"Delivery {delivery.EntityId} disagrees with its evaluated purchase.");
+                }
+
+                store.ReplaceMoney(evaluation.MoneyAfterPurchase);
                 _events.EmitNotification(LocalizedTexts.Text(
                     LocalizationKey.NotificationDeliveryOrdered,
                     LocalizedTexts.ProductName(delivery.ProductType),
@@ -201,25 +147,5 @@ namespace HardwareStore.Gameplay.Features.Delivery.Systems
             }
         }
 
-        private static void ValidateOrderLine(GameEntity visit, GameEntity line)
-        {
-            if (!line.isOrderLine || line.isDestructed || !line.hasEntityId ||
-                !line.hasOrderEntityId || !line.hasStorageZoneEntityId ||
-                !line.hasLineIndex || !line.hasProductType ||
-                !line.hasRequiredProductCount ||
-                !line.hasAvailableProductCount || !line.hasLoadedProductCount)
-            {
-                throw new InvalidOperationException(
-                    $"Customer visit {visit.EntityId} has an invalid order line.");
-            }
-            if (line.OrderEntityId != visit.EntityId ||
-                line.StorageZoneEntityId != visit.StorageZoneEntityId ||
-                line.LoadedProductCount < 0 ||
-                line.LoadedProductCount > line.RequiredProductCount)
-            {
-                throw new InvalidOperationException(
-                    $"Order line {line.EntityId} has invalid runtime state.");
-            }
-        }
     }
 }

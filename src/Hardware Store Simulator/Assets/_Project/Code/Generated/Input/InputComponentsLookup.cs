@@ -19,8 +19,9 @@ public static class InputComponentsLookup {
     public const int PreviousPressed = 8;
     public const int SprintHeld = 9;
     public const int ToggleCursorPressed = 10;
+    public const int TrolleyPressed = 11;
 
-    public const int TotalComponents = 11;
+    public const int TotalComponents = 12;
 
     public static readonly string[] componentNames = {
         "ConfirmPressed",
@@ -33,7 +34,8 @@ public static class InputComponentsLookup {
         "PointerLook",
         "PreviousPressed",
         "SprintHeld",
-        "ToggleCursorPressed"
+        "ToggleCursorPressed",
+        "TrolleyPressed"
     };
 
     public static readonly System.Type[] componentTypes = {
@@ -47,6 +49,7 @@ public static class InputComponentsLookup {
         typeof(HardwareStore.Gameplay.Components.PointerLook),
         typeof(HardwareStore.Gameplay.Components.PreviousPressed),
         typeof(HardwareStore.Gameplay.Components.SprintHeld),
-        typeof(HardwareStore.Gameplay.Components.ToggleCursorPressed)
+        typeof(HardwareStore.Gameplay.Components.ToggleCursorPressed),
+        typeof(HardwareStore.Gameplay.Components.TrolleyPressed)
     };
 }

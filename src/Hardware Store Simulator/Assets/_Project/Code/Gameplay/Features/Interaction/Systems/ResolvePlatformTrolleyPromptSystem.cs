@@ -37,8 +37,16 @@ namespace HardwareStore.Gameplay.Features.Interaction.Systems
                     continue;
                 }
 
-                if (!player.hasFocusedEntityId || !player.hasFocusedInteractionType ||
-                    player.FocusedInteractionType != InteractionTypeId.PlatformTrolley)
+                if (!player.hasFocusedEntityId || !player.hasFocusedInteractionType)
+                    continue;
+
+                if (player.FocusedInteractionType == InteractionTypeId.Product)
+                {
+                    ResolveProductTrolleyPrompt(player);
+                    continue;
+                }
+
+                if (player.FocusedInteractionType != InteractionTypeId.PlatformTrolley)
                     continue;
 
                 GameEntity trolley =
@@ -93,8 +101,76 @@ namespace HardwareStore.Gameplay.Features.Interaction.Systems
                         LocalizationKey.PromptPushTrolley,
                         trolley.OccupiedTrolleySlotCount,
                         trolley.TrolleyCapacity),
-                    true);
+                    false);
             }
+        }
+
+        private void ResolveProductTrolleyPrompt(GameEntity player)
+        {
+            GameEntity product =
+                _gameContext.GetEntityWithEntityId(player.FocusedEntityId);
+            if (product == null || !product.isProduct || !product.hasEntityId ||
+                product.EntityId != player.FocusedEntityId ||
+                !product.hasProductType || product.isDestructed)
+            {
+                throw new InvalidOperationException(
+                    $"Player {player.EntityId} focuses an invalid product.");
+            }
+
+            if (!product.hasTrolleyEntityId)
+            {
+                if (product.hasTrolleySlotIndex)
+                {
+                    throw new InvalidOperationException(
+                        $"Product {product.EntityId} has a trolley slot without a " +
+                        "trolley relation.");
+                }
+
+                return;
+            }
+
+            if (!product.isInteractable)
+            {
+                throw new InvalidOperationException(
+                    $"Trolley product {product.EntityId} is not interactable.");
+            }
+
+            if (!product.hasTrolleySlotIndex)
+            {
+                throw new InvalidOperationException(
+                    $"Product {product.EntityId} has no trolley slot for its trolley " +
+                    "relation.");
+            }
+
+            GameEntity trolley =
+                _gameContext.GetEntityWithEntityId(product.TrolleyEntityId);
+            ValidateTrolley(player, trolley);
+            if (!_gameContext.GetEntitiesWithTrolleyEntityId(trolley.EntityId)
+                    .Contains(product) ||
+                product.TrolleySlotIndex < 0 ||
+                product.TrolleySlotIndex >= trolley.TrolleyCapacity)
+            {
+                throw new InvalidOperationException(
+                    $"Product {product.EntityId} has an invalid indexed relation to " +
+                    $"trolley {trolley.EntityId}.");
+            }
+
+            if (player.isHandsOccupied || trolley.hasTrolleyPusherEntityId)
+                return;
+
+            if (!player.hasInteractionPrompt)
+            {
+                throw new InvalidOperationException(
+                    $"Focused trolley product {product.EntityId} has no product prompt.");
+            }
+
+            LocalizedText productPrompt = player.InteractionPrompt;
+            bool productActionAvailable = player.isFocusInteractionAvailable;
+            player.SetInteractionPrompt(
+                LocalizedTexts.Text(
+                    LocalizationKey.PromptProductAndTrolleyActions,
+                    productPrompt),
+                productActionAvailable);
         }
 
         private static void ValidateTrolley(GameEntity player, GameEntity trolley)
@@ -103,7 +179,14 @@ namespace HardwareStore.Gameplay.Features.Interaction.Systems
                 !trolley.hasEntityId || !trolley.hasTrolleyStoreEntityId ||
                 trolley.TrolleyStoreEntityId != player.StoreEntityId ||
                 !trolley.hasTrolleyCapacity ||
-                !trolley.hasOccupiedTrolleySlotCount || trolley.isDestructed)
+                !trolley.hasOccupiedTrolleySlotCount || !trolley.hasSlots ||
+                trolley.TrolleyCapacity <= 0 ||
+                trolley.Slots.Length != trolley.TrolleyCapacity ||
+                trolley.OccupiedTrolleySlotCount < 0 ||
+                trolley.OccupiedTrolleySlotCount > trolley.TrolleyCapacity ||
+                (!trolley.hasTrolleyPusherEntityId && !trolley.isInteractable) ||
+                (trolley.hasTrolleyPusherEntityId && trolley.isInteractable) ||
+                trolley.isDestructed)
             {
                 throw new InvalidOperationException(
                     $"Player {player.EntityId} focuses an invalid platform trolley.");

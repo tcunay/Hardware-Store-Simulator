@@ -13,6 +13,7 @@ namespace HardwareStore.Gameplay.Common.Input
         private InputAction _interact;
         private InputAction _confirm;
         private InputAction _drop;
+        private InputAction _trolley;
         private InputAction _previous;
         private InputAction _next;
         private InputAction _sprint;
@@ -23,6 +24,7 @@ namespace HardwareStore.Gameplay.Common.Input
         public bool InteractPressedThisFrame => _interact.WasPressedThisFrame();
         public bool ConfirmPressedThisFrame => _confirm.WasPressedThisFrame();
         public bool DropPressedThisFrame => _drop.WasPressedThisFrame();
+        public bool TrolleyPressedThisFrame => _trolley.WasPressedThisFrame();
         public bool PreviousPressedThisFrame => _previous.WasPressedThisFrame();
         public bool NextPressedThisFrame => _next.WasPressedThisFrame();
         public bool ToggleCursorPressedThisFrame =>
@@ -37,6 +39,7 @@ namespace HardwareStore.Gameplay.Common.Input
             _interact = _playerMap.FindAction("Interact", true);
             _confirm = _playerMap.FindAction("Confirm", true);
             _drop = _playerMap.FindAction("Drop", true);
+            _trolley = _playerMap.FindAction("Trolley", true);
             _previous = _playerMap.FindAction("Previous", true);
             _next = _playerMap.FindAction("Next", true);
             _sprint = _playerMap.FindAction("Sprint", true);

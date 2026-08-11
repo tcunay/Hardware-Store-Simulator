@@ -2,6 +2,7 @@ using System;
 using System.Linq;
 using Entitas;
 using HardwareStore.Common.Entity;
+using HardwareStore.Gameplay.Common.Economy;
 using HardwareStore.Gameplay.Components;
 using HardwareStore.Gameplay.Configs;
 using HardwareStore.Gameplay.Features.Carrying.Systems;
@@ -23,6 +24,7 @@ using HardwareStore.Gameplay.Features.StorageState;
 using HardwareStore.Gameplay.Features.StoreSceneBindings.Systems;
 using HardwareStore.Gameplay.Features.Trolley.Systems;
 using HardwareStore.Gameplay.Localization;
+using HardwareStore.Gameplay.Presentation;
 using HardwareStore.Gameplay.StaticData;
 using HardwareStore.Infrastructure.States.GameStates;
 using HardwareStore.Infrastructure.States.StateMachine;
@@ -138,7 +140,7 @@ namespace HardwareStore.Editor
                 CustomerProjectTypeId.LumberShelving);
             CustomerProjectConfig mixedProject = runtime.StaticData.GetProject(
                 CustomerProjectTypeId.WorkbenchFoundation);
-            CustomerProjectOfferDefinition cementOffer = cementProject.Offers[0];
+            CustomerProjectOfferDefinition cementOffer = cementProject.Offers[2];
             CustomerProjectOfferDefinition boardOffer = boardProject.Offers[2];
             CustomerProjectOfferDefinition mixedOffer = mixedProject.Offers[1];
             int cementReward = CalculateReward(runtime, cementOffer);
@@ -163,6 +165,10 @@ namespace HardwareStore.Editor
                     CustomerProjectTypeId.WorkbenchFoundation
                 }),
                 "The smoke test requires the stable cement -> lumber -> workbench sequence.");
+            Require(ReferenceEquals(
+                    runtime.ProcurementSolvency,
+                    runtime.EconomySolvency),
+                "Procurement and generic debit evaluation must share one solvency singleton.");
             Require(scenario.Store.NextProjectSequenceIndex == 0,
                 "A fresh store must begin with the first configured project type.");
             Require(runtime.StaticData.CustomerVehicle.CargoCapacity == 3,
@@ -188,39 +194,10 @@ namespace HardwareStore.Editor
                 runtime,
                 scenario,
                 cement,
-                "A delivery was purchased without a current customer visit.");
-
-            CustomerVisit firstVisit = SpawnAndParkCustomer(runtime, scenario);
-            int firstCustomerActorId = firstVisit.Actor.EntityId;
-            Require(firstVisit.Entity.CustomerProjectType ==
-                    CustomerProjectTypeId.CementFoundation &&
-                    scenario.Store.NextProjectSequenceIndex == 1,
-                "The first customer visit did not receive the configured cement project.");
-
-            ValidateRejectedDeliveryPurchase(
-                runtime,
-                scenario,
-                cement,
-                "A delivery was purchased before the cement offer was confirmed.");
-            OpenConsultation(runtime, scenario, firstVisit.Entity);
-            CancelConsultation(runtime, scenario, firstVisit.Entity);
-            OpenConsultation(runtime, scenario, firstVisit.Entity);
-            SelectConsultationOfferWithWraparound(
-                runtime,
-                scenario,
-                firstVisit.Entity,
-                selectedIndex: 0);
-            GameEntity[] firstOrderLines = ConfirmConsultation(
-                runtime, scenario, firstVisit.Entity, cementOffer);
-
-            AttemptOrderAcceptance(runtime, scenario);
-            Require(firstVisit.Entity.isCustomerVisitWaiting,
-                "A customer order was accepted without stock.");
-            ValidateRejectedDeliveryPurchase(
-                runtime,
-                scenario,
                 boards,
-                "A wrong-SKU board delivery was purchased for the cement customer.");
+                ProcurementDemandKind.ProjectForecast,
+                LocalizationKey.NotificationPurchaseWouldBlockForecast,
+                "An unsafe wrong-SKU forecast purchase changed money or delivery state.");
 
             DeliveryArrival firstArrival = PurchaseAndPrepareArrival(
                 runtime,
@@ -228,20 +205,43 @@ namespace HardwareStore.Editor
                 cement,
                 validateModalControls: true);
             Require(scenario.Store.Money == initialMoney - cementDelivery.TotalCost,
-                "The first delivery did not deduct its cost exactly once.");
+                "The no-customer cement pre-purchase did not deduct its cost exactly once.");
             ValidateInboundProductRecovery(runtime, scenario, firstArrival);
             TestCarryDropAndRepick(runtime, scenario, firstArrival.Products[0]);
-            StoreCompleteDelivery(runtime, scenario, firstVisit.Entity, firstArrival);
+            StoreCompleteDelivery(runtime, scenario, null, firstArrival);
             CleanupCompletedDelivery(runtime, scenario, firstArrival);
             ValidatePhysicalStockFocus(runtime, scenario, firstArrival.Products[0]);
             Require(CountStockProducts(runtime.Game, scenario.StorageZone.EntityId, cement) ==
                     cementDelivery.ProductCount,
-                "The cement delivery did not produce the configured typed stock.");
+                "The no-customer pre-purchase did not enter storage.");
+            ValidateTrolleyPurchaseSafetyReserve(runtime, scenario, cement);
 
-            AttemptOrderAcceptance(runtime, scenario);
-            Require(firstVisit.Entity.isCustomerVisitLoading &&
-                    !firstVisit.Entity.isCustomerVisitWaiting,
-                "The first customer visit did not enter loading after acceptance.");
+            CustomerVisit firstVisit = SpawnAndParkCustomer(runtime, scenario);
+            int firstCustomerActorId = firstVisit.Actor.EntityId;
+            Require(firstVisit.Entity.CustomerProjectType ==
+                    CustomerProjectTypeId.CementFoundation &&
+                    scenario.Store.NextProjectSequenceIndex == 1,
+                "The first customer visit did not receive the configured cement project.");
+            Require(GetConsultationOffers(runtime.Game, firstVisit.Entity)
+                        .SelectMany(offer => GetConsultationOfferLines(runtime.Game, offer))
+                        .All(line => line.ProductType == cement &&
+                                     line.AvailableProductCount ==
+                                     cementDelivery.ProductCount),
+                "Pre-purchased cement stock was not counted by the next consultation.");
+
+            OpenConsultation(runtime, scenario, firstVisit.Entity);
+            CancelConsultation(runtime, scenario, firstVisit.Entity);
+            OpenConsultation(runtime, scenario, firstVisit.Entity);
+            SelectConsultationOfferWithWraparound(
+                runtime,
+                scenario,
+                firstVisit.Entity,
+                selectedIndex: 2);
+            GameEntity[] firstOrderLines = ConfirmConsultation(
+                runtime, scenario, firstVisit.Entity, cementOffer);
+
+            Require(firstVisit.Entity.isCustomerVisitLoading,
+                "Confirming the stocked cement offer did not activate its order immediately.");
 
             GameEntity[] firstOutboundProducts = FindStockProducts(runtime.Game,
                     scenario.StorageZone.EntityId)
@@ -250,16 +250,11 @@ namespace HardwareStore.Editor
                 .ToArray();
             Require(firstOutboundProducts.Length == TotalRequiredCount(cementOffer),
                 "The first cycle could not resolve enough stock for its order.");
-            GameEntity quotaProbe = FindStockProducts(runtime.Game,
-                    scenario.StorageZone.EntityId)
-                .First(product => product.ProductType == cement &&
-                                  !ReferenceEquals(product, firstOutboundProducts[0]));
             ValidateStockReservationAndRecovery(
                 runtime,
                 scenario,
                 firstVisit.Entity,
-                firstOutboundProducts[0],
-                quotaProbe);
+                firstOutboundProducts[0]);
             LoadAndRewardCustomerOrder(
                 runtime,
                 scenario,
@@ -282,7 +277,7 @@ namespace HardwareStore.Editor
             Require(CountStockProducts(runtime.Game, scenario.StorageZone.EntityId, cement) ==
                     cementDelivery.ProductCount - cementOrderCount &&
                     CountStockProducts(runtime.Game, scenario.StorageZone.EntityId, boards) == 0,
-                "The economy cement cycle did not leave exactly two cement bags.");
+                "The first cement cycle did not consume the pre-purchased batch exactly.");
 
             CustomerVisit secondVisit = SpawnAndParkCustomer(runtime, scenario);
             Require(secondVisit.Entity.EntityId != firstVisitId,
@@ -299,14 +294,10 @@ namespace HardwareStore.Editor
                         .SelectMany(offer => GetConsultationOfferLines(runtime.Game, offer))
                         .All(line => line.ProductType == boards &&
                                      line.AvailableProductCount == 0) &&
-                    scenario.StorageZone.StorageProductCount == 2,
+                    scenario.StorageZone.StorageProductCount ==
+                    cementDelivery.ProductCount - cementOrderCount,
                 "Wrong-SKU cement stock was counted as available for a board offer.");
 
-            ValidateRejectedDeliveryPurchase(
-                runtime,
-                scenario,
-                boards,
-                "A delivery was purchased before the board offer was confirmed.");
             OpenConsultation(runtime, scenario, secondVisit.Entity);
             SelectConsultationOfferWithWraparound(
                 runtime,
@@ -316,14 +307,47 @@ namespace HardwareStore.Editor
             GameEntity[] secondOrderLines = ConfirmConsultation(
                 runtime, scenario, secondVisit.Entity, boardOffer);
 
-            AttemptOrderAcceptance(runtime, scenario);
-            Require(secondVisit.Entity.isCustomerVisitWaiting &&
-                    !secondVisit.Entity.isCustomerVisitLoading,
-                "The board order was accepted using only wrong-SKU cement stock.");
+            Require(secondVisit.Entity.isCustomerVisitLoading,
+                "Confirming the board offer did not activate loading while stock was pending.");
+
+            ProcurementSnapshot confirmedSnapshot = CaptureProcurementSnapshot(
+                runtime,
+                scenario);
+            ProcurementProductSnapshot safeWrongSkuCard = confirmedSnapshot.Products
+                .Single(product => product.ProductType == cement);
+            ProcurementProductSnapshot requiredSkuCard = confirmedSnapshot.Products
+                .Single(product => product.ProductType == boards);
+            Require(confirmedSnapshot.DemandKind == ProcurementDemandKind.ConfirmedOrder &&
+                    safeWrongSkuCard.PurchaseAvailable &&
+                    safeWrongSkuCard.RemainingRequiredProductCount == 0 &&
+                    safeWrongSkuCard.DeficitProductCount == 0 &&
+                    requiredSkuCard.PurchaseAvailable &&
+                    requiredSkuCard.MinimumRequiredProductCount == boardOrderCount &&
+                    requiredSkuCard.MaximumRequiredProductCount == boardOrderCount &&
+                    requiredSkuCard.RemainingRequiredProductCount == boardOrderCount &&
+                    requiredSkuCard.DeficitProductCount == boardOrderCount,
+                "A solvent active order did not expose exact demand or allow both safe SKUs.");
+            CancelProcurement(runtime, scenario, scenario.Store.Money);
+
+            DeliveryArrival reserveCementArrival = PurchaseAndPrepareArrival(
+                runtime,
+                scenario,
+                cement);
+            Require(scenario.Store.Money ==
+                    initialMoney - cementDelivery.TotalCost + cementReward -
+                    cementDelivery.TotalCost,
+                "A safe active-order purchase of another SKU charged incorrectly.");
+            StoreCompleteDelivery(
+                runtime,
+                scenario,
+                secondVisit.Entity,
+                reserveCementArrival);
+            CleanupCompletedDelivery(runtime, scenario, reserveCementArrival);
 
             DeliveryArrival secondArrival = PurchaseAndPrepareArrival(runtime, scenario, boards);
             Require(scenario.Store.Money ==
                     initialMoney - cementDelivery.TotalCost + cementReward -
+                    cementDelivery.TotalCost -
                     boardDelivery.TotalCost,
                 "The second delivery did not deduct its cost exactly once.");
             TestCarryDropAndRepick(runtime, scenario, secondArrival.Products[0]);
@@ -333,9 +357,8 @@ namespace HardwareStore.Editor
                     boardDelivery.ProductCount,
                 "The board delivery did not produce the configured typed stock.");
 
-            AttemptOrderAcceptance(runtime, scenario);
             Require(secondVisit.Entity.isCustomerVisitLoading,
-                "The second customer visit did not enter loading after replenishment.");
+                "The active board order left loading state during replenishment.");
 
             GameEntity wrongProduct = FindStockProducts(runtime.Game,
                     scenario.StorageZone.EntityId)
@@ -355,11 +378,12 @@ namespace HardwareStore.Editor
                 secondVisit.Entity,
                 secondOutboundProducts);
 
-            int moneyAfterTwoCyclesBeforeTrolley = initialMoney - cementDelivery.TotalCost +
-                                                   cementReward - boardDelivery.TotalCost +
-                                                   boardReward;
+            int moneyAfterTwoCyclesBeforeTrolley = initialMoney -
+                                                   cementDelivery.TotalCost * 2 +
+                                                   cementReward -
+                                                   boardDelivery.TotalCost + boardReward;
             Require(scenario.Store.Money == moneyAfterTwoCyclesBeforeTrolley,
-                "Two cycles did not produce exactly two purchase deductions and two rewards.");
+                "Two cycles did not produce three purchase deductions and two rewards.");
             RegisterRewardedOrderForTrolleyProgression(
                 runtime,
                 scenario,
@@ -371,13 +395,13 @@ namespace HardwareStore.Editor
                                       runtime.StaticData.PlatformTrolley.PurchasePrice;
             Require(scenario.Store.Money == moneyAfterTwoCycles,
                 "The platform trolley purchase did not debit its price exactly once.");
-            int stockAfterTwoCycles = cementDelivery.ProductCount +
+            int stockAfterTwoCycles = cementDelivery.ProductCount * 2 +
                                       boardDelivery.ProductCount -
                                       TotalRequiredCount(cementOffer) -
                                       TotalRequiredCount(boardOffer);
             Require(scenario.StorageZone.StorageProductCount == stockAfterTwoCycles &&
                     CountStockProducts(runtime.Game, scenario.StorageZone.EntityId, cement) ==
-                    cementDelivery.ProductCount - cementOrderCount &&
+                    cementDelivery.ProductCount * 2 - cementOrderCount &&
                     CountStockProducts(runtime.Game, scenario.StorageZone.EntityId, boards) ==
                     boardDelivery.ProductCount - boardOrderCount,
                 "The second customer cycle left an incorrect stock count.");
@@ -386,6 +410,7 @@ namespace HardwareStore.Editor
             DepartAndCleanupCustomer(
                 runtime, scenario, secondVisit, secondOrderLines, secondOutboundProducts);
             ValidateCooldownSafety(runtime, scenario);
+            ValidateNoCustomerTrolleyControls(runtime, scenario, trolley);
 
             CustomerVisit thirdVisit = SpawnAndParkCustomer(runtime, scenario);
             Require(thirdVisit.Entity.CustomerProjectType ==
@@ -404,26 +429,16 @@ namespace HardwareStore.Editor
                     FindOrderLine(thirdOrderLines, boards).RequiredProductCount == 1,
                 "The mixed consultation did not create the C2+B1 order lines.");
 
-            AttemptOrderAcceptance(runtime, scenario);
-            Require(thirdVisit.Entity.isCustomerVisitWaiting &&
-                    !thirdVisit.Entity.isCustomerVisitLoading,
-                "The mixed order was accepted without its missing board line.");
-            ValidateRejectedDeliveryPurchase(
-                runtime,
-                scenario,
-                cement,
-                "A redundant cement delivery was purchased for the already-stocked mixed line.");
-
+            Require(thirdVisit.Entity.isCustomerVisitLoading,
+                "Confirming the mixed offer did not activate its order immediately.");
             DeliveryArrival mixedBoardArrival = PurchaseAndPrepareArrival(
                 runtime, scenario, boards);
             Require(scenario.Store.Money == moneyAfterTwoCycles - boardDelivery.TotalCost,
                 "The mixed cycle board delivery did not deduct its cost exactly once.");
             StoreCompleteDelivery(runtime, scenario, thirdVisit.Entity, mixedBoardArrival);
             CleanupCompletedDelivery(runtime, scenario, mixedBoardArrival);
-            AttemptOrderAcceptance(runtime, scenario);
-            Require(thirdVisit.Entity.isCustomerVisitLoading &&
-                    !thirdVisit.Entity.isCustomerVisitWaiting,
-                "The mixed order did not enter loading after both lines became available.");
+            Require(thirdVisit.Entity.isCustomerVisitLoading,
+                "The active mixed order left loading state during replenishment.");
 
             GameEntity mixedBoard = FindStockProducts(runtime.Game,
                     scenario.StorageZone.EntityId)
@@ -457,7 +472,7 @@ namespace HardwareStore.Editor
                 scenario,
                 trolley,
                 thirdOutboundProducts);
-            ValidatePhysicalTrolleyCargoFocus(
+            ValidateTrolleyCargoInputRouting(
                 runtime,
                 scenario,
                 trolley,
@@ -494,7 +509,7 @@ namespace HardwareStore.Editor
                 "The mixed cycle did not apply one board purchase and one derived reward.");
             int expectedFinalStock = stockAfterTwoCycles + boardDelivery.ProductCount -
                                      TotalRequiredCount(mixedOffer);
-            int expectedFinalCementStock = cementDelivery.ProductCount -
+            int expectedFinalCementStock = cementDelivery.ProductCount * 2 -
                                            cementOrderCount - mixedCementCount;
             int expectedFinalBoardStock = boardDelivery.ProductCount * 2 -
                                           boardOrderCount - mixedBoardCount;
@@ -562,11 +577,14 @@ namespace HardwareStore.Editor
 
             Debug.Log(
                 $"[Hardware Store] Gameplay smoke passed: consultation and procurement modals, " +
-                $"arrow wrap, Enter/Esc and modal input capture, min/max offers, " +
+                $"free forecast prebuy, safety-reserve rejection, arrow wrap, Enter/Esc and " +
+                $"modal input capture, direct order activation, min/max offers, " +
                 $"walking customer NPC lifecycle, two single-SKU cycles and one C2+B1 cycle, " +
-                $"missing-line, redundant-delivery, quota and wrong-SKU rejection, " +
+                $"active-order replenishment and cross-SKU purchase, trolley-debit reserve, quota " +
+                $"and wrong-SKU rejection, " +
                 $"exact-slot product recovery, blocked/safe product drops and both physics flows, " +
-                $"two-order trolley unlock, single purchase, three-slot C2+B1 trolley flow, " +
+                $"two-order trolley unlock, no-customer F attach/detach, E/F cargo routing, " +
+                $"single purchase, three-slot C2+B1 trolley flow, " +
                 $"collision-safe trolley stop/resume, " +
                 $"stock {expectedFinalStock}, balance {expectedFinalMoney:N0} ₽.");
         }
@@ -801,7 +819,8 @@ namespace HardwareStore.Editor
                         LocalizedTexts.Text(LocalizationKey.PromptCounterWaitCustomer)) &&
                     !scenario.Player.isFocusInteractionAvailable,
                 "The order counter does not present the no-customer cooldown state.");
-            scenario.Player.RemoveFocusedEntityId();
+            if (scenario.Player.hasFocusedEntityId)
+                scenario.Player.RemoveFocusedEntityId();
             ExecuteInteractionPrompts(runtime);
         }
 
@@ -933,7 +952,6 @@ namespace HardwareStore.Editor
             ExecuteStorageState(runtime);
             Require(visit.isCustomerVisitConsulting &&
                     !visit.isCustomerVisitArriving &&
-                    !visit.isCustomerVisitWaiting &&
                     !visit.isOrder &&
                     !visit.isRouteCompleted &&
                     !visit.hasRoute &&
@@ -1128,7 +1146,7 @@ namespace HardwareStore.Editor
                     !scenario.Player.hasConsultationVisitEntityId &&
                     !scenario.Player.hasProcurementTerminalEntityId &&
                     visit.isOrder &&
-                    visit.isCustomerVisitWaiting &&
+                    visit.isCustomerVisitLoading &&
                     !visit.isCustomerVisitConsulting &&
                     !visit.hasProductType &&
                     !visit.hasRequiredProductCount &&
@@ -1141,7 +1159,8 @@ namespace HardwareStore.Editor
                                           !offer.hasConsultationOfferVisitEntityId) &&
                     offerLines.All(line => line.isDestructed &&
                                            !line.hasConsultationOfferEntityId),
-                "Confirming an offer did not create the waiting order-line graph.");
+                "Confirming an offer did not activate its loading order-line graph in the " +
+                "same Enter action.");
             for (int lineIndex = 0; lineIndex < orderLines.Length; lineIndex++)
             {
                 CustomerProjectLineDefinition expectedLine = expectedOffer.Lines[lineIndex];
@@ -1157,6 +1176,11 @@ namespace HardwareStore.Editor
                         line.LoadedProductCount == 0,
                     $"Confirmed order line {lineIndex} does not match its offer line.");
             }
+            RequireNotificationKey(runtime, LocalizationKey.NotificationOfferConfirmed);
+            GameEntity[] audioCues = runtime.Game.GetGroup(GameMatcher.AudioCue).GetEntities();
+            Require(audioCues.Length == 1 &&
+                    audioCues[0].AudioCue == AudioCueId.OrderAccepted,
+                "Direct offer confirmation did not emit exactly one order-accepted audio cue.");
             CleanupEvents(runtime);
 
             runtime.Systems.Create<CleanupDestructedEntitiesSystem>().Cleanup();
@@ -1242,6 +1266,28 @@ namespace HardwareStore.Editor
             ProductTypeId productType) =>
             offer.Lines.Single(line => line.ProductType == productType).RequiredCount;
 
+        private static void ResolveForecastDemandRange(
+            CustomerProjectConfig project,
+            ProductTypeId productType,
+            out int minimumRequiredProductCount,
+            out int maximumRequiredProductCount)
+        {
+            minimumRequiredProductCount = int.MaxValue;
+            maximumRequiredProductCount = 0;
+            foreach (CustomerProjectOfferDefinition offer in project.Offers)
+            {
+                CustomerProjectLineDefinition line = offer.Lines.SingleOrDefault(candidate =>
+                    candidate.ProductType == productType);
+                int requiredCount = line?.RequiredCount ?? 0;
+                minimumRequiredProductCount = Math.Min(
+                    minimumRequiredProductCount,
+                    requiredCount);
+                maximumRequiredProductCount = Math.Max(
+                    maximumRequiredProductCount,
+                    requiredCount);
+            }
+        }
+
         private static int CalculateReward(
             Runtime runtime,
             CustomerProjectOfferDefinition offer) =>
@@ -1300,14 +1346,10 @@ namespace HardwareStore.Editor
                 "A new delivery cannot be purchased while another is active.");
 
             OpenProcurement(runtime, scenario);
-            Require(scenario.ProcurementTerminal.SelectedProductType == productType,
-                $"Procurement did not open on the current deficit SKU {productType}.");
             if (validateModalControls)
             {
                 ValidateProcurementModalControls(runtime, scenario);
                 OpenProcurement(runtime, scenario);
-                Require(scenario.ProcurementTerminal.SelectedProductType == productType,
-                    $"Reopened procurement did not restore deficit SKU {productType}.");
             }
             SelectProcurementProduct(runtime, scenario, productType);
             var deliveryConfig = runtime.StaticData.GetDelivery(productType);
@@ -1360,6 +1402,23 @@ namespace HardwareStore.Editor
                 "A successful purchase did not close and release the procurement modal.");
             runtime.Systems.Create<PresentProcurementSystem>().Execute();
             CleanupEvents(runtime);
+
+            scenario.Player.ReplaceFocusedEntityId(
+                scenario.ProcurementTerminal.EntityId);
+            ExecuteInteractionPrompts(runtime);
+            Require(!scenario.Player.isFocusInteractionAvailable &&
+                    PromptMatches(
+                        runtime,
+                        scenario.Player,
+                        LocalizedTexts.Text(
+                            LocalizationKey.PromptDeliveryBeingStocked,
+                            LocalizedTexts.ProductName(productType),
+                            0,
+                            deliveryConfig.ProductCount,
+                            LocalizedTexts.ProductUnit(productType))),
+                "An active delivery did not expose its localized procurement-blocking prompt.");
+            scenario.Player.RemoveFocusedEntityId();
+            ExecuteInteractionPrompts(runtime);
 
             runtime.Systems.Create<BindEntityViewFromPrefabSystem>().Execute();
             EntityBehaviour deliveryView = RequireRuntimeView(
@@ -1415,28 +1474,52 @@ namespace HardwareStore.Editor
         private static void ValidateRejectedDeliveryPurchase(
             Runtime runtime,
             Scenario scenario,
+            ProductTypeId safeProductType,
             ProductTypeId selectedProductType,
+            ProcurementDemandKind expectedDemandKind,
+            LocalizationKey expectedNotificationKey,
             string failureMessage)
         {
-            GameEntity visit = runtime.Game.GetEntityWithCustomerVisitStoreEntityId(
-                scenario.Store.EntityId);
-            bool canOpen = visit != null && visit.isOrder &&
-                           (visit.isCustomerVisitWaiting ||
-                            visit.isCustomerVisitLoading) &&
-                           GetOrderLines(runtime.Game, visit).Any(line =>
-                               line.AvailableProductCount <
-                               line.RequiredProductCount - line.LoadedProductCount);
-            if (!canOpen)
-            {
-                ValidateProcurementOpenRejected(
-                    runtime,
-                    scenario,
-                    failureMessage);
-                return;
-            }
-
             OpenProcurement(runtime, scenario);
             SelectProcurementProduct(runtime, scenario, selectedProductType);
+            ProcurementSnapshot snapshot = CaptureProcurementSnapshot(runtime, scenario);
+            ProcurementProductSnapshot selectedCard = snapshot.Products.Single(product =>
+                product.ProductType == selectedProductType);
+            ProcurementProductSnapshot safeCard = snapshot.Products.Single(product =>
+                product.ProductType == safeProductType);
+            Require(snapshot.DemandKind == expectedDemandKind &&
+                    selectedCard.PurchaseState ==
+                    ProcurementPurchaseState.PlanWouldBecomeUnfulfillable &&
+                    !selectedCard.PurchaseAvailable,
+                "An unsafe purchase did not expose its plan-safety reason in the card.");
+            if (expectedDemandKind == ProcurementDemandKind.ProjectForecast)
+            {
+                CustomerProjectConfig project = runtime.StaticData.GetProject(
+                    snapshot.ProjectType);
+                ResolveForecastDemandRange(
+                    project,
+                    safeProductType,
+                    out int safeMinimum,
+                    out int safeMaximum);
+                ResolveForecastDemandRange(
+                    project,
+                    selectedProductType,
+                    out int selectedMinimum,
+                    out int selectedMaximum);
+                Require(snapshot.ProjectType == CustomerProjectTypeId.CementFoundation &&
+                        safeCard.PurchaseAvailable &&
+                        safeCard.MinimumRequiredProductCount == safeMinimum &&
+                        safeCard.MaximumRequiredProductCount == safeMaximum &&
+                        selectedCard.MinimumRequiredProductCount == selectedMinimum &&
+                        selectedCard.MaximumRequiredProductCount == selectedMaximum &&
+                        safeCard.RemainingRequiredProductCount == 0 &&
+                        safeCard.DeficitProductCount == 0 &&
+                        selectedCard.RemainingRequiredProductCount == 0 &&
+                        selectedCard.DeficitProductCount == 0,
+                    "The no-customer forecast cards did not show safe prebuy availability " +
+                    "and the configured min-max demand.");
+            }
+
             int moneyBefore = scenario.Store.Money;
             scenario.Input.isConfirmPressed = true;
             runtime.Systems.Create<ProcurementFeature>().Execute();
@@ -1448,6 +1531,7 @@ namespace HardwareStore.Editor
                 "purchase request");
             runtime.Systems.Create<PurchaseDeliverySystem>().Execute();
             runtime.Systems.Create<CloseProcurementAfterPurchaseSystem>().Execute();
+            RequireNotificationKey(runtime, expectedNotificationKey);
             Require(runtime.Game.GetEntityWithDeliveryProcurementTerminalEntityId(
                         scenario.ProcurementTerminal.EntityId) == null &&
                     runtime.Game.GetGroup(GameMatcher.Delivery).count == 0 &&
@@ -1459,47 +1543,6 @@ namespace HardwareStore.Editor
                 failureMessage);
             CleanupEvents(runtime);
             CancelProcurement(runtime, scenario, moneyBefore);
-        }
-
-        private static void ValidateProcurementOpenRejected(
-            Runtime runtime,
-            Scenario scenario,
-            string failureMessage)
-        {
-            int moneyBefore = scenario.Store.Money;
-            scenario.Player.ReplaceFocusedEntityId(
-                scenario.ProcurementTerminal.EntityId);
-            ExecuteInteractionPrompts(runtime);
-            Require(scenario.Player.hasInteractionPrompt &&
-                    !scenario.Player.isFocusInteractionAvailable,
-                "An unavailable procurement lifecycle exposed an enabled E prompt.");
-
-            scenario.Input.isInteractPressed = true;
-            runtime.Systems.Create<EmitInteractionRequestSystem>().Execute();
-            runtime.Systems.Create<ProcurementFeature>().Execute();
-            Require(runtime.Game.GetGroup(GameMatcher.InteractionRequest).count == 0 &&
-                    !scenario.Player.isModalOpen &&
-                    !scenario.Player.hasProcurementTerminalEntityId &&
-                    runtime.Game.GetGroup(GameMatcher.Delivery).count == 0 &&
-                    scenario.Store.Money == moneyBefore,
-                failureMessage);
-            CleanupEvents(runtime);
-
-            RequestInteraction(scenario.Player, scenario.ProcurementTerminal);
-            runtime.Systems.Create<ProcurementFeature>().Execute();
-            Require(!scenario.Player.isModalOpen &&
-                    !scenario.Player.hasProcurementTerminalEntityId &&
-                    runtime.Game.GetGroup(GameMatcher.Delivery).count == 0 &&
-                    runtime.Game.GetGroup(GameMatcher.NotificationMessage).count > 0 &&
-                    scenario.Store.Money == moneyBefore,
-                "A synthetic request bypassed the procurement lifecycle guard.");
-            CleanupEvents(runtime);
-
-            if (scenario.Player.hasFocusedEntityId)
-                scenario.Player.RemoveFocusedEntityId();
-            if (scenario.Player.hasFocusedInteractionType)
-                scenario.Player.RemoveFocusedInteractionType();
-            ExecuteInteractionPrompts(runtime);
         }
 
         private static void OpenProcurement(Runtime runtime, Scenario scenario)
@@ -1520,7 +1563,7 @@ namespace HardwareStore.Editor
                         runtime,
                         scenario.Player,
                         LocalizedTexts.Text(LocalizationKey.PromptOpenProcurement)),
-                "An order deficit did not expose the procurement modal prompt.");
+                "A hands-free, delivery-free terminal did not expose the procurement prompt.");
 
             scenario.Input.isInteractPressed = true;
             runtime.Systems.Create<EmitInteractionRequestSystem>().Execute();
@@ -1542,6 +1585,24 @@ namespace HardwareStore.Editor
                 "E must open procurement without purchasing or charging anything.");
             runtime.Systems.Create<PresentProcurementSystem>().Execute();
             CleanupEvents(runtime);
+        }
+
+        private static ProcurementSnapshot CaptureProcurementSnapshot(
+            Runtime runtime,
+            Scenario scenario)
+        {
+            if (!scenario.Player.isModalOpen)
+                OpenProcurement(runtime, scenario);
+
+            var capture = new CaptureHudService();
+            new PresentProcurementSystem(
+                    runtime.Game,
+                    runtime.StaticData,
+                    runtime.ProcurementSolvency,
+                    capture)
+                .Execute();
+            return capture.Procurement ?? throw new InvalidOperationException(
+                "An open procurement modal did not produce a presentation snapshot.");
         }
 
         private static void SelectProcurementProduct(
@@ -1827,25 +1888,20 @@ namespace HardwareStore.Editor
             Runtime runtime,
             Scenario scenario,
             GameEntity visit,
-            GameEntity product,
-            GameEntity quotaProbe)
+            GameEntity product)
         {
             GameEntity orderLine = FindOrderLine(
                 GetOrderLines(runtime.Game, visit),
                 product.ProductType);
             Require(visit.isCustomerVisitLoading &&
-                    orderLine.RequiredProductCount == 1 &&
+                    orderLine.RequiredProductCount > 0 &&
                     orderLine.LoadedProductCount == 0 &&
                     product.isInStock &&
-                    quotaProbe.isInStock &&
-                    product.ProductType == quotaProbe.ProductType &&
-                    product.hasStorageSlotIndex &&
-                    quotaProbe.hasStorageSlotIndex,
-                "Stock recovery requires a one-unit line and two slotted products of its SKU.");
+                    product.hasStorageSlotIndex,
+                "Stock recovery requires an unloaded order line and one slotted product.");
 
             int productId = product.EntityId;
             int storageSlotIndex = product.StorageSlotIndex;
-            int quotaProbeSlotIndex = quotaProbe.StorageSlotIndex;
             int stockCountBefore = scenario.StorageZone.StorageProductCount;
             int productCountBefore = FindProducts(runtime.Game).Length;
             int moneyBefore = scenario.Store.Money;
@@ -1876,26 +1932,6 @@ namespace HardwareStore.Editor
             Require(scenario.StorageZone.StorageProductCount == stockCountBefore &&
                     scenario.StorageZone.OccupiedStorageSlotCount == stockCountBefore,
                 "Loose reserved stock made its storage slot appear free.");
-
-            scenario.Player.ReplaceFocusedEntityId(quotaProbe.EntityId);
-            ExecuteInteractionPrompts(runtime);
-            Require(scenario.Player.hasInteractionPrompt &&
-                    scenario.Player.InteractionPrompt.Key ==
-                    LocalizationKey.PromptOrderLineAlreadyLoaded &&
-                    !scenario.Player.isFocusInteractionAvailable,
-                "An outstanding reservation did not disable the next product's order prompt.");
-            RequestInteraction(scenario.Player, quotaProbe);
-            runtime.Systems.Create<PickUpProductSystem>().Execute();
-            CleanupEvents(runtime);
-            Require(!scenario.Player.isHandsOccupied &&
-                    !quotaProbe.hasCarrierEntityId &&
-                    !quotaProbe.hasReservedStorageSlotIndex &&
-                    !quotaProbe.hasReservedOrderLineEntityId &&
-                    quotaProbe.hasStorageSlotIndex &&
-                    quotaProbe.StorageSlotIndex == quotaProbeSlotIndex &&
-                    runtime.Game.GetEntitiesWithReservedOrderLineEntityId(orderLine.EntityId)
-                        .Single() == product,
-                "A second stock product bypassed the outstanding order-line reservation.");
 
             MoveLooseProductBelowRecoveryBoundary(runtime, product);
             RecoverLostProducts(runtime);
@@ -2182,11 +2218,11 @@ namespace HardwareStore.Editor
                     $"Product {product.EntityId} did not enter storage correctly.");
                 Require(scenario.StorageZone.StorageProductCount == expectedStock &&
                         scenario.StorageZone.OccupiedStorageSlotCount == expectedStock &&
-                        GetOrderLines(runtime.Game, visit).All(line =>
-                            line.AvailableProductCount == CountStockProducts(
-                                runtime.Game,
-                                scenario.StorageZone.EntityId,
-                                line.ProductType)),
+                        (visit == null || GetOrderLines(runtime.Game, visit).All(line =>
+                             line.AvailableProductCount == CountStockProducts(
+                                 runtime.Game,
+                                 scenario.StorageZone.EntityId,
+                                 line.ProductType))),
                     $"Derived storage state is incorrect after product {product.EntityId}.");
 
                 bool isLast = index == arrival.Products.Length - 1;
@@ -2404,6 +2440,56 @@ namespace HardwareStore.Editor
             ExecuteInteractionPrompts(runtime);
         }
 
+        private static void ValidateTrolleyPurchaseSafetyReserve(
+            Runtime runtime,
+            Scenario scenario,
+            ProductTypeId stockedProductType)
+        {
+            PlatformTrolleyConfig config = runtime.StaticData.PlatformTrolley;
+            Require(!scenario.Store.isTrolleyUpgradeUnlocked &&
+                    scenario.Store.CompletedOrderCount == 0 &&
+                    scenario.Store.Money >= config.PurchasePrice &&
+                    CountStockProducts(
+                        runtime.Game,
+                        scenario.StorageZone.EntityId,
+                        stockedProductType) > 0 &&
+                    runtime.Game.GetEntityWithTrolleyStoreEntityId(
+                        scenario.Store.EntityId) == null,
+                "Trolley safety-reserve smoke requires affordable nominal money, " +
+                "pre-purchased stock and no trolley.");
+
+            scenario.Store.isTrolleyUpgradeUnlocked = true;
+            scenario.Player.ReplaceFocusedEntityId(
+                scenario.TrolleyUpgradeTerminal.EntityId);
+            ExecuteInteractionPrompts(runtime);
+            Require(PromptMatches(
+                        runtime,
+                        scenario.Player,
+                        LocalizedTexts.Text(
+                            LocalizationKey.PromptTrolleyPurchaseWouldBlockProjects)) &&
+                    !scenario.Player.isFocusInteractionAvailable,
+                "The trolley prompt did not explain its protected project reserve.");
+
+            int moneyBefore = scenario.Store.Money;
+            RequestInteraction(
+                scenario.Player,
+                scenario.TrolleyUpgradeTerminal);
+            runtime.Systems.Create<PurchasePlatformTrolleySystem>().Execute();
+            RequireNotificationKey(
+                runtime,
+                LocalizationKey.NotificationTrolleyPurchaseWouldBlockProjects);
+            Require(scenario.Store.Money == moneyBefore &&
+                    runtime.Game.GetEntityWithTrolleyStoreEntityId(
+                        scenario.Store.EntityId) == null &&
+                    runtime.Game.GetGroup(GameMatcher.PlatformTrolley).count == 0,
+                "A trolley debit rejected by the project reserve changed money or entities.");
+            CleanupEvents(runtime);
+
+            scenario.Store.isTrolleyUpgradeUnlocked = false;
+            scenario.Player.RemoveFocusedEntityId();
+            ExecuteInteractionPrompts(runtime);
+        }
+
         private static void RegisterRewardedOrderForTrolleyProgression(
             Runtime runtime,
             Scenario scenario,
@@ -2533,6 +2619,100 @@ namespace HardwareStore.Editor
             return trolley;
         }
 
+        private static void ValidateNoCustomerTrolleyControls(
+            Runtime runtime,
+            Scenario scenario,
+            GameEntity trolley)
+        {
+            Require(runtime.Game.GetEntityWithCustomerVisitStoreEntityId(
+                        scenario.Store.EntityId) == null &&
+                    runtime.Game.GetGroup(GameMatcher.Customer).count == 0 &&
+                    !scenario.Player.isHandsOccupied &&
+                    !scenario.Player.isPushingTrolley &&
+                    !trolley.hasTrolleyPusherEntityId &&
+                    trolley.isInteractable,
+                "No-customer trolley controls require cooldown, empty hands and a parked trolley.");
+
+            CharacterController controller = scenario.Player.CharacterController;
+            controller.enabled = false;
+            scenario.Player.Transform.SetPositionAndRotation(
+                new Vector3(0f, 0.02f, -5f),
+                Quaternion.identity);
+            controller.enabled = true;
+            Vector3 parkedPosition = new(0f, 0.01f, -2.6f);
+            trolley.Rigidbody.position = parkedPosition;
+            trolley.Rigidbody.rotation = Quaternion.identity;
+            trolley.Transform.SetPositionAndRotation(parkedPosition, Quaternion.identity);
+            Physics.SyncTransforms();
+
+            scenario.Player.ReplaceFocusedEntityId(trolley.EntityId);
+            ExecuteInteractionPrompts(runtime);
+            Require(scenario.Player.hasFocusedInteractionType &&
+                    scenario.Player.FocusedInteractionType ==
+                    InteractionTypeId.PlatformTrolley &&
+                    PromptMatches(
+                        runtime,
+                        scenario.Player,
+                        LocalizedTexts.Text(
+                            LocalizationKey.PromptPushTrolley,
+                            trolley.OccupiedTrolleySlotCount,
+                            trolley.TrolleyCapacity)) &&
+                    !scenario.Player.isFocusInteractionAvailable,
+                "The single trolley handle point did not expose an F-only push prompt.");
+
+            scenario.Input.isInteractPressed = true;
+            runtime.Systems.Create<EmitInteractionRequestSystem>().Execute();
+            runtime.Systems.Create<StartPushingTrolleySystem>().Execute();
+            Require(runtime.Game.GetGroup(GameMatcher.InteractionRequest).count == 0 &&
+                    !scenario.Player.isHandsOccupied &&
+                    !scenario.Player.isPushingTrolley &&
+                    !trolley.hasTrolleyPusherEntityId,
+                "E attached an empty-handed player to the trolley instead of remaining a " +
+                "world/product action.");
+            CleanupEvents(runtime);
+
+            scenario.Input.isTrolleyPressed = true;
+            runtime.Systems.Create<StartPushingTrolleySystem>().Execute();
+            CleanupEvents(runtime);
+            runtime.Systems.Create<ValidatePlayerHandlingStateSystem>().Execute();
+            runtime.Systems.Create<ValidatePlatformTrolleyStateSystem>().Execute();
+            Require(scenario.Player.isHandsOccupied &&
+                    scenario.Player.isPushingTrolley &&
+                    trolley.hasTrolleyPusherEntityId &&
+                    trolley.TrolleyPusherEntityId == scenario.Player.EntityId &&
+                    runtime.Game.GetEntityWithCustomerVisitStoreEntityId(
+                        scenario.Store.EntityId) == null,
+                "F did not attach the purchased trolley during no-customer cooldown.");
+
+            scenario.Input.isDropPressed = true;
+            runtime.Systems.Create<DetachPushedTrolleySystem>().Execute();
+            Require(scenario.Player.isHandsOccupied &&
+                    scenario.Player.isPushingTrolley &&
+                    trolley.hasTrolleyPusherEntityId,
+                "G detached the trolley even though it is reserved for product drop.");
+            CleanupEvents(runtime);
+
+            scenario.Input.isTrolleyPressed = true;
+            runtime.Systems.Create<DetachPushedTrolleySystem>().Execute();
+            CleanupEvents(runtime);
+            runtime.Systems.Create<ResolveMovementSpeedSystem>().Execute();
+            runtime.Systems.Create<ValidatePlayerHandlingStateSystem>().Execute();
+            runtime.Systems.Create<ValidatePlatformTrolleyStateSystem>().Execute();
+            Require(!scenario.Player.isHandsOccupied &&
+                    !scenario.Player.isPushingTrolley &&
+                    !trolley.hasTrolleyPusherEntityId &&
+                    trolley.isInteractable &&
+                    Mathf.Approximately(
+                        scenario.Player.MovementSpeed,
+                        scenario.Player.WalkSpeed) &&
+                    runtime.Game.GetEntityWithCustomerVisitStoreEntityId(
+                        scenario.Store.EntityId) == null,
+                "The second F press did not detach the trolley cleanly without a customer.");
+            if (scenario.Player.hasFocusedEntityId)
+                scenario.Player.RemoveFocusedEntityId();
+            ExecuteInteractionPrompts(runtime);
+        }
+
         private static void LoadProductOnTrolley(
             Runtime runtime,
             Scenario scenario,
@@ -2621,7 +2801,7 @@ namespace HardwareStore.Editor
                 "Three trolley products did not retain distinct cargo and storage reservations.");
         }
 
-        private static void ValidatePhysicalTrolleyCargoFocus(
+        private static void ValidateTrolleyCargoInputRouting(
             Runtime runtime,
             Scenario scenario,
             GameEntity trolley,
@@ -2629,8 +2809,13 @@ namespace HardwareStore.Editor
         {
             Require(product.hasTrolleyEntityId &&
                     product.TrolleyEntityId == trolley.EntityId &&
-                    product.isInteractable && product.hasColliders,
-                "Physical trolley focus requires interactable cargo.");
+                    product.hasTrolleySlotIndex &&
+                    product.hasReservedStorageSlotIndex &&
+                    product.hasReservedOrderLineEntityId &&
+                    product.isInteractable && product.hasColliders &&
+                    !scenario.Player.isHandsOccupied &&
+                    !trolley.hasTrolleyPusherEntityId,
+                "Trolley input routing requires parked, interactable reserved cargo.");
             Vector3 flatYardPosition = new(0f, 0.01f, -2.6f);
             trolley.Rigidbody.position = flatYardPosition;
             trolley.Rigidbody.rotation = Quaternion.identity;
@@ -2643,6 +2828,11 @@ namespace HardwareStore.Editor
             Transform cameraTransform = scenario.Player.Camera.transform;
             Vector3 originalPosition = cameraTransform.position;
             Quaternion originalRotation = cameraTransform.rotation;
+            int trolleySlotIndex = product.TrolleySlotIndex;
+            int reservedStorageSlotIndex = product.ReservedStorageSlotIndex;
+            int reservedOrderLineEntityId = product.ReservedOrderLineEntityId;
+            int occupiedSlotCount = trolley.OccupiedTrolleySlotCount;
+            int storageProductCount = scenario.StorageZone.StorageProductCount;
 
             try
             {
@@ -2657,12 +2847,140 @@ namespace HardwareStore.Editor
                     scenario.Player.RemoveFocusedInteractionType();
 
                 runtime.Systems.Create<DetectFocusedInteractableSystem>().Execute();
+                runtime.Systems.Create<UpdateFocusHighlightSystem>().Execute();
                 runtime.Systems.Create<ClassifyFocusedInteractionSystem>().Execute();
+                runtime.Systems.Create<InteractionPromptFeature>().Execute();
                 Require(scenario.Player.hasFocusedEntityId &&
                         scenario.Player.FocusedEntityId == product.EntityId &&
                         scenario.Player.hasFocusedInteractionType &&
-                        scenario.Player.FocusedInteractionType == InteractionTypeId.Product,
-                    "Trolley handle focus occluded cargo product focus.");
+                        scenario.Player.FocusedInteractionType == InteractionTypeId.Product &&
+                        scenario.Player.isFocusInteractionAvailable &&
+                        product.isHighlighted &&
+                        PromptMatches(
+                            runtime,
+                            scenario.Player,
+                            LocalizedTexts.Text(
+                                LocalizationKey.PromptProductAndTrolleyActions,
+                                LocalizedTexts.Text(
+                                    LocalizationKey.PromptPickStockProduct,
+                                    LocalizedTexts.ProductName(product.ProductType)))),
+                    "The single trolley point occluded its cargo or replaced the cargo E action.");
+
+                scenario.Input.isTrolleyPressed = true;
+                runtime.Systems.Create<EmitInteractionRequestSystem>().Execute();
+                runtime.Systems.Create<PickUpProductSystem>().Execute();
+                runtime.Systems.Create<StartPushingTrolleySystem>().Execute();
+                Require(scenario.Player.isHandsOccupied &&
+                        scenario.Player.isPushingTrolley &&
+                        !scenario.Player.isCarryingProduct &&
+                        trolley.hasTrolleyPusherEntityId &&
+                        trolley.TrolleyPusherEntityId == scenario.Player.EntityId &&
+                        !product.hasCarrierEntityId &&
+                        product.hasTrolleyEntityId &&
+                        product.TrolleyEntityId == trolley.EntityId &&
+                        product.TrolleySlotIndex == trolleySlotIndex &&
+                        product.ReservedStorageSlotIndex == reservedStorageSlotIndex &&
+                        product.ReservedOrderLineEntityId == reservedOrderLineEntityId &&
+                        !product.isHighlighted &&
+                        !trolley.isHighlighted &&
+                        runtime.Game.GetGroup(GameMatcher.InteractionRequest).count == 0,
+                    "F on trolley cargo picked the product or lost its slot/reservation instead " +
+                    "of attaching the owner trolley.");
+                CleanupEvents(runtime);
+
+                scenario.Input.isTrolleyPressed = true;
+                runtime.Systems.Create<DetachPushedTrolleySystem>().Execute();
+                CleanupEvents(runtime);
+                Require(!scenario.Player.isHandsOccupied &&
+                        !scenario.Player.isPushingTrolley &&
+                        trolley.isInteractable &&
+                        !trolley.hasTrolleyPusherEntityId &&
+                        product.hasTrolleyEntityId &&
+                        product.TrolleyEntityId == trolley.EntityId,
+                    "F cargo-proxy detach changed product ownership.");
+
+                runtime.Systems.Create<DetectFocusedInteractableSystem>().Execute();
+                runtime.Systems.Create<UpdateFocusHighlightSystem>().Execute();
+                runtime.Systems.Create<ClassifyFocusedInteractionSystem>().Execute();
+                runtime.Systems.Create<InteractionPromptFeature>().Execute();
+                Require(scenario.Player.hasFocusedEntityId &&
+                        scenario.Player.FocusedEntityId == product.EntityId &&
+                        scenario.Player.FocusedInteractionType == InteractionTypeId.Product &&
+                        scenario.Player.isFocusInteractionAvailable,
+                    "Cargo product focus was not restored after F detach.");
+
+                scenario.Input.isInteractPressed = true;
+                runtime.Systems.Create<EmitInteractionRequestSystem>().Execute();
+                GameEntity[] productRequests = runtime.Game
+                    .GetGroup(GameMatcher.InteractionRequest)
+                    .GetEntities();
+                Require(productRequests.Length == 1 &&
+                        productRequests[0].SourceEntityId == scenario.Player.EntityId &&
+                        productRequests[0].TargetEntityId == product.EntityId,
+                    "E on trolley cargo did not target the focused product exactly once.");
+                runtime.Systems.Create<PickUpProductSystem>().Execute();
+                runtime.Systems.Create<RefreshTrolleyOccupiedSlotCountSystem>().Execute();
+                ExecuteProductPlacement(runtime);
+                runtime.Systems.Create<FollowHeldProductSystem>().Execute();
+                ExecuteStorageState(runtime);
+                runtime.Systems.Create<ValidatePlatformTrolleyStateSystem>().Execute();
+                runtime.Systems.Create<ValidatePlayerHandlingStateSystem>().Execute();
+                CleanupEvents(runtime);
+                Require(scenario.Player.isHandsOccupied &&
+                        scenario.Player.isCarryingProduct &&
+                        !scenario.Player.isPushingTrolley &&
+                        product.hasCarrierEntityId &&
+                        product.CarrierEntityId == scenario.Player.EntityId &&
+                        !product.hasTrolleyEntityId &&
+                        !product.hasTrolleySlotIndex &&
+                        product.ReservedStorageSlotIndex == reservedStorageSlotIndex &&
+                        product.ReservedOrderLineEntityId == reservedOrderLineEntityId &&
+                        trolley.OccupiedTrolleySlotCount == occupiedSlotCount - 1 &&
+                        scenario.StorageZone.StorageProductCount == storageProductCount,
+                    "E did not pick trolley cargo while preserving its recovery reservations.");
+
+                scenario.Player.ReplaceFocusedEntityId(trolley.EntityId);
+                ExecuteInteractionPrompts(runtime);
+                Require(scenario.Player.FocusedInteractionType ==
+                        InteractionTypeId.PlatformTrolley &&
+                        scenario.Player.isFocusInteractionAvailable &&
+                        PromptMatches(
+                            runtime,
+                            scenario.Player,
+                            LocalizedTexts.Text(
+                                LocalizationKey.PromptPlaceProductOnTrolley,
+                                LocalizedTexts.ProductName(product.ProductType),
+                                occupiedSlotCount - 1,
+                                trolley.TrolleyCapacity)),
+                    "The E-picked product could not be returned to its trolley.");
+                scenario.Input.isInteractPressed = true;
+                runtime.Systems.Create<EmitInteractionRequestSystem>().Execute();
+                GameEntity[] trolleyRequests = runtime.Game
+                    .GetGroup(GameMatcher.InteractionRequest)
+                    .GetEntities();
+                Require(trolleyRequests.Length == 1 &&
+                        trolleyRequests[0].TargetEntityId == trolley.EntityId,
+                    "Returning cargo with E did not target the trolley exactly once.");
+                runtime.Systems.Create<LoadHeldProductOnTrolleySystem>().Execute();
+                runtime.Systems.Create<RefreshTrolleyOccupiedSlotCountSystem>().Execute();
+                ExecuteProductPlacement(runtime);
+                ExecuteStorageState(runtime);
+                runtime.Systems.Create<ValidatePlatformTrolleyStateSystem>().Execute();
+                runtime.Systems.Create<ValidatePlayerHandlingStateSystem>().Execute();
+                CleanupEvents(runtime);
+                Require(!scenario.Player.isHandsOccupied &&
+                        !scenario.Player.isCarryingProduct &&
+                        !product.hasCarrierEntityId &&
+                        product.hasTrolleyEntityId &&
+                        product.TrolleyEntityId == trolley.EntityId &&
+                        product.hasTrolleySlotIndex &&
+                        product.TrolleySlotIndex == trolleySlotIndex &&
+                        product.ReservedStorageSlotIndex == reservedStorageSlotIndex &&
+                        product.ReservedOrderLineEntityId == reservedOrderLineEntityId &&
+                        trolley.OccupiedTrolleySlotCount == occupiedSlotCount &&
+                        product.Transform.parent == trolley.Slots[trolleySlotIndex] &&
+                        scenario.StorageZone.StorageProductCount == storageProductCount,
+                    "E cargo round-trip did not restore the exact trolley slot and reservations.");
             }
             finally
             {
@@ -2672,6 +2990,7 @@ namespace HardwareStore.Editor
                     scenario.Player.RemoveFocusedEntityId();
                 if (scenario.Player.hasFocusedInteractionType)
                     scenario.Player.RemoveFocusedInteractionType();
+                runtime.Systems.Create<UpdateFocusHighlightSystem>().Execute();
             }
         }
 
@@ -2776,10 +3095,16 @@ namespace HardwareStore.Editor
                             LocalizationKey.PromptPushTrolley,
                             trolley.OccupiedTrolleySlotCount,
                             trolley.TrolleyCapacity)) &&
-                    scenario.Player.isFocusInteractionAvailable,
-                "A parked trolley did not expose its push action.");
+                    !scenario.Player.isFocusInteractionAvailable,
+                "A parked trolley did not expose its dedicated F push action.");
 
-            RequestInteraction(scenario.Player, trolley);
+            scenario.Input.isInteractPressed = true;
+            runtime.Systems.Create<EmitInteractionRequestSystem>().Execute();
+            Require(runtime.Game.GetGroup(GameMatcher.InteractionRequest).count == 0,
+                "E emitted a trolley interaction request while empty-handed.");
+            CleanupEvents(runtime);
+
+            scenario.Input.isTrolleyPressed = true;
             runtime.Systems.Create<StartPushingTrolleySystem>().Execute();
             CleanupEvents(runtime);
             runtime.Systems.Create<ValidatePlayerHandlingStateSystem>().Execute();
@@ -2828,8 +3153,13 @@ namespace HardwareStore.Editor
             scenario.Player.isFocusInteractionAvailable = true;
             scenario.Input.isInteractPressed = true;
             runtime.Systems.Create<EmitInteractionRequestSystem>().Execute();
-            Require(runtime.Game.GetGroup(GameMatcher.InteractionRequest).count == 0,
-                "World interaction emitted while the player was pushing the trolley.");
+            runtime.Systems.Create<DetachPushedTrolleySystem>().Execute();
+            Require(runtime.Game.GetGroup(GameMatcher.InteractionRequest).count == 0 &&
+                    scenario.Player.isHandsOccupied &&
+                    scenario.Player.isPushingTrolley &&
+                    trolley.hasTrolleyPusherEntityId &&
+                    trolley.TrolleyPusherEntityId == scenario.Player.EntityId,
+                "E emitted a world request or detached the pushed trolley.");
             CleanupEvents(runtime);
 
             RequestInteraction(scenario.Player, scenario.ProcurementTerminal);
@@ -2847,7 +3177,7 @@ namespace HardwareStore.Editor
                 "Consultation opened while the player was pushing the trolley.");
             CleanupEvents(runtime);
 
-            scenario.Input.isDropPressed = true;
+            scenario.Input.isTrolleyPressed = true;
             runtime.Systems.Create<DetachPushedTrolleySystem>().Execute();
             CleanupEvents(runtime);
             runtime.Systems.Create<ResolveMovementSpeedSystem>().Execute();
@@ -3345,21 +3675,21 @@ namespace HardwareStore.Editor
             Require(PromptMatches(
                         runtime,
                         scenario.Player,
-                        LocalizedTexts.Text(LocalizationKey.PromptOrderCompletedWait)) &&
-                    !scenario.Player.isFocusInteractionAvailable,
-                "Procurement remained available while the customer was returning.");
+                        LocalizedTexts.Text(LocalizationKey.PromptOpenProcurement)) &&
+                    scenario.Player.isFocusInteractionAvailable,
+                "A delivery-free terminal did not stay available while the customer returned.");
 
-            int moneyBeforeRejectedPurchase = scenario.Store.Money;
-            RequestInteraction(scenario.Player, scenario.ProcurementTerminal);
-            runtime.Systems.Create<ProcurementFeature>().Execute();
-            Require(scenario.Store.Money == moneyBeforeRejectedPurchase &&
+            scenario.Player.RemoveFocusedEntityId();
+            ExecuteInteractionPrompts(runtime);
+            int moneyBeforeCatalog = scenario.Store.Money;
+            OpenProcurement(runtime, scenario);
+            ProcurementSnapshot snapshot = CaptureProcurementSnapshot(runtime, scenario);
+            Require(snapshot.DemandKind == ProcurementDemandKind.ProjectForecast &&
+                    scenario.Store.Money == moneyBeforeCatalog &&
                     runtime.Game.GetEntityWithDeliveryProcurementTerminalEntityId(
-                        scenario.ProcurementTerminal.EntityId) == null &&
-                    !scenario.Player.isModalOpen &&
-                    !scenario.Player.hasProcurementTerminalEntityId &&
-                    runtime.Game.GetGroup(GameMatcher.NotificationMessage).count > 0,
-                "A delivery was purchased while the customer was returning.");
-            CleanupEvents(runtime);
+                        scenario.ProcurementTerminal.EntityId) == null,
+                "Returning-customer procurement did not present the upcoming project forecast.");
+            CancelProcurement(runtime, scenario, moneyBeforeCatalog);
 
             Require(!visit.isInteractable,
                 "The loading zone remained interactable while the customer was returning.");
@@ -3367,17 +3697,22 @@ namespace HardwareStore.Editor
             GameEntity stockProduct = FindStockProducts(
                     runtime.Game,
                     scenario.StorageZone.EntityId)
-                .First();
-            scenario.Player.ReplaceFocusedEntityId(stockProduct.EntityId);
-            ExecuteInteractionPrompts(runtime);
-            Require(PromptMatches(
-                        runtime,
-                        scenario.Player,
-                        LocalizedTexts.Text(LocalizationKey.PromptCustomerReturningWait)) &&
-                    !scenario.Player.isFocusInteractionAvailable,
-                "Stock remained available while the customer was returning.");
+                .FirstOrDefault();
+            if (stockProduct != null)
+            {
+                scenario.Player.ReplaceFocusedEntityId(stockProduct.EntityId);
+                ExecuteInteractionPrompts(runtime);
+                Require(PromptMatches(
+                            runtime,
+                            scenario.Player,
+                            LocalizedTexts.Text(
+                                LocalizationKey.PromptCustomerReturningWait)) &&
+                        !scenario.Player.isFocusInteractionAvailable,
+                    "Stock remained available while the customer was returning.");
+            }
 
-            scenario.Player.RemoveFocusedEntityId();
+            if (scenario.Player.hasFocusedEntityId)
+                scenario.Player.RemoveFocusedEntityId();
             ExecuteInteractionPrompts(runtime);
         }
 
@@ -3387,26 +3722,28 @@ namespace HardwareStore.Editor
             GameEntity remainingStock = FindStockProducts(
                     runtime.Game,
                     scenario.StorageZone.EntityId)
-                .First();
+                .FirstOrDefault();
+            if (remainingStock != null)
+            {
+                scenario.Player.ReplaceFocusedEntityId(remainingStock.EntityId);
+                ExecuteInteractionPrompts(runtime);
+                Require(PromptMatches(
+                            runtime,
+                            scenario.Player,
+                            LocalizedTexts.Text(
+                                LocalizationKey.PromptNoCustomerProductNotRequired)) &&
+                        !scenario.Player.isFocusInteractionAvailable,
+                    "Stock remained available during customer cooldown.");
+                scenario.Player.RemoveFocusedEntityId();
 
-            scenario.Player.ReplaceFocusedEntityId(remainingStock.EntityId);
-            ExecuteInteractionPrompts(runtime);
-            Require(PromptMatches(
-                        runtime,
-                        scenario.Player,
-                        LocalizedTexts.Text(
-                            LocalizationKey.PromptNoCustomerProductNotRequired)) &&
-                    !scenario.Player.isFocusInteractionAvailable,
-                "Stock remained available during customer cooldown.");
-            scenario.Player.RemoveFocusedEntityId();
-
-            RequestInteraction(scenario.Player, remainingStock);
-            runtime.Systems.Create<PickUpProductSystem>().Execute();
-            CleanupEvents(runtime);
-            Require(!scenario.Player.isHandsOccupied &&
-                    !remainingStock.hasCarrierEntityId &&
-                    remainingStock.isInStock,
-                "Stock was picked up without a current customer visit.");
+                RequestInteraction(scenario.Player, remainingStock);
+                runtime.Systems.Create<PickUpProductSystem>().Execute();
+                CleanupEvents(runtime);
+                Require(!scenario.Player.isHandsOccupied &&
+                        !remainingStock.hasCarrierEntityId &&
+                        remainingStock.isInStock,
+                    "Stock was picked up without a current customer visit.");
+            }
 
             float cooldown = scenario.Store.CustomerCooldownRemaining;
             runtime.Systems.Create<SpawnCustomerVisitSystem>().Execute();
@@ -3433,29 +3770,6 @@ namespace HardwareStore.Editor
                     product.CarrierEntityId == scenario.Player.EntityId &&
                     !product.isProductPlacementDirty,
                 $"Product {product.EntityId} was not assigned to the player carrier.");
-        }
-
-        private static void AttemptOrderAcceptance(Runtime runtime, Scenario scenario)
-        {
-            ExecuteStorageState(runtime);
-            GameEntity visit = runtime.Game.GetEntityWithCustomerVisitStoreEntityId(
-                scenario.Store.EntityId);
-            Require(visit != null && visit.isCustomerVisitWaiting,
-                "Order acceptance smoke requires a waiting customer visit.");
-            int missingLineCount = GetOrderLines(runtime.Game, visit)
-                .Count(line => line.AvailableProductCount < line.RequiredProductCount);
-            LocalizationKey expectedNotificationKey = missingLineCount switch
-            {
-                0 => LocalizationKey.NotificationOrderAccepted,
-                1 => LocalizationKey.NotificationOrderStockMissingOne,
-                2 => LocalizationKey.NotificationOrderStockMissingTwo,
-                _ => throw new InvalidOperationException(
-                    "The prototype order cannot contain more than two missing lines.")
-            };
-            RequestInteraction(scenario.Player, scenario.OrderCounter);
-            runtime.Systems.Create<AcceptOrderSystem>().Execute();
-            RequireNotificationKey(runtime, expectedNotificationKey);
-            CleanupEvents(runtime);
         }
 
         private static void ExecuteStorageState(Runtime runtime) =>
@@ -3522,6 +3836,19 @@ namespace HardwareStore.Editor
                         LocalizationKey.NotificationProductDropBlocked)) ==
                     "Недостаточно места, чтобы бросить товар",
                 "Russian collision-safe drop localization did not preserve its zero-argument text.");
+            Require(localization.Resolve(LocalizedTexts.Text(
+                        LocalizationKey.ProcurementStatusPlanWouldBlockForecast)) ==
+                    "Не хватит денег или мест на складе для ближайших проектов" &&
+                    localization.Resolve(LocalizedTexts.Text(
+                        LocalizationKey.NotificationPurchaseWouldBlockOrder)) ==
+                    "Покупка отменена: не хватит денег или мест для заказа и ближайших проектов" &&
+                    localization.Resolve(LocalizedTexts.Text(
+                        LocalizationKey.PromptTrolleyPurchaseWouldBlockProjects)) ==
+                    "Покупка недоступна: деньги нужны для ближайших проектов" &&
+                    localization.Resolve(LocalizedTexts.Text(
+                        LocalizationKey.NotificationTrolleyPurchaseWouldBlockProjects)) ==
+                    "Покупка тележки отменена: деньги нужны для ближайших проектов",
+                "Russian project-reserve localization changed or gained arguments.");
         }
 
         private static ILocalizationService CreateRussianLocalization()
@@ -3582,6 +3909,8 @@ namespace HardwareStore.Editor
                 container.Resolve<ISystemFactory>(),
                 container.Resolve<IGameStateMachine>(),
                 container.Resolve<IStaticDataService>(),
+                container.Resolve<IProcurementSolvencyService>(),
+                container.Resolve<IEconomySolvencyService>(),
                 container.Resolve<ILocalizationService>());
         }
 
@@ -3705,6 +4034,8 @@ namespace HardwareStore.Editor
                 ISystemFactory systems,
                 IGameStateMachine stateMachine,
                 IStaticDataService staticData,
+                IProcurementSolvencyService procurementSolvency,
+                IEconomySolvencyService economySolvency,
                 ILocalizationService localization)
             {
                 Game = game;
@@ -3712,6 +4043,8 @@ namespace HardwareStore.Editor
                 Systems = systems;
                 StateMachine = stateMachine;
                 StaticData = staticData;
+                ProcurementSolvency = procurementSolvency;
+                EconomySolvency = economySolvency;
                 Localization = localization;
             }
 
@@ -3720,7 +4053,25 @@ namespace HardwareStore.Editor
             public ISystemFactory Systems { get; }
             public IGameStateMachine StateMachine { get; }
             public IStaticDataService StaticData { get; }
+            public IProcurementSolvencyService ProcurementSolvency { get; }
+            public IEconomySolvencyService EconomySolvency { get; }
             public ILocalizationService Localization { get; }
+        }
+
+        private sealed class CaptureHudService : IHudService
+        {
+            public ProcurementSnapshot? Procurement { get; private set; }
+
+            public void Present(HudSnapshot snapshot)
+            {
+            }
+
+            public void PresentConsultation(ConsultationSnapshot? snapshot)
+            {
+            }
+
+            public void PresentProcurement(ProcurementSnapshot? snapshot) =>
+                Procurement = snapshot;
         }
 
         private readonly struct Scenario
