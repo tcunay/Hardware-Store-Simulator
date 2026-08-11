@@ -48,14 +48,13 @@ namespace HardwareStore.Gameplay.Features.Presentation.Systems
             ProductTypeId deliveryProductType = hasActiveDelivery
                 ? delivery.ProductType
                 : procurementTerminal.SelectedProductType;
-            ProductConfig deliveryProduct = _staticData.GetProduct(deliveryProductType);
             int deliveryStockedCount = hasActiveDelivery ? delivery.StockedProductCount : 0;
             int deliveryProductCount = hasActiveDelivery
                 ? delivery.DeliveryProductCount
                 : _staticData.GetDelivery(deliveryProductType).ProductCount;
 
             HudOrderState orderState = HudOrderState.NoCustomer;
-            string projectTitle = string.Empty;
+            CustomerProjectTypeId? projectType = null;
             OrderLineSnapshot[] orderLines = Array.Empty<OrderLineSnapshot>();
             int totalAvailableProductCount = 0;
             int totalLoadedProductCount = 0;
@@ -66,7 +65,7 @@ namespace HardwareStore.Gameplay.Features.Presentation.Systems
             {
                 ValidateVisit(customerVisit);
                 orderState = ResolveOrderState(customerVisit);
-                projectTitle = customerVisit.CustomerProjectTitle;
+                projectType = customerVisit.CustomerProjectType;
                 bool lifecycleRequiresOrder = orderState is not (
                     HudOrderState.Arriving or HudOrderState.Consulting);
                 if (customerVisit.isOrder != lifecycleRequiresOrder)
@@ -97,18 +96,17 @@ namespace HardwareStore.Gameplay.Features.Presentation.Systems
                 }
             }
 
-            string carriedProductDisplayName = string.Empty;
+            ProductTypeId? carriedProductType = null;
             if (player.isHandsOccupied)
             {
                 GameEntity carriedProduct =
                     _gameContext.GetEntityWithCarrierEntityId(player.EntityId);
-                carriedProductDisplayName =
-                    _staticData.GetProduct(carriedProduct.ProductType).DisplayName;
+                carriedProductType = carriedProduct.ProductType;
             }
 
             _hud.Present(new HudSnapshot(
                 orderState,
-                projectTitle,
+                projectType,
                 orderLines,
                 totalAvailableProductCount,
                 totalLoadedProductCount,
@@ -117,12 +115,10 @@ namespace HardwareStore.Gameplay.Features.Presentation.Systems
                 storageZone.StorageProductCount,
                 hasActiveDelivery,
                 deliveryProductType,
-                deliveryProduct.DisplayName,
-                deliveryProduct.UnitLabel,
                 deliveryStockedCount,
                 deliveryProductCount,
-                carriedProductDisplayName,
-                player.hasInteractionPrompt ? player.InteractionPrompt : string.Empty,
+                carriedProductType,
+                player.hasInteractionPrompt ? player.InteractionPrompt : null,
                 player.hasFocusedEntityId,
                 player.isFocusInteractionAvailable,
                 player.isHandsOccupied,
@@ -142,7 +138,6 @@ namespace HardwareStore.Gameplay.Features.Presentation.Systems
             for (int index = 0; index < lines.Length; index++)
             {
                 GameEntity line = lines[index];
-                ProductConfig product = _staticData.GetProduct(line.ProductType);
                 totalAvailableProductCount = checked(
                     totalAvailableProductCount +
                     Math.Min(line.AvailableProductCount, line.RequiredProductCount));
@@ -153,8 +148,6 @@ namespace HardwareStore.Gameplay.Features.Presentation.Systems
                 snapshots[index] = new OrderLineSnapshot(
                     line.LineIndex,
                     line.ProductType,
-                    product.DisplayName,
-                    product.UnitLabel,
                     line.AvailableProductCount,
                     line.LoadedProductCount,
                     line.RequiredProductCount);
@@ -167,8 +160,7 @@ namespace HardwareStore.Gameplay.Features.Presentation.Systems
         {
             ValidateSingleLifecycleState(visit);
             if (!visit.isCustomerVisit || !visit.hasEntityId ||
-                !visit.hasCustomerProjectType || !visit.hasCustomerProjectTitle ||
-                !visit.hasCustomerRequest)
+                !visit.hasCustomerProjectType)
             {
                 throw new InvalidOperationException(
                     "The HUD requires a fully configured customer project visit.");

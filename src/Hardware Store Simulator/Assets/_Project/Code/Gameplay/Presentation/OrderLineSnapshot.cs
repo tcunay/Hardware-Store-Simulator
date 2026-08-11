@@ -6,7 +6,6 @@ namespace HardwareStore.Gameplay.Presentation
     public readonly struct OrderLineSnapshot
     {
         public OrderLineSnapshot(int lineIndex, ProductTypeId productType,
-            string productDisplayName, string productUnitLabel,
             int availableProductCount, int loadedProductCount,
             int requiredProductCount)
         {
@@ -23,10 +22,6 @@ namespace HardwareStore.Gameplay.Presentation
 
             LineIndex = lineIndex;
             ProductType = productType;
-            ProductDisplayName = productDisplayName ??
-                                 throw new ArgumentNullException(nameof(productDisplayName));
-            ProductUnitLabel = productUnitLabel ??
-                               throw new ArgumentNullException(nameof(productUnitLabel));
             AvailableProductCount = availableProductCount;
             LoadedProductCount = loadedProductCount;
             RequiredProductCount = requiredProductCount;
@@ -34,8 +29,6 @@ namespace HardwareStore.Gameplay.Presentation
 
         public int LineIndex { get; }
         public ProductTypeId ProductType { get; }
-        public string ProductDisplayName { get; }
-        public string ProductUnitLabel { get; }
         public int AvailableProductCount { get; }
         public int LoadedProductCount { get; }
         public int RequiredProductCount { get; }

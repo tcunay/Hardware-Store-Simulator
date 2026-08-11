@@ -1,22 +1,18 @@
 using System;
 using Entitas;
 using HardwareStore.Gameplay.Components;
-using HardwareStore.Gameplay.Configs;
-using HardwareStore.Gameplay.StaticData;
+using HardwareStore.Gameplay.Localization;
 
 namespace HardwareStore.Gameplay.Features.Interaction.Systems
 {
     public sealed class ResolveProcurementTerminalPromptSystem : IExecuteSystem
     {
         private readonly GameContext _gameContext;
-        private readonly IStaticDataService _staticData;
         private readonly IGroup<GameEntity> _players;
 
-        public ResolveProcurementTerminalPromptSystem(GameContext gameContext,
-            IStaticDataService staticData)
+        public ResolveProcurementTerminalPromptSystem(GameContext gameContext)
         {
             _gameContext = gameContext;
-            _staticData = staticData;
             _players = gameContext.GetGroup(GameMatcher.AllOf(
                 GameMatcher.Player,
                 GameMatcher.StoreEntityId,
@@ -42,7 +38,7 @@ namespace HardwareStore.Gameplay.Features.Interaction.Systems
                 if (player.isHandsOccupied)
                 {
                     player.SetInteractionPrompt(
-                        "Освободите руки, чтобы открыть каталог закупок",
+                        LocalizedTexts.Text(LocalizationKey.PromptFreeHandsForProcurement),
                         false);
                     continue;
                 }
@@ -55,12 +51,13 @@ namespace HardwareStore.Gameplay.Features.Interaction.Systems
                         terminal.EntityId);
                 if (delivery != null)
                 {
-                    ProductConfig deliveredProduct =
-                        _staticData.GetProduct(delivery.ProductType);
                     player.SetInteractionPrompt(
-                        $"Поставка принимается • товар: {deliveredProduct.DisplayName} • " +
-                        $"принято: {delivery.StockedProductCount}/" +
-                        $"{delivery.DeliveryProductCount} {deliveredProduct.UnitLabel}",
+                        LocalizedTexts.Text(
+                            LocalizationKey.PromptDeliveryBeingStocked,
+                            LocalizedTexts.ProductName(delivery.ProductType),
+                            delivery.StockedProductCount,
+                            delivery.DeliveryProductCount,
+                            LocalizedTexts.ProductUnit(delivery.ProductType)),
                         false);
                     continue;
                 }
@@ -70,7 +67,7 @@ namespace HardwareStore.Gameplay.Features.Interaction.Systems
                 if (customerVisit == null)
                 {
                     player.SetInteractionPrompt(
-                        "Ожидайте клиента — поставка выбирается под заказ",
+                        LocalizedTexts.Text(LocalizationKey.PromptWaitForCustomer),
                         false);
                     continue;
                 }
@@ -80,7 +77,7 @@ namespace HardwareStore.Gameplay.Features.Interaction.Systems
                     customerVisit.isCustomerVisitDeparting)
                 {
                     player.SetInteractionPrompt(
-                        "Заказ выполнен — дождитесь следующего клиента",
+                        LocalizedTexts.Text(LocalizationKey.PromptOrderCompletedWait),
                         false);
                     continue;
                 }
@@ -90,8 +87,10 @@ namespace HardwareStore.Gameplay.Features.Interaction.Systems
                 {
                     player.SetInteractionPrompt(
                         customerVisit.isCustomerVisitArriving
-                            ? "Клиент прибывает — дождитесь начала консультации"
-                            : "Сначала согласуйте предложение с клиентом у стойки",
+                            ? LocalizedTexts.Text(
+                                LocalizationKey.PromptArrivingWaitForConsultation)
+                            : LocalizedTexts.Text(
+                                LocalizationKey.PromptConsultAtCounterFirst),
                         false);
                     continue;
                 }
@@ -107,13 +106,13 @@ namespace HardwareStore.Gameplay.Features.Interaction.Systems
                 if (!HasOrderDeficit(customerVisit))
                 {
                     player.SetInteractionPrompt(
-                        "Запаса для текущего заказа достаточно",
+                        LocalizedTexts.Text(LocalizationKey.PromptStockSufficient),
                         false);
                     continue;
                 }
 
                 player.SetInteractionPrompt(
-                    "E — открыть каталог закупок",
+                    LocalizedTexts.Text(LocalizationKey.PromptOpenProcurement),
                     true);
             }
         }

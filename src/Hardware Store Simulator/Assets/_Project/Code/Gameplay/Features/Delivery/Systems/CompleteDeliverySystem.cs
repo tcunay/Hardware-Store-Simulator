@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using Entitas;
 using HardwareStore.Gameplay.Components;
 using HardwareStore.Gameplay.Factories;
+using HardwareStore.Gameplay.Localization;
 
 namespace HardwareStore.Gameplay.Features.Delivery.Systems
 {
@@ -38,7 +39,8 @@ namespace HardwareStore.Gameplay.Features.Delivery.Systems
                 delivery.RemoveDeliveryProcurementTerminalEntityId();
                 delivery.isDeliveryActive = false;
                 delivery.isDeliveryCompleted = true;
-                _events.EmitNotification("Поставка полностью принята на склад");
+                _events.EmitNotification(LocalizedTexts.Text(
+                    LocalizationKey.NotificationDeliveryCompleted));
                 _events.EmitAudio(AudioCueId.DeliveryCompleted);
                 delivery.isDestructed = true;
             }

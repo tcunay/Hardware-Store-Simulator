@@ -1,5 +1,6 @@
 using HardwareStore.Common.Entity;
 using HardwareStore.Gameplay.Components;
+using HardwareStore.Gameplay.Localization;
 
 namespace HardwareStore.Gameplay.Factories
 {
@@ -8,7 +9,7 @@ namespace HardwareStore.Gameplay.Factories
         public void EmitAudio(AudioCueId cue) => CreateEntity.Empty()
             .AddAudioCue(cue);
 
-        public void EmitNotification(string message) => CreateEntity.Empty()
+        public void EmitNotification(LocalizedText message) => CreateEntity.Empty()
             .AddNotificationMessage(message);
     }
 }

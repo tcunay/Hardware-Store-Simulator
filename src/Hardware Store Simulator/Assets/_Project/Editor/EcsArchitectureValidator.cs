@@ -10,6 +10,7 @@ using HardwareStore.Gameplay.Components;
 using HardwareStore.Gameplay.Configs;
 using HardwareStore.Gameplay.Factories;
 using HardwareStore.Gameplay.Features.Customers.Systems;
+using HardwareStore.Gameplay.Localization;
 using HardwareStore.Gameplay.Presentation;
 using HardwareStore.Gameplay.Registrars;
 using HardwareStore.Gameplay.Scene;
@@ -204,6 +205,7 @@ namespace HardwareStore.Editor
             ValidateStoreArchitecture(componentTypes);
             ValidateEntityViewBindingBoundary(runtimeTypes, componentTypes);
             ValidateEntityIndices(runtimeTypes, componentTypes);
+            ValidateLocalizationArchitecture(runtimeTypes, componentTypes);
             ValidateConsultationArchitecture(runtimeTypes, componentTypes);
             ValidateProcurementArchitecture(runtimeTypes, componentTypes);
             ValidateGameplayConfigBoundary(runtimeTypes);
@@ -762,9 +764,14 @@ namespace HardwareStore.Editor
                 "isLoadingZone = true",
                 "AddCustomerVisitStoreEntityId",
                 "AddCustomerProjectType",
-                "AddCustomerProjectTitle",
-                "AddCustomerRequest",
                 "_consultationOffers.CreateOffers");
+            Require(!customerVisitFactorySource.Contains(
+                        "AddCustomerProjectTitle",
+                        StringComparison.Ordinal) &&
+                    !customerVisitFactorySource.Contains(
+                        "AddCustomerRequest",
+                        StringComparison.Ordinal),
+                "Customer visits must keep semantic project identity instead of localized text.");
             Require(!customerVisitFactorySource.Contains(
                     "_orderFactory",
                     StringComparison.Ordinal),
@@ -809,8 +816,6 @@ namespace HardwareStore.Editor
                 "AddConsultationOfferVisitEntityId",
                 "AddConsultationOfferEntityId",
                 "AddOfferIndex",
-                "AddOfferTitle",
-                "AddOfferDescription",
                 "AddLineIndex",
                 "AddProductType",
                 "AddRequiredProductCount",
@@ -819,6 +824,13 @@ namespace HardwareStore.Editor
                 "isConsultationOffer = true",
                 "isConsultationOfferLine = true",
                 "isSelectedConsultationOffer");
+            Require(!consultationOfferFactorySource.Contains(
+                        "AddOfferTitle",
+                        StringComparison.Ordinal) &&
+                    !consultationOfferFactorySource.Contains(
+                        "AddOfferDescription",
+                        StringComparison.Ordinal),
+                "Consultation offers must keep semantic indices instead of localized text.");
             Require(!consultationOfferFactorySource.Contains(
                         "offer.AddProductType",
                         StringComparison.Ordinal) &&
@@ -943,6 +955,219 @@ namespace HardwareStore.Editor
                 "isDestructed = true");
         }
 
+        private static void ValidateLocalizationArchitecture(Type[] runtimeTypes,
+            Type[] componentTypes)
+        {
+            Require(typeof(ILocalizationService).IsAssignableFrom(typeof(LocalizationService)),
+                $"{nameof(LocalizationService)} must implement {nameof(ILocalizationService)}.");
+            Require(typeof(ILocalizationCatalog).IsAssignableFrom(
+                    typeof(RussianLocalizationCatalog)),
+                $"{nameof(RussianLocalizationCatalog)} must implement " +
+                $"{nameof(ILocalizationCatalog)}.");
+
+            ILocalizationCatalog catalog = new RussianLocalizationCatalog();
+            var localization = new LocalizationService(new[] { catalog });
+            try
+            {
+                localization.Load(LanguageId.Russian);
+            }
+            catch (Exception exception)
+            {
+                throw new InvalidOperationException(
+                    "ECS architecture validation failed: the Russian localization catalog " +
+                    "must load with exact key coverage and valid argument arity.",
+                    exception);
+            }
+
+            LocalizationKey[] expectedKeys = Enum.GetValues(typeof(LocalizationKey))
+                .Cast<LocalizationKey>()
+                .Where(key => key != LocalizationKey.None)
+                .ToArray();
+            string[] localizationKeyNames = Enum.GetNames(typeof(LocalizationKey));
+            int[] localizationKeyValues = localizationKeyNames
+                .Select(name => (int)Enum.Parse(typeof(LocalizationKey), name))
+                .ToArray();
+            Require(localizationKeyValues.Distinct().Count() ==
+                    localizationKeyValues.Length,
+                $"Every {nameof(LocalizationKey)} member must have a unique stable value.");
+            (string Prefix, int Minimum, int Maximum)[] expectedKeyRanges =
+            {
+                ("Product", 100, 199),
+                ("Project", 200, 299),
+                ("Hud", 1000, 1099),
+                ("ProcurementStatus", 1100, 1199),
+                ("Prompt", 2000, 2999),
+                ("Notification", 3000, 3999),
+                ("World", 4000, 4999)
+            };
+            foreach (LocalizationKey key in expectedKeys)
+            {
+                (string prefix, int minimum, int maximum) = expectedKeyRanges.Single(
+                    range => key.ToString().StartsWith(
+                        range.Prefix, StringComparison.Ordinal));
+                int numericValue = (int)key;
+                Require(numericValue >= minimum && numericValue <= maximum,
+                    $"{nameof(LocalizationKey)}.{key} must stay in the {prefix} range " +
+                    $"{minimum}-{maximum}.");
+            }
+
+            string localizationKeySource = ReadRuntimeSource(
+                "Gameplay", "Localization", nameof(LocalizationKey) + ".cs");
+            foreach (string memberName in localizationKeyNames)
+            {
+                Require(Regex.IsMatch(
+                        localizationKeySource,
+                        $@"^\s*{Regex.Escape(memberName)}\s*=\s*-?\d+\s*,?\s*$",
+                        RegexOptions.Multiline),
+                    $"{nameof(LocalizationKey)}.{memberName} must declare an explicit stable " +
+                    "numeric initializer.");
+            }
+            Require(catalog.Language == LanguageId.Russian &&
+                    catalog.Culture.Name == "ru-RU" &&
+                    localization.Language == LanguageId.Russian &&
+                    localization.Culture.Name == "ru-RU",
+                "The initial localization catalog must expose the Russian language and ru-RU culture.");
+            Require(catalog.Entries.Count == expectedKeys.Length &&
+                    catalog.Entries.Select(entry => entry.Key).Distinct().Count() ==
+                    expectedKeys.Length &&
+                    new HashSet<LocalizationKey>(catalog.Entries.Select(entry => entry.Key))
+                        .SetEquals(expectedKeys),
+                "The Russian localization catalog must cover every non-None LocalizationKey " +
+                "exactly once.");
+
+            var mappedSemanticTexts = new List<LocalizedText>();
+            foreach (ProductTypeId productType in ExpectedProductTypes)
+            {
+                mappedSemanticTexts.Add(LocalizedTexts.ProductName(productType));
+                Require(LocalizedTexts.ProductUnit(productType).Key ==
+                        LocalizationKey.ProductPieceUnit,
+                    $"{nameof(LocalizedTexts)} must map every current product to its semantic unit.");
+            }
+            foreach (CustomerProjectTypeId projectType in ExpectedProjectTypes)
+            {
+                mappedSemanticTexts.Add(LocalizedTexts.ProjectTitle(projectType));
+                mappedSemanticTexts.Add(LocalizedTexts.ProjectRequest(projectType));
+                for (int offerIndex = 0; offerIndex < 3; offerIndex++)
+                {
+                    mappedSemanticTexts.Add(
+                        LocalizedTexts.OfferTitle(projectType, offerIndex));
+                    mappedSemanticTexts.Add(
+                        LocalizedTexts.OfferDescription(projectType, offerIndex));
+                }
+            }
+            Require(mappedSemanticTexts.Select(text => text.Key).Distinct().Count() ==
+                    mappedSemanticTexts.Count &&
+                    mappedSemanticTexts.All(text =>
+                        !string.IsNullOrWhiteSpace(localization.Resolve(text))),
+                $"{nameof(LocalizedTexts)} must map each semantic product/project/offer identity " +
+                "to one resolvable catalog entry.");
+
+            Type[] localizedMessageComponents =
+            {
+                typeof(InteractionPrompt),
+                typeof(NotificationMessage)
+            };
+            foreach (Type componentType in localizedMessageComponents)
+            {
+                Require(componentTypes.Contains(componentType),
+                    $"{componentType.Name} must remain an ECS component.");
+                FieldInfo valueField = componentType.GetField(
+                    "Value", BindingFlags.Instance | BindingFlags.Public);
+                Require(valueField?.FieldType == typeof(LocalizedText),
+                    $"{componentType.Name}.Value must carry {nameof(LocalizedText)}, not a " +
+                    "resolved presentation string.");
+            }
+
+            string[] forbiddenContentComponentNames =
+            {
+                "CustomerProjectTitle",
+                "GameCustomerProjectTitleComponent",
+                "CustomerRequest",
+                "GameCustomerRequestComponent",
+                "OfferTitle",
+                "GameOfferTitleComponent",
+                "OfferDescription",
+                "GameOfferDescriptionComponent"
+            };
+            Require(!runtimeTypes.Any(type => forbiddenContentComponentNames.Contains(
+                        type.Name, StringComparer.Ordinal)),
+                "Localized project and offer content must not be duplicated in ECS components.");
+
+            RequireNoDeclaredMembers(
+                typeof(ProductConfig),
+                "DisplayName", "UnitLabel", "_displayName", "_unitLabel");
+            RequireNoDeclaredMembers(
+                typeof(CustomerProjectConfig),
+                "ProjectTitle", "Request", "_title", "_request");
+            RequireNoDeclaredMembers(
+                typeof(CustomerProjectOfferDefinition),
+                "OfferTitle", "Description", "_title", "_description");
+
+            Type[] semanticSnapshotTypes =
+            {
+                typeof(OrderLineSnapshot),
+                typeof(ConsultationOfferLineSnapshot),
+                typeof(ConsultationOfferSnapshot),
+                typeof(ConsultationSnapshot),
+                typeof(ProcurementProductSnapshot),
+                typeof(ProcurementSnapshot),
+                typeof(HudSnapshot)
+            };
+            foreach (Type snapshotType in semanticSnapshotTypes)
+            {
+                PropertyInfo[] properties = snapshotType.GetProperties(
+                    BindingFlags.Instance | BindingFlags.Public | BindingFlags.DeclaredOnly);
+                Require(properties.All(property => property.PropertyType != typeof(string)),
+                    $"{snapshotType.Name} must expose semantic identities and values instead " +
+                    "of resolved strings.");
+            }
+            Require(typeof(HudSnapshot).GetProperty(nameof(HudSnapshot.Prompt))?.PropertyType ==
+                    typeof(LocalizedText),
+                $"{nameof(HudSnapshot)}.{nameof(HudSnapshot.Prompt)} must preserve its " +
+                "localization key and arguments until presentation.");
+
+            string bootstrapInstallerSource = ReadRuntimeSource(
+                "Infrastructure", "Installers", nameof(BootstrapInstaller) + ".cs");
+            RequireSourceContains(bootstrapInstallerSource,
+                "Bind<ILocalizationCatalog>().To<RussianLocalizationCatalog>().AsSingle()",
+                "BindInterfacesAndSelfTo<LocalizationService>().AsSingle()");
+            string bootstrapStateSource = ReadRuntimeSource(
+                "Infrastructure", "States", "GameStates", "BootstrapState.cs");
+            int localizationLoad = bootstrapStateSource.IndexOf(
+                "_localization.Load(LanguageId.Russian)", StringComparison.Ordinal);
+            int staticDataLoad = bootstrapStateSource.IndexOf(
+                "_staticData.LoadAll()", StringComparison.Ordinal);
+            Require(localizationLoad >= 0 && staticDataLoad > localizationLoad,
+                "BootstrapState must load localization before static gameplay data.");
+
+            string localizedWorldViewSource = ReadRuntimeSource(
+                "Gameplay", "Presentation", nameof(LocalizedTextMeshView) + ".cs");
+            RequireMethod(
+                typeof(LocalizedTextMeshView),
+                nameof(LocalizedTextMeshView.Configure),
+                typeof(void),
+                typeof(TextMesh),
+                typeof(LocalizationKey),
+                typeof(int[]));
+            RequireSourceContains(localizedWorldViewSource,
+                "[Inject]",
+                "_localization.Resolve",
+                "new LocalizedText(_key, arguments)");
+
+            string catalogPath = GetRuntimeSourcePath(
+                "Gameplay", "Localization", nameof(RussianLocalizationCatalog) + ".cs");
+            foreach (string sourcePath in GetRuntimeSourcePaths())
+            {
+                if (PathsEqual(sourcePath, catalogPath))
+                    continue;
+
+                string source = File.ReadAllText(sourcePath);
+                Require(!Regex.IsMatch(source, @"[\u0400-\u04FF]"),
+                    $"Player-facing Cyrillic text must be declared only in " +
+                    $"{nameof(RussianLocalizationCatalog)}; found it in {sourcePath}.");
+            }
+        }
+
         private static void ValidateGameplayConfigBoundary(IEnumerable<Type> runtimeTypes)
         {
             var expectedConfigTypes =
@@ -1052,12 +1277,10 @@ namespace HardwareStore.Editor
                 "value definition.");
             Require(typeof(CustomerProjectOfferDefinition).GetConstructor(new[]
                     {
-                        typeof(string),
-                        typeof(string),
                         typeof(CustomerProjectLineDefinition[])
                     }) != null,
-                $"{nameof(CustomerProjectOfferDefinition)} must expose title, description and " +
-                "line definitions without a serialized reward.");
+                $"{nameof(CustomerProjectOfferDefinition)} must expose only semantic line " +
+                "definitions without localized content or a serialized reward.");
             Require(typeof(CustomerProjectLineDefinition).IsSealed &&
                     typeof(CustomerProjectLineDefinition).IsSerializable,
                 $"{nameof(CustomerProjectLineDefinition)} must be a serializable sealed " +
@@ -1087,8 +1310,6 @@ namespace HardwareStore.Editor
                 nameof(CustomerProjectConfig.Configure),
                 typeof(void),
                 typeof(CustomerProjectTypeId),
-                typeof(string),
-                typeof(string),
                 typeof(int),
                 typeof(CustomerProjectOfferDefinition[]));
 
@@ -1104,6 +1325,19 @@ namespace HardwareStore.Editor
             Require(!projectConfigSource.Contains("Reward", StringComparison.Ordinal),
                 $"{nameof(CustomerProjectConfig)} must not serialize a reward; revenue is " +
                 "derived from product prices.");
+            Require(!projectConfigSource.Contains("ProjectTitle", StringComparison.Ordinal) &&
+                    !projectConfigSource.Contains("OfferTitle", StringComparison.Ordinal) &&
+                    !projectConfigSource.Contains("Description", StringComparison.Ordinal) &&
+                    !Regex.IsMatch(projectConfigSource, @"\bRequest\b|_request\b"),
+                $"{nameof(CustomerProjectConfig)} must contain only semantic project and offer " +
+                "configuration.");
+            string productConfigSource = ReadRuntimeSource(
+                "Gameplay", "Configs", nameof(ProductConfig) + ".cs");
+            Require(!productConfigSource.Contains("DisplayName", StringComparison.Ordinal) &&
+                    !productConfigSource.Contains("UnitLabel", StringComparison.Ordinal) &&
+                    !productConfigSource.Contains("_displayName", StringComparison.Ordinal) &&
+                    !productConfigSource.Contains("_unitLabel", StringComparison.Ordinal),
+                $"{nameof(ProductConfig)} must not contain localized product text.");
 
             string customerVehicleConfigSource = ReadRuntimeSource(
                 "Gameplay", "Configs", nameof(CustomerVehicleConfig) + ".cs");
@@ -1167,8 +1401,6 @@ namespace HardwareStore.Editor
             {
                 typeof(CustomerVisitConsulting),
                 typeof(CustomerProjectType),
-                typeof(CustomerProjectTitle),
-                typeof(CustomerRequest),
                 typeof(ModalOpen),
                 typeof(ConsultationVisitEntityId),
                 typeof(ConsultationOffer),
@@ -1176,8 +1408,6 @@ namespace HardwareStore.Editor
                 typeof(ConsultationOfferVisitEntityId),
                 typeof(ConsultationOfferEntityId),
                 typeof(OfferIndex),
-                typeof(OfferTitle),
-                typeof(OfferDescription),
                 typeof(ExpectedProfit),
                 typeof(SelectedConsultationOffer)
             };
@@ -1238,8 +1468,6 @@ namespace HardwareStore.Editor
                 "CompleteCustomerVehicleArrivalSystem.cs");
             RequireSourceContains(arrivalSource,
                 "GameMatcher.CustomerProjectType",
-                "GameMatcher.CustomerProjectTitle",
-                "GameMatcher.CustomerRequest",
                 "SceneRouteId.CustomerWalkToCounter",
                 "SceneRouteId.CustomerWalkToVehicle",
                 "_customerFactory.Create");
@@ -1339,20 +1567,17 @@ namespace HardwareStore.Editor
             ConstructorInfo consultationSnapshotConstructor = typeof(ConsultationSnapshot)
                 .GetConstructor(new[]
                 {
-                    typeof(string),
-                    typeof(string),
+                    typeof(CustomerProjectTypeId),
                     typeof(int),
                     typeof(ConsultationOfferSnapshot[])
                 });
             Require(consultationSnapshotConstructor != null,
-                $"{nameof(ConsultationSnapshot)} must expose project, request, cargo capacity " +
-                "and three offer cards.");
+                $"{nameof(ConsultationSnapshot)} must expose semantic project identity, cargo " +
+                "capacity and three offer cards.");
             Require(typeof(ConsultationOfferLineSnapshot).GetConstructor(new[]
                     {
                         typeof(int),
                         typeof(ProductTypeId),
-                        typeof(string),
-                        typeof(string),
                         typeof(int),
                         typeof(int)
                     }) != null,
@@ -1362,8 +1587,6 @@ namespace HardwareStore.Editor
                     {
                         typeof(int),
                         typeof(ProductTypeId),
-                        typeof(string),
-                        typeof(string),
                         typeof(int),
                         typeof(int),
                         typeof(int)
@@ -1372,8 +1595,6 @@ namespace HardwareStore.Editor
             Require(typeof(ConsultationOfferSnapshot).GetConstructor(new[]
                     {
                         typeof(int),
-                        typeof(string),
-                        typeof(string),
                         typeof(ConsultationOfferLineSnapshot[]),
                         typeof(int),
                         typeof(int),
@@ -1386,7 +1607,7 @@ namespace HardwareStore.Editor
             Require(typeof(HudSnapshot).GetConstructor(new[]
                     {
                         typeof(HudOrderState),
-                        typeof(string),
+                        typeof(CustomerProjectTypeId?),
                         typeof(OrderLineSnapshot[]),
                         typeof(int),
                         typeof(int),
@@ -1395,19 +1616,17 @@ namespace HardwareStore.Editor
                         typeof(int),
                         typeof(bool),
                         typeof(ProductTypeId),
-                        typeof(string),
-                        typeof(string),
                         typeof(int),
                         typeof(int),
-                        typeof(string),
-                        typeof(string),
+                        typeof(ProductTypeId?),
+                        typeof(LocalizedText),
                         typeof(bool),
                         typeof(bool),
                         typeof(bool),
                         typeof(bool)
                     }) != null,
-                $"{nameof(HudSnapshot)} must expose project title, immutable order lines, " +
-                "derived totals and the unchanged delivery/interaction tail.");
+                $"{nameof(HudSnapshot)} must expose semantic project/product identity, immutable " +
+                "order lines, derived totals and localized interaction text.");
             ValidateImmutableSnapshotType(typeof(ConsultationOfferLineSnapshot));
             ValidateImmutableSnapshotType(typeof(OrderLineSnapshot));
             ValidateImmutableSnapshotType(typeof(ConsultationOfferSnapshot));
@@ -1730,7 +1949,7 @@ namespace HardwareStore.Editor
                 "customerVisit == null",
                 "isCustomerVisitConsulting",
                 "HasOrderDeficit",
-                "E — открыть каталог закупок");
+                "LocalizationKey.PromptOpenProcurement");
             Require(!promptSource.Contains("InputMatcher.PreviousPressed", StringComparison.Ordinal) &&
                     !promptSource.Contains("InputMatcher.NextPressed", StringComparison.Ordinal),
                 "Procurement selection controls must live in the modal, not in a world prompt.");
@@ -1742,7 +1961,7 @@ namespace HardwareStore.Editor
                 typeof(ProcurementSnapshot?));
             Require(typeof(ProcurementSnapshot).GetConstructor(new[]
                     {
-                        typeof(string),
+                        typeof(CustomerProjectTypeId),
                         typeof(int),
                         typeof(int),
                         typeof(ProcurementProductSnapshot[])
@@ -1753,16 +1972,13 @@ namespace HardwareStore.Editor
                     {
                         typeof(int),
                         typeof(ProductTypeId),
-                        typeof(string),
-                        typeof(string),
                         typeof(int),
                         typeof(int),
                         typeof(int),
                         typeof(int),
                         typeof(int),
                         typeof(int),
-                        typeof(bool),
-                        typeof(string),
+                        typeof(ProcurementPurchaseState),
                         typeof(bool)
                     }) != null,
                 $"{nameof(ProcurementProductSnapshot)} must expose immutable delivery, " +
@@ -1775,7 +1991,7 @@ namespace HardwareStore.Editor
                 typeof(IReadOnlyList<ProcurementProductSnapshot>));
             ValidateSnapshotProperties(
                 typeof(ProcurementSnapshot),
-                (nameof(ProcurementSnapshot.ProjectTitle), typeof(string)),
+                (nameof(ProcurementSnapshot.ProjectType), typeof(CustomerProjectTypeId)),
                 (nameof(ProcurementSnapshot.Money), typeof(int)),
                 (nameof(ProcurementSnapshot.FreeStorageSlotCount), typeof(int)),
                 (nameof(ProcurementSnapshot.Products),
@@ -1784,16 +2000,15 @@ namespace HardwareStore.Editor
                 typeof(ProcurementProductSnapshot),
                 (nameof(ProcurementProductSnapshot.Index), typeof(int)),
                 (nameof(ProcurementProductSnapshot.ProductType), typeof(ProductTypeId)),
-                (nameof(ProcurementProductSnapshot.ProductDisplayName), typeof(string)),
-                (nameof(ProcurementProductSnapshot.ProductUnitLabel), typeof(string)),
                 (nameof(ProcurementProductSnapshot.DeliveryProductCount), typeof(int)),
                 (nameof(ProcurementProductSnapshot.DeliveryCost), typeof(int)),
                 (nameof(ProcurementProductSnapshot.MoneyAfterPurchase), typeof(int)),
                 (nameof(ProcurementProductSnapshot.AvailableProductCount), typeof(int)),
                 (nameof(ProcurementProductSnapshot.RemainingRequiredProductCount), typeof(int)),
                 (nameof(ProcurementProductSnapshot.DeficitProductCount), typeof(int)),
+                (nameof(ProcurementProductSnapshot.PurchaseState),
+                    typeof(ProcurementPurchaseState)),
                 (nameof(ProcurementProductSnapshot.PurchaseAvailable), typeof(bool)),
-                (nameof(ProcurementProductSnapshot.PurchaseStatus), typeof(string)),
                 (nameof(ProcurementProductSnapshot.Selected), typeof(bool)));
 
             string procurementSnapshotSource = ReadRuntimeSource(
@@ -1809,8 +2024,8 @@ namespace HardwareStore.Editor
                 "public readonly struct ProcurementProductSnapshot",
                 "MoneyAfterPurchase",
                 "DeficitProductCount",
+                "PurchaseState",
                 "PurchaseAvailable",
-                "PurchaseStatus",
                 "Selected");
 
             string presentSource = ReadRuntimeSource(
@@ -1845,11 +2060,10 @@ namespace HardwareStore.Editor
                 "Gameplay", "Presentation", nameof(PrototypeHudView) + ".cs");
             RequireSourceContains(hudViewSource,
                 "DrawProcurement",
-                "ЗАКУПКИ",
-                "Заказ клиента •",
-                "Остаток денег:",
-                "Дефицит по строке:",
-                "← — предыдущее   → — следующее   Enter — купить   Esc — закрыть");
+                "LocalizationKey.HudProcurementTitle",
+                "LocalizationKey.HudProcurementOrderTitle",
+                "LocalizationKey.HudProcurementProductDetails",
+                "LocalizationKey.HudProcurementControls");
         }
 
         private static void ValidateJennyPipeline()
@@ -2009,8 +2223,6 @@ namespace HardwareStore.Editor
                 cementProductConfig,
                 cementDeliveryConfig,
                 ProductTypeId.CementBag,
-                displayName: "Цемент 25 кг",
-                unitLabel: "шт.",
                 unitPrice: 350,
                 mass: 25f,
                 carryMovementSpeed: 3.2f,
@@ -2020,8 +2232,6 @@ namespace HardwareStore.Editor
                 boardProductConfig,
                 boardDeliveryConfig,
                 ProductTypeId.BoardBundle,
-                displayName: "Пачка досок",
-                unitLabel: "шт.",
                 unitPrice: 480,
                 mass: 18f,
                 carryMovementSpeed: 2.6f,
@@ -2031,9 +2241,6 @@ namespace HardwareStore.Editor
                 cementProjectConfig,
                 CustomerProjectTypeId.CementFoundation,
                 ProductTypeId.CementBag,
-                "Стяжка в мастерской",
-                "Нужно подготовить материал для небольшой стяжки. " +
-                "Предложите подходящий запас.",
                 customerVehicleConfig,
                 productConfigs,
                 deliveryConfigs);
@@ -2041,8 +2248,6 @@ namespace HardwareStore.Editor
                 lumberProjectConfig,
                 CustomerProjectTypeId.LumberShelving,
                 ProductTypeId.BoardBundle,
-                "Полки для мастерской",
-                "Нужно собрать рабочие полки. Предложите объём с подходящим запасом.",
                 customerVehicleConfig,
                 productConfigs,
                 deliveryConfigs);
@@ -2159,6 +2364,8 @@ namespace HardwareStore.Editor
             InteractionHighlight[] customerHighlights =
                 RequireExactlyOneInPrefab<InteractionHighlight>(
                     customerVehiclePrefab, CustomerVehiclePrefabPath);
+            LocalizedTextMeshView[] customerVehicleLabels =
+                customerVehiclePrefab.GetComponentsInChildren<LocalizedTextMeshView>(true);
             Collider[] customerColliders = customerVehiclePrefab.GetComponentsInChildren<Collider>(true);
             Transform customerBodyColliderTransform =
                 customerVehiclePrefab.transform.Find("Body Collider");
@@ -2235,6 +2442,10 @@ namespace HardwareStore.Editor
             Require(customerVehicleConfig.ViewPrefab == customerViews[0],
                 $"{CustomerVehicleConfigPath} must reference the InteractionView root from " +
                 $"{CustomerVehiclePrefabPath}.");
+            ValidateLocalizedWorldLabels(
+                customerVehicleLabels,
+                new[] { LocalizationKey.WorldCustomerVehicleLoading },
+                CustomerVehiclePrefabPath);
 
             GameObject customerPrefab = RequireAsset<GameObject>(CustomerPrefabPath);
             ValidatePrefabRoot(customerPrefab, CustomerPrefabPath, requireUnitScale: true);
@@ -2288,16 +2499,14 @@ namespace HardwareStore.Editor
 
         private static void ValidateProductCatalogEntry(ProductConfig productConfig,
             DeliveryConfig deliveryConfig, ProductTypeId productType,
-            string displayName, string unitLabel, int unitPrice, float mass, float carryMovementSpeed,
-            int deliveryCount, int purchaseUnitPrice)
+            int unitPrice, float mass, float carryMovementSpeed, int deliveryCount,
+            int purchaseUnitPrice)
         {
             string productPath = AssetDatabase.GetAssetPath(productConfig);
             string deliveryPath = AssetDatabase.GetAssetPath(deliveryConfig);
             Require(productConfig.ProductType == productType &&
                     deliveryConfig.ProductType == productType,
                 $"Catalog entry {productType} must use the same key across product and delivery.");
-            Require(productConfig.DisplayName == displayName && productConfig.UnitLabel == unitLabel,
-                $"{productPath} must expose display name '{displayName}' and unit '{unitLabel}'.");
             Require(productConfig.UnitPrice == unitPrice &&
                     Mathf.Approximately(productConfig.Mass, mass) &&
                     Mathf.Approximately(productConfig.CarryMovementSpeed, carryMovementSpeed),
@@ -2316,27 +2525,21 @@ namespace HardwareStore.Editor
             CustomerProjectConfig project,
             CustomerProjectTypeId expectedProjectType,
             ProductTypeId expectedProductType,
-            string expectedTitle,
-            string expectedRequest,
             CustomerVehicleConfig vehicle,
             IReadOnlyCollection<ProductConfig> products,
             IReadOnlyCollection<DeliveryConfig> deliveries)
         {
             string path = AssetDatabase.GetAssetPath(project);
-            Require(project.ProjectType == expectedProjectType &&
-                    project.ProjectTitle == expectedTitle && project.Request == expectedRequest,
-                $"{path} has incorrect identity or presentation text.");
+            Require(project.ProjectType == expectedProjectType,
+                $"{path} has an incorrect semantic project identity.");
             Require(project.DefaultOfferIndex == 1 && project.Offers.Count == 3,
                 $"{path} must expose three offers and select its standard offer by default.");
 
-            string[] expectedTitles = { "Эконом", "Стандарт", "Профи" };
             for (int index = 0; index < project.Offers.Count; index++)
             {
                 CustomerProjectOfferDefinition offer = project.Offers[index];
                 int expectedCount = index + 1;
-                Require(offer.OfferTitle == expectedTitles[index] &&
-                        !string.IsNullOrWhiteSpace(offer.Description) &&
-                        offer.Lines.Count == 1 &&
+                Require(offer.Lines.Count == 1 &&
                         offer.Lines[0].ProductType == expectedProductType &&
                         offer.Lines[0].RequiredCount == expectedCount,
                     $"{path} offer {index} must preserve the configured single-SKU 1/2/3 " +
@@ -2354,19 +2557,9 @@ namespace HardwareStore.Editor
         {
             string path = AssetDatabase.GetAssetPath(project);
             Require(project.ProjectType == CustomerProjectTypeId.WorkbenchFoundation &&
-                    project.ProjectTitle == "Основание для верстака" &&
-                    project.Request ==
-                    "Нужны цемент для основания и доски для рабочей поверхности. " +
-                    "Предложите баланс скорости, прочности и запаса." &&
                     project.DefaultOfferIndex == 1 && project.Offers.Count == 3,
                 $"{path} must expose the configured mixed workbench project and default offer.");
 
-            string[] expectedTitles =
-            {
-                "Быстрый старт",
-                "Крепкое основание",
-                "Запас по дереву"
-            };
             (int Cement, int Boards)[] expectedSignatures =
             {
                 (1, 1),
@@ -2389,9 +2582,7 @@ namespace HardwareStore.Editor
                 int boardCount = offer.Lines
                     .Single(line => line.ProductType == ProductTypeId.BoardBundle)
                     .RequiredCount;
-                Require(offer.OfferTitle == expectedTitles[offerIndex] &&
-                        !string.IsNullOrWhiteSpace(offer.Description) &&
-                        (cementCount, boardCount) == expectedSignatures[offerIndex],
+                Require((cementCount, boardCount) == expectedSignatures[offerIndex],
                     $"{path} offer {offerIndex} must use its exact mixed-SKU signature.");
             }
 
@@ -2633,6 +2824,8 @@ namespace HardwareStore.Editor
                 SlotsRegistrar[] slotRegistrars = FindComponentsInScene<SlotsRegistrar>(scene);
                 PrototypeHudView[] hudViews = FindComponentsInScene<PrototypeHudView>(scene);
                 PrototypeAudioView[] audioViews = FindComponentsInScene<PrototypeAudioView>(scene);
+                LocalizedTextMeshView[] localizedWorldLabels =
+                    FindComponentsInScene<LocalizedTextMeshView>(scene);
 
                 Require(contexts.Length == 1,
                     $"{PrototypeScenePath} must contain exactly one SceneContext, found {contexts.Length}.");
@@ -2842,11 +3035,21 @@ namespace HardwareStore.Editor
                 Require(lumberDisplay.GetComponentsInChildren<Transform>(true)
                             .Count(candidate => candidate.name.StartsWith(
                                 "Board Display Bundle",
-                                StringComparison.Ordinal)) >= 3 &&
-                        lumberDisplay.GetComponentsInChildren<TextMesh>(true)
-                            .Any(label => label.text.Contains("B-01", StringComparison.Ordinal) &&
-                                          label.text.Contains("ПАЧКА ДОСОК", StringComparison.Ordinal)),
+                                StringComparison.Ordinal)) >= 3,
                     "Lumber Display must visibly expose stocked board bundles, address and product signage.");
+                ValidateLocalizedWorldLabels(
+                    localizedWorldLabels,
+                    new[]
+                    {
+                        LocalizationKey.WorldOrderCounter,
+                        LocalizationKey.WorldProcurement,
+                        LocalizationKey.WorldStorageCatalog,
+                        LocalizationKey.WorldStorageIntake,
+                        LocalizationKey.WorldCustomerLoadingBay,
+                        LocalizationKey.WorldDeliveryIntake,
+                        LocalizationKey.WorldBoardProductLabel
+                    },
+                    PrototypeScenePath);
 
                 GameObject deliveryPrefab = RequireAsset<GameObject>(DeliveryVehiclePrefabPath);
                 Require(!ContainsPrefabInstance(scene, deliveryPrefab),
@@ -2943,6 +3146,19 @@ namespace HardwareStore.Editor
                 $"({JoinTypeNames(parameterTypes)}).");
         }
 
+        private static void RequireNoDeclaredMembers(Type owner,
+            params string[] forbiddenMemberNames)
+        {
+            const BindingFlags declaredMembers =
+                BindingFlags.Instance | BindingFlags.Static | BindingFlags.Public |
+                BindingFlags.NonPublic | BindingFlags.DeclaredOnly;
+            foreach (string memberName in forbiddenMemberNames)
+            {
+                Require(owner.GetMember(memberName, declaredMembers).Length == 0,
+                    $"{owner.Name} must not retain localized content member {memberName}.");
+            }
+        }
+
         private static void ValidateImmutableSnapshotType(Type snapshotType)
         {
             Require(snapshotType.IsValueType && snapshotType.IsSealed,
@@ -2957,6 +3173,45 @@ namespace HardwareStore.Editor
                             BindingFlags.DeclaredOnly)
                         .All(property => property.CanRead && !property.CanWrite),
                 $"{snapshotType.Name} must expose data only through get-only properties.");
+        }
+
+        private static void ValidateLocalizedWorldLabels(
+            IReadOnlyCollection<LocalizedTextMeshView> localizedViews,
+            IReadOnlyCollection<LocalizationKey> expectedKeys,
+            string owner)
+        {
+            LocalizationKey[] actualKeys = localizedViews.Select(view => view.Key).ToArray();
+            Require(localizedViews.Count == expectedKeys.Count &&
+                    actualKeys.Distinct().Count() == actualKeys.Length &&
+                    new HashSet<LocalizationKey>(actualKeys).SetEquals(expectedKeys),
+                $"{owner} must contain exactly one localized world label for every expected key.");
+
+            ILocalizationCatalog catalog = new RussianLocalizationCatalog();
+            var entries = catalog.Entries.ToDictionary(entry => entry.Key);
+            var localization = new LocalizationService(new[] { catalog });
+            localization.Load(LanguageId.Russian);
+            foreach (LocalizedTextMeshView localizedView in localizedViews)
+            {
+                Require(localizedView.Label != null &&
+                        localizedView.Label.gameObject == localizedView.gameObject,
+                    $"Localized world label {localizedView.name} in {owner} must reference the " +
+                    "TextMesh on the same object.");
+                Require(entries.TryGetValue(localizedView.Key, out LocalizationEntry entry),
+                    $"Localized world label {localizedView.name} in {owner} uses an unknown key.");
+
+                int[] numberArguments = localizedView.NumberArguments;
+                Require(numberArguments.Length == entry.ArgumentCount,
+                    $"Localized world label {localizedView.name} in {owner} must provide " +
+                    $"{entry.ArgumentCount} numeric arguments for {localizedView.Key}.");
+                var arguments = new LocalizationArgument[numberArguments.Length];
+                for (int index = 0; index < arguments.Length; index++)
+                    arguments[index] = numberArguments[index];
+                string preview = localization.Resolve(
+                    LocalizedTexts.Text(localizedView.Key, arguments));
+                Require(localizedView.Label.text == preview,
+                    $"Localized world label {localizedView.name} in {owner} must serialize the " +
+                    "Russian preview resolved from its key and arguments.");
+            }
         }
 
         private static void ValidateImmutableSnapshotCollection(

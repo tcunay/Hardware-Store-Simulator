@@ -1,14 +1,14 @@
 using System;
-using System.Globalization;
+using HardwareStore.Gameplay.Localization;
 using UnityEngine;
+using Zenject;
 
 namespace HardwareStore.Gameplay.Presentation
 {
     [DisallowMultipleComponent]
     public sealed class PrototypeHudView : MonoBehaviour, IHudService, INotificationService
     {
-        private static readonly CultureInfo RussianCulture = CultureInfo.GetCultureInfo("ru-RU");
-
+        private ILocalizationService _localization;
         private HudSnapshot _snapshot;
         private ConsultationSnapshot? _consultation;
         private ProcurementSnapshot? _procurement;
@@ -25,6 +25,10 @@ namespace HardwareStore.Gameplay.Presentation
         private float _canvasWidth;
         private float _canvasHeight;
 
+        [Inject]
+        private void Construct(ILocalizationService localization) =>
+            _localization = localization;
+
         public void Present(HudSnapshot snapshot)
         {
             _snapshot = snapshot;
@@ -37,14 +41,15 @@ namespace HardwareStore.Gameplay.Presentation
         public void PresentProcurement(ProcurementSnapshot? snapshot) =>
             _procurement = snapshot;
 
-        public void Show(string message)
+        public void Show(LocalizedText message)
         {
             if (message == null)
                 throw new ArgumentNullException(nameof(message));
-            if (message.Length == 0)
+            string resolvedMessage = Resolve(message);
+            if (resolvedMessage.Length == 0)
                 throw new ArgumentException("Notification message cannot be empty.", nameof(message));
 
-            _notification = message;
+            _notification = resolvedMessage;
             _notificationUntil = Time.unscaledTime + 2.2f;
         }
 
@@ -94,7 +99,8 @@ namespace HardwareStore.Gameplay.Presentation
             float panelHeight = hasOrderLines ? 222f : 164f;
             Rect panel = new(24f, 24f, 680f, panelHeight);
             DrawPanel(panel, new Color(0.035f, 0.045f, 0.055f, 0.9f));
-            GUI.Label(new Rect(42f, 38f, 370f, 32f), "СТРОЙБАЗА • ПРОТОТИП", _titleStyle);
+            GUI.Label(new Rect(42f, 38f, 370f, 32f),
+                Resolve(LocalizationKey.HudStoreTitle), _titleStyle);
             GUI.Label(new Rect(42f, 74f, 640f, 28f), ResolveObjective(), _bodyStyle);
             if (hasOrderLines)
             {
@@ -103,22 +109,26 @@ namespace HardwareStore.Gameplay.Presentation
                     OrderLineSnapshot line = _snapshot.OrderLines[index];
                     GUI.Label(
                         new Rect(42f, 106f + index * 30f, 640f, 28f),
-                        $"{line.ProductDisplayName}: склад {line.AvailableProductCount} • " +
-                        $"загружено {line.LoadedProductCount} • нужно " +
-                        $"{line.RequiredProductCount} {line.ProductUnitLabel}",
+                        Resolve(
+                            LocalizationKey.HudOrderLineStatus,
+                            LocalizedTexts.ProductName(line.ProductType),
+                            line.AvailableProductCount,
+                            line.LoadedProductCount,
+                            line.RequiredProductCount,
+                            LocalizedTexts.ProductUnit(line.ProductType)),
                         _bodyStyle);
                 }
 
                 GUI.Label(new Rect(42f, panel.yMax - 38f, 640f, 28f),
-                    $"На складе всего: {_snapshot.StockCount} • баланс: " +
-                    $"{_snapshot.Money.ToString("N0", RussianCulture)} ₽",
+                    Resolve(LocalizationKey.HudStockAndBalance,
+                        _snapshot.StockCount, _snapshot.Money),
                     _bodyStyle);
             }
             else
             {
                 GUI.Label(new Rect(42f, 106f, 640f, 28f), ResolveStockStatus(), _bodyStyle);
                 GUI.Label(new Rect(42f, 138f, 640f, 28f),
-                    $"Баланс: {_snapshot.Money.ToString("N0", RussianCulture)} ₽", _bodyStyle);
+                    Resolve(LocalizationKey.HudBalance, _snapshot.Money), _bodyStyle);
             }
         }
 
@@ -139,23 +149,22 @@ namespace HardwareStore.Gameplay.Presentation
 
         private void DrawInteractionPrompt()
         {
-            if (string.IsNullOrEmpty(_snapshot.Prompt))
+            if (_snapshot.Prompt == null)
                 return;
 
             float width = Mathf.Min(620f, _canvasWidth - 40f);
             Rect rect = new((_canvasWidth - width) * 0.5f, _canvasHeight * 0.66f, width, 48f);
             DrawPanel(rect, new Color(0.03f, 0.04f, 0.05f, 0.88f));
-            GUI.Label(rect, _snapshot.Prompt, _promptStyle);
+            GUI.Label(rect, Resolve(_snapshot.Prompt), _promptStyle);
         }
 
         private void DrawControls()
         {
-            string carried = _snapshot.HasItem
-                ? $"  •  В руках: {_snapshot.CarriedProductDisplayName}"
-                : string.Empty;
-            string controls =
-                $"WASD — идти   Shift — бег   E — действие   G — бросить   " +
-                $"Esc — курсор{carried}";
+            string controls = _snapshot.HasItem
+                ? Resolve(
+                    LocalizationKey.HudControlsCarrying,
+                    LocalizedTexts.ProductName(_snapshot.CarriedProductType.Value))
+                : Resolve(LocalizationKey.HudControls);
             Rect rect = new(22f, _canvasHeight - 54f, _canvasWidth - 44f, 34f);
             GUI.Label(rect, controls, _bodyStyle);
         }
@@ -177,19 +186,20 @@ namespace HardwareStore.Gameplay.Presentation
 
             GUI.Label(
                 new Rect(panel.x + 32f, panel.y + 24f, panel.width - 64f, 34f),
-                "КОНСУЛЬТАЦИЯ КЛИЕНТА",
+                Resolve(LocalizationKey.HudConsultationTitle),
                 _titleStyle);
             GUI.Label(
                 new Rect(panel.x + 32f, panel.y + 58f, panel.width - 64f, 34f),
-                consultation.ProjectTitle,
+                Resolve(LocalizedTexts.ProjectTitle(consultation.ProjectType)),
                 _centerStyle);
             GUI.Label(
                 new Rect(panel.x + 56f, panel.y + 96f, panel.width - 112f, 48f),
-                consultation.CustomerRequest,
+                Resolve(LocalizedTexts.ProjectRequest(consultation.ProjectType)),
                 _cardBodyStyle);
             GUI.Label(
                 new Rect(panel.x + 56f, panel.y + 142f, panel.width - 112f, 28f),
-                $"Вместимость машины: {consultation.CargoCapacity} ед.",
+                Resolve(LocalizationKey.HudConsultationCapacity,
+                    consultation.CargoCapacity),
                 _promptStyle);
 
             const float cardGap = 18f;
@@ -224,19 +234,28 @@ namespace HardwareStore.Gameplay.Presentation
 
                 GUI.Label(
                     new Rect(card.x + 18f, card.y + 16f, card.width - 36f, 34f),
-                    $"ВАРИАНТ {offer.Index + 1} • {offer.Title}",
+                    Resolve(
+                        LocalizationKey.HudConsultationOfferHeader,
+                        offer.Index + 1,
+                        LocalizedTexts.OfferTitle(
+                            consultation.ProjectType,
+                            offer.Index)),
                     _cardTitleStyle);
                 GUI.Label(
                     new Rect(card.x + 18f, card.y + 56f, card.width - 36f, 76f),
-                    offer.Description,
+                    Resolve(LocalizedTexts.OfferDescription(
+                        consultation.ProjectType,
+                        offer.Index)),
                     _cardBodyStyle);
 
-                string details = BuildOfferLineDetails(offer) +
-                    $"\nМест в машине: {offer.TotalUnitCount}/" +
-                    $"{consultation.CargoCapacity}\n" +
-                    $"Себестоимость: {offer.ProductCost.ToString("N0", RussianCulture)} ₽\n" +
-                    $"Выручка: {offer.OrderReward.ToString("N0", RussianCulture)} ₽\n" +
-                    $"Прибыль: {offer.ExpectedProfit.ToString("N0", RussianCulture)} ₽";
+                string details = string.Join(
+                    Environment.NewLine,
+                    BuildOfferLineDetails(offer),
+                    Resolve(LocalizationKey.HudCargoSlots,
+                        offer.TotalUnitCount, consultation.CargoCapacity),
+                    Resolve(LocalizationKey.HudProductCost, offer.ProductCost),
+                    Resolve(LocalizationKey.HudRevenue, offer.OrderReward),
+                    Resolve(LocalizationKey.HudProfit, offer.ExpectedProfit));
                 GUI.Label(
                     new Rect(card.x + 18f, card.y + 138f, card.width - 36f, 250f),
                     details,
@@ -246,14 +265,14 @@ namespace HardwareStore.Gameplay.Presentation
                 {
                     GUI.Label(
                         new Rect(card.x + 18f, card.yMax - 52f, card.width - 36f, 34f),
-                        "ВЫБРАНО",
+                        Resolve(LocalizationKey.HudSelected),
                         _promptStyle);
                 }
             }
 
             GUI.Label(
                 new Rect(panel.x + 28f, panel.yMax - 58f, panel.width - 56f, 34f),
-                "← — предыдущее   → — следующее   Enter — подтвердить   Esc — закрыть",
+                Resolve(LocalizationKey.HudConsultationControls),
                 _promptStyle);
         }
 
@@ -274,16 +293,18 @@ namespace HardwareStore.Gameplay.Presentation
 
             GUI.Label(
                 new Rect(panel.x + 32f, panel.y + 24f, panel.width - 64f, 34f),
-                "ЗАКУПКИ",
+                Resolve(LocalizationKey.HudProcurementTitle),
                 _titleStyle);
             GUI.Label(
                 new Rect(panel.x + 32f, panel.y + 58f, panel.width - 64f, 34f),
-                $"Заказ клиента • {procurement.ProjectTitle}",
+                Resolve(
+                    LocalizationKey.HudProcurementOrderTitle,
+                    LocalizedTexts.ProjectTitle(procurement.ProjectType)),
                 _centerStyle);
             GUI.Label(
                 new Rect(panel.x + 32f, panel.y + 98f, panel.width - 64f, 30f),
-                $"Баланс: {procurement.Money.ToString("N0", RussianCulture)} ₽   •   " +
-                $"Свободных мест на складе: {procurement.FreeStorageSlotCount}",
+                Resolve(LocalizationKey.HudProcurementBalanceStorage,
+                    procurement.Money, procurement.FreeStorageSlotCount),
                 _promptStyle);
 
             const float cardGap = 24f;
@@ -318,21 +339,19 @@ namespace HardwareStore.Gameplay.Presentation
 
                 GUI.Label(
                     new Rect(card.x + 24f, card.y + 20f, card.width - 48f, 38f),
-                    product.ProductDisplayName.ToUpper(RussianCulture),
+                    Resolve(LocalizedTexts.ProductName(product.ProductType))
+                        .ToUpper(_localization.Culture),
                     _cardTitleStyle);
 
-                string details =
-                    $"Поставка: {product.DeliveryProductCount} " +
-                    $"{product.ProductUnitLabel}\n" +
-                    $"Стоимость: {product.DeliveryCost.ToString("N0", RussianCulture)} ₽\n" +
-                    $"Остаток денег: " +
-                    $"{product.MoneyAfterPurchase.ToString("N0", RussianCulture)} ₽\n\n" +
-                    $"В заказе осталось: {product.RemainingRequiredProductCount} " +
-                    $"{product.ProductUnitLabel}\n" +
-                    $"На складе: {product.AvailableProductCount} " +
-                    $"{product.ProductUnitLabel}\n" +
-                    $"Дефицит по строке: {product.DeficitProductCount} " +
-                    $"{product.ProductUnitLabel}";
+                string details = Resolve(
+                    LocalizationKey.HudProcurementProductDetails,
+                    product.DeliveryProductCount,
+                    LocalizedTexts.ProductUnit(product.ProductType),
+                    product.DeliveryCost,
+                    product.MoneyAfterPurchase,
+                    product.RemainingRequiredProductCount,
+                    product.AvailableProductCount,
+                    product.DeficitProductCount);
                 GUI.Label(
                     new Rect(card.x + 24f, card.y + 76f, card.width - 48f, 250f),
                     details,
@@ -344,7 +363,7 @@ namespace HardwareStore.Gameplay.Presentation
                     : new Color(0.78f, 0.82f, 0.86f);
                 GUI.Label(
                     new Rect(card.x + 24f, card.yMax - 90f, card.width - 48f, 54f),
-                    product.PurchaseStatus,
+                    ResolvePurchaseStatus(procurement, product),
                     _promptStyle);
                 GUI.color = previousColor;
 
@@ -352,14 +371,14 @@ namespace HardwareStore.Gameplay.Presentation
                 {
                     GUI.Label(
                         new Rect(card.x + 24f, card.yMax - 46f, card.width - 48f, 30f),
-                        "ВЫБРАНО",
+                        Resolve(LocalizationKey.HudSelected),
                         _promptStyle);
                 }
             }
 
             GUI.Label(
                 new Rect(panel.x + 28f, panel.yMax - 58f, panel.width - 56f, 34f),
-                "← — предыдущее   → — следующее   Enter — купить   Esc — закрыть",
+                Resolve(LocalizationKey.HudProcurementControls),
                 _promptStyle);
         }
 
@@ -379,7 +398,7 @@ namespace HardwareStore.Gameplay.Presentation
             Rect background = new(0f, 0f, _canvasWidth, _canvasHeight);
             DrawPanel(background, new Color(0f, 0f, 0f, 0.42f));
             GUI.Label(new Rect(0f, _canvasHeight * 0.45f, _canvasWidth, 54f),
-                "Курсор свободен • нажмите Esc, чтобы продолжить", _centerStyle);
+                Resolve(LocalizationKey.HudCursorHint), _centerStyle);
         }
 
         private string ResolveObjective()
@@ -387,29 +406,33 @@ namespace HardwareStore.Gameplay.Presentation
             if (_snapshot.HasActiveDelivery &&
                 _snapshot.DeliveryStockedCount < _snapshot.DeliveryProductCount)
             {
-                return $"Принять поставку • {_snapshot.DeliveryProductDisplayName}: " +
-                       $"{_snapshot.DeliveryStockedCount}/" +
-                       $"{_snapshot.DeliveryProductCount} " +
-                       $"{_snapshot.DeliveryProductUnitLabel}";
+                return Resolve(
+                    LocalizationKey.HudObjectiveDelivery,
+                    LocalizedTexts.ProductName(_snapshot.DeliveryProductType),
+                    _snapshot.DeliveryStockedCount,
+                    _snapshot.DeliveryProductCount,
+                    LocalizedTexts.ProductUnit(_snapshot.DeliveryProductType));
             }
 
             return _snapshot.OrderState switch
             {
-                HudOrderState.NoCustomer => "Ожидаем следующего клиента",
-                HudOrderState.Arriving => "Клиент прибывает и направляется к стойке",
-                HudOrderState.Consulting => "Обсудить проект с клиентом у стойки",
+                HudOrderState.NoCustomer => Resolve(LocalizationKey.HudObjectiveNoCustomer),
+                HudOrderState.Arriving => Resolve(LocalizationKey.HudObjectiveArriving),
+                HudOrderState.Consulting => Resolve(LocalizationKey.HudObjectiveConsulting),
                 HudOrderState.Waiting when !AreAllOrderLinesAvailable() =>
-                    $"Подготовить заказ • доступно " +
-                    $"{_snapshot.TotalAvailableProductCount}/" +
-                    $"{_snapshot.TotalRequiredProductCount} ед.",
+                    Resolve(LocalizationKey.HudObjectiveWaitingForStock,
+                        _snapshot.TotalAvailableProductCount,
+                        _snapshot.TotalRequiredProductCount),
                 HudOrderState.Waiting =>
-                    $"Принять заказ • {_snapshot.TotalRequiredProductCount} ед.",
+                    Resolve(LocalizationKey.HudObjectiveWaitingReady,
+                        _snapshot.TotalRequiredProductCount),
                 HudOrderState.Active =>
-                    $"Отгрузить заказ • {_snapshot.TotalLoadedProductCount}/" +
-                    $"{_snapshot.TotalRequiredProductCount} ед.",
-                HudOrderState.Completed => "Заказ выполнен • автомобиль загружен",
-                HudOrderState.Returning => "Клиент возвращается к машине",
-                HudOrderState.Departing => "Машина клиента уезжает",
+                    Resolve(LocalizationKey.HudObjectiveLoading,
+                        _snapshot.TotalLoadedProductCount,
+                        _snapshot.TotalRequiredProductCount),
+                HudOrderState.Completed => Resolve(LocalizationKey.HudObjectiveCompleted),
+                HudOrderState.Returning => Resolve(LocalizationKey.HudObjectiveReturning),
+                HudOrderState.Departing => Resolve(LocalizationKey.HudObjectiveDeparting),
                 _ => throw new ArgumentOutOfRangeException()
             };
         }
@@ -417,13 +440,15 @@ namespace HardwareStore.Gameplay.Presentation
         private string ResolveStockStatus()
         {
             if (_snapshot.OrderState == HudOrderState.NoCustomer)
-                return $"Товаров на складе: {_snapshot.StockCount}";
+                return Resolve(LocalizationKey.HudStockNoCustomer, _snapshot.StockCount);
 
             if (_snapshot.OrderState is HudOrderState.Arriving or HudOrderState.Consulting)
-                return $"Проект клиента • {_snapshot.ProjectTitle}";
+                return Resolve(
+                    LocalizationKey.HudStockProject,
+                    LocalizedTexts.ProjectTitle(_snapshot.ProjectType.Value));
 
-            return $"Позиций в заказе: {_snapshot.OrderLines.Count} • " +
-                   $"товаров на складе: {_snapshot.StockCount}";
+            return Resolve(LocalizationKey.HudStockOrder,
+                _snapshot.OrderLines.Count, _snapshot.StockCount);
         }
 
         private bool AreAllOrderLinesAvailable()
@@ -441,19 +466,54 @@ namespace HardwareStore.Gameplay.Presentation
             return true;
         }
 
-        private static string BuildOfferLineDetails(ConsultationOfferSnapshot offer)
+        private string BuildOfferLineDetails(ConsultationOfferSnapshot offer)
         {
-            string result = "Материалы:";
+            var lines = new string[offer.Lines.Count + 1];
+            lines[0] = Resolve(LocalizationKey.HudMaterialsHeader);
             for (int index = 0; index < offer.Lines.Count; index++)
             {
                 ConsultationOfferLineSnapshot line = offer.Lines[index];
-                result += $"\n{line.ProductDisplayName}: склад " +
-                          $"{line.AvailableProductCount} / нужно " +
-                          $"{line.RequiredProductCount} {line.ProductUnitLabel}";
+                lines[index + 1] = Resolve(
+                    LocalizationKey.HudMaterialLine,
+                    LocalizedTexts.ProductName(line.ProductType),
+                    line.AvailableProductCount,
+                    line.RequiredProductCount,
+                    LocalizedTexts.ProductUnit(line.ProductType));
             }
 
-            return result;
+            return string.Join(Environment.NewLine, lines);
         }
+
+        private string ResolvePurchaseStatus(
+            ProcurementSnapshot procurement,
+            ProcurementProductSnapshot product) =>
+            product.PurchaseState switch
+            {
+                ProcurementPurchaseState.NotRequired =>
+                    Resolve(LocalizationKey.ProcurementStatusNotRequired),
+                ProcurementPurchaseState.StockSufficient =>
+                    Resolve(LocalizationKey.ProcurementStatusStockSufficient),
+                ProcurementPurchaseState.InsufficientStorage => Resolve(
+                    LocalizationKey.ProcurementStatusInsufficientStorage,
+                    procurement.FreeStorageSlotCount,
+                    product.DeliveryProductCount),
+                ProcurementPurchaseState.InsufficientMoney => Resolve(
+                    LocalizationKey.ProcurementStatusInsufficientMoney,
+                    product.DeliveryCost),
+                ProcurementPurchaseState.Available =>
+                    Resolve(LocalizationKey.ProcurementStatusAvailable),
+                _ => throw new ArgumentOutOfRangeException()
+            };
+
+        private string Resolve(LocalizationKey key) =>
+            _localization.Resolve(key);
+
+        private string Resolve(LocalizationKey key,
+            params LocalizationArgument[] arguments) =>
+            _localization.Resolve(LocalizedTexts.Text(key, arguments));
+
+        private string Resolve(LocalizedText text) =>
+            _localization.Resolve(text);
 
         private void EnsureStyles()
         {

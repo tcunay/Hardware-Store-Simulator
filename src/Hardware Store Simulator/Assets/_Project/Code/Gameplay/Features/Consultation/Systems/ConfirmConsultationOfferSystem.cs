@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using Entitas;
 using HardwareStore.Gameplay.Common.Cursor;
 using HardwareStore.Gameplay.Factories;
+using HardwareStore.Gameplay.Localization;
 using UnityEngine;
 
 namespace HardwareStore.Gameplay.Features.Consultation.Systems
@@ -74,8 +75,13 @@ namespace HardwareStore.Gameplay.Features.Consultation.Systems
             int totalRequiredCount = CountRequiredProducts(selectedOffer);
             _orderFactory.AddOrderComponents(visit, selectedOffer);
             _events.EmitNotification(
-                $"Предложение сформировано • {selectedOffer.OfferTitle} • объём: " +
-                $"{totalRequiredCount} • сумма: {selectedOffer.OrderReward:N0} ₽");
+                LocalizedTexts.Text(
+                    LocalizationKey.NotificationOfferConfirmed,
+                    LocalizedTexts.OfferTitle(
+                        visit.CustomerProjectType,
+                        selectedOffer.OfferIndex),
+                    totalRequiredCount,
+                    selectedOffer.OrderReward));
             visit.isCustomerVisitConsulting = false;
             visit.isCustomerVisitWaiting = true;
             DestructOffers();

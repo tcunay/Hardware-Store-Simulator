@@ -1,23 +1,19 @@
 using System;
 using System.Linq;
 using Entitas;
-using HardwareStore.Gameplay.Configs;
 using HardwareStore.Gameplay.Components;
-using HardwareStore.Gameplay.StaticData;
+using HardwareStore.Gameplay.Localization;
 
 namespace HardwareStore.Gameplay.Features.Interaction.Systems
 {
     public sealed class ResolveOrderCounterPromptSystem : IExecuteSystem
     {
         private readonly GameContext _gameContext;
-        private readonly IStaticDataService _staticData;
         private readonly IGroup<GameEntity> _players;
 
-        public ResolveOrderCounterPromptSystem(GameContext gameContext,
-            IStaticDataService staticData)
+        public ResolveOrderCounterPromptSystem(GameContext gameContext)
         {
             _gameContext = gameContext;
-            _staticData = staticData;
             _players = gameContext.GetGroup(GameMatcher.AllOf(
                 GameMatcher.Player,
                 GameMatcher.StoreEntityId,
@@ -42,24 +38,33 @@ namespace HardwareStore.Gameplay.Features.Interaction.Systems
                         orderCounter.StoreEntityId);
                 if (customerVisit == null)
                 {
-                    player.SetInteractionPrompt("Ожидаем следующего клиента", false);
+                    player.SetInteractionPrompt(
+                        LocalizedTexts.Text(LocalizationKey.PromptCounterWaitCustomer),
+                        false);
                     continue;
                 }
                 if (customerVisit.isCustomerVisitArriving)
                 {
-                    player.SetInteractionPrompt("Клиент направляется к стойке", false);
+                    player.SetInteractionPrompt(
+                        LocalizedTexts.Text(
+                            LocalizationKey.PromptCounterCustomerApproaching),
+                        false);
                     continue;
                 }
 
                 if (customerVisit.isCustomerVisitDeparting)
                 {
-                    player.SetInteractionPrompt("Машина клиента уезжает", false);
+                    player.SetInteractionPrompt(
+                        LocalizedTexts.Text(LocalizationKey.PromptCounterVehicleDeparting),
+                        false);
                     continue;
                 }
 
                 if (customerVisit.isCustomerVisitReturning)
                 {
-                    player.SetInteractionPrompt("Клиент возвращается к машине", false);
+                    player.SetInteractionPrompt(
+                        LocalizedTexts.Text(LocalizationKey.PromptCounterCustomerReturning),
+                        false);
                     continue;
                 }
 
@@ -67,8 +72,12 @@ namespace HardwareStore.Gameplay.Features.Interaction.Systems
                 {
                     player.SetInteractionPrompt(
                         player.isHandsOccupied
-                            ? "Освободите руки перед консультацией"
-                            : $"E — обсудить проект • {customerVisit.CustomerProjectTitle}",
+                            ? LocalizedTexts.Text(
+                                LocalizationKey.PromptFreeHandsForConsultation)
+                            : LocalizedTexts.Text(
+                                LocalizationKey.PromptDiscussProject,
+                                LocalizedTexts.ProjectTitle(
+                                    customerVisit.CustomerProjectType)),
                         !player.isHandsOccupied);
                     continue;
                 }
@@ -82,17 +91,21 @@ namespace HardwareStore.Gameplay.Features.Interaction.Systems
                     {
                         int totalUnitCount = lines.Sum(line => line.RequiredProductCount);
                         player.SetInteractionPrompt(
-                            $"E — принять заказ • {lines.Length} поз. • " +
-                            $"{totalUnitCount} ед.",
+                            LocalizedTexts.Text(
+                                LocalizationKey.PromptAcceptOrder,
+                                lines.Length,
+                                totalUnitCount),
                             true);
                         continue;
                     }
 
-                    ProductConfig product = _staticData.GetProduct(deficitLine.ProductType);
                     player.SetInteractionPrompt(
-                        $"Не хватает: {product.DisplayName} • склад " +
-                        $"{deficitLine.AvailableProductCount}/нужно " +
-                        $"{deficitLine.RequiredProductCount} {product.UnitLabel}",
+                        LocalizedTexts.Text(
+                            LocalizationKey.PromptMissingProduct,
+                            LocalizedTexts.ProductName(deficitLine.ProductType),
+                            deficitLine.AvailableProductCount,
+                            deficitLine.RequiredProductCount,
+                            LocalizedTexts.ProductUnit(deficitLine.ProductType)),
                         false);
                     continue;
                 }
@@ -100,7 +113,8 @@ namespace HardwareStore.Gameplay.Features.Interaction.Systems
                 if (customerVisit.isCustomerVisitLoading)
                 {
                     player.SetInteractionPrompt(
-                        "Заказ принят — загрузите товар в машину клиента",
+                        LocalizedTexts.Text(
+                            LocalizationKey.PromptOrderAcceptedLoadVehicle),
                         false);
                     continue;
                 }
@@ -110,7 +124,8 @@ namespace HardwareStore.Gameplay.Features.Interaction.Systems
                         $"Customer visit {customerVisit.EntityId} has no valid lifecycle state.");
 
                 player.SetInteractionPrompt(
-                    "Заказ выполнен — клиент готовится уезжать",
+                    LocalizedTexts.Text(
+                        LocalizationKey.PromptOrderCompletedCustomerLeaving),
                     false);
             }
         }

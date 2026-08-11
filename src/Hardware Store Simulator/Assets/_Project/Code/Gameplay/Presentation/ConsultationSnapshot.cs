@@ -1,16 +1,15 @@
 using System;
 using System.Collections.Generic;
+using HardwareStore.Gameplay.Components;
 
 namespace HardwareStore.Gameplay.Presentation
 {
     public readonly struct ConsultationSnapshot
     {
-        public ConsultationSnapshot(string projectTitle, string customerRequest,
+        public ConsultationSnapshot(CustomerProjectTypeId projectType,
             int cargoCapacity, ConsultationOfferSnapshot[] offers)
         {
-            ProjectTitle = projectTitle ?? throw new ArgumentNullException(nameof(projectTitle));
-            CustomerRequest = customerRequest ??
-                              throw new ArgumentNullException(nameof(customerRequest));
+            ProjectType = projectType;
             if (cargoCapacity <= 0)
                 throw new ArgumentOutOfRangeException(nameof(cargoCapacity));
             if (offers == null)
@@ -23,8 +22,7 @@ namespace HardwareStore.Gameplay.Presentation
             Offers = Array.AsReadOnly((ConsultationOfferSnapshot[])offers.Clone());
         }
 
-        public string ProjectTitle { get; }
-        public string CustomerRequest { get; }
+        public CustomerProjectTypeId ProjectType { get; }
         public int CargoCapacity { get; }
         public IReadOnlyList<ConsultationOfferSnapshot> Offers { get; }
     }

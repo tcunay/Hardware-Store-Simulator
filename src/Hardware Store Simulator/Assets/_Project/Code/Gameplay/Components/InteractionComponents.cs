@@ -1,4 +1,5 @@
 using Entitas;
+using HardwareStore.Gameplay.Localization;
 
 namespace HardwareStore.Gameplay.Components
 {
@@ -17,5 +18,5 @@ namespace HardwareStore.Gameplay.Components
     [Game] public class FocusedEntityId : IComponent { public int Value; }
     [Game] public class SourceEntityId : IComponent { public int Value; }
     [Game] public class TargetEntityId : IComponent { public int Value; }
-    [Game] public class InteractionPrompt : IComponent { public string Value; }
+    [Game] public class InteractionPrompt : IComponent { public LocalizedText Value; }
 }

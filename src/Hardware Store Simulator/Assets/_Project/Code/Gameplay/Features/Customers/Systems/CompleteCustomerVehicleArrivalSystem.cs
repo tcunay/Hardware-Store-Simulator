@@ -34,8 +34,6 @@ namespace HardwareStore.Gameplay.Features.Customers.Systems
                     GameMatcher.EntityId,
                     GameMatcher.StorageZoneEntityId,
                     GameMatcher.CustomerProjectType,
-                    GameMatcher.CustomerProjectTitle,
-                    GameMatcher.CustomerRequest,
                     GameMatcher.LoadingZone,
                     GameMatcher.Slots,
                     GameMatcher.Route,

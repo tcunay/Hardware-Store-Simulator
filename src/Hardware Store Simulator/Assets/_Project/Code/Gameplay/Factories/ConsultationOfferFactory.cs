@@ -54,8 +54,6 @@ namespace HardwareStore.Gameplay.Factories
                 GameEntity offer = CreateEntity.Empty(_identifiers.Next())
                     .AddConsultationOfferVisitEntityId(customerVisit.EntityId)
                     .AddOfferIndex(offerIndex)
-                    .AddOfferTitle(definition.OfferTitle)
-                    .AddOfferDescription(definition.Description)
                     .AddOrderReward(reward)
                     .AddExpectedProfit(checked(reward - procurementCost))
                     .With(x => x.isConsultationOffer = true)

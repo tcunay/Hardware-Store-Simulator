@@ -5,13 +5,11 @@ namespace HardwareStore.Gameplay.Presentation
 {
     public readonly struct ConsultationOfferSnapshot
     {
-        public ConsultationOfferSnapshot(int index, string title, string description,
-            ConsultationOfferLineSnapshot[] lines, int totalUnitCount,
+        public ConsultationOfferSnapshot(int index, ConsultationOfferLineSnapshot[] lines,
+            int totalUnitCount,
             int productCost, int orderReward, int expectedProfit, bool selected)
         {
             Index = index;
-            Title = title ?? throw new ArgumentNullException(nameof(title));
-            Description = description ?? throw new ArgumentNullException(nameof(description));
             if (lines == null)
                 throw new ArgumentNullException(nameof(lines));
             if (lines.Length == 0)
@@ -34,8 +32,6 @@ namespace HardwareStore.Gameplay.Presentation
         }
 
         public int Index { get; }
-        public string Title { get; }
-        public string Description { get; }
         public IReadOnlyList<ConsultationOfferLineSnapshot> Lines { get; }
         public int TotalUnitCount { get; }
         public int ProductCost { get; }

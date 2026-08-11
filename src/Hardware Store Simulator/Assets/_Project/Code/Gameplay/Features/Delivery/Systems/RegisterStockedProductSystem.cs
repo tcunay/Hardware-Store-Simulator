@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using Entitas;
 using HardwareStore.Gameplay.Components;
 using HardwareStore.Gameplay.Factories;
+using HardwareStore.Gameplay.Localization;
 
 namespace HardwareStore.Gameplay.Features.Delivery.Systems
 {
@@ -49,7 +50,10 @@ namespace HardwareStore.Gameplay.Features.Delivery.Systems
                 product.isProductStocked = false;
                 product.RemoveDeliveryEntityId();
                 _events.EmitNotification(
-                    $"Принято на склад: {stocked}/{delivery.DeliveryProductCount}");
+                    LocalizedTexts.Text(
+                        LocalizationKey.NotificationProductStocked,
+                        stocked,
+                        delivery.DeliveryProductCount));
                 _events.EmitAudio(AudioCueId.ProductStocked);
             }
         }

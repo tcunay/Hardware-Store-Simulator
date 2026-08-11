@@ -4,6 +4,7 @@ using HardwareStore.Gameplay.Common.Input;
 using HardwareStore.Gameplay.Common.Physics;
 using HardwareStore.Gameplay.Common.Time;
 using HardwareStore.Gameplay.Factories;
+using HardwareStore.Gameplay.Localization;
 using HardwareStore.Gameplay.Scene;
 using HardwareStore.Gameplay.StaticData;
 using HardwareStore.Infrastructure.Identifiers;
@@ -56,6 +57,8 @@ namespace HardwareStore.Infrastructure.Installers
 
         private void BindGameplayServices()
         {
+            Container.Bind<ILocalizationCatalog>().To<RussianLocalizationCatalog>().AsSingle();
+            Container.BindInterfacesAndSelfTo<LocalizationService>().AsSingle();
             Container.BindInterfacesAndSelfTo<StaticDataService>().AsSingle();
             Container.BindInterfacesAndSelfTo<InputSystemService>().AsSingle();
             Container.BindInterfacesTo<StoreSceneData>().AsSingle();

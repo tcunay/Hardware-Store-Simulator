@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using Entitas;
 using HardwareStore.Gameplay.Factories;
+using HardwareStore.Gameplay.Localization;
 
 namespace HardwareStore.Gameplay.Features.Orders.Systems
 {
@@ -48,7 +49,9 @@ namespace HardwareStore.Gameplay.Features.Orders.Systems
 
                 visit.isCustomerVisitLoading = false;
                 visit.isCustomerVisitCompleted = true;
-                _events.EmitNotification($"Заказ выполнен: +{visit.OrderReward:N0} ₽");
+                _events.EmitNotification(LocalizedTexts.Text(
+                    LocalizationKey.NotificationOrderCompleted,
+                    visit.OrderReward));
             }
         }
 

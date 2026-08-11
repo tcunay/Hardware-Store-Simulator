@@ -4,6 +4,7 @@ using System.Linq;
 using HardwareStore.Gameplay.Common.Registrars;
 using HardwareStore.Gameplay.Components;
 using HardwareStore.Gameplay.Configs;
+using HardwareStore.Gameplay.Localization;
 using HardwareStore.Gameplay.Presentation;
 using HardwareStore.Gameplay.Registrars;
 using HardwareStore.Gameplay.Scene;
@@ -48,6 +49,8 @@ namespace HardwareStore.Editor
         private const string LegacyBoardOrderConfigName = "OrderConfig_BoardBundle";
         private const int CustomerVehicleCargoCapacity = 3;
         private const int StorageSlotCapacity = 9;
+        private static readonly ILocalizationService RussianPreviewLocalization =
+            CreateRussianPreviewLocalization();
 
         [MenuItem("Tools/Hardware Store/Build Prototype Yard")]
         public static void BuildPrototypeYard()
@@ -141,9 +144,7 @@ namespace HardwareStore.Editor
                 brandBlue,
                 timber,
                 darkMetal,
-                brandOrange,
-                cementProductConfig,
-                boardProductConfig);
+                brandOrange);
             SceneRouteMarker[] customerRoutes = BuildCustomerRoutes(
                 environment.transform, asphalt, white, loadingGreen);
             BuildLumberArea(
@@ -280,7 +281,8 @@ namespace HardwareStore.Editor
             terminal.AddComponent<InteractionViewRegistrar>();
             SceneViewMarker orderCounter = terminal.AddComponent<SceneViewMarker>();
             orderCounter.Configure(SceneViewId.CustomerOrderCounter);
-            CreateWorldLabel("Orders Label", terminal.transform, "ЗАКАЗ КЛИЕНТА", new Vector3(0f, 0f, -0.56f),
+            CreateWorldLabel("Orders Label", terminal.transform,
+                LocalizationKey.WorldOrderCounter, new Vector3(0f, 0f, -0.56f),
                 Quaternion.identity, 0.03f, Color.white);
 
             GameObject procurementObject = CreateCube("Procurement Terminal", shop.transform,
@@ -295,7 +297,8 @@ namespace HardwareStore.Editor
             procurementObject.AddComponent<InteractionViewRegistrar>();
             SceneViewMarker procurementTerminal = procurementObject.AddComponent<SceneViewMarker>();
             procurementTerminal.Configure(SceneViewId.ProcurementTerminal);
-            CreateWorldLabel("Procurement Label", procurementObject.transform, "ЗАКУПКИ",
+            CreateWorldLabel("Procurement Label", procurementObject.transform,
+                LocalizationKey.WorldProcurement,
                 new Vector3(0f, 0f, -0.56f), Quaternion.identity, 0.03f, Color.white);
 
             CreateCube("Window", shop.transform, new Vector3(-9f, 2.2f, 8f), new Vector3(3.3f, 1.15f, 0.08f),
@@ -304,8 +307,7 @@ namespace HardwareStore.Editor
         }
 
         private static SceneViewMarker BuildMaterialsStorage(Transform parent, Material concrete,
-            Material brandBlue, Material timber, Material darkMetal, Material brandOrange,
-            ProductConfig cementProductConfig, ProductConfig boardProductConfig)
+            Material brandBlue, Material timber, Material darkMetal, Material brandOrange)
         {
             GameObject storage = CreateEmpty("Materials Storage", parent);
             CreateCube("Storage Pad", storage.transform, new Vector3(5f, 0.1f, 6.5f),
@@ -363,11 +365,11 @@ namespace HardwareStore.Editor
             storageMarker.Configure(SceneViewId.StorageZone);
 
             CreateWorldLabel("Materials Sign", storage.transform,
-                $"СКЛАД • {cementProductConfig.DisplayName.ToUpperInvariant()} • " +
-                boardProductConfig.DisplayName.ToUpperInvariant(),
+                LocalizationKey.WorldStorageCatalog,
                 new Vector3(5f, 2.7f, 3.25f),
                 Quaternion.identity, 0.035f, brandOrange.color);
-            CreateWorldLabel("Storage Intake Label", target.transform, "ПРИЁМКА",
+            CreateWorldLabel("Storage Intake Label", target.transform,
+                LocalizationKey.WorldStorageIntake,
                 new Vector3(0f, 0f, -0.58f), Quaternion.identity, 0.025f, Color.white);
             return storageMarker;
         }
@@ -384,7 +386,8 @@ namespace HardwareStore.Editor
                 new Vector3(0.12f, 0.04f, 9.2f), white, false);
             CreateCube("Loading Stripe", traffic.transform, new Vector3(6f, 0.04f, -9.9f),
                 new Vector3(3.5f, 0.05f, 0.18f), loadingGreen, false);
-            CreateWorldLabel("Customer Loading Bay Label", traffic.transform, "ПОГРУЗКА КЛИЕНТА",
+            CreateWorldLabel("Customer Loading Bay Label", traffic.transform,
+                LocalizationKey.WorldCustomerLoadingBay,
                 new Vector3(6f, 0.045f, -10.45f), Quaternion.Euler(90f, 0f, 0f),
                 0.03f, loadingGreen.color);
 
@@ -475,9 +478,9 @@ namespace HardwareStore.Editor
             }
 
             CreateWorldLabel("Lumber Display Sign", lumber.transform,
-                $"B-01 • {boardProductConfig.DisplayName.ToUpperInvariant()} • " +
-                $"{boardProductConfig.UnitPrice:N0} ₽ / {boardProductConfig.UnitLabel.ToUpperInvariant()}",
-                new Vector3(12f, 2.7f, 1.68f), Quaternion.identity, 0.03f, brandOrange.color);
+                LocalizationKey.WorldBoardProductLabel,
+                new Vector3(12f, 2.7f, 1.68f), Quaternion.identity, 0.03f,
+                brandOrange.color, boardProductConfig.UnitPrice);
         }
 
         private static SpawnPointMarker BuildInboundDeliveryBay(Transform parent, Material asphalt,
@@ -494,7 +497,8 @@ namespace HardwareStore.Editor
                     new Vector3(0.14f, 0.04f, 1.4f), inboundYellow, false);
             }
 
-            CreateWorldLabel("Inbound Label", bay.transform, "ПРИЁМКА ПОСТАВКИ",
+            CreateWorldLabel("Inbound Label", bay.transform,
+                LocalizationKey.WorldDeliveryIntake,
                 new Vector3(11f, 0.04f, -5.15f), Quaternion.Euler(90f, 0f, 0f),
                 0.035f, inboundYellow.color);
 
@@ -769,7 +773,8 @@ namespace HardwareStore.Editor
                     new Vector3(0f, 1f, -3.46f), new Vector3(1.85f, 0.32f, 0.1f),
                     loadingGreen, false, true);
                 InteractionHighlight highlight = loadingTarget.AddComponent<InteractionHighlight>();
-                CreateWorldLabel("Loading Label", loadingTarget.transform, "ЗАГРУЗИТЬ",
+                CreateWorldLabel("Loading Label", loadingTarget.transform,
+                    LocalizationKey.WorldCustomerVehicleLoading,
                     new Vector3(0f, 0f, -0.56f), Quaternion.identity, 0.02f, Color.white);
 
                 GameObject interactionArea = CreateEmpty("Interaction Area", vehicle.transform);
@@ -1058,8 +1063,9 @@ namespace HardwareStore.Editor
             light.shadows = LightShadows.None;
         }
 
-        private static void CreateWorldLabel(string name, Transform parent, string text, Vector3 position,
-            Quaternion rotation, float characterSize, Color color)
+        private static void CreateWorldLabel(string name, Transform parent,
+            LocalizationKey key, Vector3 position, Quaternion rotation,
+            float characterSize, Color color, params int[] numberArguments)
         {
             GameObject labelObject = CreateEmpty(name, parent);
             labelObject.transform.localPosition = position;
@@ -1067,13 +1073,30 @@ namespace HardwareStore.Editor
             Vector3 parentScale = parent.lossyScale;
             labelObject.transform.localScale = new Vector3(1f / parentScale.x, 1f / parentScale.y, 1f / parentScale.z);
             TextMesh label = labelObject.AddComponent<TextMesh>();
-            label.text = text;
+            var arguments = new LocalizationArgument[numberArguments.Length];
+            for (int index = 0; index < arguments.Length; index++)
+                arguments[index] = numberArguments[index];
+            label.text = RussianPreviewLocalization.Resolve(
+                LocalizedTexts.Text(key, arguments));
             label.anchor = TextAnchor.MiddleCenter;
             label.alignment = TextAlignment.Center;
             label.characterSize = characterSize;
             label.fontSize = 64;
             label.fontStyle = FontStyle.Bold;
             label.color = color;
+            LocalizedTextMeshView localizedView =
+                labelObject.AddComponent<LocalizedTextMeshView>();
+            localizedView.Configure(label, key, numberArguments);
+        }
+
+        private static ILocalizationService CreateRussianPreviewLocalization()
+        {
+            var localization = new LocalizationService(new ILocalizationCatalog[]
+            {
+                new RussianLocalizationCatalog()
+            });
+            localization.Load(LanguageId.Russian);
+            return localization;
         }
 
         private static void EnsureFolder(string path)
@@ -1165,8 +1188,6 @@ namespace HardwareStore.Editor
             ConfigureProductConfig(
                 cementProductConfig,
                 ProductTypeId.CementBag,
-                displayName: "Цемент 25 кг",
-                unitLabel: "шт.",
                 unitPrice: 350,
                 mass: 25f,
                 carryMovementSpeed: 3.2f,
@@ -1175,8 +1196,6 @@ namespace HardwareStore.Editor
             ConfigureProductConfig(
                 boardProductConfig,
                 ProductTypeId.BoardBundle,
-                displayName: "Пачка досок",
-                unitLabel: "шт.",
                 unitPrice: 480,
                 mass: 18f,
                 carryMovementSpeed: 2.6f,
@@ -1186,18 +1205,11 @@ namespace HardwareStore.Editor
             ConfigureSingleProductProject(
                 cementProjectConfig,
                 CustomerProjectTypeId.CementFoundation,
-                ProductTypeId.CementBag,
-                title: "Стяжка в мастерской",
-                request:
-                    "Нужно подготовить материал для небольшой стяжки. " +
-                    "Предложите подходящий запас.");
+                ProductTypeId.CementBag);
             ConfigureSingleProductProject(
                 lumberProjectConfig,
                 CustomerProjectTypeId.LumberShelving,
                 ProductTypeId.BoardBundle,
-                title: "Полки для мастерской",
-                request:
-                    "Нужно собрать рабочие полки. Предложите объём с подходящим запасом.",
                 defaultOfferIndex: 1);
             ConfigureWorkbenchProject(workbenchProjectConfig);
         }
@@ -1214,13 +1226,11 @@ namespace HardwareStore.Editor
         }
 
         private static void ConfigureProductConfig(ProductConfig config, ProductTypeId productType,
-            string displayName, string unitLabel, int unitPrice, float mass, float carryMovementSpeed,
+            int unitPrice, float mass, float carryMovementSpeed,
             Vector3 heldRotationEuler, float dropForwardDistance)
         {
             SerializedObject product = new(config);
             RequireSerializedProperty(product, "_productType").intValue = (int)productType;
-            RequireSerializedProperty(product, "_displayName").stringValue = displayName;
-            RequireSerializedProperty(product, "_unitLabel").stringValue = unitLabel;
             RequireSerializedProperty(product, "_unitPrice").intValue = unitPrice;
             RequireSerializedProperty(product, "_mass").floatValue = mass;
             RequireSerializedProperty(product, "_carryMovementSpeed").floatValue = carryMovementSpeed;
@@ -1238,28 +1248,18 @@ namespace HardwareStore.Editor
             CustomerProjectConfig config,
             CustomerProjectTypeId projectType,
             ProductTypeId productType,
-            string title,
-            string request,
             int defaultOfferIndex = 1)
         {
             config.Configure(
                 projectType,
-                title,
-                request,
                 defaultOfferIndex,
                 offers: new[]
                 {
                     new CustomerProjectOfferDefinition(
-                        "Эконом",
-                        "Минимальный объём без запаса.",
                         new CustomerProjectLineDefinition(productType, requiredCount: 1)),
                     new CustomerProjectOfferDefinition(
-                        "Стандарт",
-                        "Рекомендуемый объём с небольшим запасом.",
                         new CustomerProjectLineDefinition(productType, requiredCount: 2)),
                     new CustomerProjectOfferDefinition(
-                        "Профи",
-                        "Максимальный запас на исправление ошибок.",
                         new CustomerProjectLineDefinition(productType, requiredCount: 3))
                 });
             EditorUtility.SetDirty(config);
@@ -1269,26 +1269,16 @@ namespace HardwareStore.Editor
         {
             config.Configure(
                 CustomerProjectTypeId.WorkbenchFoundation,
-                title: "Основание для верстака",
-                request:
-                    "Нужны цемент для основания и доски для рабочей поверхности. " +
-                    "Предложите баланс скорости, прочности и запаса.",
                 defaultOfferIndex: 1,
                 offers: new[]
                 {
                     new CustomerProjectOfferDefinition(
-                        "Быстрый старт",
-                        "Минимум материалов и две ходки до машины.",
                         new CustomerProjectLineDefinition(ProductTypeId.CementBag, requiredCount: 1),
                         new CustomerProjectLineDefinition(ProductTypeId.BoardBundle, requiredCount: 1)),
                     new CustomerProjectOfferDefinition(
-                        "Крепкое основание",
-                        "Больше цемента при умеренной себестоимости комплекта.",
                         new CustomerProjectLineDefinition(ProductTypeId.CementBag, requiredCount: 2),
                         new CustomerProjectLineDefinition(ProductTypeId.BoardBundle, requiredCount: 1)),
                     new CustomerProjectOfferDefinition(
-                        "Запас по дереву",
-                        "Больше досок и выше прибыль при максимальной загрузке машины.",
                         new CustomerProjectLineDefinition(ProductTypeId.CementBag, requiredCount: 1),
                         new CustomerProjectLineDefinition(ProductTypeId.BoardBundle, requiredCount: 2))
                 });

@@ -1,23 +1,23 @@
 using System;
 using System.Collections.Generic;
 using HardwareStore.Gameplay.Components;
+using HardwareStore.Gameplay.Localization;
 
 namespace HardwareStore.Gameplay.Presentation
 {
     public readonly struct HudSnapshot
     {
-        public HudSnapshot(HudOrderState orderState, string projectTitle,
+        public HudSnapshot(HudOrderState orderState, CustomerProjectTypeId? projectType,
             OrderLineSnapshot[] orderLines, int totalAvailableProductCount,
             int totalLoadedProductCount, int totalRequiredProductCount,
             int money, int stockCount, bool hasActiveDelivery,
-            ProductTypeId deliveryProductType, string deliveryProductDisplayName,
-            string deliveryProductUnitLabel, int deliveryStockedCount,
-            int deliveryProductCount, string carriedProductDisplayName,
-            string prompt, bool hasFocus, bool canInteract, bool hasItem,
+            ProductTypeId deliveryProductType, int deliveryStockedCount,
+            int deliveryProductCount, ProductTypeId? carriedProductType,
+            LocalizedText prompt, bool hasFocus, bool canInteract, bool hasItem,
             bool cursorLocked)
         {
             OrderState = orderState;
-            ProjectTitle = projectTitle ?? throw new ArgumentNullException(nameof(projectTitle));
+            ProjectType = projectType;
             if (orderLines == null)
                 throw new ArgumentNullException(nameof(orderLines));
             if (totalAvailableProductCount < 0)
@@ -35,18 +35,10 @@ namespace HardwareStore.Gameplay.Presentation
             StockCount = stockCount;
             HasActiveDelivery = hasActiveDelivery;
             DeliveryProductType = deliveryProductType;
-            DeliveryProductDisplayName = deliveryProductDisplayName ??
-                                         throw new ArgumentNullException(
-                                             nameof(deliveryProductDisplayName));
-            DeliveryProductUnitLabel = deliveryProductUnitLabel ??
-                                       throw new ArgumentNullException(
-                                           nameof(deliveryProductUnitLabel));
             DeliveryStockedCount = deliveryStockedCount;
             DeliveryProductCount = deliveryProductCount;
-            CarriedProductDisplayName = carriedProductDisplayName ??
-                                        throw new ArgumentNullException(
-                                            nameof(carriedProductDisplayName));
-            Prompt = prompt ?? throw new ArgumentNullException(nameof(prompt));
+            CarriedProductType = carriedProductType;
+            Prompt = prompt;
             HasFocus = hasFocus;
             CanInteract = canInteract;
             HasItem = hasItem;
@@ -54,7 +46,7 @@ namespace HardwareStore.Gameplay.Presentation
         }
 
         public HudOrderState OrderState { get; }
-        public string ProjectTitle { get; }
+        public CustomerProjectTypeId? ProjectType { get; }
         public IReadOnlyList<OrderLineSnapshot> OrderLines { get; }
         public int TotalAvailableProductCount { get; }
         public int TotalLoadedProductCount { get; }
@@ -63,12 +55,10 @@ namespace HardwareStore.Gameplay.Presentation
         public int StockCount { get; }
         public bool HasActiveDelivery { get; }
         public ProductTypeId DeliveryProductType { get; }
-        public string DeliveryProductDisplayName { get; }
-        public string DeliveryProductUnitLabel { get; }
         public int DeliveryStockedCount { get; }
         public int DeliveryProductCount { get; }
-        public string CarriedProductDisplayName { get; }
-        public string Prompt { get; }
+        public ProductTypeId? CarriedProductType { get; }
+        public LocalizedText Prompt { get; }
         public bool HasFocus { get; }
         public bool CanInteract { get; }
         public bool HasItem { get; }

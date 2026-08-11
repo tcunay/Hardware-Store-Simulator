@@ -1,23 +1,19 @@
 using System;
 using System.Linq;
 using Entitas;
-using HardwareStore.Gameplay.Configs;
 using HardwareStore.Gameplay.Components;
-using HardwareStore.Gameplay.StaticData;
+using HardwareStore.Gameplay.Localization;
 
 namespace HardwareStore.Gameplay.Features.Interaction.Systems
 {
     public sealed class ResolveEmptyHandsStoragePromptSystem : IExecuteSystem
     {
         private readonly GameContext _gameContext;
-        private readonly IStaticDataService _staticData;
         private readonly IGroup<GameEntity> _players;
 
-        public ResolveEmptyHandsStoragePromptSystem(GameContext gameContext,
-            IStaticDataService staticData)
+        public ResolveEmptyHandsStoragePromptSystem(GameContext gameContext)
         {
             _gameContext = gameContext;
-            _staticData = staticData;
             _players = gameContext.GetGroup(GameMatcher.AllOf(
                     GameMatcher.Player,
                     GameMatcher.StoreEntityId,
@@ -49,11 +45,10 @@ namespace HardwareStore.Gameplay.Features.Interaction.Systems
                         terminal.EntityId);
                 if (delivery != null)
                 {
-                    ProductConfig deliveredProduct =
-                        _staticData.GetProduct(delivery.ProductType);
                     player.SetInteractionPrompt(
-                        $"Принесите товар из поставки на приёмку • товар: " +
-                        $"{deliveredProduct.DisplayName}",
+                        LocalizedTexts.Text(
+                            LocalizationKey.PromptBringDeliveryToIntake,
+                            LocalizedTexts.ProductName(delivery.ProductType)),
                         false);
                     continue;
                 }
@@ -62,16 +57,18 @@ namespace HardwareStore.Gameplay.Features.Interaction.Systems
                 {
                     player.SetInteractionPrompt(
                         storageZone.StorageProductCount > 0
-                            ? $"Товаров на складе: {storageZone.StorageProductCount} • " +
-                              "Ожидайте следующего клиента"
-                            : "Склад пуст — можно заказать поставку",
+                            ? LocalizedTexts.Text(
+                                LocalizationKey.PromptStorageCountWaitCustomer,
+                                storageZone.StorageProductCount)
+                            : LocalizedTexts.Text(
+                                LocalizationKey.PromptStorageEmptyOrderDelivery),
                         false);
                     continue;
                 }
                 if (customerVisit.isCustomerVisitArriving)
                 {
                     player.SetInteractionPrompt(
-                        "Клиент прибывает и направляется к стойке — можно подготовить товар",
+                        LocalizedTexts.Text(LocalizationKey.PromptArrivingPrepareProduct),
                         false);
                     continue;
                 }
@@ -81,8 +78,9 @@ namespace HardwareStore.Gameplay.Features.Interaction.Systems
                 {
                     player.SetInteractionPrompt(
                         customerVisit.isCustomerVisitReturning
-                            ? "Клиент возвращается к машине — ожидайте следующего"
-                            : "Машина клиента уезжает — ожидайте следующего",
+                            ? LocalizedTexts.Text(LocalizationKey.PromptCustomerReturningWait)
+                            : LocalizedTexts.Text(
+                                LocalizationKey.PromptCustomerVehicleDepartingWait),
                         false);
                     continue;
                 }
@@ -90,8 +88,10 @@ namespace HardwareStore.Gameplay.Features.Interaction.Systems
                 if (customerVisit.isCustomerVisitConsulting)
                 {
                     player.SetInteractionPrompt(
-                        $"Сначала согласуйте предложение • проект: " +
-                        $"{customerVisit.CustomerProjectTitle}",
+                        LocalizedTexts.Text(
+                            LocalizationKey.PromptConsultProjectFirst,
+                            LocalizedTexts.ProjectTitle(
+                                customerVisit.CustomerProjectType)),
                         false);
                     continue;
                 }
@@ -104,7 +104,7 @@ namespace HardwareStore.Gameplay.Features.Interaction.Systems
                     if (incompleteLine == null)
                     {
                         player.SetInteractionPrompt(
-                            "Все позиции загружены — заказ завершается",
+                            LocalizedTexts.Text(LocalizationKey.PromptAllLinesLoaded),
                             false);
                         continue;
                     }
@@ -113,12 +113,16 @@ namespace HardwareStore.Gameplay.Features.Interaction.Systems
                         line.LoadedProductCount < line.RequiredProductCount &&
                         line.AvailableProductCount > 0);
                     GameEntity promptedLine = availableLine ?? incompleteLine;
-                    ProductConfig product = _staticData.GetProduct(promptedLine.ProductType);
+                    LocalizedText productName =
+                        LocalizedTexts.ProductName(promptedLine.ProductType);
                     player.SetInteractionPrompt(
                         availableLine != null
-                            ? $"Наведитесь на товар: {product.DisplayName} • E — взять"
-                            : $"Нет товара для заказа: {product.DisplayName} • " +
-                              "закажите поставку",
+                            ? LocalizedTexts.Text(
+                                LocalizationKey.PromptFocusStockProduct,
+                                productName)
+                            : LocalizedTexts.Text(
+                                LocalizationKey.PromptNoStockForOrder,
+                                productName),
                         false);
                     continue;
                 }
@@ -131,18 +135,19 @@ namespace HardwareStore.Gameplay.Features.Interaction.Systems
                     if (deficitLine == null)
                     {
                         player.SetInteractionPrompt(
-                            "Все позиции готовы • примите заказ у стойки",
+                            LocalizedTexts.Text(
+                                LocalizationKey.PromptAllLinesReadyAcceptOrder),
                             false);
                     }
                     else
                     {
-                        ProductConfig product =
-                            _staticData.GetProduct(deficitLine.ProductType);
                         player.SetInteractionPrompt(
-                            $"Нужен товар: {product.DisplayName} • доступно: " +
-                            $"{deficitLine.AvailableProductCount}/" +
-                            $"{deficitLine.RequiredProductCount} {product.UnitLabel} • " +
-                            "закажите поставку",
+                            LocalizedTexts.Text(
+                                LocalizationKey.PromptNeedProductDelivery,
+                                LocalizedTexts.ProductName(deficitLine.ProductType),
+                                deficitLine.AvailableProductCount,
+                                deficitLine.RequiredProductCount,
+                                LocalizedTexts.ProductUnit(deficitLine.ProductType)),
                             false);
                     }
 
@@ -155,9 +160,11 @@ namespace HardwareStore.Gameplay.Features.Interaction.Systems
 
                 player.SetInteractionPrompt(
                     storageZone.StorageProductCount > 0
-                        ? $"Заказ выполнен • товаров на складе: " +
-                          $"{storageZone.StorageProductCount}"
-                        : "Заказ выполнен • склад пуст",
+                        ? LocalizedTexts.Text(
+                            LocalizationKey.PromptCompletedStockCount,
+                            storageZone.StorageProductCount)
+                        : LocalizedTexts.Text(
+                            LocalizationKey.PromptCompletedStorageEmpty),
                     false);
             }
         }

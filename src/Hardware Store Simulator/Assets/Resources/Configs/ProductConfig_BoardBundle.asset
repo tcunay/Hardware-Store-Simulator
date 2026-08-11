@@ -14,8 +14,6 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::HardwareStore.Gameplay.Configs.ProductConfig
   _viewPrefab: {fileID: 2155194227760755185, guid: 18dbb81b3596f4a7c80b4d2ac5fea755, type: 3}
   _productType: 1
-  _displayName: "\u041F\u0430\u0447\u043A\u0430 \u0434\u043E\u0441\u043E\u043A"
-  _unitLabel: "\u0448\u0442."
   _unitPrice: 480
   _mass: 18
   _carryMovementSpeed: 2.6

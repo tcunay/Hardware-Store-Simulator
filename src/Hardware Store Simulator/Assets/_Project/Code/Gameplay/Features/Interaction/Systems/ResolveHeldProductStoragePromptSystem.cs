@@ -1,23 +1,19 @@
 using System;
 using System.Linq;
 using Entitas;
-using HardwareStore.Gameplay.Configs;
 using HardwareStore.Gameplay.Components;
-using HardwareStore.Gameplay.StaticData;
+using HardwareStore.Gameplay.Localization;
 
 namespace HardwareStore.Gameplay.Features.Interaction.Systems
 {
     public sealed class ResolveHeldProductStoragePromptSystem : IExecuteSystem
     {
         private readonly GameContext _gameContext;
-        private readonly IStaticDataService _staticData;
         private readonly IGroup<GameEntity> _players;
 
-        public ResolveHeldProductStoragePromptSystem(GameContext gameContext,
-            IStaticDataService staticData)
+        public ResolveHeldProductStoragePromptSystem(GameContext gameContext)
         {
             _gameContext = gameContext;
-            _staticData = staticData;
             _players = gameContext.GetGroup(GameMatcher.AllOf(
                 GameMatcher.Player,
                 GameMatcher.EntityId,
@@ -58,7 +54,7 @@ namespace HardwareStore.Gameplay.Features.Interaction.Systems
                 if (!heldProduct.isInboundProduct)
                 {
                     player.SetInteractionPrompt(
-                        "На приёмку можно положить только товар из поставки",
+                        LocalizedTexts.Text(LocalizationKey.PromptInboundOnlyAtIntake),
                         false);
                     continue;
                 }
@@ -77,14 +73,15 @@ namespace HardwareStore.Gameplay.Features.Interaction.Systems
                 if (storageZone.OccupiedStorageSlotCount >= storageZone.Slots.Length)
                 {
                     player.SetInteractionPrompt(
-                        "На складе нет свободного места",
+                        LocalizedTexts.Text(LocalizationKey.PromptStorageFull),
                         false);
                     continue;
                 }
 
-                ProductConfig product = _staticData.GetProduct(heldProduct.ProductType);
                 player.SetInteractionPrompt(
-                    $"E — принять на склад • товар: {product.DisplayName}",
+                    LocalizedTexts.Text(
+                        LocalizationKey.PromptStoreInboundProduct,
+                        LocalizedTexts.ProductName(heldProduct.ProductType)),
                     true);
             }
         }
@@ -94,15 +91,15 @@ namespace HardwareStore.Gameplay.Features.Interaction.Systems
             GameEntity store,
             GameEntity heldProduct)
         {
-            ProductConfig heldProductConfig =
-                _staticData.GetProduct(heldProduct.ProductType);
+            LocalizedText productName = LocalizedTexts.ProductName(heldProduct.ProductType);
             GameEntity customerVisit =
                 _gameContext.GetEntityWithCustomerVisitStoreEntityId(store.EntityId);
             if (customerVisit == null)
             {
                 player.SetInteractionPrompt(
-                    $"Нет активного заказа • в руках: {heldProductConfig.DisplayName} • " +
-                    "G — бросить",
+                    LocalizedTexts.Text(
+                        LocalizationKey.PromptNoActiveOrderCarrying,
+                        productName),
                     false);
                 return;
             }
@@ -110,9 +107,9 @@ namespace HardwareStore.Gameplay.Features.Interaction.Systems
             if (customerVisit.isCustomerVisitArriving)
             {
                 player.SetInteractionPrompt(
-                    $"Клиент прибывает и направляется к стойке • в руках: " +
-                    $"{heldProductConfig.DisplayName} • " +
-                    "G — бросить",
+                    LocalizedTexts.Text(
+                        LocalizationKey.PromptArrivingCarrying,
+                        productName),
                     false);
                 return;
             }
@@ -122,8 +119,9 @@ namespace HardwareStore.Gameplay.Features.Interaction.Systems
                 customerVisit.isCustomerVisitCompleted)
             {
                 player.SetInteractionPrompt(
-                    $"Заказ завершён • в руках: {heldProductConfig.DisplayName} • " +
-                    "G — бросить",
+                    LocalizedTexts.Text(
+                        LocalizationKey.PromptCompletedCarrying,
+                        productName),
                     false);
                 return;
             }
@@ -131,15 +129,18 @@ namespace HardwareStore.Gameplay.Features.Interaction.Systems
             if (customerVisit.isCustomerVisitConsulting)
             {
                 player.SetInteractionPrompt(
-                    $"Сначала согласуйте предложение • в руках: " +
-                    $"{heldProductConfig.DisplayName} • G — бросить",
+                    LocalizedTexts.Text(
+                        LocalizationKey.PromptConsultFirstCarrying,
+                        productName),
                     false);
                 return;
             }
 
             if (customerVisit.isCustomerVisitWaiting)
             {
-                player.SetInteractionPrompt("Сначала примите заказ у стойки", false);
+                player.SetInteractionPrompt(
+                    LocalizedTexts.Text(LocalizationKey.PromptAcceptOrderFirst),
+                    false);
                 return;
             }
 
@@ -157,13 +158,16 @@ namespace HardwareStore.Gameplay.Features.Interaction.Systems
                            matchingLine.RequiredProductCount;
             player.SetInteractionPrompt(
                 canLoad
-                    ? $"Отнесите товар в машину клиента • товар: " +
-                      $"{heldProductConfig.DisplayName}"
+                    ? LocalizedTexts.Text(
+                        LocalizationKey.PromptCarryToCustomerVehicle,
+                        productName)
                     : matchingLine == null
-                        ? $"Товар не входит в заказ: {heldProductConfig.DisplayName} • " +
-                          "G — бросить"
-                        : $"Позиция уже загружена: {heldProductConfig.DisplayName} • " +
-                          "G — бросить",
+                        ? LocalizedTexts.Text(
+                            LocalizationKey.PromptProductNotInOrderCarrying,
+                            productName)
+                        : LocalizedTexts.Text(
+                            LocalizationKey.PromptOrderLineAlreadyLoadedCarrying,
+                            productName),
                 false);
         }
 

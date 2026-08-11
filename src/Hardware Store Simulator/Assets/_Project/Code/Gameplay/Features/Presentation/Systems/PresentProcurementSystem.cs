@@ -108,7 +108,7 @@ namespace HardwareStore.Gameplay.Features.Presentation.Systems
             }
 
             _hud.PresentProcurement(new ProcurementSnapshot(
-                visit.CustomerProjectTitle,
+                visit.CustomerProjectType,
                 store.Money,
                 freeStorageSlotCount,
                 products));
@@ -139,52 +139,41 @@ namespace HardwareStore.Gameplay.Features.Presentation.Systems
             int deficitProductCount = Math.Max(
                 0,
                 remainingRequiredProductCount - availableProductCount);
-            ProductConfig product = _staticData.GetProduct(productType);
             DeliveryConfig delivery = _staticData.GetDelivery(productType);
             int moneyAfterPurchase = checked(store.Money - delivery.TotalCost);
 
-            bool purchaseAvailable;
-            string purchaseStatus;
+            ProcurementPurchaseState purchaseState;
             if (orderLine == null)
             {
-                purchaseAvailable = false;
-                purchaseStatus = "Не требуется для текущего заказа";
+                purchaseState = ProcurementPurchaseState.NotRequired;
             }
             else if (deficitProductCount == 0)
             {
-                purchaseAvailable = false;
-                purchaseStatus = "Запаса для заказа достаточно";
+                purchaseState = ProcurementPurchaseState.StockSufficient;
             }
             else if (freeStorageSlotCount < delivery.ProductCount)
             {
-                purchaseAvailable = false;
-                purchaseStatus = $"Недостаточно места: свободно " +
-                                 $"{freeStorageSlotCount}/{delivery.ProductCount}";
+                purchaseState = ProcurementPurchaseState.InsufficientStorage;
             }
             else if (moneyAfterPurchase < 0)
             {
-                purchaseAvailable = false;
-                purchaseStatus = $"Недостаточно денег: нужно {delivery.TotalCost:N0} ₽";
+                purchaseState = ProcurementPurchaseState.InsufficientMoney;
             }
             else
             {
-                purchaseAvailable = true;
-                purchaseStatus = "Можно заказать";
+                purchaseState = ProcurementPurchaseState.Available;
             }
 
             return new ProcurementProductSnapshot(
                 index,
                 productType,
-                product.DisplayName,
-                product.UnitLabel,
                 delivery.ProductCount,
                 delivery.TotalCost,
                 moneyAfterPurchase,
                 availableProductCount,
                 remainingRequiredProductCount,
                 deficitProductCount,
-                purchaseAvailable,
-                purchaseStatus,
+                purchaseState,
                 terminal.SelectedProductType == productType);
         }
 
@@ -234,7 +223,7 @@ namespace HardwareStore.Gameplay.Features.Presentation.Systems
             GameEntity storageZone)
         {
             if (visit == null || !visit.isCustomerVisit || !visit.isOrder ||
-                !visit.hasEntityId || !visit.hasCustomerProjectTitle ||
+                !visit.hasEntityId || !visit.hasCustomerProjectType ||
                 !visit.hasStorageZoneEntityId ||
                 (!visit.isCustomerVisitWaiting && !visit.isCustomerVisitLoading) ||
                 visit.StorageZoneEntityId != storageZone.EntityId)

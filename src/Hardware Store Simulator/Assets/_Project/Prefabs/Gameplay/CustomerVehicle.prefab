@@ -64,6 +64,7 @@ GameObject:
   - component: {fileID: 8528187556719321732}
   - component: {fileID: 1037170655412440737}
   - component: {fileID: 6919695240089162222}
+  - component: {fileID: 3873072984584705549}
   m_Layer: 0
   m_Name: Loading Label
   m_TagString: Untagged
@@ -157,6 +158,21 @@ TextMesh:
   m_Color:
     serializedVersion: 2
     rgba: 4294967295
+--- !u!114 &3873072984584705549
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1144254445384210092}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 5aa3251826e48439985db87cfdeee226, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::HardwareStore.Gameplay.Presentation.LocalizedTextMeshView
+  _label: {fileID: 6919695240089162222}
+  _key: 4006
+  _numberArguments: 
 --- !u!1 &1638300760463034366
 GameObject:
   m_ObjectHideFlags: 0

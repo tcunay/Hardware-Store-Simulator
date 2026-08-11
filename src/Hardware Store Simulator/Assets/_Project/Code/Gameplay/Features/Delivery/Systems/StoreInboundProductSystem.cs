@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using Entitas;
 using HardwareStore.Gameplay.Components;
 using HardwareStore.Gameplay.Factories;
+using HardwareStore.Gameplay.Localization;
 
 namespace HardwareStore.Gameplay.Features.Delivery.Systems
 {
@@ -85,7 +86,8 @@ namespace HardwareStore.Gameplay.Features.Delivery.Systems
                 int slotIndex = FindFreeSlot(storageZone.Slots.Length, occupiedSlots);
                 if (slotIndex < 0)
                 {
-                    _events.EmitNotification("На складе нет свободного места");
+                    _events.EmitNotification(LocalizedTexts.Text(
+                        LocalizationKey.NotificationStorageFull));
                     continue;
                 }
 

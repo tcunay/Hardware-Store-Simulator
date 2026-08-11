@@ -1,10 +1,11 @@
 using HardwareStore.Gameplay.Components;
+using HardwareStore.Gameplay.Localization;
 
 namespace HardwareStore.Gameplay.Factories
 {
     public interface IGameEventFactory
     {
         void EmitAudio(AudioCueId cue);
-        void EmitNotification(string message);
+        void EmitNotification(LocalizedText message);
     }
 }

@@ -21,6 +21,7 @@ using HardwareStore.Gameplay.Features.Procurement.Systems;
 using HardwareStore.Gameplay.Features.Products;
 using HardwareStore.Gameplay.Features.StorageState;
 using HardwareStore.Gameplay.Features.StoreSceneBindings.Systems;
+using HardwareStore.Gameplay.Localization;
 using HardwareStore.Gameplay.StaticData;
 using HardwareStore.Infrastructure.States.GameStates;
 using HardwareStore.Infrastructure.States.StateMachine;
@@ -47,7 +48,8 @@ namespace HardwareStore.Editor
 
             Debug.Log(
                 $"[Hardware Store] Consultation visual check prepared: customer visit " +
-                $"{visit.Entity.EntityId}, project '{visit.Entity.CustomerProjectTitle}' and " +
+                $"{visit.Entity.EntityId}, project '" +
+                $"{runtime.Localization.Resolve(LocalizedTexts.ProjectTitle(visit.Entity.CustomerProjectType))}' and " +
                 $"{GetConsultationOffers(runtime.Game, visit.Entity).Length} offers.");
         }
 
@@ -72,7 +74,8 @@ namespace HardwareStore.Editor
 
             Debug.Log(
                 $"[Hardware Store] Mixed consultation visual check prepared: customer visit " +
-                $"{visit.Entity.EntityId}, project '{visit.Entity.CustomerProjectTitle}' and " +
+                $"{visit.Entity.EntityId}, project '" +
+                $"{runtime.Localization.Resolve(LocalizedTexts.ProjectTitle(visit.Entity.CustomerProjectType))}' and " +
                 $"capacity {runtime.StaticData.CustomerVehicle.CargoCapacity}.");
         }
 
@@ -97,7 +100,7 @@ namespace HardwareStore.Editor
 
             Debug.Log(
                 $"[Hardware Store] Procurement visual check prepared: customer project " +
-                $"'{visit.Entity.CustomerProjectTitle}', selected product " +
+                $"'{runtime.Localization.Resolve(LocalizedTexts.ProjectTitle(visit.Entity.CustomerProjectType))}', selected product " +
                 $"{scenario.ProcurementTerminal.SelectedProductType}.");
         }
 
@@ -128,6 +131,8 @@ namespace HardwareStore.Editor
             int mixedCementCount = RequiredCount(mixedOffer, cement);
             int mixedBoardCount = RequiredCount(mixedOffer, boards);
 
+            ValidateRussianLocalization(CreateRussianLocalization());
+            ValidateRussianLocalization(runtime.Localization);
             ValidateRuntimePlayerView(scenario.Player);
             Require(scenario.Player.WalkSpeed < scenario.Player.SprintSpeed,
                 "Player movement config must define walking < sprinting speeds.");
@@ -155,8 +160,6 @@ namespace HardwareStore.Editor
             int firstCustomerActorId = firstVisit.Actor.EntityId;
             Require(firstVisit.Entity.CustomerProjectType ==
                     CustomerProjectTypeId.CementFoundation &&
-                    firstVisit.Entity.CustomerProjectTitle == cementProject.ProjectTitle &&
-                    firstVisit.Entity.CustomerRequest == cementProject.Request &&
                     scenario.Store.NextProjectSequenceIndex == 1,
                 "The first customer visit did not receive the configured cement project.");
 
@@ -239,8 +242,6 @@ namespace HardwareStore.Editor
                 "The second customer vehicle inherited occupied loading slots.");
             Require(secondVisit.Entity.CustomerProjectType ==
                     CustomerProjectTypeId.LumberShelving &&
-                    secondVisit.Entity.CustomerProjectTitle == boardProject.ProjectTitle &&
-                    secondVisit.Entity.CustomerRequest == boardProject.Request &&
                     scenario.Store.NextProjectSequenceIndex == 2,
                 "The second customer visit did not receive the configured board project.");
             Require(GetConsultationOffers(runtime.Game, secondVisit.Entity)
@@ -326,8 +327,6 @@ namespace HardwareStore.Editor
             CustomerVisit thirdVisit = SpawnAndParkCustomer(runtime, scenario);
             Require(thirdVisit.Entity.CustomerProjectType ==
                     CustomerProjectTypeId.WorkbenchFoundation &&
-                    thirdVisit.Entity.CustomerProjectTitle == mixedProject.ProjectTitle &&
-                    thirdVisit.Entity.CustomerRequest == mixedProject.Request &&
                     scenario.Store.NextProjectSequenceIndex == 0,
                 "The third customer visit did not receive the mixed workbench project.");
             ValidateConsultationLineAvailability(runtime, scenario, thirdVisit.Entity);
@@ -589,8 +588,6 @@ namespace HardwareStore.Editor
                     runtime.Game.GetGroup(GameMatcher.Delivery).count == 0 &&
                     !visit.isOrder &&
                     visit.hasCustomerProjectType &&
-                    visit.hasCustomerProjectTitle &&
-                    visit.hasCustomerRequest &&
                     !visit.isOrderRewarded &&
                     runtime.Game.GetEntitiesWithOrderEntityId(visit.EntityId).Count == 0 &&
                     (visit.isCustomerVisitArriving || visit.isCustomerVisitConsulting) &&
@@ -661,8 +658,10 @@ namespace HardwareStore.Editor
             runtime.Systems.Create<PresentHudSystem>().Execute();
             scenario.Player.ReplaceFocusedEntityId(scenario.OrderCounter.EntityId);
             ExecuteInteractionPrompts(runtime);
-            Require(scenario.Player.hasInteractionPrompt &&
-                    scenario.Player.InteractionPrompt == "Ожидаем следующего клиента" &&
+            Require(PromptMatches(
+                        runtime,
+                        scenario.Player,
+                        LocalizedTexts.Text(LocalizationKey.PromptCounterWaitCustomer)) &&
                     !scenario.Player.isFocusInteractionAvailable,
                 "The order counter does not present the no-customer cooldown state.");
             scenario.Player.RemoveFocusedEntityId();
@@ -689,8 +688,6 @@ namespace HardwareStore.Editor
             Require(visit.isCustomerVisit && visit.isCustomerVehicle && !visit.isOrder &&
                     visit.isLoadingZone && visit.isCustomerVisitArriving &&
                     visit.hasCustomerProjectType &&
-                    visit.hasCustomerProjectTitle &&
-                    visit.hasCustomerRequest &&
                     !visit.hasProductType &&
                     !visit.hasRequiredProductCount &&
                     !visit.hasAvailableProductCount &&
@@ -709,8 +706,6 @@ namespace HardwareStore.Editor
             foreach (GameEntity offer in offers)
             {
                 Require(offer.ConsultationOfferVisitEntityId == visit.EntityId &&
-                        !string.IsNullOrWhiteSpace(offer.OfferTitle) &&
-                        !string.IsNullOrWhiteSpace(offer.OfferDescription) &&
                         offer.hasOrderReward &&
                         offer.hasExpectedProfit &&
                         !offer.hasProductType &&
@@ -758,10 +753,11 @@ namespace HardwareStore.Editor
 
             scenario.Player.ReplaceFocusedEntityId(scenario.OrderCounter.EntityId);
             ExecuteInteractionPrompts(runtime);
-            Require(scenario.Player.hasInteractionPrompt &&
-                    scenario.Player.InteractionPrompt.IndexOf(
-                        "направляется",
-                        StringComparison.OrdinalIgnoreCase) >= 0 &&
+            Require(PromptMatches(
+                        runtime,
+                        scenario.Player,
+                        LocalizedTexts.Text(
+                            LocalizationKey.PromptCounterCustomerApproaching)) &&
                     !scenario.Player.isFocusInteractionAvailable,
                 "The parked arrival state did not present the walk to the counter.");
             scenario.Player.RemoveFocusedEntityId();
@@ -1380,8 +1376,10 @@ namespace HardwareStore.Editor
                 scenario.ProcurementTerminal.EntityId);
             ExecuteInteractionPrompts(runtime);
             Require(scenario.Player.isFocusInteractionAvailable &&
-                    scenario.Player.hasInteractionPrompt &&
-                    scenario.Player.InteractionPrompt == "E — открыть каталог закупок",
+                    PromptMatches(
+                        runtime,
+                        scenario.Player,
+                        LocalizedTexts.Text(LocalizationKey.PromptOpenProcurement)),
                 "An order deficit did not expose the procurement modal prompt.");
 
             scenario.Input.isInteractPressed = true;
@@ -1870,14 +1868,15 @@ namespace HardwareStore.Editor
             Require(lineLoadedBefore < orderLine.RequiredProductCount,
                 $"Order line {orderLine.EntityId} is already complete.");
 
-            string displayName = runtime.StaticData
-                .GetProduct(product.ProductType)
-                .DisplayName;
             scenario.Player.ReplaceFocusedEntityId(product.EntityId);
             ExecuteInteractionPrompts(runtime);
             Require(scenario.Player.isFocusInteractionAvailable &&
-                    scenario.Player.InteractionPrompt ==
-                    $"E — взять со склада • товар: {displayName}",
+                    PromptMatches(
+                        runtime,
+                        scenario.Player,
+                        LocalizedTexts.Text(
+                            LocalizationKey.PromptPickStockProduct,
+                            LocalizedTexts.ProductName(product.ProductType))),
                 $"Stock product {product.EntityId} has no active-order prompt.");
             scenario.Player.RemoveFocusedEntityId();
 
@@ -2104,19 +2103,20 @@ namespace HardwareStore.Editor
         {
             scenario.Player.ReplaceFocusedEntityId(scenario.OrderCounter.EntityId);
             ExecuteInteractionPrompts(runtime);
-            Require(scenario.Player.hasInteractionPrompt &&
-                    scenario.Player.InteractionPrompt.IndexOf(
-                        "возвращается",
-                        StringComparison.OrdinalIgnoreCase) >= 0 &&
+            Require(PromptMatches(
+                        runtime,
+                        scenario.Player,
+                        LocalizedTexts.Text(
+                            LocalizationKey.PromptCounterCustomerReturning)) &&
                     !scenario.Player.isFocusInteractionAvailable,
                 "The order counter remained interactive while the customer was returning.");
 
             scenario.Player.ReplaceFocusedEntityId(scenario.ProcurementTerminal.EntityId);
             ExecuteInteractionPrompts(runtime);
-            Require(scenario.Player.hasInteractionPrompt &&
-                    scenario.Player.InteractionPrompt.IndexOf(
-                        "заказ выполнен",
-                        StringComparison.OrdinalIgnoreCase) >= 0 &&
+            Require(PromptMatches(
+                        runtime,
+                        scenario.Player,
+                        LocalizedTexts.Text(LocalizationKey.PromptOrderCompletedWait)) &&
                     !scenario.Player.isFocusInteractionAvailable,
                 "Procurement remained available while the customer was returning.");
 
@@ -2141,10 +2141,10 @@ namespace HardwareStore.Editor
                 .First();
             scenario.Player.ReplaceFocusedEntityId(stockProduct.EntityId);
             ExecuteInteractionPrompts(runtime);
-            Require(scenario.Player.hasInteractionPrompt &&
-                    scenario.Player.InteractionPrompt.IndexOf(
-                        "возвращается",
-                        StringComparison.OrdinalIgnoreCase) >= 0 &&
+            Require(PromptMatches(
+                        runtime,
+                        scenario.Player,
+                        LocalizedTexts.Text(LocalizationKey.PromptCustomerReturningWait)) &&
                     !scenario.Player.isFocusInteractionAvailable,
                 "Stock remained available while the customer was returning.");
 
@@ -2162,10 +2162,11 @@ namespace HardwareStore.Editor
 
             scenario.Player.ReplaceFocusedEntityId(remainingStock.EntityId);
             ExecuteInteractionPrompts(runtime);
-            Require(scenario.Player.hasInteractionPrompt &&
-                    scenario.Player.InteractionPrompt.IndexOf(
-                        "следующего клиента",
-                        StringComparison.OrdinalIgnoreCase) >= 0 &&
+            Require(PromptMatches(
+                        runtime,
+                        scenario.Player,
+                        LocalizedTexts.Text(
+                            LocalizationKey.PromptNoCustomerProductNotRequired)) &&
                     !scenario.Player.isFocusInteractionAvailable,
                 "Stock remained available during customer cooldown.");
             scenario.Player.RemoveFocusedEntityId();
@@ -2208,8 +2209,23 @@ namespace HardwareStore.Editor
         private static void AttemptOrderAcceptance(Runtime runtime, Scenario scenario)
         {
             ExecuteStorageState(runtime);
+            GameEntity visit = runtime.Game.GetEntityWithCustomerVisitStoreEntityId(
+                scenario.Store.EntityId);
+            Require(visit != null && visit.isCustomerVisitWaiting,
+                "Order acceptance smoke requires a waiting customer visit.");
+            int missingLineCount = GetOrderLines(runtime.Game, visit)
+                .Count(line => line.AvailableProductCount < line.RequiredProductCount);
+            LocalizationKey expectedNotificationKey = missingLineCount switch
+            {
+                0 => LocalizationKey.NotificationOrderAccepted,
+                1 => LocalizationKey.NotificationOrderStockMissingOne,
+                2 => LocalizationKey.NotificationOrderStockMissingTwo,
+                _ => throw new InvalidOperationException(
+                    "The prototype order cannot contain more than two missing lines.")
+            };
             RequestInteraction(scenario.Player, scenario.OrderCounter);
             runtime.Systems.Create<AcceptOrderSystem>().Execute();
+            RequireNotificationKey(runtime, expectedNotificationKey);
             CleanupEvents(runtime);
         }
 
@@ -2220,6 +2236,59 @@ namespace HardwareStore.Editor
         {
             runtime.Systems.Create<ClassifyFocusedInteractionSystem>().Execute();
             runtime.Systems.Create<InteractionPromptFeature>().Execute();
+        }
+
+        private static bool PromptMatches(Runtime runtime, GameEntity player,
+            LocalizedText expected) =>
+            player.hasInteractionPrompt &&
+            player.InteractionPrompt.Key == expected.Key &&
+            runtime.Localization.Resolve(player.InteractionPrompt) ==
+            runtime.Localization.Resolve(expected);
+
+        private static void RequireNotificationKey(Runtime runtime,
+            LocalizationKey expectedKey)
+        {
+            GameEntity[] notifications = runtime.Game
+                .GetGroup(GameMatcher.NotificationMessage)
+                .GetEntities();
+            Require(notifications.Length == 1 &&
+                    notifications[0].NotificationMessage.Key == expectedKey &&
+                    !string.IsNullOrWhiteSpace(runtime.Localization.Resolve(
+                        notifications[0].NotificationMessage)),
+                $"Expected one resolvable {expectedKey} notification event.");
+        }
+
+        private static void ValidateRussianLocalization(
+            ILocalizationService localization)
+        {
+            Require(localization.Language == LanguageId.Russian &&
+                    localization.Culture.Name == "ru-RU",
+                "The smoke localization service did not load Russian with ru-RU culture.");
+            Require(localization.Resolve(
+                        LocalizedTexts.ProductName(ProductTypeId.CementBag)) ==
+                    "Цемент 25 кг",
+                "The Russian catalog did not resolve representative product content.");
+            Require(localization.Resolve(LocalizedTexts.Text(
+                        LocalizationKey.PromptPickStockProduct,
+                        LocalizedTexts.ProductName(ProductTypeId.BoardBundle))) ==
+                    "E — взять со склада • товар: Пачка досок",
+                "Nested localized product content did not resolve inside a prompt.");
+            string formattedMoney = string.Format(localization.Culture, "{0:N0}", 1550);
+            Require(localization.Resolve(LocalizedTexts.Text(
+                        LocalizationKey.NotificationOrderCompleted,
+                        1550)) ==
+                    $"Заказ выполнен: +{formattedMoney} ₽",
+                "Russian money formatting did not use the loaded localization culture.");
+        }
+
+        private static ILocalizationService CreateRussianLocalization()
+        {
+            var localization = new LocalizationService(new ILocalizationCatalog[]
+            {
+                new RussianLocalizationCatalog()
+            });
+            localization.Load(LanguageId.Russian);
+            return localization;
         }
 
         private static void ExecuteProductPlacement(Runtime runtime) =>
@@ -2269,7 +2338,8 @@ namespace HardwareStore.Editor
                 container.Resolve<InputContext>(),
                 container.Resolve<ISystemFactory>(),
                 container.Resolve<IGameStateMachine>(),
-                container.Resolve<IStaticDataService>());
+                container.Resolve<IStaticDataService>(),
+                container.Resolve<ILocalizationService>());
         }
 
         private static GameEntity[] FindProducts(GameContext context) =>
@@ -2394,13 +2464,15 @@ namespace HardwareStore.Editor
                 InputContext input,
                 ISystemFactory systems,
                 IGameStateMachine stateMachine,
-                IStaticDataService staticData)
+                IStaticDataService staticData,
+                ILocalizationService localization)
             {
                 Game = game;
                 Input = input;
                 Systems = systems;
                 StateMachine = stateMachine;
                 StaticData = staticData;
+                Localization = localization;
             }
 
             public GameContext Game { get; }
@@ -2408,6 +2480,7 @@ namespace HardwareStore.Editor
             public ISystemFactory Systems { get; }
             public IGameStateMachine StateMachine { get; }
             public IStaticDataService StaticData { get; }
+            public ILocalizationService Localization { get; }
         }
 
         private readonly struct Scenario

@@ -34,10 +34,10 @@ public sealed partial class GameMatcher {
 public partial class GameEntity {
 
     public HardwareStore.Gameplay.Components.NotificationMessage notificationMessage { get { return (HardwareStore.Gameplay.Components.NotificationMessage)GetComponent(GameComponentsLookup.NotificationMessage); } }
-    public string NotificationMessage { get { return notificationMessage.Value; } }
+    public HardwareStore.Gameplay.Localization.LocalizedText NotificationMessage { get { return notificationMessage.Value; } }
     public bool hasNotificationMessage { get { return HasComponent(GameComponentsLookup.NotificationMessage); } }
 
-    public GameEntity AddNotificationMessage(string newValue) {
+    public GameEntity AddNotificationMessage(HardwareStore.Gameplay.Localization.LocalizedText newValue) {
         var index = GameComponentsLookup.NotificationMessage;
         var component = (HardwareStore.Gameplay.Components.NotificationMessage)CreateComponent(index, typeof(HardwareStore.Gameplay.Components.NotificationMessage));
         component.Value = newValue;
@@ -45,7 +45,7 @@ public partial class GameEntity {
         return this;
     }
 
-    public GameEntity ReplaceNotificationMessage(string newValue) {
+    public GameEntity ReplaceNotificationMessage(HardwareStore.Gameplay.Localization.LocalizedText newValue) {
         var index = GameComponentsLookup.NotificationMessage;
         var component = (HardwareStore.Gameplay.Components.NotificationMessage)CreateComponent(index, typeof(HardwareStore.Gameplay.Components.NotificationMessage));
         component.Value = newValue;

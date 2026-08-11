@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using HardwareStore.Gameplay.Components;
 
 namespace HardwareStore.Gameplay.Presentation
 {
@@ -7,11 +8,10 @@ namespace HardwareStore.Gameplay.Presentation
     {
         private const int ProductCardCount = 2;
 
-        public ProcurementSnapshot(string projectTitle, int money,
+        public ProcurementSnapshot(CustomerProjectTypeId projectType, int money,
             int freeStorageSlotCount, ProcurementProductSnapshot[] products)
         {
-            ProjectTitle = projectTitle ??
-                           throw new ArgumentNullException(nameof(projectTitle));
+            ProjectType = projectType;
             if (money < 0)
                 throw new ArgumentOutOfRangeException(nameof(money));
             if (freeStorageSlotCount < 0)
@@ -59,7 +59,7 @@ namespace HardwareStore.Gameplay.Presentation
             Products = Array.AsReadOnly((ProcurementProductSnapshot[])products.Clone());
         }
 
-        public string ProjectTitle { get; }
+        public CustomerProjectTypeId ProjectType { get; }
         public int Money { get; }
         public int FreeStorageSlotCount { get; }
         public IReadOnlyList<ProcurementProductSnapshot> Products { get; }

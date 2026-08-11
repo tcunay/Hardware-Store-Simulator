@@ -4,6 +4,7 @@ using Entitas;
 using HardwareStore.Gameplay.Common.Cursor;
 using HardwareStore.Gameplay.Components;
 using HardwareStore.Gameplay.Factories;
+using HardwareStore.Gameplay.Localization;
 using HardwareStore.Gameplay.StaticData;
 using UnityEngine;
 
@@ -58,7 +59,8 @@ namespace HardwareStore.Gameplay.Features.Procurement.Systems
                 return;
             if (player.isHandsOccupied)
             {
-                _events.EmitNotification("Освободите руки, чтобы открыть закупки");
+                _events.EmitNotification(LocalizedTexts.Text(
+                    LocalizationKey.NotificationFreeHandsForProcurement));
                 return;
             }
             if (player.StoreEntityId != terminal.StoreEntityId)
@@ -74,7 +76,8 @@ namespace HardwareStore.Gameplay.Features.Procurement.Systems
             if (_gameContext.GetEntityWithDeliveryProcurementTerminalEntityId(
                     terminal.EntityId) != null)
             {
-                _events.EmitNotification("Сначала примите текущую поставку на склад");
+                _events.EmitNotification(LocalizedTexts.Text(
+                    LocalizationKey.NotificationAcceptCurrentDeliveryFirst));
                 return;
             }
             if (!TrySelectDeficitProduct(terminal))
@@ -132,23 +135,25 @@ namespace HardwareStore.Gameplay.Features.Procurement.Systems
                 terminal.StoreEntityId);
             if (visit == null)
             {
-                _events.EmitNotification(
-                    "Дождитесь клиента, чтобы выбрать поставку под его заказ");
+                _events.EmitNotification(LocalizedTexts.Text(
+                    LocalizationKey.NotificationWaitForCustomer));
                 return false;
             }
             if (visit.isCustomerVisitCompleted || visit.isCustomerVisitReturning ||
                 visit.isCustomerVisitDeparting)
             {
-                _events.EmitNotification(
-                    "Текущий заказ уже выполнен — дождитесь следующего клиента");
+                _events.EmitNotification(LocalizedTexts.Text(
+                    LocalizationKey.NotificationOrderCompletedWaitCustomer));
                 return false;
             }
             if (visit.isCustomerVisitArriving || visit.isCustomerVisitConsulting)
             {
                 _events.EmitNotification(
                     visit.isCustomerVisitArriving
-                        ? "Дождитесь клиента, чтобы согласовать предложение"
-                        : "Сначала согласуйте предложение с клиентом у стойки");
+                        ? LocalizedTexts.Text(
+                            LocalizationKey.NotificationWaitForCustomerConsultation)
+                        : LocalizedTexts.Text(
+                            LocalizationKey.NotificationConsultAtCounterFirst));
                 return false;
             }
             if (!visit.isOrder ||
@@ -179,7 +184,8 @@ namespace HardwareStore.Gameplay.Features.Procurement.Systems
                 return true;
             }
 
-            _events.EmitNotification("Для текущего заказа закупка не требуется");
+            _events.EmitNotification(LocalizedTexts.Text(
+                LocalizationKey.NotificationProcurementNotRequired));
             return false;
         }
 

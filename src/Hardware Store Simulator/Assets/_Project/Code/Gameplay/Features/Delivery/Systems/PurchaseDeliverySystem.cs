@@ -4,6 +4,7 @@ using Entitas;
 using HardwareStore.Gameplay.Configs;
 using HardwareStore.Gameplay.Components;
 using HardwareStore.Gameplay.Factories;
+using HardwareStore.Gameplay.Localization;
 using HardwareStore.Gameplay.StaticData;
 using UnityEngine;
 
@@ -59,7 +60,8 @@ namespace HardwareStore.Gameplay.Features.Delivery.Systems
                 if (_gameContext.GetEntityWithDeliveryProcurementTerminalEntityId(
                         terminal.EntityId) != null)
                 {
-                    _events.EmitNotification("Сначала примите текущую поставку на склад");
+                    _events.EmitNotification(LocalizedTexts.Text(
+                        LocalizationKey.NotificationAcceptCurrentDeliveryFirst));
                     continue;
                 }
 
@@ -69,8 +71,8 @@ namespace HardwareStore.Gameplay.Features.Delivery.Systems
                     _gameContext.GetEntityWithCustomerVisitStoreEntityId(store.EntityId);
                 if (customerVisit == null)
                 {
-                    _events.EmitNotification(
-                        "Дождитесь клиента, чтобы выбрать поставку под его заказ");
+                    _events.EmitNotification(LocalizedTexts.Text(
+                        LocalizationKey.NotificationWaitForCustomer));
                     continue;
                 }
 
@@ -78,8 +80,8 @@ namespace HardwareStore.Gameplay.Features.Delivery.Systems
                     customerVisit.isCustomerVisitReturning ||
                     customerVisit.isCustomerVisitDeparting)
                 {
-                    _events.EmitNotification(
-                        "Текущий заказ уже выполнен — дождитесь следующего клиента");
+                    _events.EmitNotification(LocalizedTexts.Text(
+                        LocalizationKey.NotificationOrderCompletedWaitCustomer));
                     continue;
                 }
 
@@ -88,8 +90,10 @@ namespace HardwareStore.Gameplay.Features.Delivery.Systems
                 {
                     _events.EmitNotification(
                         customerVisit.isCustomerVisitArriving
-                            ? "Дождитесь клиента, чтобы согласовать предложение"
-                            : "Сначала согласуйте предложение с клиентом у стойки");
+                            ? LocalizedTexts.Text(
+                                LocalizationKey.NotificationWaitForCustomerConsultation)
+                            : LocalizedTexts.Text(
+                                LocalizationKey.NotificationConsultAtCounterFirst));
                     continue;
                 }
 
@@ -102,13 +106,12 @@ namespace HardwareStore.Gameplay.Features.Delivery.Systems
                 }
 
                 GameEntity selectedLine = null;
-                var requiredProductNames = new List<string>(4);
+                var requiredLines = new List<GameEntity>(2);
                 foreach (GameEntity line in
                          _gameContext.GetEntitiesWithOrderEntityId(customerVisit.EntityId))
                 {
                     ValidateOrderLine(customerVisit, line);
-                    requiredProductNames.Add(
-                        _staticData.GetProduct(line.ProductType).DisplayName);
+                    requiredLines.Add(line);
                     if (line.ProductType != terminal.SelectedProductType)
                         continue;
                     if (selectedLine != null)
@@ -119,14 +122,27 @@ namespace HardwareStore.Gameplay.Features.Delivery.Systems
                     selectedLine = line;
                 }
 
-                if (requiredProductNames.Count == 0)
+                if (requiredLines.Count == 0)
                     throw new InvalidOperationException(
                         $"Customer visit {customerVisit.EntityId} has no order lines.");
                 if (selectedLine == null)
                 {
-                    _events.EmitNotification(
-                        $"Для текущего заказа нужны: " +
-                        $"{string.Join(", ", requiredProductNames)}");
+                    requiredLines.Sort((left, right) =>
+                        left.LineIndex.CompareTo(right.LineIndex));
+                    LocalizedText notification = requiredLines.Count switch
+                    {
+                        1 => LocalizedTexts.Text(
+                            LocalizationKey.NotificationCurrentOrderNeedsOneProduct,
+                            LocalizedTexts.ProductName(requiredLines[0].ProductType)),
+                        2 => LocalizedTexts.Text(
+                            LocalizationKey.NotificationCurrentOrderNeedsTwoProducts,
+                            LocalizedTexts.ProductName(requiredLines[0].ProductType),
+                            LocalizedTexts.ProductName(requiredLines[1].ProductType)),
+                        _ => throw new InvalidOperationException(
+                            $"Customer visit {customerVisit.EntityId} has more than two " +
+                            "order lines.")
+                    };
+                    _events.EmitNotification(notification);
                     continue;
                 }
 
@@ -134,11 +150,11 @@ namespace HardwareStore.Gameplay.Features.Delivery.Systems
                     selectedLine.RequiredProductCount - selectedLine.LoadedProductCount;
                 if (selectedLine.AvailableProductCount >= remainingCount)
                 {
-                    ProductConfig selectedProduct =
-                        _staticData.GetProduct(selectedLine.ProductType);
-                    _events.EmitNotification(
-                        $"Товара уже достаточно: {selectedProduct.DisplayName} • " +
-                        $"доступно {selectedLine.AvailableProductCount}/{remainingCount}");
+                    _events.EmitNotification(LocalizedTexts.Text(
+                        LocalizationKey.NotificationProductStockSufficient,
+                        LocalizedTexts.ProductName(selectedLine.ProductType),
+                        selectedLine.AvailableProductCount,
+                        remainingCount));
                     continue;
                 }
 
@@ -149,17 +165,18 @@ namespace HardwareStore.Gameplay.Features.Delivery.Systems
                 int freeSlotCount = storageZone.Slots.Length - storageZone.OccupiedStorageSlotCount;
                 if (freeSlotCount < deliveryConfig.ProductCount)
                 {
-                    _events.EmitNotification(
-                        $"Недостаточно места на складе: свободно {freeSlotCount}/" +
-                        $"{deliveryConfig.ProductCount}");
+                    _events.EmitNotification(LocalizedTexts.Text(
+                        LocalizationKey.NotificationStorageSpaceInsufficient,
+                        freeSlotCount,
+                        deliveryConfig.ProductCount));
                     continue;
                 }
 
                 if (store.Money < deliveryConfig.TotalCost)
                 {
-                    _events.EmitNotification(
-                        $"Недостаточно денег на поставку: нужно " +
-                        $"{deliveryConfig.TotalCost:N0} ₽");
+                    _events.EmitNotification(LocalizedTexts.Text(
+                        LocalizationKey.NotificationMoneyInsufficient,
+                        deliveryConfig.TotalCost));
                     continue;
                 }
 
@@ -173,11 +190,12 @@ namespace HardwareStore.Gameplay.Features.Delivery.Systems
                     deliveryPose);
 
                 store.ReplaceMoney(store.Money - delivery.DeliveryCost);
-                ProductConfig productConfig = _staticData.GetProduct(delivery.ProductType);
-                _events.EmitNotification(
-                    $"Поставка заказана • товар: {productConfig.DisplayName} • " +
-                    $"количество: {delivery.DeliveryProductCount} {productConfig.UnitLabel} • " +
-                    $"−{delivery.DeliveryCost:N0} ₽");
+                _events.EmitNotification(LocalizedTexts.Text(
+                    LocalizationKey.NotificationDeliveryOrdered,
+                    LocalizedTexts.ProductName(delivery.ProductType),
+                    delivery.DeliveryProductCount,
+                    LocalizedTexts.ProductUnit(delivery.ProductType),
+                    delivery.DeliveryCost));
                 _events.EmitAudio(AudioCueId.DeliveryPurchased);
                 request.isPurchaseDeliverySucceeded = true;
             }
@@ -187,7 +205,8 @@ namespace HardwareStore.Gameplay.Features.Delivery.Systems
         {
             if (!line.isOrderLine || line.isDestructed || !line.hasEntityId ||
                 !line.hasOrderEntityId || !line.hasStorageZoneEntityId ||
-                !line.hasProductType || !line.hasRequiredProductCount ||
+                !line.hasLineIndex || !line.hasProductType ||
+                !line.hasRequiredProductCount ||
                 !line.hasAvailableProductCount || !line.hasLoadedProductCount)
             {
                 throw new InvalidOperationException(

@@ -105,8 +105,6 @@ namespace HardwareStore.Gameplay.Factories
                 !selectedOffer.hasEntityId ||
                 !selectedOffer.hasConsultationOfferVisitEntityId ||
                 !selectedOffer.hasOfferIndex ||
-                !selectedOffer.hasOfferTitle ||
-                !selectedOffer.hasOfferDescription ||
                 !selectedOffer.hasOrderReward ||
                 !selectedOffer.hasExpectedProfit)
             {

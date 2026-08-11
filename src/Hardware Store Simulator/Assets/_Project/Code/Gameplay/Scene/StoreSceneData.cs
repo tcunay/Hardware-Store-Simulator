@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using HardwareStore.Gameplay.Components;
+using HardwareStore.Gameplay.Localization;
 using HardwareStore.Gameplay.Presentation;
 using HardwareStore.Infrastructure.View;
 using UnityEngine;
@@ -130,7 +131,7 @@ namespace HardwareStore.Gameplay.Scene
             _audio.Play(cue);
         }
 
-        public void Show(string message)
+        public void Show(LocalizedText message)
         {
             EnsureRegistered();
             _notifications.Show(message);

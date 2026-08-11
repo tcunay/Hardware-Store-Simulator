@@ -3,23 +3,20 @@ using System.Collections.Generic;
 using Entitas;
 using HardwareStore.Gameplay.Components;
 using HardwareStore.Gameplay.Factories;
-using HardwareStore.Gameplay.StaticData;
+using HardwareStore.Gameplay.Localization;
 
 namespace HardwareStore.Gameplay.Features.Orders.Systems
 {
     public sealed class AcceptOrderSystem : IExecuteSystem
     {
         private readonly GameContext _gameContext;
-        private readonly IStaticDataService _staticData;
         private readonly IGameEventFactory _events;
         private readonly IGroup<GameEntity> _requests;
-        private readonly List<string> _missingProducts = new(4);
+        private readonly List<GameEntity> _missingLines = new(2);
 
-        public AcceptOrderSystem(GameContext gameContext, IStaticDataService staticData,
-            IGameEventFactory events)
+        public AcceptOrderSystem(GameContext gameContext, IGameEventFactory events)
         {
             _gameContext = gameContext;
-            _staticData = staticData;
             _events = events;
             _requests = gameContext.GetGroup(GameMatcher.AllOf(
                 GameMatcher.InteractionRequest,
@@ -50,7 +47,7 @@ namespace HardwareStore.Gameplay.Features.Orders.Systems
                     throw new InvalidOperationException(
                         $"Waiting customer visit {customerVisit.EntityId} has no order.");
 
-                _missingProducts.Clear();
+                _missingLines.Clear();
                 int lineCount = 0;
                 int totalRequiredCount = 0;
                 foreach (GameEntity line in
@@ -63,27 +60,45 @@ namespace HardwareStore.Gameplay.Features.Orders.Systems
                     if (line.AvailableProductCount >= line.RequiredProductCount)
                         continue;
 
-                    var product = _staticData.GetProduct(line.ProductType);
-                    _missingProducts.Add(
-                        $"{product.DisplayName} " +
-                        $"{line.AvailableProductCount}/{line.RequiredProductCount}");
+                    _missingLines.Add(line);
                 }
 
                 if (lineCount == 0)
                     throw new InvalidOperationException(
                         $"Customer visit {customerVisit.EntityId} has no order lines.");
-                if (_missingProducts.Count > 0)
+                if (_missingLines.Count > 0)
                 {
-                    _events.EmitNotification(
-                        $"Недостаточно товара на складе: " +
-                        $"{string.Join(" • ", _missingProducts)}");
+                    _missingLines.Sort((left, right) =>
+                        left.LineIndex.CompareTo(right.LineIndex));
+                    LocalizedText notification = _missingLines.Count switch
+                    {
+                        1 => LocalizedTexts.Text(
+                            LocalizationKey.NotificationOrderStockMissingOne,
+                            LocalizedTexts.ProductName(_missingLines[0].ProductType),
+                            _missingLines[0].AvailableProductCount,
+                            _missingLines[0].RequiredProductCount),
+                        2 => LocalizedTexts.Text(
+                            LocalizationKey.NotificationOrderStockMissingTwo,
+                            LocalizedTexts.ProductName(_missingLines[0].ProductType),
+                            _missingLines[0].AvailableProductCount,
+                            _missingLines[0].RequiredProductCount,
+                            LocalizedTexts.ProductName(_missingLines[1].ProductType),
+                            _missingLines[1].AvailableProductCount,
+                            _missingLines[1].RequiredProductCount),
+                        _ => throw new InvalidOperationException(
+                            $"Customer visit {customerVisit.EntityId} has more than two " +
+                            "missing order lines.")
+                    };
+                    _events.EmitNotification(notification);
                     continue;
                 }
 
                 customerVisit.isCustomerVisitWaiting = false;
                 customerVisit.isCustomerVisitLoading = true;
-                _events.EmitNotification(
-                    $"Заказ принят • позиций: {lineCount} • товаров: {totalRequiredCount}");
+                _events.EmitNotification(LocalizedTexts.Text(
+                    LocalizationKey.NotificationOrderAccepted,
+                    lineCount,
+                    totalRequiredCount));
                 _events.EmitAudio(AudioCueId.OrderAccepted);
             }
         }

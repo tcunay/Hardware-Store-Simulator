@@ -53,8 +53,7 @@ namespace HardwareStore.Gameplay.Features.Presentation.Systems
                 snapshots[index] = CreateOfferSnapshot(visit, offers[index]);
 
             _hud.PresentConsultation(new ConsultationSnapshot(
-                visit.CustomerProjectTitle,
-                visit.CustomerRequest,
+                visit.CustomerProjectType,
                 visit.Slots.Length,
                 snapshots));
         }
@@ -76,7 +75,6 @@ namespace HardwareStore.Gameplay.Features.Presentation.Systems
             for (int index = 0; index < lines.Length; index++)
             {
                 GameEntity line = lines[index];
-                ProductConfig product = _staticData.GetProduct(line.ProductType);
                 DeliveryConfig delivery = _staticData.GetDelivery(line.ProductType);
                 totalUnitCount = checked(totalUnitCount + line.RequiredProductCount);
                 productCost = checked(
@@ -84,8 +82,6 @@ namespace HardwareStore.Gameplay.Features.Presentation.Systems
                 lineSnapshots[index] = new ConsultationOfferLineSnapshot(
                     line.LineIndex,
                     line.ProductType,
-                    product.DisplayName,
-                    product.UnitLabel,
                     line.AvailableProductCount,
                     line.RequiredProductCount);
             }
@@ -102,8 +98,6 @@ namespace HardwareStore.Gameplay.Features.Presentation.Systems
 
             return new ConsultationOfferSnapshot(
                 offer.OfferIndex,
-                offer.OfferTitle,
-                offer.OfferDescription,
                 lineSnapshots,
                 totalUnitCount,
                 productCost,
@@ -116,7 +110,6 @@ namespace HardwareStore.Gameplay.Features.Presentation.Systems
         {
             if (!visit.isCustomerVisit || !visit.isCustomerVisitConsulting ||
                 !visit.hasEntityId || !visit.hasCustomerProjectType ||
-                !visit.hasCustomerProjectTitle || !visit.hasCustomerRequest ||
                 !visit.hasSlots)
             {
                 throw new InvalidOperationException(
@@ -139,8 +132,7 @@ namespace HardwareStore.Gameplay.Features.Presentation.Systems
             {
                 GameEntity offer = offers[index];
                 if (!offer.hasEntityId || !offer.hasConsultationOfferVisitEntityId ||
-                    !offer.hasOfferIndex || !offer.hasOfferTitle ||
-                    !offer.hasOfferDescription || !offer.hasOrderReward ||
+                    !offer.hasOfferIndex || !offer.hasOrderReward ||
                     !offer.hasExpectedProfit)
                 {
                     throw new InvalidOperationException(

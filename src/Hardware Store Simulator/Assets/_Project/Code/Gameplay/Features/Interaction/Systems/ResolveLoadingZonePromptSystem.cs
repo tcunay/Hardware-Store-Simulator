@@ -1,23 +1,19 @@
 using System;
 using System.Linq;
 using Entitas;
-using HardwareStore.Gameplay.Configs;
 using HardwareStore.Gameplay.Components;
-using HardwareStore.Gameplay.StaticData;
+using HardwareStore.Gameplay.Localization;
 
 namespace HardwareStore.Gameplay.Features.Interaction.Systems
 {
     public sealed class ResolveLoadingZonePromptSystem : IExecuteSystem
     {
         private readonly GameContext _gameContext;
-        private readonly IStaticDataService _staticData;
         private readonly IGroup<GameEntity> _players;
 
-        public ResolveLoadingZonePromptSystem(GameContext gameContext,
-            IStaticDataService staticData)
+        public ResolveLoadingZonePromptSystem(GameContext gameContext)
         {
             _gameContext = gameContext;
-            _staticData = staticData;
             _players = gameContext.GetGroup(GameMatcher.AllOf(
                 GameMatcher.Player,
                 GameMatcher.EntityId,
@@ -40,7 +36,7 @@ namespace HardwareStore.Gameplay.Features.Interaction.Systems
                 if (loadingZone.isCustomerVisitArriving)
                 {
                     player.SetInteractionPrompt(
-                        "Клиент прибывает и направляется к стойке — дождитесь консультации",
+                        LocalizedTexts.Text(LocalizationKey.PromptLoadingWaitConsultation),
                         false);
                     continue;
                 }
@@ -48,7 +44,8 @@ namespace HardwareStore.Gameplay.Features.Interaction.Systems
                 if (loadingZone.isCustomerVisitDeparting)
                 {
                     player.SetInteractionPrompt(
-                        "Машина клиента уезжает — загрузка завершена",
+                        LocalizedTexts.Text(
+                            LocalizationKey.PromptLoadingCompletedVehicleDeparting),
                         false);
                     continue;
                 }
@@ -56,7 +53,8 @@ namespace HardwareStore.Gameplay.Features.Interaction.Systems
                 if (loadingZone.isCustomerVisitReturning)
                 {
                     player.SetInteractionPrompt(
-                        "Клиент возвращается к машине — загрузка завершена",
+                        LocalizedTexts.Text(
+                            LocalizationKey.PromptLoadingCompletedCustomerReturning),
                         false);
                     continue;
                 }
@@ -64,7 +62,7 @@ namespace HardwareStore.Gameplay.Features.Interaction.Systems
                 if (loadingZone.isCustomerVisitConsulting)
                 {
                     player.SetInteractionPrompt(
-                        "Сначала согласуйте предложение с клиентом у стойки",
+                        LocalizedTexts.Text(LocalizationKey.PromptLoadingConsultFirst),
                         false);
                     continue;
                 }
@@ -72,7 +70,7 @@ namespace HardwareStore.Gameplay.Features.Interaction.Systems
                 if (loadingZone.isCustomerVisitWaiting)
                 {
                     player.SetInteractionPrompt(
-                        "Сначала примите заказ у стойки",
+                        LocalizedTexts.Text(LocalizationKey.PromptLoadingAcceptOrderFirst),
                         false);
                     continue;
                 }
@@ -80,7 +78,7 @@ namespace HardwareStore.Gameplay.Features.Interaction.Systems
                 if (loadingZone.isCustomerVisitCompleted)
                 {
                     player.SetInteractionPrompt(
-                        "Машина загружена — заказ выполнен",
+                        LocalizedTexts.Text(LocalizationKey.PromptLoadingVehicleFull),
                         false);
                     continue;
                 }
@@ -97,17 +95,18 @@ namespace HardwareStore.Gameplay.Features.Interaction.Systems
                     if (incompleteLine == null)
                     {
                         player.SetInteractionPrompt(
-                            "Все позиции загружены — заказ завершается",
+                            LocalizedTexts.Text(
+                                LocalizationKey.PromptLoadingAllLinesLoaded),
                             false);
                         continue;
                     }
 
-                    ProductConfig requiredProduct =
-                        _staticData.GetProduct(incompleteLine.ProductType);
                     player.SetInteractionPrompt(
-                        $"Принесите со склада: {requiredProduct.DisplayName} • " +
-                        $"загружено {incompleteLine.LoadedProductCount}/" +
-                        $"{incompleteLine.RequiredProductCount}",
+                        LocalizedTexts.Text(
+                            LocalizationKey.PromptBringProductFromStorage,
+                            LocalizedTexts.ProductName(incompleteLine.ProductType),
+                            incompleteLine.LoadedProductCount,
+                            incompleteLine.RequiredProductCount),
                         false);
                     continue;
                 }
@@ -125,17 +124,21 @@ namespace HardwareStore.Gameplay.Features.Interaction.Systems
                                  matchingLine.RequiredProductCount;
                 if (!available)
                 {
-                    ProductConfig heldProductConfig =
-                        _staticData.GetProduct(heldProduct.ProductType);
+                    LocalizedText productName =
+                        LocalizedTexts.ProductName(heldProduct.ProductType);
                     player.SetInteractionPrompt(
                         matchingLine == null
-                            ? $"Товар не входит в заказ: {heldProductConfig.DisplayName}"
+                            ? LocalizedTexts.Text(
+                                LocalizationKey.PromptLoadingProductNotInOrder,
+                                productName)
                             : matchingLine.LoadedProductCount >=
                               matchingLine.RequiredProductCount
-                                ? $"Позиция уже загружена: " +
-                                  $"{heldProductConfig.DisplayName}"
-                                : $"Товар нужно взять со склада: " +
-                                  $"{heldProductConfig.DisplayName}",
+                                ? LocalizedTexts.Text(
+                                    LocalizationKey.PromptLoadingLineAlreadyLoaded,
+                                    productName)
+                                : LocalizedTexts.Text(
+                                    LocalizationKey.PromptProductMustComeFromStorage,
+                                    productName),
                         false);
                     continue;
                 }
@@ -144,16 +147,18 @@ namespace HardwareStore.Gameplay.Features.Interaction.Systems
                 if (loadingZone.Slots.Length <= loadedUnitCount)
                 {
                     player.SetInteractionPrompt(
-                        "В машине клиента нет свободного места",
+                        LocalizedTexts.Text(
+                            LocalizationKey.PromptCustomerVehicleNoSpace),
                         false);
                     continue;
                 }
 
-                ProductConfig product = _staticData.GetProduct(heldProduct.ProductType);
                 player.SetInteractionPrompt(
-                    $"E — загрузить • {product.DisplayName} • " +
-                    $"{matchingLine.LoadedProductCount}/" +
-                    $"{matchingLine.RequiredProductCount}",
+                    LocalizedTexts.Text(
+                        LocalizationKey.PromptLoadProduct,
+                        LocalizedTexts.ProductName(heldProduct.ProductType),
+                        matchingLine.LoadedProductCount,
+                        matchingLine.RequiredProductCount),
                     true);
             }
         }

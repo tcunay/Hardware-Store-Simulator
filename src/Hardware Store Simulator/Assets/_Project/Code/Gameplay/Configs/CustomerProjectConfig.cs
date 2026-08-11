@@ -12,32 +12,25 @@ namespace HardwareStore.Gameplay.Configs
         public const int MaxLinesPerOffer = 2;
 
         [SerializeField] private CustomerProjectTypeId _projectType = CustomerProjectTypeId.CementFoundation;
-        [SerializeField] private string _title = "Небольшой строительный проект";
-        [SerializeField, TextArea] private string _request =
-            "Подберите материалы под мой проект.";
         [SerializeField, Range(0, 2)] private int _defaultOfferIndex = 1;
         [SerializeField] private CustomerProjectOfferDefinition[] _offers =
         {
-            new("Минимальный", "Только необходимый минимум.",
+            new(
                 new CustomerProjectLineDefinition(ProductTypeId.CementBag, 1)),
-            new("Стандартный", "Базовый объём с небольшим запасом.",
+            new(
                 new CustomerProjectLineDefinition(ProductTypeId.CementBag, 2)),
-            new("С запасом", "Больше материала, но выше выручка.",
+            new(
                 new CustomerProjectLineDefinition(ProductTypeId.CementBag, 3))
         };
 
         public CustomerProjectTypeId ProjectType => _projectType;
-        public string ProjectTitle => _title;
-        public string Request => _request;
         public int DefaultOfferIndex => _defaultOfferIndex;
         public IReadOnlyList<CustomerProjectOfferDefinition> Offers => _offers;
 
-        public void Configure(CustomerProjectTypeId projectType, string title, string request,
-            int defaultOfferIndex, CustomerProjectOfferDefinition[] offers)
+        public void Configure(CustomerProjectTypeId projectType, int defaultOfferIndex,
+            CustomerProjectOfferDefinition[] offers)
         {
             _projectType = projectType;
-            _title = title;
-            _request = request;
             _defaultOfferIndex = defaultOfferIndex;
             _offers = offers == null
                 ? null
@@ -49,8 +42,6 @@ namespace HardwareStore.Gameplay.Configs
         {
             const string owner = nameof(CustomerProjectConfig);
             ConfigValidation.RequireDefined(_projectType, owner, nameof(ProjectType));
-            ConfigValidation.RequireNotBlank(_title, owner, nameof(ProjectTitle));
-            ConfigValidation.RequireNotBlank(_request, owner, nameof(Request));
             if (_offers == null || _offers.Length != 3)
                 throw new InvalidOperationException(
                     $"{owner}.{nameof(Offers)} must contain exactly three offers.");
@@ -71,27 +62,18 @@ namespace HardwareStore.Gameplay.Configs
     [Serializable]
     public sealed class CustomerProjectOfferDefinition
     {
-        [SerializeField] private string _title;
-        [SerializeField, TextArea] private string _description;
         [SerializeField] private CustomerProjectLineDefinition[] _lines;
 
-        public CustomerProjectOfferDefinition(string title, string description,
-            params CustomerProjectLineDefinition[] lines)
+        public CustomerProjectOfferDefinition(params CustomerProjectLineDefinition[] lines)
         {
-            _title = title;
-            _description = description;
             _lines = lines == null ? null : (CustomerProjectLineDefinition[])lines.Clone();
         }
 
-        public string OfferTitle => _title;
-        public string Description => _description;
         public IReadOnlyList<CustomerProjectLineDefinition> Lines => _lines;
 
         internal void Validate(string owner, int offerIndex)
         {
             string offerOwner = $"{owner}.{nameof(CustomerProjectConfig.Offers)}[{offerIndex}]";
-            ConfigValidation.RequireNotBlank(_title, offerOwner, nameof(OfferTitle));
-            ConfigValidation.RequireNotBlank(_description, offerOwner, nameof(Description));
             if (_lines == null || _lines.Length == 0)
                 throw new InvalidOperationException(
                     $"{offerOwner}.{nameof(Lines)} must contain at least one line.");

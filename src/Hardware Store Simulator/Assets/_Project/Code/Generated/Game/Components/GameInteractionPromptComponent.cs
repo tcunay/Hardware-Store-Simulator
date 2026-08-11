@@ -34,10 +34,10 @@ public sealed partial class GameMatcher {
 public partial class GameEntity {
 
     public HardwareStore.Gameplay.Components.InteractionPrompt interactionPrompt { get { return (HardwareStore.Gameplay.Components.InteractionPrompt)GetComponent(GameComponentsLookup.InteractionPrompt); } }
-    public string InteractionPrompt { get { return interactionPrompt.Value; } }
+    public HardwareStore.Gameplay.Localization.LocalizedText InteractionPrompt { get { return interactionPrompt.Value; } }
     public bool hasInteractionPrompt { get { return HasComponent(GameComponentsLookup.InteractionPrompt); } }
 
-    public GameEntity AddInteractionPrompt(string newValue) {
+    public GameEntity AddInteractionPrompt(HardwareStore.Gameplay.Localization.LocalizedText newValue) {
         var index = GameComponentsLookup.InteractionPrompt;
         var component = (HardwareStore.Gameplay.Components.InteractionPrompt)CreateComponent(index, typeof(HardwareStore.Gameplay.Components.InteractionPrompt));
         component.Value = newValue;
@@ -45,7 +45,7 @@ public partial class GameEntity {
         return this;
     }
 
-    public GameEntity ReplaceInteractionPrompt(string newValue) {
+    public GameEntity ReplaceInteractionPrompt(HardwareStore.Gameplay.Localization.LocalizedText newValue) {
         var index = GameComponentsLookup.InteractionPrompt;
         var component = (HardwareStore.Gameplay.Components.InteractionPrompt)CreateComponent(index, typeof(HardwareStore.Gameplay.Components.InteractionPrompt));
         component.Value = newValue;

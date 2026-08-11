@@ -44,7 +44,6 @@ namespace HardwareStore.Gameplay.Factories
 
             CustomerProjectTypeId projectType =
                 _staticData.ProjectTypes[projectSequenceIndex];
-            CustomerProjectConfig project = _staticData.GetProject(projectType);
 
             GameEntity customerVisit = CreateEntity.Empty(_identifiers.Next())
                 .AddViewPrefab(config.ViewPrefab)
@@ -53,8 +52,6 @@ namespace HardwareStore.Gameplay.Factories
                 .AddCustomerVisitStoreEntityId(store.EntityId)
                 .AddStorageZoneEntityId(store.StorageZoneEntityId)
                 .AddCustomerProjectType(projectType)
-                .AddCustomerProjectTitle(project.ProjectTitle)
-                .AddCustomerRequest(project.Request)
                 .AddRoute(arrival)
                 .AddDepartureRoute(departure)
                 .AddRouteWaypointIndex(1)
