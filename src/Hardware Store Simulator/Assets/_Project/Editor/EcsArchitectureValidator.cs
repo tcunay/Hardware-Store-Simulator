@@ -222,6 +222,7 @@ namespace HardwareStore.Editor
             ValidateStoreArchitecture(componentTypes);
             ValidateEntityViewBindingBoundary(runtimeTypes, componentTypes);
             ValidateEntityIndices(runtimeTypes, componentTypes);
+            ValidateContextAwareInteractionFocus();
             ValidateProductRecoveryArchitecture(runtimeTypes, componentTypes);
             ValidateCollisionSafeProductDrop(runtimeTypes, componentTypes);
             ValidateTrolleyArchitecture(runtimeTypes, componentTypes);
@@ -1081,6 +1082,105 @@ namespace HardwareStore.Editor
                 "RemoveDeliveryProcurementTerminalEntityId",
                 "isDeliveryActive = false",
                 "isDestructed = true");
+        }
+
+        private static void ValidateContextAwareInteractionFocus()
+        {
+            Require(typeof(IInteractionPhysicsService).IsAssignableFrom(
+                    typeof(InteractionPhysicsService)),
+                $"{nameof(InteractionPhysicsService)} must implement " +
+                $"{nameof(IInteractionPhysicsService)}.");
+            RequireMethod(
+                typeof(IInteractionPhysicsService),
+                nameof(IInteractionPhysicsService.GetFocusCandidates),
+                typeof(int),
+                typeof(Camera),
+                typeof(float),
+                typeof(float),
+                typeof(InteractionFocusCandidate[]));
+
+            Type candidateType = typeof(InteractionFocusCandidate);
+            Require(candidateType.IsValueType && candidateType.IsPublic,
+                $"{nameof(InteractionFocusCandidate)} must remain a public value type.");
+            Require(candidateType.GetConstructor(new[]
+                    {
+                        typeof(int),
+                        typeof(float),
+                        typeof(bool)
+                    }) != null &&
+                    candidateType.GetProperty(nameof(InteractionFocusCandidate.EntityId))
+                        ?.PropertyType == typeof(int) &&
+                    candidateType.GetProperty(nameof(InteractionFocusCandidate.Score))
+                        ?.PropertyType == typeof(float) &&
+                    candidateType.GetProperty(nameof(InteractionFocusCandidate.IsDirect))
+                        ?.PropertyType == typeof(bool),
+                $"{nameof(InteractionFocusCandidate)} must expose immutable entity, score and " +
+                "direct-hit data.");
+            Type proxyMarkerType = typeof(NonOccludingInteractionProxy);
+            Require(proxyMarkerType.IsSealed &&
+                    typeof(MonoBehaviour).IsAssignableFrom(proxyMarkerType) &&
+                    proxyMarkerType.GetCustomAttribute<DisallowMultipleComponent>() != null,
+                $"{nameof(NonOccludingInteractionProxy)} must remain one sealed, non-repeatable " +
+                "presentation marker.");
+
+            string physicsSource = ReadRuntimeSource(
+                "Gameplay", "Common", "Physics", nameof(InteractionPhysicsService) + ".cs");
+            RequireSourceContains(physicsSource,
+                "private const int MaxPhysicsHits = 128",
+                "new RaycastHit[MaxPhysicsHits]",
+                "RaycastNonAlloc(",
+                "SphereCastNonAlloc(",
+                "UnityEngine.Physics.DefaultRaycastLayers",
+                "QueryTriggerInteraction.Collide",
+                "nearestBlockerDistance",
+                "HasLineOfSight(",
+                "private static Vector3 ResolveLineOfSightTargetPoint(Vector3 origin,",
+                "Vector3 targetPoint = ResolveLineOfSightTargetPoint(origin, candidateHit)",
+                "candidateHit.distance <= OcclusionTolerance || targetPoint == Vector3.zero",
+                "targetPoint = candidateHit.collider.ClosestPoint(origin)",
+                "(targetPoint - origin).sqrMagnitude <= Mathf.Epsilon",
+                "targetPoint = candidateHit.collider.bounds.center",
+                "BlocksDirectFocus(",
+                "BlocksAssistedFocus(",
+                "IsNonOccludingInteractionProxy(",
+                "hitCollider.isTrigger",
+                "GetComponentInParent<NonOccludingInteractionProxy>()",
+                "hitEntityId != candidateEntityId",
+                "AddOrImproveCandidate(",
+                "candidateCount == candidates.Length",
+                "Interaction focus candidate buffer saturated",
+                "EnsureQueryDidNotSaturate(",
+                "hitCount == hits.Length");
+            RequireSourceOrder(
+                physicsSource,
+                "targetPoint = candidateHit.collider.ClosestPoint(origin)",
+                "targetPoint = candidateHit.collider.bounds.center",
+                "Initial-overlap LOS must try Collider.ClosestPoint before its bounds-center " +
+                "fallback.");
+            Require(!physicsSource.Contains("RaycastAll(", StringComparison.Ordinal) &&
+                    !physicsSource.Contains("SphereCastAll(", StringComparison.Ordinal) &&
+                    !physicsSource.Contains("Physics.Raycast(ray, out", StringComparison.Ordinal),
+                "Interaction focus must use bounded non-alloc physics queries only.");
+
+            string detectionSource = ReadRuntimeSource(
+                "Gameplay", "Features", "Interaction", "Systems",
+                "DetectFocusedInteractableSystem.cs");
+            RequireSourceContains(detectionSource,
+                "private const int MaxFocusCandidates = 64",
+                "new InteractionFocusCandidate[MaxFocusCandidates]",
+                "_physics.GetFocusCandidates(",
+                "player.isHandsOccupied && player.isCarryingProduct",
+                "GetPlayerStorageZoneEntityId(player)",
+                "target.isInStock",
+                "target.hasStorageSlotIndex",
+                "target.hasStorageZoneEntityId",
+                "target.StorageZoneEntityId == storageZoneEntityId",
+                "InteractionFocusCandidate storageProxy",
+                "target.isStorageZone || target.isLoadingZone",
+                "return target.isProduct ? 0 : isDropTarget ? 1 : 0",
+                "return target.isProduct ? 2 : 1",
+                "candidate.IsDirect != bestIsDirect",
+                "candidate.EntityId < bestEntityId");
         }
 
         private static void ValidateProductRecoveryArchitecture(
@@ -4599,24 +4699,87 @@ namespace HardwareStore.Editor
                             $"{storageSlots[second].name} overlap for board-bundle geometry.");
                     }
                 }
-                Collider[] storageInteractionTriggers = storage.View
-                    .GetComponentsInChildren<Collider>(true)
-                    .Where(collider => collider.isTrigger)
-                    .ToArray();
-                Require(storageInteractionTriggers.Length == 1,
-                    "Storage scene view must expose exactly one interaction trigger.");
-                Collider storageInteractionTrigger = storageInteractionTriggers[0];
-                Require(storageInteractionTrigger.enabled &&
-                        storageInteractionTrigger.gameObject.activeInHierarchy,
-                    "Storage interaction trigger must be enabled and active.");
+                Require(storage.name == "Storage Intake Target" &&
+                        storage.transform.parent != null &&
+                        storage.transform.parent.name == "Materials Storage" &&
+                        storage.transform.position == new Vector3(5f, 1.8f, 6.5f) &&
+                        storage.transform.rotation == Quaternion.identity &&
+                        storage.transform.lossyScale == Vector3.one,
+                    "Storage intake must be one centered, unit-scale proxy for the complete " +
+                    "materials-storage footprint.");
+                Require(storage.GetComponentsInChildren<Renderer>(true).Length == 0 &&
+                        storage.GetComponentsInChildren<InteractionHighlight>(true).Length == 0,
+                    "Storage intake proxy and its trigger faces must be completely invisible.");
+                NonOccludingInteractionProxy[] nonOccludingProxies =
+                    FindComponentsInScene<NonOccludingInteractionProxy>(scene);
+                Require(nonOccludingProxies.Length == 1 &&
+                        nonOccludingProxies[0].transform == storage.transform &&
+                        storage.GetComponents<NonOccludingInteractionProxy>().Length == 1,
+                    "The storage intake root must be the scene's only explicitly non-occluding " +
+                    "interaction proxy.");
+
+                Transform storagePad = allSceneTransforms.SingleOrDefault(candidate =>
+                    candidate.name == "Storage Pad" && candidate.parent != null &&
+                    candidate.parent.name == "Materials Storage");
+                Require(storagePad != null && storagePad.GetComponent<Renderer>() != null,
+                    "Materials Storage must retain one visible storage pad.");
+                InteractionHighlight storagePadHighlight =
+                    storagePad.GetComponent<InteractionHighlight>();
+                SerializedProperty storageHighlightProperty =
+                    new SerializedObject(storage.View).FindProperty("_highlight");
+                Require(storagePadHighlight != null &&
+                        storageHighlightProperty != null &&
+                        storageHighlightProperty.objectReferenceValue == storagePadHighlight,
+                    "The invisible storage proxy must highlight the visible storage pad through " +
+                    "its InteractionView reference.");
+
+                Collider[] storageInteractionColliders = storage.View
+                    .GetComponentsInChildren<Collider>(true);
+                Require(storageInteractionColliders.Length == 4 &&
+                        storageInteractionColliders.All(collider =>
+                            collider is BoxCollider && collider.isTrigger && collider.enabled &&
+                            collider.gameObject.activeInHierarchy &&
+                            collider.gameObject.layer == LayerMask.NameToLayer("Default") &&
+                            collider.GetComponent<NonOccludingInteractionProxy>() == null),
+                    "Storage intake must expose exactly four active Default-layer BoxCollider " +
+                    "trigger faces.");
+                var expectedStorageFaces = new[]
+                {
+                    (Name: "Storage Intake Front Trigger",
+                        Position: new Vector3(0f, 0f, -3.25f),
+                        Size: new Vector3(7.5f, 3.4f, 0.2f)),
+                    (Name: "Storage Intake Back Trigger",
+                        Position: new Vector3(0f, 0f, 3.25f),
+                        Size: new Vector3(7.5f, 3.4f, 0.2f)),
+                    (Name: "Storage Intake Left Trigger",
+                        Position: new Vector3(-3.75f, 0f, 0f),
+                        Size: new Vector3(0.2f, 3.4f, 6.5f)),
+                    (Name: "Storage Intake Right Trigger",
+                        Position: new Vector3(3.75f, 0f, 0f),
+                        Size: new Vector3(0.2f, 3.4f, 6.5f))
+                };
+                foreach ((string name, Vector3 position, Vector3 size) in expectedStorageFaces)
+                {
+                    BoxCollider face = storageInteractionColliders
+                        .Cast<BoxCollider>()
+                        .SingleOrDefault(collider => collider.name == name);
+                    Require(face != null && face.transform.parent == storage.transform &&
+                            face.transform.localPosition == position &&
+                            face.transform.localRotation == Quaternion.identity &&
+                            face.transform.localScale == Vector3.one &&
+                            face.center == Vector3.zero && face.size == size,
+                        $"Storage interaction face {name} must preserve its exact hollow-proxy " +
+                        "geometry.");
+                }
+
+                Bounds storageIntakeVolume = new(
+                    storage.transform.position,
+                    new Vector3(7.5f, 3.4f, 6.5f));
                 foreach (Transform storageSlot in storageSlots)
                 {
-                    Vector3 slotPosition = storageSlot.position;
-                    Vector3 closestPoint = storageInteractionTrigger.ClosestPoint(slotPosition);
-                    Require(!storageInteractionTrigger.bounds.Contains(slotPosition) &&
-                            (closestPoint - slotPosition).sqrMagnitude > Mathf.Epsilon,
-                        $"Storage interaction trigger overlaps slot {storageSlot.name} at " +
-                        $"{slotPosition}; the receiving target must be spatially separate from stored products.");
+                    Require(storageIntakeVolume.Contains(storageSlot.position),
+                        $"Storage slot {storageSlot.name} at {storageSlot.position} lies outside " +
+                        "the complete storage intake proxy.");
                 }
 
                 SceneViewMarker trolleyUpgradeTerminal = sceneViews.Single(

@@ -3,6 +3,7 @@ using System.Linq;
 using Entitas;
 using HardwareStore.Common.Entity;
 using HardwareStore.Gameplay.Common.Economy;
+using HardwareStore.Gameplay.Common.Physics;
 using HardwareStore.Gameplay.Components;
 using HardwareStore.Gameplay.Configs;
 using HardwareStore.Gameplay.Features.Carrying.Systems;
@@ -351,7 +352,12 @@ namespace HardwareStore.Editor
                     boardDelivery.TotalCost,
                 "The second delivery did not deduct its cost exactly once.");
             TestCarryDropAndRepick(runtime, scenario, secondArrival.Products[0]);
-            StoreCompleteDelivery(runtime, scenario, secondVisit.Entity, secondArrival);
+            StoreCompleteDelivery(
+                runtime,
+                scenario,
+                secondVisit.Entity,
+                secondArrival,
+                validateContextAwareStorageIntake: true);
             CleanupCompletedDelivery(runtime, scenario, secondArrival);
             Require(CountStockProducts(runtime.Game, scenario.StorageZone.EntityId, boards) ==
                     boardDelivery.ProductCount,
@@ -583,6 +589,8 @@ namespace HardwareStore.Editor
                 $"active-order replenishment and cross-SKU purchase, trolley-debit reserve, quota " +
                 $"and wrong-SKU rejection, " +
                 $"exact-slot product recovery, blocked/safe product drops and both physics flows, " +
+                $"context-aware whole-storage intake, foreign-storage isolation, product focus, " +
+                $"foreign-trigger/solid-wall occlusion and bounded candidate saturation, " +
                 $"two-order trolley unlock, no-customer F attach/detach, E/F cargo routing, " +
                 $"single purchase, three-slot C2+B1 trolley flow, " +
                 $"collision-safe trolley stop/resume, " +
@@ -2171,7 +2179,8 @@ namespace HardwareStore.Editor
             Runtime runtime,
             Scenario scenario,
             GameEntity visit,
-            DeliveryArrival arrival)
+            DeliveryArrival arrival,
+            bool validateContextAwareStorageIntake = false)
         {
             int initialStockCount = scenario.StorageZone.StorageProductCount;
             for (int index = 0; index < arrival.Products.Length; index++)
@@ -2188,8 +2197,24 @@ namespace HardwareStore.Editor
                         !product.hasDeliverySlotIndex,
                     $"Inbound product {product.EntityId} is not carried before storage.");
 
-                RequestInteraction(scenario.Player, scenario.StorageZone);
-                runtime.Systems.Create<StoreInboundProductSystem>().Execute();
+                bool validateIntake = validateContextAwareStorageIntake &&
+                                      index == arrival.Products.Length - 1;
+                if (validateIntake)
+                {
+                    ValidateContextAwareStorageIntake(
+                        runtime,
+                        scenario,
+                        product,
+                        FindStockProducts(runtime.Game, scenario.StorageZone.EntityId)
+                            .Single(stockProduct =>
+                                stockProduct.hasStorageSlotIndex &&
+                                stockProduct.StorageSlotIndex == 0));
+                }
+                else
+                {
+                    RequestInteraction(scenario.Player, scenario.StorageZone);
+                    runtime.Systems.Create<StoreInboundProductSystem>().Execute();
+                }
                 Require(product.isProductStocked &&
                         product.isInStock &&
                         product.hasDeliveryEntityId &&
@@ -2350,6 +2375,203 @@ namespace HardwareStore.Editor
                     runtime.Game.GetEntityWithCarrierEntityId(
                         scenario.Player.EntityId) == null,
                 "Rejected loading check did not restore the stock product cleanly.");
+        }
+
+        private static void ValidateContextAwareStorageIntake(
+            Runtime runtime,
+            Scenario scenario,
+            GameEntity heldInboundProduct,
+            GameEntity occludingStockProduct)
+        {
+            Require(scenario.StorageZone.OccupiedStorageSlotCount >= 4 &&
+                    scenario.StorageZone.OccupiedStorageSlotCount <
+                    scenario.StorageZone.Slots.Length &&
+                    scenario.Player.isHandsOccupied &&
+                    scenario.Player.isCarryingProduct &&
+                    heldInboundProduct.isInboundProduct &&
+                    heldInboundProduct.hasCarrierEntityId &&
+                    heldInboundProduct.CarrierEntityId == scenario.Player.EntityId &&
+                    occludingStockProduct.isInStock &&
+                    occludingStockProduct.isInteractable &&
+                    occludingStockProduct.hasColliders,
+                "Context-aware storage focus requires a crowded, non-full storage, one held " +
+                "inbound product and one physically occluding stock product.");
+
+            Collider stockCollider = occludingStockProduct.Colliders
+                .Single(collider => !collider.isTrigger);
+            Transform cameraTransform = scenario.Player.Camera.transform;
+            Vector3 originalPosition = cameraTransform.position;
+            Quaternion originalRotation = cameraTransform.rotation;
+            GameObject foreignTrigger = null;
+            GameObject wall = null;
+
+            try
+            {
+                Vector3 target = stockCollider.bounds.center;
+                cameraTransform.SetPositionAndRotation(
+                    target - Vector3.forward * 0.65f,
+                    Quaternion.LookRotation(Vector3.forward, Vector3.up));
+                Physics.SyncTransforms();
+
+                GameEntity foreignStorage = scenario.TrolleyUpgradeTerminal;
+                int owningStorageZoneEntityId = occludingStockProduct.StorageZoneEntityId;
+                Require(!foreignStorage.isStorageZone &&
+                        foreignStorage.EntityId != owningStorageZoneEntityId,
+                    "Foreign storage proxy smoke requires a distinct non-storage interactable.");
+                foreignStorage.isStorageZone = true;
+                occludingStockProduct.ReplaceStorageZoneEntityId(foreignStorage.EntityId);
+                try
+                {
+                    ClearPhysicalFocus(runtime, scenario.Player);
+                    runtime.Systems.Create<DetectFocusedInteractableSystem>().Execute();
+                    Require(scenario.Player.hasFocusedEntityId &&
+                            scenario.Player.FocusedEntityId == occludingStockProduct.EntityId,
+                        "A stock product linked to another store proxied into the player's " +
+                        "storage zone.");
+                }
+                finally
+                {
+                    occludingStockProduct.ReplaceStorageZoneEntityId(
+                        owningStorageZoneEntityId);
+                    foreignStorage.isStorageZone = false;
+                    ClearPhysicalFocus(runtime, scenario.Player);
+                }
+
+                runtime.Systems.Create<DetectFocusedInteractableSystem>().Execute();
+                runtime.Systems.Create<UpdateFocusHighlightSystem>().Execute();
+                ExecuteInteractionPrompts(runtime);
+                Require(scenario.Player.hasFocusedEntityId &&
+                        scenario.Player.FocusedEntityId == scenario.StorageZone.EntityId &&
+                        scenario.Player.hasFocusedInteractionType &&
+                        scenario.Player.FocusedInteractionType == InteractionTypeId.StorageZone &&
+                        scenario.Player.isFocusInteractionAvailable &&
+                        PromptMatches(
+                            runtime,
+                            scenario.Player,
+                            LocalizedTexts.Text(
+                                LocalizationKey.PromptStoreInboundProduct,
+                                LocalizedTexts.ProductName(heldInboundProduct.ProductType))),
+                    "A held inbound product aimed through stored cargo did not contextually " +
+                    "select the full-storage intake proxy.");
+
+                bool candidateOverflowRejected = false;
+                try
+                {
+                    cameraTransform.position = target - Vector3.forward * 1.8f;
+                    Physics.SyncTransforms();
+                    try
+                    {
+                        runtime.InteractionPhysics.GetFocusCandidates(
+                            scenario.Player.Camera,
+                            scenario.Player.InteractionDistance,
+                            scenario.Player.AimAssistRadius,
+                            new InteractionFocusCandidate[1]);
+                    }
+                    catch (InvalidOperationException exception)
+                    {
+                        candidateOverflowRejected = exception.Message.Contains(
+                            "Interaction focus candidate buffer saturated at 1 entries",
+                            StringComparison.Ordinal);
+                    }
+                }
+                finally
+                {
+                    cameraTransform.position = target - Vector3.forward * 0.65f;
+                    Physics.SyncTransforms();
+                }
+
+                Require(candidateOverflowRejected,
+                    "Interaction physics silently truncated an undersized candidate buffer.");
+
+                scenario.Input.isInteractPressed = true;
+                runtime.Systems.Create<EmitInteractionRequestSystem>().Execute();
+                GameEntity[] storageRequests = runtime.Game
+                    .GetGroup(GameMatcher.InteractionRequest)
+                    .GetEntities();
+                Require(storageRequests.Length == 1 &&
+                        storageRequests[0].SourceEntityId == scenario.Player.EntityId &&
+                        storageRequests[0].TargetEntityId == scenario.StorageZone.EntityId,
+                    "E did not target the context-selected storage intake exactly once.");
+                runtime.Systems.Create<StoreInboundProductSystem>().Execute();
+                Require(heldInboundProduct.isProductStocked &&
+                        heldInboundProduct.isInStock &&
+                        !heldInboundProduct.isInboundProduct &&
+                        !heldInboundProduct.hasCarrierEntityId &&
+                        !scenario.Player.isHandsOccupied &&
+                        !scenario.Player.isCarryingProduct,
+                    "E did not store the held inbound product through the contextual intake.");
+
+                ClearPhysicalFocus(runtime, scenario.Player);
+                runtime.Systems.Create<DetectFocusedInteractableSystem>().Execute();
+                runtime.Systems.Create<UpdateFocusHighlightSystem>().Execute();
+                ExecuteInteractionPrompts(runtime);
+                Require(scenario.Player.hasFocusedEntityId &&
+                        scenario.Player.FocusedEntityId == occludingStockProduct.EntityId &&
+                        scenario.Player.hasFocusedInteractionType &&
+                        scenario.Player.FocusedInteractionType == InteractionTypeId.Product,
+                    "With empty hands, the same aim selected the storage proxy instead of the " +
+                    "visible stock product.");
+
+                int defaultLayer = LayerMask.NameToLayer("Default");
+                Require(defaultLayer >= 0,
+                    "The built-in Default layer is required for interaction focus smoke.");
+                foreignTrigger = GameObject.CreatePrimitive(PrimitiveType.Cube);
+                foreignTrigger.name = "Smoke Foreign Interaction Trigger";
+                foreignTrigger.layer = defaultLayer;
+                foreignTrigger.transform.SetPositionAndRotation(
+                    Vector3.Lerp(cameraTransform.position, target, 0.25f),
+                    Quaternion.identity);
+                foreignTrigger.transform.localScale = new Vector3(2.4f, 2.4f, 0.15f);
+                foreignTrigger.GetComponent<BoxCollider>().isTrigger = true;
+                Physics.SyncTransforms();
+                ClearPhysicalFocus(runtime, scenario.Player);
+                runtime.Systems.Create<DetectFocusedInteractableSystem>().Execute();
+                runtime.Systems.Create<UpdateFocusHighlightSystem>().Execute();
+                ExecuteInteractionPrompts(runtime);
+                Require(!scenario.Player.hasFocusedEntityId &&
+                        !scenario.Player.hasFocusedInteractionType &&
+                        !scenario.Player.isFocusInteractionAvailable,
+                    "A foreign Default-layer trigger did not occlude product and storage focus " +
+                    "candidates.");
+
+                UnityEngine.Object.DestroyImmediate(foreignTrigger);
+                foreignTrigger = null;
+                wall = GameObject.CreatePrimitive(PrimitiveType.Cube);
+                wall.name = "Smoke Interaction Focus Occlusion Wall";
+                wall.layer = defaultLayer;
+                wall.transform.SetPositionAndRotation(
+                    Vector3.Lerp(cameraTransform.position, target, 0.25f),
+                    Quaternion.identity);
+                wall.transform.localScale = new Vector3(2.4f, 2.4f, 0.15f);
+                Physics.SyncTransforms();
+                ClearPhysicalFocus(runtime, scenario.Player);
+                runtime.Systems.Create<DetectFocusedInteractableSystem>().Execute();
+                runtime.Systems.Create<UpdateFocusHighlightSystem>().Execute();
+                ExecuteInteractionPrompts(runtime);
+                Require(!scenario.Player.hasFocusedEntityId &&
+                        !scenario.Player.hasFocusedInteractionType &&
+                        !scenario.Player.isFocusInteractionAvailable,
+                    "A solid wall did not occlude product and storage focus candidates.");
+            }
+            finally
+            {
+                if (foreignTrigger != null)
+                    UnityEngine.Object.DestroyImmediate(foreignTrigger);
+                if (wall != null)
+                    UnityEngine.Object.DestroyImmediate(wall);
+                cameraTransform.SetPositionAndRotation(originalPosition, originalRotation);
+                Physics.SyncTransforms();
+                ClearPhysicalFocus(runtime, scenario.Player);
+            }
+        }
+
+        private static void ClearPhysicalFocus(Runtime runtime, GameEntity player)
+        {
+            if (player.hasFocusedEntityId)
+                player.RemoveFocusedEntityId();
+            if (player.hasFocusedInteractionType)
+                player.RemoveFocusedInteractionType();
+            runtime.Systems.Create<UpdateFocusHighlightSystem>().Execute();
         }
 
         private static void ValidatePhysicalStockFocus(
@@ -3911,6 +4133,7 @@ namespace HardwareStore.Editor
                 container.Resolve<IStaticDataService>(),
                 container.Resolve<IProcurementSolvencyService>(),
                 container.Resolve<IEconomySolvencyService>(),
+                container.Resolve<IInteractionPhysicsService>(),
                 container.Resolve<ILocalizationService>());
         }
 
@@ -4036,6 +4259,7 @@ namespace HardwareStore.Editor
                 IStaticDataService staticData,
                 IProcurementSolvencyService procurementSolvency,
                 IEconomySolvencyService economySolvency,
+                IInteractionPhysicsService interactionPhysics,
                 ILocalizationService localization)
             {
                 Game = game;
@@ -4045,6 +4269,7 @@ namespace HardwareStore.Editor
                 StaticData = staticData;
                 ProcurementSolvency = procurementSolvency;
                 EconomySolvency = economySolvency;
+                InteractionPhysics = interactionPhysics;
                 Localization = localization;
             }
 
@@ -4055,6 +4280,7 @@ namespace HardwareStore.Editor
             public IStaticDataService StaticData { get; }
             public IProcurementSolvencyService ProcurementSolvency { get; }
             public IEconomySolvencyService EconomySolvency { get; }
+            public IInteractionPhysicsService InteractionPhysics { get; }
             public ILocalizationService Localization { get; }
         }
 

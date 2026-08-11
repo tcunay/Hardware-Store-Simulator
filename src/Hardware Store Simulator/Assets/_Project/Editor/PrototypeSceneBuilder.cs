@@ -398,8 +398,11 @@ namespace HardwareStore.Editor
             Material brandBlue, Material timber, Material darkMetal, Material brandOrange)
         {
             GameObject storage = CreateEmpty("Materials Storage", parent);
-            CreateCube("Storage Pad", storage.transform, new Vector3(5f, 0.1f, 6.5f),
+            GameObject storagePad = CreateCube(
+                "Storage Pad", storage.transform, new Vector3(5f, 0.1f, 6.5f),
                 new Vector3(7.5f, 0.2f, 6.5f), concrete);
+            InteractionHighlight storageHighlight =
+                storagePad.AddComponent<InteractionHighlight>();
             CreateCube("Roof", storage.transform, new Vector3(5f, 3.6f, 6.5f),
                 new Vector3(7.8f, 0.22f, 6.8f), brandBlue);
 
@@ -437,15 +440,31 @@ namespace HardwareStore.Editor
                 slots[i] = slot.transform;
             }
 
-            GameObject target = CreateCube("Storage Intake Target", storage.transform,
-                new Vector3(8.15f, 0.24f, 6.45f), new Vector3(1f, 0.12f, 3.4f), brandOrange);
-            BoxCollider storageInteraction = target.GetComponent<BoxCollider>();
-            storageInteraction.isTrigger = true;
-            storageInteraction.center = new Vector3(0f, 5f, 0f);
-            storageInteraction.size = new Vector3(1f, 10f, 1f);
-            InteractionHighlight highlight = target.AddComponent<InteractionHighlight>();
+            GameObject target = CreateEmpty("Storage Intake Target", storage.transform);
+            target.transform.position = new Vector3(5f, 1.8f, 6.5f);
+            CreateStorageInteractionFace(
+                "Storage Intake Front Trigger",
+                target.transform,
+                new Vector3(0f, 0f, -3.25f),
+                new Vector3(7.5f, 3.4f, 0.2f));
+            CreateStorageInteractionFace(
+                "Storage Intake Back Trigger",
+                target.transform,
+                new Vector3(0f, 0f, 3.25f),
+                new Vector3(7.5f, 3.4f, 0.2f));
+            CreateStorageInteractionFace(
+                "Storage Intake Left Trigger",
+                target.transform,
+                new Vector3(-3.75f, 0f, 0f),
+                new Vector3(0.2f, 3.4f, 6.5f));
+            CreateStorageInteractionFace(
+                "Storage Intake Right Trigger",
+                target.transform,
+                new Vector3(3.75f, 0f, 0f),
+                new Vector3(0.2f, 3.4f, 6.5f));
+            target.AddComponent<NonOccludingInteractionProxy>();
             InteractionView storageView = target.AddComponent<InteractionView>();
-            storageView.Configure(highlight);
+            storageView.Configure(storageHighlight);
             target.AddComponent<InteractionViewRegistrar>();
             SlotsRegistrar slotsRegistrar = target.AddComponent<SlotsRegistrar>();
             slotsRegistrar.Configure(slots);
@@ -456,10 +475,23 @@ namespace HardwareStore.Editor
                 LocalizationKey.WorldStorageCatalog,
                 new Vector3(5f, 2.7f, 3.25f),
                 Quaternion.identity, 0.035f, brandOrange.color);
-            CreateWorldLabel("Storage Intake Label", target.transform,
+            CreateWorldLabel("Storage Intake Label", storage.transform,
                 LocalizationKey.WorldStorageIntake,
-                new Vector3(0f, 0f, -0.58f), Quaternion.identity, 0.025f, Color.white);
+                new Vector3(5f, 2.2f, 3.24f), Quaternion.identity, 0.025f, Color.white);
             return storageMarker;
+        }
+
+        private static void CreateStorageInteractionFace(
+            string name,
+            Transform parent,
+            Vector3 localPosition,
+            Vector3 size)
+        {
+            GameObject face = CreateEmpty(name, parent);
+            face.transform.localPosition = localPosition;
+            BoxCollider collider = face.AddComponent<BoxCollider>();
+            collider.isTrigger = true;
+            collider.size = size;
         }
 
         private static SceneRouteMarker[] BuildCustomerRoutes(Transform parent, Material asphalt,
