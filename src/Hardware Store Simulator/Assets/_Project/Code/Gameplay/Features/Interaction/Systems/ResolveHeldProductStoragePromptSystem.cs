@@ -1,5 +1,4 @@
 using System;
-using System.Linq;
 using Entitas;
 using HardwareStore.Gameplay.Components;
 using HardwareStore.Gameplay.Localization;
@@ -19,6 +18,7 @@ namespace HardwareStore.Gameplay.Features.Interaction.Systems
                 GameMatcher.EntityId,
                 GameMatcher.StoreEntityId,
                 GameMatcher.HandsOccupied,
+                GameMatcher.CarryingProduct,
                 GameMatcher.FocusedEntityId,
                 GameMatcher.FocusedInteractionType));
         }
@@ -46,8 +46,20 @@ namespace HardwareStore.Gameplay.Features.Interaction.Systems
                         throw new InvalidOperationException(
                             $"Held stock product {heldProduct.EntityId} does not belong to " +
                             $"storage zone {storageZone.EntityId}.");
+                    if (heldProduct.hasStorageSlotIndex ||
+                        !heldProduct.hasReservedStorageSlotIndex ||
+                        !heldProduct.hasReservedOrderLineEntityId)
+                    {
+                        throw new InvalidOperationException(
+                            $"Held stock product {heldProduct.EntityId} has invalid storage " +
+                            "reservation state.");
+                    }
 
-                    ResolveHeldStockPrompt(player, store, heldProduct);
+                    player.SetInteractionPrompt(
+                        LocalizedTexts.Text(
+                            LocalizationKey.PromptReturnStockProduct,
+                            LocalizedTexts.ProductName(heldProduct.ProductType)),
+                        true);
                     continue;
                 }
 
@@ -86,103 +98,5 @@ namespace HardwareStore.Gameplay.Features.Interaction.Systems
             }
         }
 
-        private void ResolveHeldStockPrompt(
-            GameEntity player,
-            GameEntity store,
-            GameEntity heldProduct)
-        {
-            LocalizedText productName = LocalizedTexts.ProductName(heldProduct.ProductType);
-            GameEntity customerVisit =
-                _gameContext.GetEntityWithCustomerVisitStoreEntityId(store.EntityId);
-            if (customerVisit == null)
-            {
-                player.SetInteractionPrompt(
-                    LocalizedTexts.Text(
-                        LocalizationKey.PromptNoActiveOrderCarrying,
-                        productName),
-                    false);
-                return;
-            }
-
-            if (customerVisit.isCustomerVisitArriving)
-            {
-                player.SetInteractionPrompt(
-                    LocalizedTexts.Text(
-                        LocalizationKey.PromptArrivingCarrying,
-                        productName),
-                    false);
-                return;
-            }
-
-            if (customerVisit.isCustomerVisitReturning ||
-                customerVisit.isCustomerVisitDeparting ||
-                customerVisit.isCustomerVisitCompleted)
-            {
-                player.SetInteractionPrompt(
-                    LocalizedTexts.Text(
-                        LocalizationKey.PromptCompletedCarrying,
-                        productName),
-                    false);
-                return;
-            }
-
-            if (customerVisit.isCustomerVisitConsulting)
-            {
-                player.SetInteractionPrompt(
-                    LocalizedTexts.Text(
-                        LocalizationKey.PromptConsultFirstCarrying,
-                        productName),
-                    false);
-                return;
-            }
-
-            if (customerVisit.isCustomerVisitWaiting)
-            {
-                player.SetInteractionPrompt(
-                    LocalizedTexts.Text(LocalizationKey.PromptAcceptOrderFirst),
-                    false);
-                return;
-            }
-
-            if (!customerVisit.isCustomerVisitLoading)
-            {
-                throw new InvalidOperationException(
-                    $"Customer visit {customerVisit.EntityId} has no valid lifecycle state.");
-            }
-
-            GameEntity[] lines = GetOrderLines(customerVisit);
-            GameEntity matchingLine = lines.FirstOrDefault(line =>
-                line.ProductType == heldProduct.ProductType);
-            bool canLoad = matchingLine != null &&
-                           matchingLine.LoadedProductCount <
-                           matchingLine.RequiredProductCount;
-            player.SetInteractionPrompt(
-                canLoad
-                    ? LocalizedTexts.Text(
-                        LocalizationKey.PromptCarryToCustomerVehicle,
-                        productName)
-                    : matchingLine == null
-                        ? LocalizedTexts.Text(
-                            LocalizationKey.PromptProductNotInOrderCarrying,
-                            productName)
-                        : LocalizedTexts.Text(
-                            LocalizationKey.PromptOrderLineAlreadyLoadedCarrying,
-                            productName),
-                false);
-        }
-
-        private GameEntity[] GetOrderLines(GameEntity order)
-        {
-            GameEntity[] lines = _gameContext
-                .GetEntitiesWithOrderEntityId(order.EntityId)
-                .Where(line => line.isOrderLine && !line.isDestructed)
-                .OrderBy(line => line.LineIndex)
-                .ToArray();
-            if (lines.Length == 0)
-                throw new InvalidOperationException(
-                    $"Order {order.EntityId} has no active product lines.");
-
-            return lines;
-        }
     }
 }

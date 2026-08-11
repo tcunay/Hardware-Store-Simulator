@@ -13,6 +13,7 @@ namespace HardwareStore.Gameplay.Features.Products
             Add(systems.Create<ApplyCarriedProductPlacementSystem>());
             Add(systems.Create<ApplyLooseProductPlacementSystem>());
             Add(systems.Create<ApplyLoadedProductPlacementSystem>());
+            Add(systems.Create<ApplyTrolleyProductPlacementSystem>());
             Add(systems.Create<ValidateProductPlacementSystem>());
         }
     }

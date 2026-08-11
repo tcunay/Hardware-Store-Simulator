@@ -73,7 +73,9 @@ namespace HardwareStore.Gameplay.Features.Interaction.Systems
                     player.SetInteractionPrompt(
                         player.isHandsOccupied
                             ? LocalizedTexts.Text(
-                                LocalizationKey.PromptFreeHandsForConsultation)
+                                player.isPushingTrolley
+                                    ? LocalizationKey.PromptReleaseTrolleyFirst
+                                    : LocalizationKey.PromptFreeHandsForConsultation)
                             : LocalizedTexts.Text(
                                 LocalizationKey.PromptDiscussProject,
                                 LocalizedTexts.ProjectTitle(

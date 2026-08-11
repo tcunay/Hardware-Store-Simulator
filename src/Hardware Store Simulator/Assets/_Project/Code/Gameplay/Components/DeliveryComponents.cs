@@ -5,7 +5,7 @@ namespace HardwareStore.Gameplay.Components
 {
     [Game] public class ProcurementTerminal : IComponent { }
     [Game] public class StorageZone : IComponent { }
-    [Game] public class DeliveryEntityId : IComponent { public int Value; }
+    [Game] public class DeliveryEntityId : IComponent { [EntityIndex] public int Value; }
     [Game] public class PurchaseDeliveryRequest : IComponent { }
     [Game] public class PurchaseDeliverySucceeded : IComponent { }
     [Game] public class Delivery : IComponent { }

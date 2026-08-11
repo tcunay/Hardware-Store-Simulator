@@ -25,11 +25,13 @@ namespace HardwareStore.Gameplay.Factories
         public GameEntity Create(IStoreSceneData sceneData)
         {
             Pose deliveryPose = sceneData.GetSpawnPoint(SpawnPointId.DeliveryVehicle);
+            Pose trolleySpawnPose = sceneData.GetSpawnPoint(SpawnPointId.PlatformTrolley);
             GameEntity storageZone = _interactionTargetFactory.CreateStorageZone();
             GameEntity store = CreateEntity.Empty(_identifiers.Next())
                 .AddMoney(_staticData.Economy.InitialMoney)
                 .AddCustomerCooldownRemaining(_staticData.CustomerVehicle.FirstCustomerDelay)
                 .AddNextProjectSequenceIndex(0)
+                .AddCompletedOrderCount(0)
                 .With(x => x.isStore = true);
 
             GameEntity orderCounter = _interactionTargetFactory.CreateOrderCounter(store.EntityId);
@@ -40,9 +42,15 @@ namespace HardwareStore.Gameplay.Factories
                     storageZone.EntityId,
                     deliveryPose);
 
+            GameEntity trolleyUpgradeTerminal =
+                _interactionTargetFactory.CreateTrolleyUpgradeTerminal(
+                    store.EntityId,
+                    trolleySpawnPose);
+
             store.AddOrderCounterEntityId(orderCounter.EntityId);
             store.AddProcurementTerminalEntityId(procurementTerminal.EntityId);
             store.AddStorageZoneEntityId(storageZone.EntityId);
+            store.AddTrolleyUpgradeTerminalEntityId(trolleyUpgradeTerminal.EntityId);
             return store;
         }
     }

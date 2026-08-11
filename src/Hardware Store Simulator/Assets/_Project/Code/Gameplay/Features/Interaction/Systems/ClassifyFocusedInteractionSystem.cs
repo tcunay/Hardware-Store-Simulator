@@ -52,6 +52,10 @@ namespace HardwareStore.Gameplay.Features.Interaction.Systems
                 return InteractionTypeId.Product;
             if (target.isLoadingZone)
                 return InteractionTypeId.LoadingZone;
+            if (target.isTrolleyUpgradeTerminal)
+                return InteractionTypeId.TrolleyUpgradeTerminal;
+            if (target.isPlatformTrolley)
+                return InteractionTypeId.PlatformTrolley;
 
             throw new InvalidOperationException(
                 $"Entity {target.EntityId} is interactable without a supported role.");

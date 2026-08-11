@@ -65,6 +65,10 @@ namespace HardwareStore.Gameplay.Features.Customers.Systems
                 if (_gameContext.GetEntitiesWithOrderLineEntityId(line.EntityId).Count != 0)
                     throw new InvalidOperationException(
                         $"Departed order line {line.EntityId} retained a product relation.");
+                if (_gameContext
+                        .GetEntitiesWithReservedOrderLineEntityId(line.EntityId).Count != 0)
+                    throw new InvalidOperationException(
+                        $"Departed order line {line.EntityId} retained a product reservation.");
             }
 
             visit.isOrderContentReleased = true;

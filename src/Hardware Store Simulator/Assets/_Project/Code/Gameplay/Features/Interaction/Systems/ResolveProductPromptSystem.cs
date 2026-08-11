@@ -60,7 +60,10 @@ namespace HardwareStore.Gameplay.Features.Interaction.Systems
                 if (player.isHandsOccupied)
                 {
                     player.SetInteractionPrompt(
-                        LocalizedTexts.Text(LocalizationKey.PromptHandsOccupied),
+                        LocalizedTexts.Text(
+                            player.isPushingTrolley
+                                ? LocalizationKey.PromptReleaseTrolleyFirst
+                                : LocalizationKey.PromptHandsOccupied),
                         false);
                     continue;
                 }
@@ -144,9 +147,36 @@ namespace HardwareStore.Gameplay.Features.Interaction.Systems
                 GameEntity[] lines = GetOrderLines(customerVisit);
                 GameEntity matchingLine = lines.FirstOrDefault(line =>
                     line.ProductType == product.ProductType);
+                bool alreadyReserved = product.hasReservedOrderLineEntityId;
+                if (alreadyReserved &&
+                    (matchingLine == null ||
+                     product.ReservedOrderLineEntityId != matchingLine.EntityId))
+                {
+                    throw new InvalidOperationException(
+                        $"Product {product.EntityId} reserves an order line that does not match " +
+                        "the active customer order.");
+                }
+
+                int reservedProductCount = matchingLine == null
+                    ? 0
+                    : CountReservedProducts(matchingLine);
+                if (matchingLine != null &&
+                    matchingLine.LoadedProductCount + reservedProductCount >
+                    matchingLine.RequiredProductCount)
+                {
+                    throw new InvalidOperationException(
+                        $"Order line {matchingLine.EntityId} exceeds its reserved quota.");
+                }
+                if (alreadyReserved &&
+                    matchingLine.LoadedProductCount >= matchingLine.RequiredProductCount)
+                {
+                    throw new InvalidOperationException(
+                        $"Product {product.EntityId} reserves an already loaded order line.");
+                }
                 bool available = matchingLine != null &&
-                                 matchingLine.LoadedProductCount <
-                                 matchingLine.RequiredProductCount;
+                                 (alreadyReserved ||
+                                  matchingLine.LoadedProductCount + reservedProductCount <
+                                  matchingLine.RequiredProductCount);
                 player.SetInteractionPrompt(
                     available
                         ? LocalizedTexts.Text(LocalizationKey.PromptPickStockProduct, productName)
@@ -173,6 +203,30 @@ namespace HardwareStore.Gameplay.Features.Interaction.Systems
                     $"Order {order.EntityId} has no active product lines.");
 
             return lines;
+        }
+
+        private int CountReservedProducts(GameEntity orderLine)
+        {
+            int count = 0;
+            foreach (GameEntity product in
+                     _gameContext.GetEntitiesWithReservedOrderLineEntityId(orderLine.EntityId))
+            {
+                if (!product.isProduct || product.isDestructed || !product.isInStock ||
+                    !product.hasEntityId || !product.hasProductType ||
+                    !product.hasStorageZoneEntityId ||
+                    !product.hasReservedStorageSlotIndex ||
+                    product.ReservedOrderLineEntityId != orderLine.EntityId ||
+                    product.ProductType != orderLine.ProductType ||
+                    product.StorageZoneEntityId != orderLine.StorageZoneEntityId)
+                {
+                    throw new InvalidOperationException(
+                        $"Order line {orderLine.EntityId} has an invalid product reservation.");
+                }
+
+                count++;
+            }
+
+            return count;
         }
     }
 }

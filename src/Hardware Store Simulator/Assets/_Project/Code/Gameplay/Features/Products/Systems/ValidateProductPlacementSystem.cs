@@ -22,7 +22,11 @@ namespace HardwareStore.Gameplay.Features.Products.Systems
                     $"Bound product {product.EntityId} has no complete placement state. " +
                     $"Inbound={product.isInboundProduct}, InStock={product.isInStock}, " +
                     $"Carried={product.hasCarrierEntityId}, Loose={product.isLooseProduct}, " +
-                    $"Loaded={product.isLoaded}.");
+                    $"Loaded={product.isLoaded}, " +
+                    $"ReservedDelivery={product.hasReservedDeliverySlotIndex}, " +
+                    $"ReservedStorage={product.hasReservedStorageSlotIndex}, " +
+                    $"ReservedOrderLine={product.hasReservedOrderLineEntityId}, " +
+                    $"Trolley={product.hasTrolleyEntityId}.");
             }
         }
     }

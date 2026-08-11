@@ -60,7 +60,9 @@ namespace HardwareStore.Gameplay.Features.Procurement.Systems
             if (player.isHandsOccupied)
             {
                 _events.EmitNotification(LocalizedTexts.Text(
-                    LocalizationKey.NotificationFreeHandsForProcurement));
+                    player.isPushingTrolley
+                        ? LocalizationKey.NotificationReleaseTrolleyFirst
+                        : LocalizationKey.NotificationFreeHandsForProcurement));
                 return;
             }
             if (player.StoreEntityId != terminal.StoreEntityId)

@@ -27,7 +27,7 @@ namespace HardwareStore.Gameplay.Features.Carrying.Systems
 
                 GameEntity player = _gameContext.GetEntityWithEntityId(request.SourceEntityId);
                 if (player.StoreEntityId != visit.CustomerVisitStoreEntityId ||
-                    !player.isHandsOccupied)
+                    !player.isHandsOccupied || !player.isCarryingProduct)
                     continue;
                 if (!visit.isOrder || !visit.hasEntityId ||
                     !visit.hasStorageZoneEntityId || !visit.hasSlots)
@@ -39,7 +39,18 @@ namespace HardwareStore.Gameplay.Features.Carrying.Systems
                 GameEntity product = _gameContext.GetEntityWithCarrierEntityId(player.EntityId);
                 if (!product.isInStock || product.isLoaded)
                     continue;
-                GameEntity orderLine = null;
+                ValidateHeldProduct(visit, product);
+                GameEntity orderLine = _gameContext.GetEntityWithEntityId(
+                    product.ReservedOrderLineEntityId);
+                ValidateOrderLine(visit, orderLine);
+                if (orderLine.EntityId != product.ReservedOrderLineEntityId ||
+                    orderLine.ProductType != product.ProductType)
+                {
+                    throw new InvalidOperationException(
+                        $"Held product {product.EntityId} does not satisfy its reserved order " +
+                        $"line {product.ReservedOrderLineEntityId}.");
+                }
+
                 int totalLoadedProductCount = 0;
                 foreach (GameEntity line in
                          _gameContext.GetEntitiesWithOrderEntityId(visit.EntityId))
@@ -47,31 +58,24 @@ namespace HardwareStore.Gameplay.Features.Carrying.Systems
                     ValidateOrderLine(visit, line);
                     totalLoadedProductCount = checked(
                         totalLoadedProductCount + line.LoadedProductCount);
-                    if (line.ProductType != product.ProductType)
-                        continue;
-                    if (orderLine != null)
-                        throw new InvalidOperationException(
-                            $"Customer visit {visit.EntityId} has duplicate order lines for " +
-                            $"{product.ProductType}.");
-
-                    orderLine = line;
                 }
 
-                if (orderLine == null ||
-                    orderLine.LoadedProductCount >= orderLine.RequiredProductCount)
-                    continue;
-
-                ValidateHeldProduct(visit, product);
+                if (orderLine.LoadedProductCount >= orderLine.RequiredProductCount)
+                    throw new InvalidOperationException(
+                        $"Reserved order line {orderLine.EntityId} is already fully loaded.");
                 if (visit.Slots.Length <= totalLoadedProductCount)
                     throw new InvalidOperationException(
                         $"Customer visit {visit.EntityId} has insufficient loading slots.");
 
                 product.RemoveCarrierEntityId();
                 player.isHandsOccupied = false;
+                player.isCarryingProduct = false;
                 product.isInStock = false;
                 product.isLoaded = true;
                 product.isInteractable = false;
                 product.RemoveStorageZoneEntityId();
+                product.RemoveReservedStorageSlotIndex();
+                product.RemoveReservedOrderLineEntityId();
                 product.AddOrderLineEntityId(orderLine.EntityId);
                 product.AddLoadingSlotIndex(totalLoadedProductCount);
                 product.isProductLoaded = true;
@@ -93,10 +97,18 @@ namespace HardwareStore.Gameplay.Features.Carrying.Systems
                 throw new InvalidOperationException(
                     $"Carried product {product.EntityId} still occupies storage slot " +
                     $"{product.StorageSlotIndex}.");
+            if (!product.hasReservedStorageSlotIndex)
+                throw new InvalidOperationException(
+                    $"Carried product {product.EntityId} has no reserved storage slot.");
+            if (!product.hasReservedOrderLineEntityId)
+                throw new InvalidOperationException(
+                    $"Carried product {product.EntityId} has no reserved order line.");
             if (product.isLooseProduct || product.hasWorldPosition || product.hasWorldRotation)
                 throw new InvalidOperationException(
                     $"Carried product {product.EntityId} still contains loose placement state.");
-            if (product.hasOrderLineEntityId || product.hasLoadingSlotIndex)
+            if (product.hasOrderLineEntityId || product.hasLoadingSlotIndex ||
+                product.hasDeliverySlotIndex || product.hasReservedDeliverySlotIndex ||
+                product.hasTrolleyEntityId || product.hasTrolleySlotIndex)
             {
                 throw new InvalidOperationException(
                     $"Carried product {product.EntityId} already contains customer loading state.");

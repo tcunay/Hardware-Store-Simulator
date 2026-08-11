@@ -19,7 +19,9 @@ namespace HardwareStore.Gameplay.Configs
         [Header("Handling")]
         [SerializeField, Min(0f)] private float _carryMovementSpeed = 3.2f;
         [SerializeField] private Vector3 _heldRotationEuler = new(8f, 0f, 0f);
-        [SerializeField, Min(0f)] private float _dropForwardDistance = 1.15f;
+        [SerializeField, Min(0.01f)] private float _dropForwardDistance = 1.15f;
+        [SerializeField, Min(0.01f), Tooltip("Conservative radius enclosing the solid product collider.")]
+        private float _productDropCollisionRadius = 0.35f;
 
         [Header("Physics")]
         [SerializeField] private RigidbodyInterpolation _worldInterpolation = RigidbodyInterpolation.Interpolate;
@@ -33,6 +35,7 @@ namespace HardwareStore.Gameplay.Configs
         public float CarryMovementSpeed => _carryMovementSpeed;
         public Quaternion HeldRotationOffset => Quaternion.Euler(_heldRotationEuler);
         public float DropForwardDistance => _dropForwardDistance;
+        public float ProductDropCollisionRadius => _productDropCollisionRadius;
         public RigidbodyInterpolation WorldInterpolation => _worldInterpolation;
         public CollisionDetectionMode WorldCollisionDetection => _worldCollisionDetection;
 
@@ -51,10 +54,19 @@ namespace HardwareStore.Gameplay.Configs
                 _heldRotationEuler,
                 owner,
                 nameof(HeldRotationOffset));
-            ConfigValidation.RequireNonNegative(
+            ConfigValidation.RequirePositive(
                 _dropForwardDistance,
                 owner,
                 nameof(DropForwardDistance));
+            ConfigValidation.RequirePositive(
+                _productDropCollisionRadius,
+                owner,
+                nameof(ProductDropCollisionRadius));
+            if (_productDropCollisionRadius > _dropForwardDistance)
+            {
+                throw new System.InvalidOperationException(
+                    $"{owner}.ProductDropCollisionRadius must not exceed DropForwardDistance.");
+            }
             ConfigValidation.RequireDefined(
                 _worldInterpolation,
                 owner,

@@ -33,8 +33,13 @@ namespace HardwareStore.Gameplay.Features.Products.Systems
                     GameMatcher.Loaded,
                     GameMatcher.StorageZoneEntityId,
                     GameMatcher.OrderLineEntityId,
+                    GameMatcher.ReservedOrderLineEntityId,
                     GameMatcher.StorageSlotIndex,
+                    GameMatcher.ReservedDeliverySlotIndex,
+                    GameMatcher.ReservedStorageSlotIndex,
                     GameMatcher.LoadingSlotIndex,
+                    GameMatcher.TrolleyEntityId,
+                    GameMatcher.TrolleySlotIndex,
                     GameMatcher.WorldPosition,
                     GameMatcher.WorldRotation));
         }

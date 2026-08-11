@@ -13,6 +13,7 @@ using HardwareStore.Gameplay.Features.Procurement;
 using HardwareStore.Gameplay.Features.Products;
 using HardwareStore.Gameplay.Features.StorageState;
 using HardwareStore.Gameplay.Features.StoreSceneBindings;
+using HardwareStore.Gameplay.Features.Trolley;
 using HardwareStore.Infrastructure.Systems;
 using HardwareStore.Infrastructure.View;
 
@@ -26,6 +27,7 @@ namespace HardwareStore.Gameplay
             Add(systems.Create<StoreSceneBindingsFeature>());
             Add(systems.Create<InputFeature>());
             Add(systems.Create<PlayerFeature>());
+            Add(systems.Create<ProductRecoveryFeature>());
             Add(systems.Create<InteractionFeature>());
             Add(systems.Create<ProcurementFeature>());
             Add(systems.Create<ConsultationFeature>());
@@ -33,10 +35,12 @@ namespace HardwareStore.Gameplay
             Add(systems.Create<OrdersFeature>());
             Add(systems.Create<CarryingFeature>());
             Add(systems.Create<OrderProgressFeature>());
+            Add(systems.Create<TrolleyFeature>());
             Add(systems.Create<StorageStateFeature>());
             Add(systems.Create<ProductPlacementFeature>());
             Add(systems.Create<CustomerFeature>());
             Add(systems.Create<MovementFeature>());
+            Add(systems.Create<TrolleyMovementFeature>());
             Add(systems.Create<InteractionPromptFeature>());
             Add(systems.Create<PresentationFeature>());
             Add(systems.Create<CleanupFeature>());

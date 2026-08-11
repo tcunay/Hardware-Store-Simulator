@@ -70,6 +70,7 @@ namespace HardwareStore.Gameplay.Localization
         HudStockNoCustomer = 1033,
         HudStockProject = 1034,
         HudStockOrder = 1035,
+        HudControlsPushingTrolley = 1036,
         ProcurementStatusNotRequired = 1100,
         ProcurementStatusStockSufficient = 1101,
         ProcurementStatusInsufficientStorage = 1102,
@@ -143,6 +144,18 @@ namespace HardwareStore.Gameplay.Localization
         PromptProductMustComeFromStorage = 2064,
         PromptCustomerVehicleNoSpace = 2065,
         PromptLoadProduct = 2066,
+        PromptReturnStockProduct = 2067,
+        PromptTrolleyUpgradeLocked = 2068,
+        PromptPurchaseTrolley = 2069,
+        PromptTrolleyInsufficientMoney = 2070,
+        PromptTrolleyPurchased = 2071,
+        PromptPushTrolley = 2072,
+        PromptPlaceProductOnTrolley = 2073,
+        PromptTrolleyFull = 2074,
+        PromptTrolleyPushedByOther = 2075,
+        PromptReleaseTrolley = 2076,
+        PromptReleaseTrolleyFirst = 2077,
+        PromptFreeHandsForTrolleyUpgrade = 2078,
 
         NotificationAcceptCurrentDeliveryFirst = 3000,
         NotificationWaitForCustomer = 3001,
@@ -166,6 +179,16 @@ namespace HardwareStore.Gameplay.Localization
         NotificationOrderCompleted = 3019,
         NotificationFreeHandsForProcurement = 3020,
         NotificationProcurementNotRequired = 3021,
+        NotificationProductsRecovered = 3022,
+        NotificationTrolleyUnlocked = 3023,
+        NotificationTrolleyUpgradeLocked = 3024,
+        NotificationTrolleyInsufficientMoney = 3025,
+        NotificationTrolleyPurchased = 3026,
+        NotificationTrolleyAlreadyPurchased = 3027,
+        NotificationTrolleyFull = 3028,
+        NotificationReleaseTrolleyFirst = 3029,
+        NotificationFreeHandsForTrolleyUpgrade = 3030,
+        NotificationProductDropBlocked = 3031,
 
         WorldOrderCounter = 4000,
         WorldProcurement = 4001,
@@ -174,6 +197,7 @@ namespace HardwareStore.Gameplay.Localization
         WorldCustomerLoadingBay = 4004,
         WorldDeliveryIntake = 4005,
         WorldCustomerVehicleLoading = 4006,
-        WorldBoardProductLabel = 4007
+        WorldBoardProductLabel = 4007,
+        WorldTrolleyUpgrade = 4008
     }
 }

@@ -38,7 +38,10 @@ namespace HardwareStore.Gameplay.Features.Interaction.Systems
                 if (player.isHandsOccupied)
                 {
                     player.SetInteractionPrompt(
-                        LocalizedTexts.Text(LocalizationKey.PromptFreeHandsForProcurement),
+                        LocalizedTexts.Text(
+                            player.isPushingTrolley
+                                ? LocalizationKey.PromptReleaseTrolleyFirst
+                                : LocalizationKey.PromptFreeHandsForProcurement),
                         false);
                     continue;
                 }

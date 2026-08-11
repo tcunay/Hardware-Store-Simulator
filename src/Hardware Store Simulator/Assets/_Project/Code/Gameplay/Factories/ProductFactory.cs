@@ -35,6 +35,7 @@ namespace HardwareStore.Gameplay.Factories
                 .AddCarryMovementSpeed(config.CarryMovementSpeed)
                 .AddHeldRotationOffset(config.HeldRotationOffset)
                 .AddDropForwardDistance(config.DropForwardDistance)
+                .AddProductDropCollisionRadius(config.ProductDropCollisionRadius)
                 .AddRigidbodyInterpolationMode(config.WorldInterpolation)
                 .AddRigidbodyCollisionDetectionMode(config.WorldCollisionDetection)
                 .With(x => x.isProduct = true)

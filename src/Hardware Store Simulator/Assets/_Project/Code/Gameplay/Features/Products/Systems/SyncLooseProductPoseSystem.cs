@@ -14,6 +14,9 @@ namespace HardwareStore.Gameplay.Features.Products.Systems
                     GameMatcher.Rigidbody,
                     GameMatcher.WorldPosition,
                     GameMatcher.WorldRotation)
+                .AnyOf(
+                    GameMatcher.ReservedDeliverySlotIndex,
+                    GameMatcher.ReservedStorageSlotIndex)
                 .NoneOf(
                     GameMatcher.CarrierEntityId,
                     GameMatcher.Loaded,
@@ -21,6 +24,8 @@ namespace HardwareStore.Gameplay.Features.Products.Systems
                     GameMatcher.DeliverySlotIndex,
                     GameMatcher.StorageSlotIndex,
                     GameMatcher.LoadingSlotIndex,
+                    GameMatcher.TrolleyEntityId,
+                    GameMatcher.TrolleySlotIndex,
                     GameMatcher.ProductPlacementDirty));
 
         public void Execute()

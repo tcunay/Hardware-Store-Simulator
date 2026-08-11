@@ -35,6 +35,8 @@ namespace HardwareStore.Editor
             "Assets/_Project/Prefabs/Gameplay/CustomerVehicle.prefab";
         private const string CustomerPrefabPath =
             "Assets/_Project/Prefabs/Gameplay/Customer.prefab";
+        private const string PlatformTrolleyPrefabPath =
+            "Assets/_Project/Prefabs/Gameplay/PlatformTrolley.prefab";
         private const string CementProductConfigName = "ProductConfig";
         private const string BoardProductConfigName = "ProductConfig_BoardBundle";
         private const string CementDeliveryConfigName = "DeliveryConfig";
@@ -45,6 +47,8 @@ namespace HardwareStore.Editor
             "CustomerProjectConfig_LumberShelving";
         private const string WorkbenchProjectConfigName =
             "CustomerProjectConfig_WorkbenchFoundation";
+        private const string ProductRecoveryConfigName = "ProductRecoveryConfig";
+        private const string PlatformTrolleyConfigName = "PlatformTrolleyConfig";
         private const string LegacyCementOrderConfigName = "OrderConfig";
         private const string LegacyBoardOrderConfigName = "OrderConfig_BoardBundle";
         private const int CustomerVehicleCargoCapacity = 3;
@@ -78,6 +82,10 @@ namespace HardwareStore.Editor
                 LoadConfig<CustomerVehicleConfig>("CustomerVehicleConfig");
             CustomerConfig customerConfig = LoadConfig<CustomerConfig>("CustomerConfig");
             EconomyConfig economyConfig = LoadConfig<EconomyConfig>("EconomyConfig");
+            ProductRecoveryConfig productRecoveryConfig =
+                LoadConfig<ProductRecoveryConfig>(ProductRecoveryConfigName);
+            PlatformTrolleyConfig platformTrolleyConfig =
+                LoadConfig<PlatformTrolleyConfig>(PlatformTrolleyConfigName);
             ProductConfig cementProductConfig =
                 LoadConfig<ProductConfig>(CementProductConfigName);
             ProductConfig boardProductConfig =
@@ -92,6 +100,7 @@ namespace HardwareStore.Editor
                 cementDeliveryConfig,
                 boardDeliveryConfig,
                 economyConfig,
+                productRecoveryConfig,
                 cementProductConfig,
                 boardProductConfig,
                 cementProjectConfig,
@@ -129,6 +138,11 @@ namespace HardwareStore.Editor
                 glass,
                 loadingGreen);
             EnsureCustomerPrefab(customerConfig, brandOrange, brandBlue, darkMetal);
+            EnsurePlatformTrolleyPrefab(
+                platformTrolleyConfig,
+                brandOrange,
+                darkMetal,
+                timber);
 
             Scene scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
             ConfigureEnvironment();
@@ -138,6 +152,12 @@ namespace HardwareStore.Editor
             BuildYard(environment.transform, asphalt, concrete, brandBlue, white, yellow);
             (SceneViewMarker orderCounter, SceneViewMarker procurementTerminal) =
                 BuildShop(environment.transform, concrete, brandBlue, brandOrange, darkMetal, glass);
+            (SceneViewMarker trolleyUpgradeTerminal, SpawnPointMarker platformTrolleySpawnPoint) =
+                BuildTrolleyUpgradeArea(
+                    environment.transform,
+                    concrete,
+                    brandOrange,
+                    darkMetal);
             SceneViewMarker storageZone = BuildMaterialsStorage(
                 environment.transform,
                 concrete,
@@ -165,9 +185,20 @@ namespace HardwareStore.Editor
             PrototypeHudView hud = systems.AddComponent<PrototypeHudView>();
             PrototypeSceneInitializer initializer = systems.AddComponent<PrototypeSceneInitializer>();
             initializer.Configure(
-                new[] { playerSpawnPoint, deliveryVehicleSpawnPoint },
+                new[]
+                {
+                    playerSpawnPoint,
+                    deliveryVehicleSpawnPoint,
+                    platformTrolleySpawnPoint
+                },
                 customerRoutes,
-                new[] { orderCounter, procurementTerminal, storageZone },
+                new[]
+                {
+                    orderCounter,
+                    procurementTerminal,
+                    storageZone,
+                    trolleyUpgradeTerminal
+                },
                 hud,
                 audio);
             SceneInitializationInstaller installer = systems.AddComponent<SceneInitializationInstaller>();
@@ -304,6 +335,63 @@ namespace HardwareStore.Editor
             CreateCube("Window", shop.transform, new Vector3(-9f, 2.2f, 8f), new Vector3(3.3f, 1.15f, 0.08f),
                 glass, false);
             return (orderCounter, procurementTerminal);
+        }
+
+        private static (SceneViewMarker Terminal, SpawnPointMarker SpawnPoint)
+            BuildTrolleyUpgradeArea(
+                Transform parent,
+                Material concrete,
+                Material brandOrange,
+                Material darkMetal)
+        {
+            GameObject station = CreateEmpty("Trolley Upgrade Station", parent);
+            CreateCube(
+                "Station Pad",
+                station.transform,
+                new Vector3(-3.75f, 0.08f, 3.25f),
+                new Vector3(3.5f, 0.16f, 2.5f),
+                concrete,
+                collider: false);
+            CreateCube(
+                "Terminal Pedestal",
+                station.transform,
+                new Vector3(-4.75f, 0.55f, 3.85f),
+                new Vector3(0.55f, 1.1f, 0.55f),
+                darkMetal);
+
+            GameObject terminalObject = CreateCube(
+                "Trolley Upgrade Terminal",
+                station.transform,
+                new Vector3(-4.75f, 1.22f, 3.85f),
+                new Vector3(1.55f, 0.72f, 0.18f),
+                brandOrange);
+            BoxCollider interactionCollider = terminalObject.GetComponent<BoxCollider>();
+            interactionCollider.isTrigger = true;
+            interactionCollider.center = new Vector3(0f, 0f, -2f);
+            interactionCollider.size = new Vector3(1.3f, 2.8f, 5f);
+            InteractionHighlight highlight = terminalObject.AddComponent<InteractionHighlight>();
+            InteractionView interactionView = terminalObject.AddComponent<InteractionView>();
+            interactionView.Configure(highlight);
+            terminalObject.AddComponent<InteractionViewRegistrar>();
+            SceneViewMarker terminal = terminalObject.AddComponent<SceneViewMarker>();
+            terminal.Configure(SceneViewId.TrolleyUpgradeTerminal);
+            CreateWorldLabel(
+                "Trolley Upgrade Label",
+                terminalObject.transform,
+                LocalizationKey.WorldTrolleyUpgrade,
+                new Vector3(0f, 0f, -0.56f),
+                Quaternion.identity,
+                0.025f,
+                Color.white,
+                200);
+
+            GameObject spawnObject = CreateEmpty("Platform Trolley Spawn", station.transform);
+            spawnObject.transform.SetPositionAndRotation(
+                new Vector3(-2.8f, 0.01f, 3.25f),
+                Quaternion.Euler(0f, 180f, 0f));
+            SpawnPointMarker spawnPoint = spawnObject.AddComponent<SpawnPointMarker>();
+            spawnPoint.Configure(SpawnPointId.PlatformTrolley);
+            return (terminal, spawnPoint);
         }
 
         private static SceneViewMarker BuildMaterialsStorage(Transform parent, Material concrete,
@@ -896,6 +984,126 @@ namespace HardwareStore.Editor
             }
         }
 
+        private static void EnsurePlatformTrolleyPrefab(
+            PlatformTrolleyConfig config,
+            Material brandOrange,
+            Material darkMetal,
+            Material timber)
+        {
+            GameObject trolley = CreateEmpty("Platform Trolley");
+
+            try
+            {
+                trolley.transform.SetLocalPositionAndRotation(Vector3.zero, Quaternion.identity);
+                trolley.transform.localScale = Vector3.one;
+                trolley.SetActive(true);
+
+                Rigidbody body = trolley.AddComponent<Rigidbody>();
+                body.mass = 45f;
+                body.isKinematic = true;
+                body.useGravity = false;
+                body.interpolation = RigidbodyInterpolation.None;
+                body.collisionDetectionMode = CollisionDetectionMode.ContinuousSpeculative;
+
+                GameObject deck = CreateCube(
+                    "Deck", trolley.transform, new Vector3(0f, 0.42f, 0f),
+                    new Vector3(1.9f, 0.18f, 2.4f), brandOrange, false, true);
+                InteractionHighlight highlight = deck.AddComponent<InteractionHighlight>();
+                CreateCube(
+                    "Deck Inlay", trolley.transform, new Vector3(0f, 0.53f, 0f),
+                    new Vector3(1.62f, 0.05f, 2.08f), timber, false, true);
+                CreateCube(
+                    "Left Rail", trolley.transform, new Vector3(-0.9f, 0.68f, 0f),
+                    new Vector3(0.1f, 0.52f, 2.35f), darkMetal, false, true);
+                CreateCube(
+                    "Right Rail", trolley.transform, new Vector3(0.9f, 0.68f, 0f),
+                    new Vector3(0.1f, 0.52f, 2.35f), darkMetal, false, true);
+                CreateCube(
+                    "Left Handle Upright", trolley.transform,
+                    new Vector3(-0.72f, 1.12f, -1.12f),
+                    new Vector3(0.1f, 1.35f, 0.1f), darkMetal, false, true);
+                CreateCube(
+                    "Right Handle Upright", trolley.transform,
+                    new Vector3(0.72f, 1.12f, -1.12f),
+                    new Vector3(0.1f, 1.35f, 0.1f), darkMetal, false, true);
+                CreateCube(
+                    "Handle", trolley.transform, new Vector3(0f, 1.76f, -1.12f),
+                    new Vector3(1.55f, 0.12f, 0.12f), darkMetal, false, true);
+
+                CreateLocalWheel(
+                    "Front Left Wheel", trolley.transform,
+                    new Vector3(-0.82f, 0.23f, 0.76f), darkMetal);
+                CreateLocalWheel(
+                    "Front Right Wheel", trolley.transform,
+                    new Vector3(0.82f, 0.23f, 0.76f), darkMetal);
+                CreateLocalWheel(
+                    "Rear Left Wheel", trolley.transform,
+                    new Vector3(-0.82f, 0.23f, -0.76f), darkMetal);
+                CreateLocalWheel(
+                    "Rear Right Wheel", trolley.transform,
+                    new Vector3(0.82f, 0.23f, -0.76f), darkMetal);
+
+                GameObject bodyColliderObject = CreateEmpty("Body Collider", trolley.transform);
+                int ignoreRaycastLayer = LayerMask.NameToLayer("Ignore Raycast");
+                if (ignoreRaycastLayer < 0)
+                    throw new InvalidOperationException("Required Ignore Raycast layer is missing.");
+                bodyColliderObject.layer = ignoreRaycastLayer;
+                BoxCollider bodyCollider = bodyColliderObject.AddComponent<BoxCollider>();
+                bodyCollider.center = new Vector3(0f, 0.27f, 0.15f);
+                bodyCollider.size = new Vector3(2f, 0.5f, 2.1f);
+
+                GameObject interactionArea = CreateEmpty("Interaction Area", trolley.transform);
+                BoxCollider interactionCollider = interactionArea.AddComponent<BoxCollider>();
+                interactionCollider.isTrigger = true;
+                interactionCollider.center = new Vector3(0f, 1.76f, -1.12f);
+                interactionCollider.size = new Vector3(1.8f, 0.35f, 0.3f);
+
+                GameObject slotsRoot = CreateEmpty("Cargo Slots", trolley.transform);
+                var slots = new Transform[3];
+                for (int index = 0; index < slots.Length; index++)
+                {
+                    GameObject slot = CreateEmpty($"Cargo Slot {index + 1}", slotsRoot.transform);
+                    slot.transform.localPosition =
+                        new Vector3(0f, 0.66f, -0.66f + index * 0.66f);
+                    slots[index] = slot.transform;
+                }
+
+                InteractionView view = trolley.AddComponent<InteractionView>();
+                view.Configure(highlight);
+                trolley.AddComponent<TransformRegistrar>();
+                trolley.AddComponent<RigidbodyRegistrar>();
+                trolley.AddComponent<InteractionViewRegistrar>();
+                trolley.AddComponent<CollidersRegistrar>();
+                SlotsRegistrar slotsRegistrar = trolley.AddComponent<SlotsRegistrar>();
+                slotsRegistrar.Configure(slots);
+
+                GameObject prefab = PrefabUtility.SaveAsPrefabAsset(
+                    trolley, PlatformTrolleyPrefabPath);
+                if (prefab == null)
+                {
+                    throw new InvalidOperationException(
+                        $"Could not create platform trolley prefab at {PlatformTrolleyPrefabPath}.");
+                }
+
+                EntityBehaviour prefabView = prefab.GetComponent<EntityBehaviour>() ??
+                                             throw new InvalidOperationException(
+                                                 $"Platform trolley prefab at " +
+                                                 $"{PlatformTrolleyPrefabPath} has no view root.");
+                config.Configure(
+                    prefabView,
+                    purchasePrice: 200,
+                    requiredCompletedOrderCount: 2,
+                    capacity: 3,
+                    movementSpeed: 3.8f,
+                    followDistance: 1.7f);
+                EditorUtility.SetDirty(config);
+            }
+            finally
+            {
+                Object.DestroyImmediate(trolley);
+            }
+        }
+
         private static void EnsurePlayerPrefab(PlayerConfig playerConfig)
         {
             GameObject player = CreateEmpty("Player");
@@ -1157,12 +1365,15 @@ namespace HardwareStore.Editor
             EnsureConfigAsset<CustomerVehicleConfig>("CustomerVehicleConfig");
             EnsureConfigAsset<CustomerConfig>("CustomerConfig");
             EnsureConfigAsset<EconomyConfig>("EconomyConfig");
+            EnsureConfigAsset<ProductRecoveryConfig>(ProductRecoveryConfigName);
+            EnsureConfigAsset<PlatformTrolleyConfig>(PlatformTrolleyConfigName);
         }
 
         private static void ConfigurePrototypeConfigs(
             DeliveryConfig cementDeliveryConfig,
             DeliveryConfig boardDeliveryConfig,
             EconomyConfig economyConfig,
+            ProductRecoveryConfig productRecoveryConfig,
             ProductConfig cementProductConfig,
             ProductConfig boardProductConfig,
             CustomerProjectConfig cementProjectConfig,
@@ -1185,6 +1396,11 @@ namespace HardwareStore.Editor
             economy.ApplyModifiedPropertiesWithoutUndo();
             EditorUtility.SetDirty(economyConfig);
 
+            SerializedObject productRecovery = new(productRecoveryConfig);
+            RequireSerializedProperty(productRecovery, "_minimumWorldY").floatValue = -10f;
+            productRecovery.ApplyModifiedPropertiesWithoutUndo();
+            EditorUtility.SetDirty(productRecoveryConfig);
+
             ConfigureProductConfig(
                 cementProductConfig,
                 ProductTypeId.CementBag,
@@ -1192,7 +1408,8 @@ namespace HardwareStore.Editor
                 mass: 25f,
                 carryMovementSpeed: 3.2f,
                 heldRotationEuler: new Vector3(8f, 0f, 0f),
-                dropForwardDistance: 1.15f);
+                dropForwardDistance: 1.15f,
+                productDropCollisionRadius: 0.51f);
             ConfigureProductConfig(
                 boardProductConfig,
                 ProductTypeId.BoardBundle,
@@ -1200,7 +1417,8 @@ namespace HardwareStore.Editor
                 mass: 18f,
                 carryMovementSpeed: 2.6f,
                 heldRotationEuler: Vector3.zero,
-                dropForwardDistance: 1.35f);
+                dropForwardDistance: 1.35f,
+                productDropCollisionRadius: 0.86f);
 
             ConfigureSingleProductProject(
                 cementProjectConfig,
@@ -1227,7 +1445,8 @@ namespace HardwareStore.Editor
 
         private static void ConfigureProductConfig(ProductConfig config, ProductTypeId productType,
             int unitPrice, float mass, float carryMovementSpeed,
-            Vector3 heldRotationEuler, float dropForwardDistance)
+            Vector3 heldRotationEuler, float dropForwardDistance,
+            float productDropCollisionRadius)
         {
             SerializedObject product = new(config);
             RequireSerializedProperty(product, "_productType").intValue = (int)productType;
@@ -1236,6 +1455,8 @@ namespace HardwareStore.Editor
             RequireSerializedProperty(product, "_carryMovementSpeed").floatValue = carryMovementSpeed;
             RequireSerializedProperty(product, "_heldRotationEuler").vector3Value = heldRotationEuler;
             RequireSerializedProperty(product, "_dropForwardDistance").floatValue = dropForwardDistance;
+            RequireSerializedProperty(product, "_productDropCollisionRadius").floatValue =
+                productDropCollisionRadius;
             RequireSerializedProperty(product, "_worldInterpolation").intValue =
                 (int)RigidbodyInterpolation.Interpolate;
             RequireSerializedProperty(product, "_worldCollisionDetection").intValue =

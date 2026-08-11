@@ -43,6 +43,8 @@ namespace HardwareStore.Infrastructure.Installers
             Container.Bind<ICursorService>().To<UnityCursorService>().AsSingle();
             Container.Bind<ICollisionRegistry>().To<CollisionRegistry>().AsSingle();
             Container.Bind<IInteractionPhysicsService>().To<InteractionPhysicsService>().AsSingle();
+            Container.Bind<IProductDropPhysicsService>().To<ProductDropPhysicsService>().AsSingle();
+            Container.Bind<ITrolleyMotionService>().To<TrolleyMotionService>().AsSingle();
             Container.Bind<ISceneLoader>().To<SceneLoader>().AsSingle();
             Container.Bind<IEntityViewFactory>().To<EntityViewFactory>().AsSingle();
         }
@@ -77,6 +79,7 @@ namespace HardwareStore.Infrastructure.Installers
             Container.Bind<IOrderFactory>().To<OrderFactory>().AsSingle();
             Container.Bind<IProductFactory>().To<ProductFactory>().AsSingle();
             Container.Bind<IDeliveryFactory>().To<DeliveryFactory>().AsSingle();
+            Container.Bind<IPlatformTrolleyFactory>().To<PlatformTrolleyFactory>().AsSingle();
             Container.Bind<IInteractionTargetFactory>().To<InteractionTargetFactory>().AsSingle();
             Container.Bind<IGameEventFactory>().To<GameEventFactory>().AsSingle();
         }

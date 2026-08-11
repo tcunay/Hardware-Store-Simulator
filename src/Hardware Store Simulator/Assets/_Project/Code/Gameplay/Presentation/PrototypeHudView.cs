@@ -29,6 +29,12 @@ namespace HardwareStore.Gameplay.Presentation
         private void Construct(ILocalizationService localization) =>
             _localization = localization;
 
+        private void OnEnable() =>
+            ResetPresentation();
+
+        private void OnDisable() =>
+            ResetPresentation();
+
         public void Present(HudSnapshot snapshot)
         {
             _snapshot = snapshot;
@@ -55,7 +61,7 @@ namespace HardwareStore.Gameplay.Presentation
 
         private void OnGUI()
         {
-            if (!_hasSnapshot)
+            if (!Application.isPlaying || !_hasSnapshot)
                 return;
 
             Matrix4x4 previousMatrix = GUI.matrix;
@@ -91,6 +97,16 @@ namespace HardwareStore.Gameplay.Presentation
                 DrawCursorHint();
 
             GUI.matrix = previousMatrix;
+        }
+
+        private void ResetPresentation()
+        {
+            _snapshot = default;
+            _consultation = null;
+            _procurement = null;
+            _hasSnapshot = false;
+            _notification = string.Empty;
+            _notificationUntil = 0f;
         }
 
         private void DrawStatusPanel()
@@ -160,7 +176,9 @@ namespace HardwareStore.Gameplay.Presentation
 
         private void DrawControls()
         {
-            string controls = _snapshot.HasItem
+            string controls = _snapshot.IsPushingTrolley
+                ? Resolve(LocalizationKey.HudControlsPushingTrolley)
+                : _snapshot.HasItem
                 ? Resolve(
                     LocalizationKey.HudControlsCarrying,
                     LocalizedTexts.ProductName(_snapshot.CarriedProductType.Value))

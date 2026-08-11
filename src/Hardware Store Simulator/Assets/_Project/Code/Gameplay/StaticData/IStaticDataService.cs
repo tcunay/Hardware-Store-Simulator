@@ -9,6 +9,8 @@ namespace HardwareStore.Gameplay.StaticData
         PlayerConfig Player { get; }
         InteractionConfig Interaction { get; }
         EconomyConfig Economy { get; }
+        ProductRecoveryConfig ProductRecovery { get; }
+        PlatformTrolleyConfig PlatformTrolley { get; }
         CustomerConfig Customer { get; }
         CustomerVehicleConfig CustomerVehicle { get; }
         IReadOnlyList<ProductTypeId> ProductTypes { get; }

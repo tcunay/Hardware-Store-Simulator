@@ -22,7 +22,8 @@ namespace HardwareStore.Gameplay.Features.StoreSceneBindings.Systems
                     GameMatcher.EntityId,
                     GameMatcher.OrderCounterEntityId,
                     GameMatcher.ProcurementTerminalEntityId,
-                    GameMatcher.StorageZoneEntityId)
+                    GameMatcher.StorageZoneEntityId,
+                    GameMatcher.TrolleyUpgradeTerminalEntityId)
                 .NoneOf(GameMatcher.StoreSceneBindingsValidated, GameMatcher.Destructed));
         }
 
@@ -41,14 +42,32 @@ namespace HardwareStore.Gameplay.Features.StoreSceneBindings.Systems
             GameEntity procurementTerminal =
                 _gameContext.GetEntityWithEntityId(store.ProcurementTerminalEntityId);
             GameEntity storageZone = _gameContext.GetEntityWithEntityId(store.StorageZoneEntityId);
+            GameEntity trolleyUpgradeTerminal = _gameContext.GetEntityWithEntityId(
+                store.TrolleyUpgradeTerminalEntityId);
 
-            if (orderCounter == null || procurementTerminal == null || storageZone == null)
+            if (orderCounter == null || procurementTerminal == null || storageZone == null ||
+                trolleyUpgradeTerminal == null)
                 throw new InvalidOperationException(
                     $"Store {store.EntityId} references a missing scene interaction entity.");
 
             ValidateOrderCounter(orderCounter, store);
             ValidateProcurementTerminal(procurementTerminal, store, storageZone);
             ValidateStorageZone(storageZone);
+            ValidateTrolleyUpgradeTerminal(trolleyUpgradeTerminal, store);
+        }
+
+        private static void ValidateTrolleyUpgradeTerminal(
+            GameEntity terminal,
+            GameEntity store)
+        {
+            ValidateBoundInteractionTarget(terminal, "trolley upgrade terminal");
+            if (!terminal.isTrolleyUpgradeTerminal || !terminal.hasStoreEntityId ||
+                terminal.StoreEntityId != store.EntityId ||
+                !terminal.hasTrolleySpawnPosition || !terminal.hasTrolleySpawnRotation)
+            {
+                throw new InvalidOperationException(
+                    $"Store {store.EntityId} references an invalid trolley upgrade terminal.");
+            }
         }
 
         private static void ValidateOrderCounter(GameEntity orderCounter, GameEntity store)

@@ -50,5 +50,18 @@ namespace HardwareStore.Gameplay.Factories
                 .With(x => x.isStorageZone = true)
                 .With(x => x.isInteractable = true);
         }
+
+        public GameEntity CreateTrolleyUpgradeTerminal(
+            int storeEntityId,
+            Pose trolleySpawnPose)
+        {
+            return CreateEntity.Empty(_identifiers.Next())
+                .AddStoreEntityId(storeEntityId)
+                .AddSceneViewKey(SceneViewId.TrolleyUpgradeTerminal)
+                .AddTrolleySpawnPosition(trolleySpawnPose.position)
+                .AddTrolleySpawnRotation(trolleySpawnPose.rotation)
+                .With(x => x.isTrolleyUpgradeTerminal = true)
+                .With(x => x.isInteractable = true);
+        }
     }
 }

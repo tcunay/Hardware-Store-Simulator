@@ -15,7 +15,7 @@ namespace HardwareStore.Gameplay.Features.Interaction.Systems
                 GameMatcher.EntityId,
                 GameMatcher.FocusedEntityId,
                 GameMatcher.FocusInteractionAvailable)
-                .NoneOf(GameMatcher.ModalOpen));
+                .NoneOf(GameMatcher.ModalOpen, GameMatcher.PushingTrolley));
             _inputs = inputContext.GetGroup(InputMatcher.AllOf(
                 InputMatcher.InputState,
                 InputMatcher.InteractPressed));

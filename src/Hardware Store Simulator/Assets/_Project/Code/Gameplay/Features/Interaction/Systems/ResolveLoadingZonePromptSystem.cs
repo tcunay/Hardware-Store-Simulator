@@ -88,6 +88,13 @@ namespace HardwareStore.Gameplay.Features.Interaction.Systems
                         $"Customer visit {loadingZone.EntityId} has no valid lifecycle state.");
 
                 GameEntity[] lines = GetOrderLines(loadingZone);
+                if (player.isPushingTrolley)
+                {
+                    player.SetInteractionPrompt(
+                        LocalizedTexts.Text(LocalizationKey.PromptReleaseTrolleyFirst),
+                        false);
+                    continue;
+                }
                 if (!player.isHandsOccupied)
                 {
                     GameEntity incompleteLine = lines.FirstOrDefault(line =>
@@ -115,11 +122,25 @@ namespace HardwareStore.Gameplay.Features.Interaction.Systems
                     _gameContext.GetEntityWithCarrierEntityId(player.EntityId);
                 GameEntity matchingLine = lines.FirstOrDefault(line =>
                     line.ProductType == heldProduct.ProductType);
+                if (heldProduct.isInStock &&
+                    (!heldProduct.hasReservedStorageSlotIndex ||
+                     !heldProduct.hasReservedOrderLineEntityId ||
+                     matchingLine == null ||
+                     heldProduct.ReservedOrderLineEntityId != matchingLine.EntityId))
+                {
+                    throw new InvalidOperationException(
+                        $"Held stock product {heldProduct.EntityId} has no matching active " +
+                        "order-line reservation.");
+                }
 
                 bool available = heldProduct.isInStock &&
                                  heldProduct.StorageZoneEntityId ==
                                  loadingZone.StorageZoneEntityId &&
                                  matchingLine != null &&
+                                 heldProduct.hasReservedStorageSlotIndex &&
+                                 heldProduct.hasReservedOrderLineEntityId &&
+                                 heldProduct.ReservedOrderLineEntityId ==
+                                 matchingLine.EntityId &&
                                  matchingLine.LoadedProductCount <
                                  matchingLine.RequiredProductCount;
                 if (!available)

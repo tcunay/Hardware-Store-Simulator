@@ -19,5 +19,6 @@ MonoBehaviour:
   _carryMovementSpeed: 3.2
   _heldRotationEuler: {x: 8, y: 0, z: 0}
   _dropForwardDistance: 1.15
+  _productDropCollisionRadius: 0.51
   _worldInterpolation: 1
   _worldCollisionDetection: 3

@@ -20,6 +20,9 @@ namespace HardwareStore.Gameplay.Features.Products.Systems
                     GameMatcher.HeldRotationOffset,
                     GameMatcher.RigidbodyInterpolationMode,
                     GameMatcher.RigidbodyCollisionDetectionMode)
+                .AnyOf(
+                    GameMatcher.ReservedDeliverySlotIndex,
+                    GameMatcher.ReservedStorageSlotIndex)
                 .NoneOf(
                     GameMatcher.LooseProduct,
                     GameMatcher.Loaded,
@@ -27,6 +30,8 @@ namespace HardwareStore.Gameplay.Features.Products.Systems
                     GameMatcher.DeliverySlotIndex,
                     GameMatcher.StorageSlotIndex,
                     GameMatcher.LoadingSlotIndex,
+                    GameMatcher.TrolleyEntityId,
+                    GameMatcher.TrolleySlotIndex,
                     GameMatcher.WorldPosition,
                     GameMatcher.WorldRotation));
 

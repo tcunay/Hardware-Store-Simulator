@@ -18,7 +18,7 @@ namespace HardwareStore.Gameplay.Features.Interaction.Systems
                 GameMatcher.Camera,
                 GameMatcher.InteractionDistance,
                 GameMatcher.AimAssistRadius)
-                .NoneOf(GameMatcher.ModalOpen));
+                .NoneOf(GameMatcher.ModalOpen, GameMatcher.PushingTrolley));
         }
 
         public void Execute()

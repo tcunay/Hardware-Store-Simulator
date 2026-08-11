@@ -14,7 +14,7 @@ namespace HardwareStore.Gameplay.Presentation
             ProductTypeId deliveryProductType, int deliveryStockedCount,
             int deliveryProductCount, ProductTypeId? carriedProductType,
             LocalizedText prompt, bool hasFocus, bool canInteract, bool hasItem,
-            bool cursorLocked)
+            bool isPushingTrolley, bool cursorLocked)
         {
             OrderState = orderState;
             ProjectType = projectType;
@@ -42,6 +42,7 @@ namespace HardwareStore.Gameplay.Presentation
             HasFocus = hasFocus;
             CanInteract = canInteract;
             HasItem = hasItem;
+            IsPushingTrolley = isPushingTrolley;
             CursorLocked = cursorLocked;
         }
 
@@ -62,6 +63,7 @@ namespace HardwareStore.Gameplay.Presentation
         public bool HasFocus { get; }
         public bool CanInteract { get; }
         public bool HasItem { get; }
+        public bool IsPushingTrolley { get; }
         public bool CursorLocked { get; }
     }
 }

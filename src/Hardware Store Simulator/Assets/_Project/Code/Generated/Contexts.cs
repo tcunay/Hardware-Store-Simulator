@@ -63,10 +63,15 @@ public partial class Contexts {
     public const string ConsultationOfferVisitEntityId = "ConsultationOfferVisitEntityId";
     public const string CustomerActorVisitEntityId = "CustomerActorVisitEntityId";
     public const string CustomerVisitStoreEntityId = "CustomerVisitStoreEntityId";
+    public const string DeliveryEntityId = "DeliveryEntityId";
     public const string DeliveryProcurementTerminalEntityId = "DeliveryProcurementTerminalEntityId";
     public const string EntityId = "EntityId";
     public const string OrderEntityId = "OrderEntityId";
     public const string OrderLineEntityId = "OrderLineEntityId";
+    public const string ReservedOrderLineEntityId = "ReservedOrderLineEntityId";
+    public const string TrolleyEntityId = "TrolleyEntityId";
+    public const string TrolleyPusherEntityId = "TrolleyPusherEntityId";
+    public const string TrolleyStoreEntityId = "TrolleyStoreEntityId";
 
     [Entitas.CodeGeneration.Attributes.PostConstructor]
     public void InitializeEntityIndices() {
@@ -95,6 +100,11 @@ public partial class Contexts {
             game.GetGroup(GameMatcher.CustomerVisitStoreEntityId),
             (e, c) => ((HardwareStore.Gameplay.Components.CustomerVisitStoreEntityId)c).Value));
 
+        game.AddEntityIndex(new Entitas.EntityIndex<GameEntity, int>(
+            DeliveryEntityId,
+            game.GetGroup(GameMatcher.DeliveryEntityId),
+            (e, c) => ((HardwareStore.Gameplay.Components.DeliveryEntityId)c).Value));
+
         game.AddEntityIndex(new Entitas.PrimaryEntityIndex<GameEntity, int>(
             DeliveryProcurementTerminalEntityId,
             game.GetGroup(GameMatcher.DeliveryProcurementTerminalEntityId),
@@ -114,6 +124,26 @@ public partial class Contexts {
             OrderLineEntityId,
             game.GetGroup(GameMatcher.OrderLineEntityId),
             (e, c) => ((HardwareStore.Gameplay.Components.OrderLineEntityId)c).Value));
+
+        game.AddEntityIndex(new Entitas.EntityIndex<GameEntity, int>(
+            ReservedOrderLineEntityId,
+            game.GetGroup(GameMatcher.ReservedOrderLineEntityId),
+            (e, c) => ((HardwareStore.Gameplay.Components.ReservedOrderLineEntityId)c).Value));
+
+        game.AddEntityIndex(new Entitas.EntityIndex<GameEntity, int>(
+            TrolleyEntityId,
+            game.GetGroup(GameMatcher.TrolleyEntityId),
+            (e, c) => ((HardwareStore.Gameplay.Components.TrolleyEntityId)c).Value));
+
+        game.AddEntityIndex(new Entitas.PrimaryEntityIndex<GameEntity, int>(
+            TrolleyPusherEntityId,
+            game.GetGroup(GameMatcher.TrolleyPusherEntityId),
+            (e, c) => ((HardwareStore.Gameplay.Components.TrolleyPusherEntityId)c).Value));
+
+        game.AddEntityIndex(new Entitas.PrimaryEntityIndex<GameEntity, int>(
+            TrolleyStoreEntityId,
+            game.GetGroup(GameMatcher.TrolleyStoreEntityId),
+            (e, c) => ((HardwareStore.Gameplay.Components.TrolleyStoreEntityId)c).Value));
     }
 }
 
@@ -139,6 +169,10 @@ public static class ContextsExtensions {
         return ((Entitas.PrimaryEntityIndex<GameEntity, int>)context.GetEntityIndex(Contexts.CustomerVisitStoreEntityId)).GetEntity(Value);
     }
 
+    public static System.Collections.Generic.HashSet<GameEntity> GetEntitiesWithDeliveryEntityId(this GameContext context, int Value) {
+        return ((Entitas.EntityIndex<GameEntity, int>)context.GetEntityIndex(Contexts.DeliveryEntityId)).GetEntities(Value);
+    }
+
     public static GameEntity GetEntityWithDeliveryProcurementTerminalEntityId(this GameContext context, int Value) {
         return ((Entitas.PrimaryEntityIndex<GameEntity, int>)context.GetEntityIndex(Contexts.DeliveryProcurementTerminalEntityId)).GetEntity(Value);
     }
@@ -153,6 +187,22 @@ public static class ContextsExtensions {
 
     public static System.Collections.Generic.HashSet<GameEntity> GetEntitiesWithOrderLineEntityId(this GameContext context, int Value) {
         return ((Entitas.EntityIndex<GameEntity, int>)context.GetEntityIndex(Contexts.OrderLineEntityId)).GetEntities(Value);
+    }
+
+    public static System.Collections.Generic.HashSet<GameEntity> GetEntitiesWithReservedOrderLineEntityId(this GameContext context, int Value) {
+        return ((Entitas.EntityIndex<GameEntity, int>)context.GetEntityIndex(Contexts.ReservedOrderLineEntityId)).GetEntities(Value);
+    }
+
+    public static System.Collections.Generic.HashSet<GameEntity> GetEntitiesWithTrolleyEntityId(this GameContext context, int Value) {
+        return ((Entitas.EntityIndex<GameEntity, int>)context.GetEntityIndex(Contexts.TrolleyEntityId)).GetEntities(Value);
+    }
+
+    public static GameEntity GetEntityWithTrolleyPusherEntityId(this GameContext context, int Value) {
+        return ((Entitas.PrimaryEntityIndex<GameEntity, int>)context.GetEntityIndex(Contexts.TrolleyPusherEntityId)).GetEntity(Value);
+    }
+
+    public static GameEntity GetEntityWithTrolleyStoreEntityId(this GameContext context, int Value) {
+        return ((Entitas.PrimaryEntityIndex<GameEntity, int>)context.GetEntityIndex(Contexts.TrolleyStoreEntityId)).GetEntity(Value);
     }
 }
 //------------------------------------------------------------------------------

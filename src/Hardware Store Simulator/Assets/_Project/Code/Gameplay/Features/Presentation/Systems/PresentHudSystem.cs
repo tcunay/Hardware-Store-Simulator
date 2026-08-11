@@ -97,11 +97,19 @@ namespace HardwareStore.Gameplay.Features.Presentation.Systems
             }
 
             ProductTypeId? carriedProductType = null;
-            if (player.isHandsOccupied)
+            if (player.isCarryingProduct)
             {
+                if (!player.isHandsOccupied || player.isPushingTrolley)
+                    throw new InvalidOperationException(
+                        $"Player {player.EntityId} has invalid product handling state.");
                 GameEntity carriedProduct =
                     _gameContext.GetEntityWithCarrierEntityId(player.EntityId);
                 carriedProductType = carriedProduct.ProductType;
+            }
+            else if (player.isHandsOccupied != player.isPushingTrolley)
+            {
+                throw new InvalidOperationException(
+                    $"Player {player.EntityId} has invalid trolley handling state.");
             }
 
             _hud.Present(new HudSnapshot(
@@ -121,7 +129,8 @@ namespace HardwareStore.Gameplay.Features.Presentation.Systems
                 player.hasInteractionPrompt ? player.InteractionPrompt : null,
                 player.hasFocusedEntityId,
                 player.isFocusInteractionAvailable,
-                player.isHandsOccupied,
+                player.isCarryingProduct,
+                player.isPushingTrolley,
                 player.isCursorLocked));
         }
 

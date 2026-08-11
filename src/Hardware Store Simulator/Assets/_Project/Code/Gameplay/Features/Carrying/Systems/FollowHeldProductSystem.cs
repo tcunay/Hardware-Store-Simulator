@@ -15,6 +15,7 @@ namespace HardwareStore.Gameplay.Features.Carrying.Systems
                 GameMatcher.Player,
                 GameMatcher.EntityId,
                 GameMatcher.HandsOccupied,
+                GameMatcher.CarryingProduct,
                 GameMatcher.CarryAnchor));
         }
 

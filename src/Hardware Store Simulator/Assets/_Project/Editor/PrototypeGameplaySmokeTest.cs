@@ -21,6 +21,7 @@ using HardwareStore.Gameplay.Features.Procurement.Systems;
 using HardwareStore.Gameplay.Features.Products;
 using HardwareStore.Gameplay.Features.StorageState;
 using HardwareStore.Gameplay.Features.StoreSceneBindings.Systems;
+using HardwareStore.Gameplay.Features.Trolley.Systems;
 using HardwareStore.Gameplay.Localization;
 using HardwareStore.Gameplay.StaticData;
 using HardwareStore.Infrastructure.States.GameStates;
@@ -104,6 +105,23 @@ namespace HardwareStore.Editor
                 $"{scenario.ProcurementTerminal.SelectedProductType}.");
         }
 
+        [MenuItem("Tools/Hardware Store/Prepare Platform Trolley Visual Check")]
+        public static void PreparePlatformTrolleyVisualCheck()
+        {
+            Runtime runtime = ResolveRuntime();
+            Scenario scenario = ResolveFreshScenario(runtime);
+            scenario.Store.ReplaceCompletedOrderCount(
+                runtime.StaticData.PlatformTrolley.RequiredCompletedOrderCount);
+            UnlockTrolleyUpgrade(runtime, scenario);
+            GameEntity trolley = PurchaseTrolley(runtime, scenario);
+            Selection.activeGameObject = trolley.View.gameObject;
+
+            Debug.Log(
+                $"[Hardware Store] Platform trolley visual check prepared: entity " +
+                $"{trolley.EntityId}, capacity {trolley.TrolleyCapacity}, movement " +
+                $"{trolley.TrolleyMovementSpeed:0.##}.");
+        }
+
         [MenuItem("Tools/Hardware Store/Run Gameplay Smoke Test")]
         public static void Run()
         {
@@ -149,6 +167,22 @@ namespace HardwareStore.Editor
                 "A fresh store must begin with the first configured project type.");
             Require(runtime.StaticData.CustomerVehicle.CargoCapacity == 3,
                 "The mixed-order smoke requires a three-slot customer vehicle.");
+            Require(Mathf.Approximately(
+                    runtime.StaticData.ProductRecovery.MinimumWorldY,
+                    -10f),
+                "The prototype smoke requires product recovery below world Y -10.");
+            Require(runtime.StaticData.PlatformTrolley.PurchasePrice == 200 &&
+                    runtime.StaticData.PlatformTrolley.RequiredCompletedOrderCount == 2 &&
+                    runtime.StaticData.PlatformTrolley.Capacity == 3 &&
+                    Mathf.Approximately(
+                        runtime.StaticData.PlatformTrolley.MovementSpeed,
+                        3.8f) &&
+                    Mathf.Approximately(
+                        runtime.StaticData.PlatformTrolley.FollowDistance,
+                        1.7f),
+                "The trolley smoke requires price 200, two-order unlock, capacity 3, " +
+                "movement speed 3.8 and follow distance 1.7.");
+            ValidateTrolleyLockedAtProgress(runtime, scenario, expectedCompletedOrders: 0);
             ValidateCooldownPresentation(runtime, scenario);
             ValidateRejectedDeliveryPurchase(
                 runtime,
@@ -195,6 +229,7 @@ namespace HardwareStore.Editor
                 validateModalControls: true);
             Require(scenario.Store.Money == initialMoney - cementDelivery.TotalCost,
                 "The first delivery did not deduct its cost exactly once.");
+            ValidateInboundProductRecovery(runtime, scenario, firstArrival);
             TestCarryDropAndRepick(runtime, scenario, firstArrival.Products[0]);
             StoreCompleteDelivery(runtime, scenario, firstVisit.Entity, firstArrival);
             CleanupCompletedDelivery(runtime, scenario, firstArrival);
@@ -215,6 +250,16 @@ namespace HardwareStore.Editor
                 .ToArray();
             Require(firstOutboundProducts.Length == TotalRequiredCount(cementOffer),
                 "The first cycle could not resolve enough stock for its order.");
+            GameEntity quotaProbe = FindStockProducts(runtime.Game,
+                    scenario.StorageZone.EntityId)
+                .First(product => product.ProductType == cement &&
+                                  !ReferenceEquals(product, firstOutboundProducts[0]));
+            ValidateStockReservationAndRecovery(
+                runtime,
+                scenario,
+                firstVisit.Entity,
+                firstOutboundProducts[0],
+                quotaProbe);
             LoadAndRewardCustomerOrder(
                 runtime,
                 scenario,
@@ -223,6 +268,12 @@ namespace HardwareStore.Editor
             Require(scenario.Store.Money ==
                     initialMoney - cementDelivery.TotalCost + cementReward,
                 "The first cycle balance is not purchase cost plus exactly one reward.");
+            RegisterRewardedOrderForTrolleyProgression(
+                runtime,
+                scenario,
+                firstVisit.Entity,
+                expectedCompletedOrders: 1);
+            ValidateTrolleyLockedAtProgress(runtime, scenario, expectedCompletedOrders: 1);
 
             int firstVisitId = firstVisit.Entity.EntityId;
             DepartAndCleanupCustomer(
@@ -304,10 +355,22 @@ namespace HardwareStore.Editor
                 secondVisit.Entity,
                 secondOutboundProducts);
 
-            int moneyAfterTwoCycles = initialMoney - cementDelivery.TotalCost +
-                                      cementReward - boardDelivery.TotalCost + boardReward;
-            Require(scenario.Store.Money == moneyAfterTwoCycles,
+            int moneyAfterTwoCyclesBeforeTrolley = initialMoney - cementDelivery.TotalCost +
+                                                   cementReward - boardDelivery.TotalCost +
+                                                   boardReward;
+            Require(scenario.Store.Money == moneyAfterTwoCyclesBeforeTrolley,
                 "Two cycles did not produce exactly two purchase deductions and two rewards.");
+            RegisterRewardedOrderForTrolleyProgression(
+                runtime,
+                scenario,
+                secondVisit.Entity,
+                expectedCompletedOrders: 2);
+            UnlockTrolleyUpgrade(runtime, scenario);
+            GameEntity trolley = PurchaseTrolley(runtime, scenario);
+            int moneyAfterTwoCycles = moneyAfterTwoCyclesBeforeTrolley -
+                                      runtime.StaticData.PlatformTrolley.PurchasePrice;
+            Require(scenario.Store.Money == moneyAfterTwoCycles,
+                "The platform trolley purchase did not debit its price exactly once.");
             int stockAfterTwoCycles = cementDelivery.ProductCount +
                                       boardDelivery.ProductCount -
                                       TotalRequiredCount(cementOffer) -
@@ -365,17 +428,17 @@ namespace HardwareStore.Editor
             GameEntity mixedBoard = FindStockProducts(runtime.Game,
                     scenario.StorageZone.EntityId)
                 .First(product => product.ProductType == boards);
-            LoadOrderProduct(
-                runtime, scenario, thirdVisit.Entity, mixedBoard, expectCompleted: false);
             GameEntity extraBoard = FindStockProducts(runtime.Game,
                     scenario.StorageZone.EntityId)
-                .First(product => product.ProductType == boards);
+                .First(product => product.ProductType == boards &&
+                                  !ReferenceEquals(product, mixedBoard));
+            LoadProductOnTrolley(runtime, scenario, trolley, mixedBoard);
             ValidateRejectedStockProductCannotLoad(
                 runtime,
                 scenario,
                 thirdVisit.Entity,
                 extraBoard,
-                "A board beyond the mixed order line quota was loaded.");
+                "A board beyond the trolley-reserved mixed order quota was picked up.");
 
             GameEntity[] mixedCement = FindStockProducts(runtime.Game,
                     scenario.StorageZone.EntityId)
@@ -384,18 +447,48 @@ namespace HardwareStore.Editor
                 .ToArray();
             Require(mixedCement.Length == mixedCementCount,
                 "The mixed cycle could not resolve its two already-stocked cement bags.");
-            LoadOrderProduct(
-                runtime, scenario, thirdVisit.Entity, mixedCement[0], expectCompleted: false);
-            Require(thirdVisit.Entity.isCustomerVisitLoading &&
-                    !thirdVisit.Entity.isCustomerVisitCompleted,
-                "The mixed order completed before its final cement bag.");
-            LoadOrderProduct(
-                runtime, scenario, thirdVisit.Entity, mixedCement[1], expectCompleted: true);
-
             GameEntity[] thirdOutboundProducts = new[] { mixedBoard }
                 .Concat(mixedCement)
                 .ToArray();
+            LoadProductOnTrolley(runtime, scenario, trolley, mixedCement[0]);
+            LoadProductOnTrolley(runtime, scenario, trolley, mixedCement[1]);
+            ValidateLoadedTrolleyCargo(
+                runtime,
+                scenario,
+                trolley,
+                thirdOutboundProducts);
+            ValidatePhysicalTrolleyCargoFocus(
+                runtime,
+                scenario,
+                trolley,
+                thirdOutboundProducts[0]);
+            ValidateFullTrolleyRejectsFourthProduct(
+                runtime,
+                scenario,
+                trolley,
+                thirdVisit.Entity,
+                extraBoard);
+            ValidateTrolleyPushFlow(runtime, scenario, trolley);
+
+            for (int productIndex = 0;
+                 productIndex < thirdOutboundProducts.Length;
+                 productIndex++)
+            {
+                LoadTrolleyProductIntoOrder(
+                    runtime,
+                    scenario,
+                    thirdVisit.Entity,
+                    trolley,
+                    thirdOutboundProducts[productIndex],
+                    expectCompleted: productIndex == thirdOutboundProducts.Length - 1);
+            }
+
             RewardCustomerOrder(runtime, scenario, thirdVisit.Entity, thirdOutboundProducts);
+            RegisterRewardedOrderForTrolleyProgression(
+                runtime,
+                scenario,
+                thirdVisit.Entity,
+                expectedCompletedOrders: 3);
             int expectedFinalMoney = moneyAfterTwoCycles - boardDelivery.TotalCost + mixedReward;
             Require(scenario.Store.Money == expectedFinalMoney,
                 "The mixed cycle did not apply one board purchase and one derived reward.");
@@ -428,6 +521,16 @@ namespace HardwareStore.Editor
                     runtime.Game.GetGroup(GameMatcher.ConsultationOfferLine).count == 0 &&
                     runtime.Game.GetGroup(GameMatcher.OrderEntityId).count == 0 &&
                     runtime.Game.GetGroup(GameMatcher.OrderLineEntityId).count == 0 &&
+                    runtime.Game.GetGroup(GameMatcher.DeliveryEntityId).count == 0 &&
+                    runtime.Game.GetGroup(GameMatcher.ReservedOrderLineEntityId).count == 0 &&
+                    runtime.Game.GetGroup(GameMatcher.ReservedDeliverySlotIndex).count == 0 &&
+                    runtime.Game.GetGroup(GameMatcher.ReservedStorageSlotIndex).count == 0 &&
+                    runtime.Game.GetGroup(GameMatcher.TrolleyEntityId).count == 0 &&
+                    runtime.Game.GetGroup(GameMatcher.TrolleySlotIndex).count == 0 &&
+                    runtime.Game.GetGroup(GameMatcher.TrolleyPusherEntityId).count == 0 &&
+                    runtime.Game.GetGroup(GameMatcher.CarryingProduct).count == 0 &&
+                    runtime.Game.GetGroup(GameMatcher.PushingTrolley).count == 0 &&
+                    runtime.Game.GetGroup(GameMatcher.OrderProgressionCounted).count == 0 &&
                     runtime.Game.GetGroup(GameMatcher.ConsultationOfferVisitEntityId).count == 0 &&
                     runtime.Game.GetGroup(GameMatcher.ConsultationOfferEntityId).count == 0 &&
                     runtime.Game.GetGroup(GameMatcher.ConsultationVisitEntityId).count == 0 &&
@@ -436,11 +539,21 @@ namespace HardwareStore.Editor
                     runtime.Game.GetGroup(GameMatcher.PurchaseDeliveryRequest).count == 0 &&
                     runtime.Game.GetGroup(GameMatcher.PurchaseDeliverySucceeded).count == 0,
                 "A completed customer cycle retained a visit, line, offer or relation index.");
+            Require(scenario.Store.CompletedOrderCount == 3 &&
+                    scenario.Store.isTrolleyUpgradeUnlocked &&
+                    runtime.Game.GetEntityWithTrolleyStoreEntityId(
+                        scenario.Store.EntityId) == trolley &&
+                    runtime.Game.GetGroup(GameMatcher.PlatformTrolley).count == 1 &&
+                    trolley.OccupiedTrolleySlotCount == 0 &&
+                    runtime.Game.GetEntitiesWithTrolleyEntityId(trolley.EntityId).Count == 0,
+                "The completed mixed trolley flow retained cargo or lost progression state.");
             Require(runtime.Game.GetEntityWithDeliveryProcurementTerminalEntityId(
                         scenario.ProcurementTerminal.EntityId) == null &&
                     runtime.Game.GetGroup(GameMatcher.Delivery).count == 0,
                 "A completed cycle retained an active delivery.");
             Require(!scenario.Player.isHandsOccupied &&
+                    !scenario.Player.isCarryingProduct &&
+                    !scenario.Player.isPushingTrolley &&
                     !scenario.Player.isModalOpen &&
                     !scenario.Player.hasProcurementTerminalEntityId &&
                     !scenario.Player.hasConsultationVisitEntityId &&
@@ -452,7 +565,9 @@ namespace HardwareStore.Editor
                 $"arrow wrap, Enter/Esc and modal input capture, min/max offers, " +
                 $"walking customer NPC lifecycle, two single-SKU cycles and one C2+B1 cycle, " +
                 $"missing-line, redundant-delivery, quota and wrong-SKU rejection, " +
-                $"both physics flows, " +
+                $"exact-slot product recovery, blocked/safe product drops and both physics flows, " +
+                $"two-order trolley unlock, single purchase, three-slot C2+B1 trolley flow, " +
+                $"collision-safe trolley stop/resume, " +
                 $"stock {expectedFinalStock}, balance {expectedFinalMoney:N0} ₽.");
         }
 
@@ -483,9 +598,11 @@ namespace HardwareStore.Editor
                 GameMatcher.EntityId,
                 GameMatcher.Store,
                 GameMatcher.Money,
+                GameMatcher.CompletedOrderCount,
                 GameMatcher.OrderCounterEntityId,
                 GameMatcher.ProcurementTerminalEntityId,
                 GameMatcher.StorageZoneEntityId,
+                GameMatcher.TrolleyUpgradeTerminalEntityId,
                 GameMatcher.NextProjectSequenceIndex,
                 GameMatcher.StoreSceneBindingsValidated)), "store");
             GameEntity orderCounter = RequireSingle(runtime.Game.GetGroup(GameMatcher.AllOf(
@@ -512,6 +629,15 @@ namespace HardwareStore.Editor
                 GameMatcher.Slots,
                 GameMatcher.View,
                 GameMatcher.InteractionView)), "storage zone");
+            GameEntity trolleyUpgradeTerminal = RequireSingle(runtime.Game.GetGroup(
+                GameMatcher.AllOf(
+                    GameMatcher.EntityId,
+                    GameMatcher.TrolleyUpgradeTerminal,
+                    GameMatcher.StoreEntityId,
+                    GameMatcher.TrolleySpawnPosition,
+                    GameMatcher.TrolleySpawnRotation,
+                    GameMatcher.View,
+                    GameMatcher.InteractionView)), "trolley upgrade terminal");
             InputEntity input = RequireSingle(
                 runtime.Input.GetGroup(InputMatcher.InputState),
                 "input state");
@@ -530,9 +656,14 @@ namespace HardwareStore.Editor
             Require(store.StorageZoneEntityId == storageZone.EntityId &&
                     procurementTerminal.StorageZoneEntityId == storageZone.EntityId,
                 "The store graph does not reference one storage zone.");
+            Require(store.TrolleyUpgradeTerminalEntityId ==
+                    trolleyUpgradeTerminal.EntityId &&
+                    trolleyUpgradeTerminal.StoreEntityId == store.EntityId,
+                "The store and trolley upgrade terminal relations are inconsistent.");
             Require(!orderCounter.hasSceneViewKey &&
                     !procurementTerminal.hasSceneViewKey &&
-                    !storageZone.hasSceneViewKey,
+                    !storageZone.hasSceneViewKey &&
+                    !trolleyUpgradeTerminal.hasSceneViewKey,
                 "SceneViewKey binder did not consume all static scene-view requests.");
             Require(runtime.Game.GetEntityWithCustomerVisitStoreEntityId(store.EntityId) == null &&
                     store.hasCustomerCooldownRemaining &&
@@ -544,6 +675,11 @@ namespace HardwareStore.Editor
                 "The smoke test must start without an active delivery.");
             Require(FindProducts(runtime.Game).Length == 0,
                 "The smoke test must start without runtime products.");
+            Require(runtime.Game.GetEntityWithTrolleyStoreEntityId(store.EntityId) == null &&
+                    runtime.Game.GetGroup(GameMatcher.PlatformTrolley).count == 0 &&
+                    store.CompletedOrderCount == 0 &&
+                    !store.isTrolleyUpgradeUnlocked,
+                "The smoke test must start before trolley progression or purchase.");
             Require(runtime.Game.GetGroup(GameMatcher.Customer).count == 0,
                 "The smoke test must start without a customer actor.");
             Require(!player.isHandsOccupied &&
@@ -564,6 +700,7 @@ namespace HardwareStore.Editor
                 orderCounter,
                 procurementTerminal,
                 storageZone,
+                trolleyUpgradeTerminal,
                 input);
         }
 
@@ -1258,6 +1395,9 @@ namespace HardwareStore.Editor
                         product.isInboundProduct &&
                         product.DeliveryEntityId == delivery.EntityId &&
                         product.hasDeliverySlotIndex &&
+                        !product.hasReservedDeliverySlotIndex &&
+                        !product.hasReservedStorageSlotIndex &&
+                        !product.hasReservedOrderLineEntityId &&
                         !product.hasCarrierEntityId &&
                         !product.isInStock &&
                         !product.isLooseProduct &&
@@ -1557,10 +1697,13 @@ namespace HardwareStore.Editor
             Scenario scenario,
             GameEntity product)
         {
+            int deliverySlotIndex = product.DeliverySlotIndex;
             PickUpProduct(runtime, scenario, product);
             Require(scenario.Player.isHandsOccupied &&
                     product.hasCarrierEntityId &&
                     product.CarrierEntityId == scenario.Player.EntityId &&
+                    product.hasReservedDeliverySlotIndex &&
+                    product.ReservedDeliverySlotIndex == deliverySlotIndex &&
                     ReferenceEquals(
                         runtime.Game.GetEntityWithCarrierEntityId(scenario.Player.EntityId),
                         product),
@@ -1573,6 +1716,7 @@ namespace HardwareStore.Editor
                     product.CarryMovementSpeed),
                 "HandsOccupied did not select carrying movement speed.");
 
+            ValidateBlockedProductDrop(runtime, scenario, product);
             scenario.Input.isDropPressed = true;
             runtime.Systems.Create<DropHeldProductSystem>().Execute();
             ExecuteProductPlacement(runtime);
@@ -1583,6 +1727,8 @@ namespace HardwareStore.Editor
                         scenario.Player.EntityId) == null,
                 "Dropping did not clear the carrier relation.");
             Require(product.isLooseProduct &&
+                    product.hasReservedDeliverySlotIndex &&
+                    product.ReservedDeliverySlotIndex == deliverySlotIndex &&
                     product.hasWorldPosition &&
                     product.hasWorldRotation &&
                     !product.Rigidbody.isKinematic &&
@@ -1597,12 +1743,393 @@ namespace HardwareStore.Editor
             PickUpProduct(runtime, scenario, product);
             Require(scenario.Player.isHandsOccupied &&
                     product.hasCarrierEntityId &&
+                    product.hasReservedDeliverySlotIndex &&
+                    product.ReservedDeliverySlotIndex == deliverySlotIndex &&
                     !product.isLooseProduct &&
                     !product.hasWorldPosition &&
                     !product.hasWorldRotation,
                 "The dropped product could not be picked up again.");
             scenario.Input.isSprintHeld = false;
         }
+
+        private static void ValidateInboundProductRecovery(
+            Runtime runtime,
+            Scenario scenario,
+            DeliveryArrival arrival)
+        {
+            Require(arrival.Products.Length >= 2,
+                "Inbound recovery must exercise two independent delivery slots.");
+            GameEntity[] products = arrival.Products.Take(2).ToArray();
+            int[] productIds = products.Select(product => product.EntityId).ToArray();
+            int[] reservedSlots = products.Select(product => product.DeliverySlotIndex).ToArray();
+            int productCountBefore = FindProducts(runtime.Game).Length;
+            int deliveryProductCountBefore = FindDeliveryProducts(
+                runtime.Game,
+                arrival.Delivery.EntityId).Length;
+            int moneyBefore = scenario.Store.Money;
+
+            for (int index = 0; index < products.Length; index++)
+            {
+                GameEntity product = products[index];
+                PickUpProduct(runtime, scenario, product);
+                Require(product.hasReservedDeliverySlotIndex &&
+                        product.ReservedDeliverySlotIndex == reservedSlots[index] &&
+                        !product.hasDeliverySlotIndex,
+                    $"Inbound product {product.EntityId} did not reserve its exact delivery slot.");
+
+                DropHeldProduct(runtime, scenario);
+                Require(product.isLooseProduct &&
+                        product.hasReservedDeliverySlotIndex &&
+                        product.ReservedDeliverySlotIndex == reservedSlots[index],
+                    $"Dropped inbound product {product.EntityId} lost its delivery-slot reservation.");
+                MoveLooseProductBelowRecoveryBoundary(runtime, product);
+            }
+
+            Require(reservedSlots.Distinct().Count() == products.Length,
+                "Two lost inbound products reserved the same delivery slot.");
+            RecoverLostProducts(runtime);
+            RequireNotificationKey(runtime, LocalizationKey.NotificationProductsRecovered);
+            ExecuteProductPlacement(runtime);
+            CleanupEvents(runtime);
+
+            for (int index = 0; index < products.Length; index++)
+            {
+                GameEntity product = products[index];
+                Require(ReferenceEquals(
+                            runtime.Game.GetEntityWithEntityId(productIds[index]),
+                            product) &&
+                        product.isInboundProduct &&
+                        product.hasDeliverySlotIndex &&
+                        product.DeliverySlotIndex == reservedSlots[index] &&
+                        !product.hasReservedDeliverySlotIndex &&
+                        !product.isLooseProduct &&
+                        !product.hasWorldPosition &&
+                        !product.hasWorldRotation &&
+                        product.Transform.parent == arrival.Delivery.Slots[reservedSlots[index]] &&
+                        !product.isProductPlacementDirty,
+                    $"Inbound product {product.EntityId} did not recover to its exact delivery slot.");
+            }
+
+            Require(FindProducts(runtime.Game).Length == productCountBefore &&
+                    FindDeliveryProducts(runtime.Game, arrival.Delivery.EntityId).Length ==
+                    deliveryProductCountBefore &&
+                    scenario.Store.Money == moneyBefore,
+                "Inbound recovery changed product identity, count or money.");
+
+            RecoverLostProducts(runtime);
+            Require(runtime.Game.GetGroup(GameMatcher.NotificationMessage).count == 0 &&
+                    products.Select(product => product.DeliverySlotIndex)
+                        .SequenceEqual(reservedSlots),
+                "Inbound recovery was not idempotent after restoring both products.");
+        }
+
+        private static void ValidateStockReservationAndRecovery(
+            Runtime runtime,
+            Scenario scenario,
+            GameEntity visit,
+            GameEntity product,
+            GameEntity quotaProbe)
+        {
+            GameEntity orderLine = FindOrderLine(
+                GetOrderLines(runtime.Game, visit),
+                product.ProductType);
+            Require(visit.isCustomerVisitLoading &&
+                    orderLine.RequiredProductCount == 1 &&
+                    orderLine.LoadedProductCount == 0 &&
+                    product.isInStock &&
+                    quotaProbe.isInStock &&
+                    product.ProductType == quotaProbe.ProductType &&
+                    product.hasStorageSlotIndex &&
+                    quotaProbe.hasStorageSlotIndex,
+                "Stock recovery requires a one-unit line and two slotted products of its SKU.");
+
+            int productId = product.EntityId;
+            int storageSlotIndex = product.StorageSlotIndex;
+            int quotaProbeSlotIndex = quotaProbe.StorageSlotIndex;
+            int stockCountBefore = scenario.StorageZone.StorageProductCount;
+            int productCountBefore = FindProducts(runtime.Game).Length;
+            int moneyBefore = scenario.Store.Money;
+
+            PickUpProduct(runtime, scenario, product);
+            Require(product.hasReservedStorageSlotIndex &&
+                    product.ReservedStorageSlotIndex == storageSlotIndex &&
+                    product.hasReservedOrderLineEntityId &&
+                    product.ReservedOrderLineEntityId == orderLine.EntityId &&
+                    !product.hasStorageSlotIndex &&
+                    runtime.Game.GetEntitiesWithReservedOrderLineEntityId(orderLine.EntityId)
+                        .Single() == product,
+                "Picking stock did not reserve its exact slot and order-line quota.");
+            ExecuteStorageState(runtime);
+            Require(scenario.StorageZone.StorageProductCount == stockCountBefore &&
+                    scenario.StorageZone.OccupiedStorageSlotCount == stockCountBefore,
+                "Held stock made its reserved storage slot appear free.");
+
+            ValidateBlockedProductDrop(runtime, scenario, product);
+            DropHeldProduct(runtime, scenario);
+            Require(product.isLooseProduct &&
+                    product.hasReservedStorageSlotIndex &&
+                    product.ReservedStorageSlotIndex == storageSlotIndex &&
+                    product.hasReservedOrderLineEntityId &&
+                    product.ReservedOrderLineEntityId == orderLine.EntityId,
+                "Dropped stock lost its storage-slot or order-line reservation.");
+            ExecuteStorageState(runtime);
+            Require(scenario.StorageZone.StorageProductCount == stockCountBefore &&
+                    scenario.StorageZone.OccupiedStorageSlotCount == stockCountBefore,
+                "Loose reserved stock made its storage slot appear free.");
+
+            scenario.Player.ReplaceFocusedEntityId(quotaProbe.EntityId);
+            ExecuteInteractionPrompts(runtime);
+            Require(scenario.Player.hasInteractionPrompt &&
+                    scenario.Player.InteractionPrompt.Key ==
+                    LocalizationKey.PromptOrderLineAlreadyLoaded &&
+                    !scenario.Player.isFocusInteractionAvailable,
+                "An outstanding reservation did not disable the next product's order prompt.");
+            RequestInteraction(scenario.Player, quotaProbe);
+            runtime.Systems.Create<PickUpProductSystem>().Execute();
+            CleanupEvents(runtime);
+            Require(!scenario.Player.isHandsOccupied &&
+                    !quotaProbe.hasCarrierEntityId &&
+                    !quotaProbe.hasReservedStorageSlotIndex &&
+                    !quotaProbe.hasReservedOrderLineEntityId &&
+                    quotaProbe.hasStorageSlotIndex &&
+                    quotaProbe.StorageSlotIndex == quotaProbeSlotIndex &&
+                    runtime.Game.GetEntitiesWithReservedOrderLineEntityId(orderLine.EntityId)
+                        .Single() == product,
+                "A second stock product bypassed the outstanding order-line reservation.");
+
+            MoveLooseProductBelowRecoveryBoundary(runtime, product);
+            RecoverLostProducts(runtime);
+            RequireNotificationKey(runtime, LocalizationKey.NotificationProductsRecovered);
+            ExecuteProductPlacement(runtime);
+            ExecuteStorageState(runtime);
+            CleanupEvents(runtime);
+            Require(ReferenceEquals(runtime.Game.GetEntityWithEntityId(productId), product) &&
+                    product.isInStock &&
+                    product.hasStorageSlotIndex &&
+                    product.StorageSlotIndex == storageSlotIndex &&
+                    !product.hasReservedStorageSlotIndex &&
+                    !product.hasReservedOrderLineEntityId &&
+                    !product.isLooseProduct &&
+                    !product.hasWorldPosition &&
+                    !product.hasWorldRotation &&
+                    product.Transform.parent == scenario.StorageZone.Slots[storageSlotIndex] &&
+                    scenario.StorageZone.StorageProductCount == stockCountBefore &&
+                    FindProducts(runtime.Game).Length == productCountBefore &&
+                    scenario.Store.Money == moneyBefore,
+                "Lost stock did not recover to the same entity and exact storage slot.");
+
+            RecoverLostProducts(runtime);
+            Require(runtime.Game.GetGroup(GameMatcher.NotificationMessage).count == 0 &&
+                    product.StorageSlotIndex == storageSlotIndex &&
+                    scenario.StorageZone.StorageProductCount == stockCountBefore &&
+                    scenario.Store.Money == moneyBefore,
+                "Stock recovery changed stable state when executed twice.");
+
+            PickUpProduct(runtime, scenario, product);
+            Require(product.hasReservedStorageSlotIndex &&
+                    product.ReservedStorageSlotIndex == storageSlotIndex &&
+                    product.hasReservedOrderLineEntityId &&
+                    product.ReservedOrderLineEntityId == orderLine.EntityId,
+                "Held stock did not retain the exact return reservation.");
+            scenario.Player.ReplaceFocusedEntityId(scenario.StorageZone.EntityId);
+            ExecuteInteractionPrompts(runtime);
+            Require(scenario.Player.isFocusInteractionAvailable &&
+                    PromptMatches(
+                        runtime,
+                        scenario.Player,
+                        LocalizedTexts.Text(
+                            LocalizationKey.PromptReturnStockProduct,
+                            LocalizedTexts.ProductName(product.ProductType))),
+                "Held stock did not expose the storage return prompt.");
+            scenario.Input.isInteractPressed = true;
+            runtime.Systems.Create<EmitInteractionRequestSystem>().Execute();
+            Require(runtime.Game.GetGroup(GameMatcher.InteractionRequest).count == 1,
+                "E did not emit the held-stock storage return request.");
+            runtime.Systems.Create<StoreInboundProductSystem>().Execute();
+            ExecuteProductPlacement(runtime);
+            ExecuteStorageState(runtime);
+            CleanupEvents(runtime);
+            Require(product.isInStock &&
+                    product.hasStorageSlotIndex &&
+                    product.StorageSlotIndex == storageSlotIndex &&
+                    !product.hasReservedStorageSlotIndex &&
+                    !product.hasReservedOrderLineEntityId &&
+                    !product.hasCarrierEntityId &&
+                    !product.isProductStocked &&
+                    !scenario.Player.isHandsOccupied &&
+                    product.Transform.parent == scenario.StorageZone.Slots[storageSlotIndex] &&
+                    scenario.StorageZone.StorageProductCount == stockCountBefore &&
+                    FindProducts(runtime.Game).Length == productCountBefore &&
+                    scenario.Store.Money == moneyBefore,
+                "Held stock did not return to its exact reserved storage slot cleanly.");
+        }
+
+        private static void ValidateBlockedProductDrop(
+            Runtime runtime,
+            Scenario scenario,
+            GameEntity product)
+        {
+            Require(scenario.Player.isHandsOccupied &&
+                    scenario.Player.isCarryingProduct &&
+                    !scenario.Player.isPushingTrolley &&
+                    product.hasCarrierEntityId &&
+                    product.CarrierEntityId == scenario.Player.EntityId &&
+                    product.hasProductDropCollisionRadius &&
+                    product.ProductDropCollisionRadius > 0f &&
+                    product.ProductDropCollisionRadius <= product.DropForwardDistance,
+                "Blocked-drop smoke requires one valid collision-safe carried product.");
+
+            int entityCountBefore = runtime.Game.count;
+            int productCountBefore = FindProducts(runtime.Game).Length;
+            int moneyBefore = scenario.Store.Money;
+            int? deliveryEntityId = product.hasDeliveryEntityId
+                ? product.DeliveryEntityId
+                : null;
+            int? reservedDeliverySlotIndex = product.hasReservedDeliverySlotIndex
+                ? product.ReservedDeliverySlotIndex
+                : null;
+            int? storageZoneEntityId = product.hasStorageZoneEntityId
+                ? product.StorageZoneEntityId
+                : null;
+            int? reservedStorageSlotIndex = product.hasReservedStorageSlotIndex
+                ? product.ReservedStorageSlotIndex
+                : null;
+            int? reservedOrderLineEntityId = product.hasReservedOrderLineEntityId
+                ? product.ReservedOrderLineEntityId
+                : null;
+            bool wasInbound = product.isInboundProduct;
+            bool wasInStock = product.isInStock;
+            bool wasPlacementDirty = product.isProductPlacementDirty;
+            Vector3 transformPosition = product.Transform.position;
+            Quaternion transformRotation = product.Transform.rotation;
+            Vector3 bodyPosition = product.Rigidbody.position;
+            Quaternion bodyRotation = product.Rigidbody.rotation;
+            bool bodyWasKinematic = product.Rigidbody.isKinematic;
+            bool bodyUsedGravity = product.Rigidbody.useGravity;
+            bool bodyDetectedCollisions = product.Rigidbody.detectCollisions;
+            bool[] colliderEnabledStates = product.Colliders
+                .Select(collider => collider.enabled)
+                .ToArray();
+
+            Transform dropOrigin = scenario.Player.DropOrigin;
+            GameObject obstacle = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            obstacle.name = "Smoke Collision-Safe Drop Obstacle";
+            int ignoreRaycastLayer = LayerMask.NameToLayer("Ignore Raycast");
+            Require(ignoreRaycastLayer >= 0,
+                "The built-in Ignore Raycast layer is required for collision-safe drop smoke.");
+            obstacle.layer = ignoreRaycastLayer;
+            obstacle.transform.SetPositionAndRotation(
+                dropOrigin.position +
+                dropOrigin.forward.normalized * 0.2f,
+                Quaternion.identity);
+            obstacle.transform.localScale = Vector3.one * 0.2f;
+            Physics.SyncTransforms();
+
+            try
+            {
+                scenario.Input.isDropPressed = true;
+                runtime.Systems.Create<DropHeldProductSystem>().Execute();
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(obstacle);
+                Physics.SyncTransforms();
+            }
+
+            RequireNotificationKey(runtime, LocalizationKey.NotificationProductDropBlocked);
+            Require(runtime.Game.GetGroup(GameMatcher.AudioCue).count == 0,
+                "A blocked product drop emitted the successful drop audio cue.");
+            Require(runtime.Game.count == entityCountBefore + 1 &&
+                    FindProducts(runtime.Game).Length == productCountBefore &&
+                    scenario.Store.Money == moneyBefore,
+                "A blocked product drop changed product count or store economy.");
+            Require(scenario.Player.isHandsOccupied &&
+                    scenario.Player.isCarryingProduct &&
+                    !scenario.Player.isPushingTrolley &&
+                    product.hasCarrierEntityId &&
+                    product.CarrierEntityId == scenario.Player.EntityId &&
+                    ReferenceEquals(
+                        runtime.Game.GetEntityWithCarrierEntityId(scenario.Player.EntityId),
+                        product),
+                "A blocked product drop changed the player's carrying relation.");
+            Require(product.isInboundProduct == wasInbound &&
+                    product.isInStock == wasInStock &&
+                    product.isProductPlacementDirty == wasPlacementDirty &&
+                    !product.isLooseProduct &&
+                    !product.hasWorldPosition &&
+                    !product.hasWorldRotation &&
+                    !product.hasDeliverySlotIndex &&
+                    !product.hasStorageSlotIndex &&
+                    !product.hasOrderLineEntityId &&
+                    !product.hasLoadingSlotIndex &&
+                    !product.hasTrolleyEntityId &&
+                    !product.hasTrolleySlotIndex,
+                "A blocked product drop changed product placement state.");
+            Require((deliveryEntityId.HasValue == product.hasDeliveryEntityId) &&
+                    (!deliveryEntityId.HasValue ||
+                     product.DeliveryEntityId == deliveryEntityId.Value) &&
+                    (reservedDeliverySlotIndex.HasValue ==
+                     product.hasReservedDeliverySlotIndex) &&
+                    (!reservedDeliverySlotIndex.HasValue ||
+                     product.ReservedDeliverySlotIndex == reservedDeliverySlotIndex.Value) &&
+                    (storageZoneEntityId.HasValue == product.hasStorageZoneEntityId) &&
+                    (!storageZoneEntityId.HasValue ||
+                     product.StorageZoneEntityId == storageZoneEntityId.Value) &&
+                    (reservedStorageSlotIndex.HasValue ==
+                     product.hasReservedStorageSlotIndex) &&
+                    (!reservedStorageSlotIndex.HasValue ||
+                     product.ReservedStorageSlotIndex == reservedStorageSlotIndex.Value) &&
+                    (reservedOrderLineEntityId.HasValue ==
+                     product.hasReservedOrderLineEntityId) &&
+                    (!reservedOrderLineEntityId.HasValue ||
+                     product.ReservedOrderLineEntityId == reservedOrderLineEntityId.Value),
+                "A blocked product drop changed an exact-slot or order-line reservation.");
+            Require(Vector3.Distance(product.Transform.position, transformPosition) < 0.001f &&
+                    Quaternion.Angle(product.Transform.rotation, transformRotation) < 0.001f &&
+                    Vector3.Distance(product.Rigidbody.position, bodyPosition) < 0.001f &&
+                    Quaternion.Angle(product.Rigidbody.rotation, bodyRotation) < 0.001f &&
+                    product.Rigidbody.isKinematic == bodyWasKinematic &&
+                    product.Rigidbody.useGravity == bodyUsedGravity &&
+                    product.Rigidbody.detectCollisions == bodyDetectedCollisions &&
+                    product.Colliders.Select(collider => collider.enabled)
+                        .SequenceEqual(colliderEnabledStates),
+                "A blocked product drop changed the carried view or physics state.");
+
+            CleanupEvents(runtime);
+            Require(scenario.Player.isHandsOccupied &&
+                    product.hasCarrierEntityId &&
+                    product.CarrierEntityId == scenario.Player.EntityId,
+                "Blocked-drop event cleanup changed the retained carrying state.");
+        }
+
+        private static void DropHeldProduct(Runtime runtime, Scenario scenario)
+        {
+            Require(scenario.Player.isHandsOccupied,
+                "A product can only be dropped while the player's hands are occupied.");
+            scenario.Input.isDropPressed = true;
+            runtime.Systems.Create<DropHeldProductSystem>().Execute();
+            ExecuteProductPlacement(runtime);
+            CleanupEvents(runtime);
+        }
+
+        private static void MoveLooseProductBelowRecoveryBoundary(
+            Runtime runtime,
+            GameEntity product)
+        {
+            Require(product.isLooseProduct &&
+                    product.hasWorldPosition &&
+                    product.hasWorldRotation,
+                $"Product {product.EntityId} must be loose before simulating a lost product.");
+            Vector3 lostPosition = product.WorldPosition;
+            lostPosition.y = runtime.StaticData.ProductRecovery.MinimumWorldY - 1f;
+            product.ReplaceWorldPosition(lostPosition);
+            product.Rigidbody.position = lostPosition;
+            product.Transform.position = lostPosition;
+            Physics.SyncTransforms();
+        }
+
+        private static void RecoverLostProducts(Runtime runtime) =>
+            runtime.Systems.Create<ProductRecoveryFeature>().Execute();
 
         private static void StoreCompleteDelivery(
             Runtime runtime,
@@ -1620,7 +2147,9 @@ namespace HardwareStore.Editor
                 Require(ReferenceEquals(
                         runtime.Game.GetEntityWithCarrierEntityId(
                             scenario.Player.EntityId),
-                        product),
+                        product) &&
+                        product.hasReservedDeliverySlotIndex &&
+                        !product.hasDeliverySlotIndex,
                     $"Inbound product {product.EntityId} is not carried before storage.");
 
                 RequestInteraction(scenario.Player, scenario.StorageZone);
@@ -1628,6 +2157,7 @@ namespace HardwareStore.Editor
                 Require(product.isProductStocked &&
                         product.isInStock &&
                         product.hasDeliveryEntityId &&
+                        !product.hasReservedDeliverySlotIndex &&
                         !product.hasCarrierEntityId &&
                         !scenario.Player.isHandsOccupied,
                     $"ProductStocked was not raised on product {product.EntityId}.");
@@ -1695,7 +2225,8 @@ namespace HardwareStore.Editor
             runtime.Systems.Create<CleanupDestructedEntitiesSystem>().Cleanup();
 
             Require(runtime.Game.GetEntityWithEntityId(deliveryId) == null &&
-                    runtime.Game.GetGroup(GameMatcher.Delivery).count == 0,
+                    runtime.Game.GetGroup(GameMatcher.Delivery).count == 0 &&
+                    runtime.Game.GetEntitiesWithDeliveryEntityId(deliveryId).Count == 0,
                 "The completed delivery survived the destructed pipeline.");
         }
 
@@ -1730,47 +2261,49 @@ namespace HardwareStore.Editor
             GameEntity[] orderLines = GetOrderLines(runtime.Game, visit);
             GameEntity matchingLine = orderLines
                 .SingleOrDefault(line => line.ProductType == rejectedProduct.ProductType);
+            int matchingReservationCount = matchingLine == null
+                ? 0
+                : runtime.Game.GetEntitiesWithReservedOrderLineEntityId(
+                    matchingLine.EntityId).Count;
             Require(visit.isCustomerVisitLoading &&
                     rejectedProduct.isInStock &&
                     rejectedProduct.hasStorageSlotIndex &&
                     (matchingLine == null ||
-                     matchingLine.LoadedProductCount == matchingLine.RequiredProductCount),
-                "Rejected loading requires either a wrong SKU or a complete order line.");
+                     matchingLine.LoadedProductCount + matchingReservationCount ==
+                     matchingLine.RequiredProductCount),
+                "Rejected loading requires either a wrong SKU or an order line whose loaded " +
+                "and reserved quota is already complete.");
 
             int storageSlotIndex = rejectedProduct.StorageSlotIndex;
             int[] loadedBefore = orderLines
                 .Select(line => line.LoadedProductCount)
                 .ToArray();
-            rejectedProduct.RemoveStorageSlotIndex();
-            rejectedProduct.AddCarrierEntityId(scenario.Player.EntityId);
-            rejectedProduct.isInteractable = false;
-            rejectedProduct.isProductPlacementDirty = true;
-            scenario.Player.isHandsOccupied = true;
-            ExecuteProductPlacement(runtime);
-            runtime.Systems.Create<FollowHeldProductSystem>().Execute();
-
-            RequestInteraction(scenario.Player, visit);
-            runtime.Systems.Create<LoadHeldProductSystem>().Execute();
+            int[] reservedBefore = orderLines
+                .Select(line => runtime.Game
+                    .GetEntitiesWithReservedOrderLineEntityId(line.EntityId).Count)
+                .ToArray();
+            Require(!scenario.Player.isHandsOccupied,
+                "Rejected stock pickup requires empty player hands.");
+            RequestInteraction(scenario.Player, rejectedProduct);
+            runtime.Systems.Create<PickUpProductSystem>().Execute();
+            CleanupEvents(runtime);
             Require(orderLines.Select(line => line.LoadedProductCount)
                         .SequenceEqual(loadedBefore) &&
+                    orderLines.Select(line => runtime.Game
+                            .GetEntitiesWithReservedOrderLineEntityId(line.EntityId).Count)
+                        .SequenceEqual(reservedBefore) &&
                     !rejectedProduct.isProductLoaded &&
                     !rejectedProduct.isLoaded &&
                     !rejectedProduct.hasOrderLineEntityId &&
                     !rejectedProduct.hasLoadingSlotIndex &&
                     rejectedProduct.isInStock &&
-                    rejectedProduct.hasCarrierEntityId &&
-                    rejectedProduct.CarrierEntityId == scenario.Player.EntityId &&
-                    scenario.Player.isHandsOccupied,
+                    !rejectedProduct.hasCarrierEntityId &&
+                    !rejectedProduct.hasReservedStorageSlotIndex &&
+                    !rejectedProduct.hasReservedOrderLineEntityId &&
+                    rejectedProduct.hasStorageSlotIndex &&
+                    rejectedProduct.StorageSlotIndex == storageSlotIndex &&
+                    !scenario.Player.isHandsOccupied,
                 failureMessage);
-            CleanupEvents(runtime);
-
-            rejectedProduct.RemoveCarrierEntityId();
-            rejectedProduct.AddStorageSlotIndex(storageSlotIndex);
-            rejectedProduct.isInteractable = true;
-            rejectedProduct.isProductPlacementDirty = true;
-            scenario.Player.isHandsOccupied = false;
-            ExecuteProductPlacement(runtime);
-            ExecuteStorageState(runtime);
 
             Require(rejectedProduct.isInStock &&
                     rejectedProduct.hasStorageSlotIndex &&
@@ -1827,6 +2360,695 @@ namespace HardwareStore.Editor
             }
         }
 
+        private static void ValidateTrolleyLockedAtProgress(
+            Runtime runtime,
+            Scenario scenario,
+            int expectedCompletedOrders)
+        {
+            PlatformTrolleyConfig config = runtime.StaticData.PlatformTrolley;
+            Require(expectedCompletedOrders < config.RequiredCompletedOrderCount &&
+                    scenario.Store.CompletedOrderCount == expectedCompletedOrders &&
+                    !scenario.Store.isTrolleyUpgradeUnlocked &&
+                    runtime.Game.GetEntityWithTrolleyStoreEntityId(
+                        scenario.Store.EntityId) == null,
+                "Locked trolley validation requires incomplete order progression.");
+
+            scenario.Player.ReplaceFocusedEntityId(
+                scenario.TrolleyUpgradeTerminal.EntityId);
+            ExecuteInteractionPrompts(runtime);
+            Require(PromptMatches(
+                        runtime,
+                        scenario.Player,
+                        LocalizedTexts.Text(
+                            LocalizationKey.PromptTrolleyUpgradeLocked,
+                            expectedCompletedOrders,
+                            config.RequiredCompletedOrderCount)) &&
+                    !scenario.Player.isFocusInteractionAvailable,
+                "The locked trolley terminal did not present exact order progress.");
+
+            int moneyBefore = scenario.Store.Money;
+            RequestInteraction(
+                scenario.Player,
+                scenario.TrolleyUpgradeTerminal);
+            runtime.Systems.Create<PurchasePlatformTrolleySystem>().Execute();
+            RequireNotificationKey(
+                runtime,
+                LocalizationKey.NotificationTrolleyUpgradeLocked);
+            Require(scenario.Store.Money == moneyBefore &&
+                    runtime.Game.GetEntityWithTrolleyStoreEntityId(
+                        scenario.Store.EntityId) == null &&
+                    runtime.Game.GetGroup(GameMatcher.PlatformTrolley).count == 0,
+                "A locked trolley purchase changed money or created a trolley.");
+            CleanupEvents(runtime);
+            scenario.Player.RemoveFocusedEntityId();
+            ExecuteInteractionPrompts(runtime);
+        }
+
+        private static void RegisterRewardedOrderForTrolleyProgression(
+            Runtime runtime,
+            Scenario scenario,
+            GameEntity rewardedOrder,
+            int expectedCompletedOrders)
+        {
+            Require(rewardedOrder.isOrderRewarded &&
+                    !rewardedOrder.isOrderProgressionCounted &&
+                    scenario.Store.CompletedOrderCount == expectedCompletedOrders - 1,
+                "Trolley progression requires one newly rewarded, uncounted order.");
+
+            runtime.Systems.Create<RegisterCompletedOrderForProgressionSystem>().Execute();
+            Require(rewardedOrder.isOrderProgressionCounted &&
+                    scenario.Store.CompletedOrderCount == expectedCompletedOrders,
+                "A rewarded order did not increment trolley progression exactly once.");
+            runtime.Systems.Create<RegisterCompletedOrderForProgressionSystem>().Execute();
+            Require(scenario.Store.CompletedOrderCount == expectedCompletedOrders,
+                "The same rewarded order incremented trolley progression more than once.");
+        }
+
+        private static void UnlockTrolleyUpgrade(Runtime runtime, Scenario scenario)
+        {
+            PlatformTrolleyConfig config = runtime.StaticData.PlatformTrolley;
+            Require(scenario.Store.CompletedOrderCount >=
+                    config.RequiredCompletedOrderCount &&
+                    !scenario.Store.isTrolleyUpgradeUnlocked,
+                "Trolley unlock requires the configured rewarded-order count.");
+
+            runtime.Systems.Create<UnlockPlatformTrolleyUpgradeSystem>().Execute();
+            Require(scenario.Store.isTrolleyUpgradeUnlocked,
+                "The trolley upgrade did not unlock at its exact progression threshold.");
+            RequireNotificationKey(runtime, LocalizationKey.NotificationTrolleyUnlocked);
+            runtime.Systems.Create<UnlockPlatformTrolleyUpgradeSystem>().Execute();
+            Require(runtime.Game.GetGroup(GameMatcher.NotificationMessage).count == 1,
+                "The trolley upgrade emitted its unlock notification more than once.");
+            CleanupEvents(runtime);
+        }
+
+        private static GameEntity PurchaseTrolley(Runtime runtime, Scenario scenario)
+        {
+            PlatformTrolleyConfig config = runtime.StaticData.PlatformTrolley;
+            Require(scenario.Store.isTrolleyUpgradeUnlocked &&
+                    scenario.Store.Money >= config.PurchasePrice &&
+                    runtime.Game.GetEntityWithTrolleyStoreEntityId(
+                        scenario.Store.EntityId) == null,
+                "Trolley purchase requires one unlocked, affordable store without a trolley.");
+
+            scenario.Player.ReplaceFocusedEntityId(
+                scenario.TrolleyUpgradeTerminal.EntityId);
+            ExecuteInteractionPrompts(runtime);
+            Require(PromptMatches(
+                        runtime,
+                        scenario.Player,
+                        LocalizedTexts.Text(
+                            LocalizationKey.PromptPurchaseTrolley,
+                            config.PurchasePrice)) &&
+                    scenario.Player.isFocusInteractionAvailable,
+                "The unlocked trolley terminal did not present its purchase action.");
+
+            int moneyBefore = scenario.Store.Money;
+            RequestInteraction(
+                scenario.Player,
+                scenario.TrolleyUpgradeTerminal);
+            runtime.Systems.Create<PurchasePlatformTrolleySystem>().Execute();
+            GameEntity trolley = runtime.Game.GetEntityWithTrolleyStoreEntityId(
+                scenario.Store.EntityId);
+            Require(trolley != null &&
+                    runtime.Game.GetGroup(GameMatcher.PlatformTrolley).count == 1 &&
+                    scenario.Store.Money == moneyBefore - config.PurchasePrice,
+                "The first trolley purchase did not create one entity and debit once.");
+            RequireNotificationKey(runtime, LocalizationKey.NotificationTrolleyPurchased);
+
+            runtime.Systems.Create<BindEntityViewFromPrefabSystem>().Execute();
+            runtime.Systems.Create<RefreshTrolleyOccupiedSlotCountSystem>().Execute();
+            runtime.Systems.Create<ValidatePlatformTrolleyStateSystem>().Execute();
+            CleanupEvents(runtime);
+            EntityBehaviour trolleyView = RequireRuntimeView(
+                trolley,
+                config.ViewPrefab,
+                "platform trolley");
+            Require(trolleyView is HardwareStore.Gameplay.Views.InteractionView &&
+                    trolley.hasTransform && trolley.Transform == trolleyView.transform &&
+                    trolley.hasRigidbody && trolley.Rigidbody.isKinematic &&
+                    !trolley.Rigidbody.useGravity &&
+                    trolley.hasSlots && trolley.Slots.Length == config.Capacity &&
+                    trolley.Slots.Distinct().Count() == config.Capacity &&
+                    trolley.TrolleyCapacity == config.Capacity &&
+                    trolley.OccupiedTrolleySlotCount == 0 &&
+                    Mathf.Approximately(
+                        trolley.TrolleyMovementSpeed,
+                        config.MovementSpeed) &&
+                    Mathf.Approximately(
+                        trolley.TrolleyFollowDistance,
+                        config.FollowDistance) &&
+                    Vector3.Distance(
+                        trolley.Transform.position,
+                        scenario.TrolleyUpgradeTerminal.TrolleySpawnPosition) < 0.001f &&
+                    Quaternion.Angle(
+                        trolley.Transform.rotation,
+                        scenario.TrolleyUpgradeTerminal.TrolleySpawnRotation) < 0.01f,
+                "The purchased trolley was not bound at its authored pose with three slots.");
+
+            int moneyAfterPurchase = scenario.Store.Money;
+            RequestInteraction(
+                scenario.Player,
+                scenario.TrolleyUpgradeTerminal);
+            runtime.Systems.Create<PurchasePlatformTrolleySystem>().Execute();
+            RequireNotificationKey(
+                runtime,
+                LocalizationKey.NotificationTrolleyAlreadyPurchased);
+            Require(scenario.Store.Money == moneyAfterPurchase &&
+                    runtime.Game.GetEntityWithTrolleyStoreEntityId(
+                        scenario.Store.EntityId) == trolley &&
+                    runtime.Game.GetGroup(GameMatcher.PlatformTrolley).count == 1,
+                "A repeated trolley purchase created another entity or debited twice.");
+            CleanupEvents(runtime);
+
+            ExecuteInteractionPrompts(runtime);
+            Require(PromptMatches(
+                        runtime,
+                        scenario.Player,
+                        LocalizedTexts.Text(LocalizationKey.PromptTrolleyPurchased)) &&
+                    !scenario.Player.isFocusInteractionAvailable,
+                "A purchased trolley terminal remained actionable.");
+            scenario.Player.RemoveFocusedEntityId();
+            ExecuteInteractionPrompts(runtime);
+            return trolley;
+        }
+
+        private static void LoadProductOnTrolley(
+            Runtime runtime,
+            Scenario scenario,
+            GameEntity trolley,
+            GameEntity product)
+        {
+            Require(product.isInStock && product.hasStorageSlotIndex &&
+                    trolley.OccupiedTrolleySlotCount < trolley.TrolleyCapacity,
+                "Trolley loading requires slotted stock and a free cargo slot.");
+            int storageSlotIndex = product.StorageSlotIndex;
+            int occupiedBefore = trolley.OccupiedTrolleySlotCount;
+            int storageCountBefore = scenario.StorageZone.StorageProductCount;
+
+            PickUpProduct(runtime, scenario, product);
+            int orderLineEntityId = product.ReservedOrderLineEntityId;
+            Require(product.hasReservedStorageSlotIndex &&
+                    product.ReservedStorageSlotIndex == storageSlotIndex &&
+                    product.hasReservedOrderLineEntityId,
+                "Picked stock did not retain exact trolley recovery reservations.");
+
+            scenario.Player.ReplaceFocusedEntityId(trolley.EntityId);
+            ExecuteInteractionPrompts(runtime);
+            Require(PromptMatches(
+                        runtime,
+                        scenario.Player,
+                        LocalizedTexts.Text(
+                            LocalizationKey.PromptPlaceProductOnTrolley,
+                            LocalizedTexts.ProductName(product.ProductType),
+                            occupiedBefore,
+                            trolley.TrolleyCapacity)) &&
+                    scenario.Player.isFocusInteractionAvailable,
+                "Held stock did not present the trolley cargo action.");
+            RequestInteraction(scenario.Player, trolley);
+            runtime.Systems.Create<LoadHeldProductOnTrolleySystem>().Execute();
+            runtime.Systems.Create<RefreshTrolleyOccupiedSlotCountSystem>().Execute();
+            ExecuteProductPlacement(runtime);
+            ExecuteStorageState(runtime);
+            runtime.Systems.Create<ValidatePlatformTrolleyStateSystem>().Execute();
+            runtime.Systems.Create<ValidatePlayerHandlingStateSystem>().Execute();
+            CleanupEvents(runtime);
+
+            Require(!scenario.Player.isHandsOccupied &&
+                    !scenario.Player.isCarryingProduct &&
+                    !product.hasCarrierEntityId &&
+                    product.hasTrolleyEntityId &&
+                    product.TrolleyEntityId == trolley.EntityId &&
+                    product.hasTrolleySlotIndex &&
+                    product.TrolleySlotIndex == occupiedBefore &&
+                    product.hasReservedStorageSlotIndex &&
+                    product.ReservedStorageSlotIndex == storageSlotIndex &&
+                    product.hasReservedOrderLineEntityId &&
+                    product.ReservedOrderLineEntityId == orderLineEntityId &&
+                    !product.hasStorageSlotIndex &&
+                    trolley.OccupiedTrolleySlotCount == occupiedBefore + 1 &&
+                    product.Transform.parent == trolley.Slots[product.TrolleySlotIndex] &&
+                    scenario.StorageZone.StorageProductCount == storageCountBefore,
+                "Trolley loading changed reservation ownership, stock count or exact slot.");
+            scenario.Player.RemoveFocusedEntityId();
+            ExecuteInteractionPrompts(runtime);
+        }
+
+        private static void ValidateLoadedTrolleyCargo(
+            Runtime runtime,
+            Scenario scenario,
+            GameEntity trolley,
+            GameEntity[] products)
+        {
+            runtime.Systems.Create<RefreshTrolleyOccupiedSlotCountSystem>().Execute();
+            ExecuteStorageState(runtime);
+            runtime.Systems.Create<ValidatePlatformTrolleyStateSystem>().Execute();
+            Require(products.Length == runtime.StaticData.PlatformTrolley.Capacity &&
+                    trolley.OccupiedTrolleySlotCount == products.Length &&
+                    runtime.Game.GetEntitiesWithTrolleyEntityId(trolley.EntityId).Count ==
+                    products.Length &&
+                    products.Select(product => product.TrolleySlotIndex)
+                        .Distinct().Count() == products.Length &&
+                    products.All(product =>
+                        product.isInStock &&
+                        product.hasReservedStorageSlotIndex &&
+                        product.hasReservedOrderLineEntityId &&
+                        product.hasTrolleyEntityId &&
+                        product.TrolleyEntityId == trolley.EntityId &&
+                        product.Transform.parent == trolley.Slots[product.TrolleySlotIndex]) &&
+                    scenario.StorageZone.OccupiedStorageSlotCount ==
+                    scenario.StorageZone.StorageProductCount,
+                "Three trolley products did not retain distinct cargo and storage reservations.");
+        }
+
+        private static void ValidatePhysicalTrolleyCargoFocus(
+            Runtime runtime,
+            Scenario scenario,
+            GameEntity trolley,
+            GameEntity product)
+        {
+            Require(product.hasTrolleyEntityId &&
+                    product.TrolleyEntityId == trolley.EntityId &&
+                    product.isInteractable && product.hasColliders,
+                "Physical trolley focus requires interactable cargo.");
+            Vector3 flatYardPosition = new(0f, 0.01f, -2.6f);
+            trolley.Rigidbody.position = flatYardPosition;
+            trolley.Rigidbody.rotation = Quaternion.identity;
+            trolley.Transform.SetPositionAndRotation(
+                flatYardPosition,
+                Quaternion.identity);
+            Physics.SyncTransforms();
+
+            Collider productCollider = product.Colliders.Single(collider => !collider.isTrigger);
+            Transform cameraTransform = scenario.Player.Camera.transform;
+            Vector3 originalPosition = cameraTransform.position;
+            Quaternion originalRotation = cameraTransform.rotation;
+
+            try
+            {
+                Vector3 target = productCollider.bounds.center;
+                cameraTransform.SetPositionAndRotation(
+                    target - Vector3.right * 1.6f,
+                    Quaternion.LookRotation(Vector3.right, Vector3.up));
+                Physics.SyncTransforms();
+                if (scenario.Player.hasFocusedEntityId)
+                    scenario.Player.RemoveFocusedEntityId();
+                if (scenario.Player.hasFocusedInteractionType)
+                    scenario.Player.RemoveFocusedInteractionType();
+
+                runtime.Systems.Create<DetectFocusedInteractableSystem>().Execute();
+                runtime.Systems.Create<ClassifyFocusedInteractionSystem>().Execute();
+                Require(scenario.Player.hasFocusedEntityId &&
+                        scenario.Player.FocusedEntityId == product.EntityId &&
+                        scenario.Player.hasFocusedInteractionType &&
+                        scenario.Player.FocusedInteractionType == InteractionTypeId.Product,
+                    "Trolley handle focus occluded cargo product focus.");
+            }
+            finally
+            {
+                cameraTransform.SetPositionAndRotation(originalPosition, originalRotation);
+                Physics.SyncTransforms();
+                if (scenario.Player.hasFocusedEntityId)
+                    scenario.Player.RemoveFocusedEntityId();
+                if (scenario.Player.hasFocusedInteractionType)
+                    scenario.Player.RemoveFocusedInteractionType();
+            }
+        }
+
+        private static void ValidateFullTrolleyRejectsFourthProduct(
+            Runtime runtime,
+            Scenario scenario,
+            GameEntity trolley,
+            GameEntity visit,
+            GameEntity product)
+        {
+            Require(trolley.OccupiedTrolleySlotCount == trolley.TrolleyCapacity &&
+                    product.isInStock && product.hasStorageSlotIndex &&
+                    !scenario.Player.isHandsOccupied,
+                "Full-trolley rejection requires one extra slotted stock product.");
+            GameEntity orderLine = FindOrderLine(
+                GetOrderLines(runtime.Game, visit),
+                product.ProductType);
+            int storageSlotIndex = product.StorageSlotIndex;
+            int stockCountBefore = scenario.StorageZone.StorageProductCount;
+
+            product.RemoveStorageSlotIndex();
+            product.AddReservedStorageSlotIndex(storageSlotIndex);
+            product.AddReservedOrderLineEntityId(orderLine.EntityId);
+            product.AddCarrierEntityId(scenario.Player.EntityId);
+            product.isInteractable = false;
+            scenario.Player.isCarryingProduct = true;
+            scenario.Player.isHandsOccupied = true;
+
+            scenario.Player.ReplaceFocusedEntityId(trolley.EntityId);
+            ExecuteInteractionPrompts(runtime);
+            Require(PromptMatches(
+                        runtime,
+                        scenario.Player,
+                        LocalizedTexts.Text(
+                            LocalizationKey.PromptTrolleyFull,
+                            trolley.OccupiedTrolleySlotCount,
+                            trolley.TrolleyCapacity)) &&
+                    !scenario.Player.isFocusInteractionAvailable,
+                "A full trolley did not disable its fourth cargo action.");
+            RequestInteraction(scenario.Player, trolley);
+            runtime.Systems.Create<LoadHeldProductOnTrolleySystem>().Execute();
+            RequireNotificationKey(runtime, LocalizationKey.NotificationTrolleyFull);
+            Require(product.hasCarrierEntityId &&
+                    !product.hasTrolleyEntityId &&
+                    !product.hasTrolleySlotIndex &&
+                    trolley.OccupiedTrolleySlotCount == trolley.TrolleyCapacity &&
+                    runtime.Game.GetEntitiesWithTrolleyEntityId(trolley.EntityId).Count ==
+                    trolley.TrolleyCapacity,
+                "A fourth product bypassed the trolley capacity guard.");
+
+            product.RemoveCarrierEntityId();
+            product.RemoveReservedStorageSlotIndex();
+            product.RemoveReservedOrderLineEntityId();
+            product.AddStorageSlotIndex(storageSlotIndex);
+            product.isInteractable = true;
+            product.isProductPlacementDirty = true;
+            scenario.Player.isCarryingProduct = false;
+            scenario.Player.isHandsOccupied = false;
+            ExecuteProductPlacement(runtime);
+            ExecuteStorageState(runtime);
+            runtime.Systems.Create<RefreshTrolleyOccupiedSlotCountSystem>().Execute();
+            CleanupEvents(runtime);
+            Require(product.hasStorageSlotIndex &&
+                    product.StorageSlotIndex == storageSlotIndex &&
+                    product.Transform.parent ==
+                    scenario.StorageZone.Slots[storageSlotIndex] &&
+                    scenario.StorageZone.StorageProductCount == stockCountBefore &&
+                    !scenario.Player.isHandsOccupied,
+                "The rejected fourth product did not restore its exact storage state.");
+            scenario.Player.RemoveFocusedEntityId();
+            ExecuteInteractionPrompts(runtime);
+        }
+
+        private static void ValidateTrolleyPushFlow(
+            Runtime runtime,
+            Scenario scenario,
+            GameEntity trolley)
+        {
+            Require(!scenario.Player.isHandsOccupied && trolley.isInteractable &&
+                    !trolley.hasTrolleyPusherEntityId,
+                "Trolley push smoke requires a parked trolley and empty hands.");
+            CharacterController controller = scenario.Player.CharacterController;
+            controller.enabled = false;
+            scenario.Player.Transform.SetPositionAndRotation(
+                new Vector3(0f, 0.02f, -5f),
+                Quaternion.identity);
+            controller.enabled = true;
+            Vector3 parkedTrolleyPosition = new(0f, 0.01f, -2.6f);
+            trolley.Rigidbody.position = parkedTrolleyPosition;
+            trolley.Rigidbody.rotation = Quaternion.identity;
+            trolley.Transform.SetPositionAndRotation(
+                parkedTrolleyPosition,
+                Quaternion.identity);
+            Physics.SyncTransforms();
+
+            scenario.Player.ReplaceFocusedEntityId(trolley.EntityId);
+            ExecuteInteractionPrompts(runtime);
+            Require(PromptMatches(
+                        runtime,
+                        scenario.Player,
+                        LocalizedTexts.Text(
+                            LocalizationKey.PromptPushTrolley,
+                            trolley.OccupiedTrolleySlotCount,
+                            trolley.TrolleyCapacity)) &&
+                    scenario.Player.isFocusInteractionAvailable,
+                "A parked trolley did not expose its push action.");
+
+            RequestInteraction(scenario.Player, trolley);
+            runtime.Systems.Create<StartPushingTrolleySystem>().Execute();
+            CleanupEvents(runtime);
+            runtime.Systems.Create<ValidatePlayerHandlingStateSystem>().Execute();
+            runtime.Systems.Create<ValidatePlatformTrolleyStateSystem>().Execute();
+            Require(scenario.Player.isHandsOccupied &&
+                    scenario.Player.isPushingTrolley &&
+                    !scenario.Player.isCarryingProduct &&
+                    trolley.hasTrolleyPusherEntityId &&
+                    trolley.TrolleyPusherEntityId == scenario.Player.EntityId &&
+                    runtime.Game.GetEntityWithTrolleyPusherEntityId(
+                        scenario.Player.EntityId) == trolley &&
+                    !trolley.isInteractable,
+                "Starting trolley push did not establish the exclusive handling relation.");
+
+            scenario.Input.isSprintHeld = true;
+            runtime.Systems.Create<ResolveMovementSpeedSystem>().Execute();
+            Require(Mathf.Approximately(
+                    scenario.Player.MovementSpeed,
+                    runtime.StaticData.PlatformTrolley.MovementSpeed),
+                "Pushing did not apply the configured trolley movement speed.");
+            scenario.Input.isSprintHeld = false;
+
+            runtime.Systems.Create<FollowPushedTrolleySystem>().Execute();
+            Physics.SyncTransforms();
+            Vector3 expectedPosition = scenario.Player.Transform.position +
+                                       scenario.Player.Transform.forward *
+                                       trolley.TrolleyFollowDistance;
+            Collider trolleyBody = trolley.Colliders.Single(collider => !collider.isTrigger);
+            Collider[] cargoBodies = runtime.Game
+                .GetEntitiesWithTrolleyEntityId(trolley.EntityId)
+                .SelectMany(product => product.Colliders.Where(collider => !collider.isTrigger))
+                .ToArray();
+            Require(Vector3.Distance(trolley.Transform.position, expectedPosition) < 0.001f &&
+                    Quaternion.Angle(
+                        trolley.Transform.rotation,
+                        scenario.Player.Transform.rotation) < 0.01f &&
+                    !trolleyBody.bounds.Intersects(
+                        scenario.Player.CharacterController.bounds) &&
+                    cargoBodies.All(collider =>
+                        trolleyBody.bounds.max.y <= collider.bounds.min.y + 0.001f),
+                "Trolley follow pose overlaps the player capsule or its reserved cargo.");
+
+            ValidateBlockedTrolleyMotion(runtime, scenario, trolley, trolleyBody);
+
+            scenario.Player.ReplaceFocusedEntityId(scenario.OrderCounter.EntityId);
+            scenario.Player.isFocusInteractionAvailable = true;
+            scenario.Input.isInteractPressed = true;
+            runtime.Systems.Create<EmitInteractionRequestSystem>().Execute();
+            Require(runtime.Game.GetGroup(GameMatcher.InteractionRequest).count == 0,
+                "World interaction emitted while the player was pushing the trolley.");
+            CleanupEvents(runtime);
+
+            RequestInteraction(scenario.Player, scenario.ProcurementTerminal);
+            runtime.Systems.Create<OpenProcurementSystem>().Execute();
+            RequireNotificationKey(runtime, LocalizationKey.NotificationReleaseTrolleyFirst);
+            Require(!scenario.Player.isModalOpen &&
+                    !scenario.Player.hasProcurementTerminalEntityId,
+                "Procurement opened while the player was pushing the trolley.");
+            CleanupEvents(runtime);
+
+            RequestInteraction(scenario.Player, scenario.OrderCounter);
+            runtime.Systems.Create<OpenConsultationSystem>().Execute();
+            Require(!scenario.Player.isModalOpen &&
+                    !scenario.Player.hasConsultationVisitEntityId,
+                "Consultation opened while the player was pushing the trolley.");
+            CleanupEvents(runtime);
+
+            scenario.Input.isDropPressed = true;
+            runtime.Systems.Create<DetachPushedTrolleySystem>().Execute();
+            CleanupEvents(runtime);
+            runtime.Systems.Create<ResolveMovementSpeedSystem>().Execute();
+            runtime.Systems.Create<ValidatePlayerHandlingStateSystem>().Execute();
+            runtime.Systems.Create<ValidatePlatformTrolleyStateSystem>().Execute();
+            Require(!scenario.Player.isHandsOccupied &&
+                    !scenario.Player.isPushingTrolley &&
+                    !trolley.hasTrolleyPusherEntityId &&
+                    runtime.Game.GetEntityWithTrolleyPusherEntityId(
+                        scenario.Player.EntityId) == null &&
+                    trolley.isInteractable &&
+                    Mathf.Approximately(
+                        scenario.Player.MovementSpeed,
+                        scenario.Player.WalkSpeed),
+                "Dropping the trolley did not restore empty-hand walking state.");
+            if (scenario.Player.hasFocusedEntityId)
+                scenario.Player.RemoveFocusedEntityId();
+            scenario.Player.isFocusInteractionAvailable = false;
+            ExecuteInteractionPrompts(runtime);
+        }
+
+        private static void ValidateBlockedTrolleyMotion(
+            Runtime runtime,
+            Scenario scenario,
+            GameEntity trolley,
+            Collider trolleyBody)
+        {
+            GameEntity[] cargo = runtime.Game
+                .GetEntitiesWithTrolleyEntityId(trolley.EntityId)
+                .OrderBy(product => product.TrolleySlotIndex)
+                .ToArray();
+            Require(cargo.Length == trolley.TrolleyCapacity &&
+                    cargo.All(product =>
+                        product.hasReservedStorageSlotIndex &&
+                        product.hasReservedOrderLineEntityId),
+                "Blocked trolley motion requires a full cart with preserved stock reservations.");
+
+            Vector3 trolleyPositionBefore = trolley.Transform.position;
+            Quaternion trolleyRotationBefore = trolley.Transform.rotation;
+            Vector3 rigidbodyPositionBefore = trolley.Rigidbody.position;
+            Quaternion rigidbodyRotationBefore = trolley.Rigidbody.rotation;
+            Vector3[] cargoPositionsBefore = cargo
+                .Select(product => product.Transform.position)
+                .ToArray();
+            int[] trolleySlotsBefore = cargo
+                .Select(product => product.TrolleySlotIndex)
+                .ToArray();
+            int[] storageSlotsBefore = cargo
+                .Select(product => product.ReservedStorageSlotIndex)
+                .ToArray();
+            int[] orderLinesBefore = cargo
+                .Select(product => product.ReservedOrderLineEntityId)
+                .ToArray();
+
+            CharacterController controller = scenario.Player.CharacterController;
+            controller.enabled = false;
+            scenario.Player.Transform.position += Vector3.back * 1.4f;
+            controller.enabled = true;
+            Vector3 blockedTargetPosition = scenario.Player.Transform.position +
+                                            scenario.Player.Transform.forward *
+                                            trolley.TrolleyFollowDistance;
+            Quaternion blockedTargetRotation = scenario.Player.Transform.rotation;
+            BoxCollider bodyBox = trolleyBody as BoxCollider;
+            Require(bodyBox != null,
+                "Collision-safe trolley smoke requires the authored BoxCollider hull.");
+            Vector3 blockedHullCenter = blockedTargetPosition +
+                                        blockedTargetRotation * bodyBox.center;
+
+            GameObject wall = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            wall.name = "Smoke Collision-Safe Trolley Wall";
+            int ignoreRaycastLayer = LayerMask.NameToLayer("Ignore Raycast");
+            Require(ignoreRaycastLayer >= 0,
+                "The built-in Ignore Raycast layer is required for trolley motion smoke.");
+            wall.layer = ignoreRaycastLayer;
+            wall.transform.SetPositionAndRotation(
+                blockedHullCenter,
+                blockedTargetRotation);
+            wall.transform.localScale = new Vector3(
+                bodyBox.size.x + 0.2f,
+                bodyBox.size.y + 0.2f,
+                0.2f);
+            Physics.SyncTransforms();
+
+            try
+            {
+                runtime.Systems.Create<FollowPushedTrolleySystem>().Execute();
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(wall);
+                Physics.SyncTransforms();
+            }
+
+            Require(Vector3.Distance(trolley.Transform.position, trolleyPositionBefore) <
+                    0.001f &&
+                    Quaternion.Angle(trolley.Transform.rotation, trolleyRotationBefore) <
+                    0.001f &&
+                    Vector3.Distance(trolley.Rigidbody.position, rigidbodyPositionBefore) <
+                    0.001f &&
+                    Quaternion.Angle(trolley.Rigidbody.rotation, rigidbodyRotationBefore) <
+                    0.001f,
+                "A blocked trolley collision query changed its Transform or Rigidbody pose.");
+            Require(cargo.Select(product => product.TrolleySlotIndex)
+                        .SequenceEqual(trolleySlotsBefore) &&
+                    cargo.Select(product => product.ReservedStorageSlotIndex)
+                        .SequenceEqual(storageSlotsBefore) &&
+                    cargo.Select(product => product.ReservedOrderLineEntityId)
+                        .SequenceEqual(orderLinesBefore) &&
+                    cargo.Select(product => product.Transform.position)
+                        .Zip(cargoPositionsBefore, Vector3.Distance)
+                        .All(distance => distance < 0.001f) &&
+                    scenario.Player.isHandsOccupied &&
+                    scenario.Player.isPushingTrolley &&
+                    !scenario.Player.isCarryingProduct &&
+                    trolley.TrolleyPusherEntityId == scenario.Player.EntityId,
+                "Blocked trolley motion changed cargo, reservations or pushing relations.");
+
+            runtime.Systems.Create<FollowPushedTrolleySystem>().Execute();
+            Physics.SyncTransforms();
+            Require(Vector3.Distance(trolley.Transform.position, blockedTargetPosition) <
+                    0.001f &&
+                    Quaternion.Angle(trolley.Transform.rotation, blockedTargetRotation) <
+                    0.001f &&
+                    cargo.All(product =>
+                        product.hasTrolleyEntityId &&
+                        product.TrolleyEntityId == trolley.EntityId &&
+                        product.hasReservedStorageSlotIndex &&
+                        product.hasReservedOrderLineEntityId),
+                "Trolley did not resume collision-safe follow after the wall was removed.");
+        }
+
+        private static void LoadTrolleyProductIntoOrder(
+            Runtime runtime,
+            Scenario scenario,
+            GameEntity visit,
+            GameEntity trolley,
+            GameEntity product,
+            bool expectCompleted)
+        {
+            GameEntity[] orderLines = GetOrderLines(runtime.Game, visit);
+            GameEntity orderLine = FindOrderLine(orderLines, product.ProductType);
+            int totalLoadedBefore = orderLines.Sum(line => line.LoadedProductCount);
+            int lineLoadedBefore = orderLine.LoadedProductCount;
+            int trolleyCargoBefore = trolley.OccupiedTrolleySlotCount;
+            int reservedStorageSlotIndex = product.ReservedStorageSlotIndex;
+            Require(visit.isCustomerVisitLoading &&
+                    product.hasTrolleyEntityId &&
+                    product.TrolleyEntityId == trolley.EntityId &&
+                    product.hasReservedOrderLineEntityId &&
+                    product.ReservedOrderLineEntityId == orderLine.EntityId,
+                "Trolley order loading requires reserved cargo for the active order.");
+
+            PickUpProduct(runtime, scenario, product);
+            Require(!product.hasTrolleyEntityId &&
+                    !product.hasTrolleySlotIndex &&
+                    product.hasReservedStorageSlotIndex &&
+                    product.ReservedStorageSlotIndex == reservedStorageSlotIndex &&
+                    product.hasReservedOrderLineEntityId &&
+                    product.ReservedOrderLineEntityId == orderLine.EntityId,
+                "Picking cargo from the trolley lost its storage or order reservation.");
+            runtime.Systems.Create<RefreshTrolleyOccupiedSlotCountSystem>().Execute();
+            Require(trolley.OccupiedTrolleySlotCount == trolleyCargoBefore - 1,
+                "Picking trolley cargo did not release its exact cargo slot.");
+
+            RequestInteraction(scenario.Player, visit);
+            runtime.Systems.Create<LoadHeldProductSystem>().Execute();
+            Require(product.isProductLoaded && product.isLoaded &&
+                    product.hasOrderLineEntityId &&
+                    product.OrderLineEntityId == orderLine.EntityId &&
+                    product.hasLoadingSlotIndex &&
+                    product.LoadingSlotIndex == totalLoadedBefore &&
+                    !product.hasReservedStorageSlotIndex &&
+                    !product.hasReservedOrderLineEntityId &&
+                    !product.hasCarrierEntityId &&
+                    !scenario.Player.isHandsOccupied,
+                "Trolley cargo did not convert its reservation into loaded order ownership.");
+
+            runtime.Systems.Create<RegisterLoadedProductSystem>().Execute();
+            Require(!product.isProductLoaded &&
+                    orderLine.LoadedProductCount == lineLoadedBefore + 1,
+                "Trolley cargo ProductLoaded was not consumed exactly once.");
+            runtime.Systems.Create<CompleteOrderSystem>().Execute();
+            ExecuteProductPlacement(runtime);
+            ExecuteStorageState(runtime);
+            runtime.Systems.Create<RefreshTrolleyOccupiedSlotCountSystem>().Execute();
+            runtime.Systems.Create<ValidatePlatformTrolleyStateSystem>().Execute();
+            CleanupEvents(runtime);
+
+            Require(visit.isCustomerVisitCompleted == expectCompleted &&
+                    visit.isCustomerVisitLoading != expectCompleted &&
+                    product.isLoaded && !product.isInStock &&
+                    product.hasOrderLineEntityId &&
+                    product.OrderLineEntityId == orderLine.EntityId &&
+                    product.Transform.parent == visit.Slots[product.LoadingSlotIndex] &&
+                    !product.hasTrolleyEntityId &&
+                    !product.hasTrolleySlotIndex,
+                expectCompleted
+                    ? "The mixed trolley order did not complete after its final cargo item."
+                    : "The mixed trolley order completed before its final cargo item.");
+        }
+
         private static void LoadAndRewardCustomerOrder(
             Runtime runtime,
             Scenario scenario,
@@ -1865,6 +3087,7 @@ namespace HardwareStore.Editor
             GameEntity orderLine = FindOrderLine(orderLines, product.ProductType);
             int totalLoadedBefore = orderLines.Sum(line => line.LoadedProductCount);
             int lineLoadedBefore = orderLine.LoadedProductCount;
+            int storageSlotIndex = product.StorageSlotIndex;
             Require(lineLoadedBefore < orderLine.RequiredProductCount,
                 $"Order line {orderLine.EntityId} is already complete.");
 
@@ -1884,7 +3107,11 @@ namespace HardwareStore.Editor
             Require(product.hasCarrierEntityId &&
                     product.CarrierEntityId == scenario.Player.EntityId &&
                     product.isInStock &&
-                    !product.hasStorageSlotIndex,
+                    !product.hasStorageSlotIndex &&
+                    product.hasReservedStorageSlotIndex &&
+                    product.ReservedStorageSlotIndex == storageSlotIndex &&
+                    product.hasReservedOrderLineEntityId &&
+                    product.ReservedOrderLineEntityId == orderLine.EntityId,
                 $"Stock product {product.EntityId} was not picked for loading.");
 
             RequestInteraction(scenario.Player, visit);
@@ -1895,6 +3122,8 @@ namespace HardwareStore.Editor
                     product.OrderLineEntityId == orderLine.EntityId &&
                     product.hasLoadingSlotIndex &&
                     product.LoadingSlotIndex == totalLoadedBefore &&
+                    !product.hasReservedStorageSlotIndex &&
+                    !product.hasReservedOrderLineEntityId &&
                     !product.hasCarrierEntityId &&
                     !scenario.Player.isHandsOccupied,
                 $"ProductLoaded was not raised on product {product.EntityId}.");
@@ -2279,6 +3508,20 @@ namespace HardwareStore.Editor
                         1550)) ==
                     $"Заказ выполнен: +{formattedMoney} ₽",
                 "Russian money formatting did not use the loaded localization culture.");
+            Require(localization.Resolve(LocalizedTexts.Text(
+                        LocalizationKey.PromptTrolleyUpgradeLocked,
+                        1,
+                        2)) ==
+                    "Тележка откроется после заказов • выполнено 1/2" &&
+                    localization.Resolve(LocalizedTexts.Text(
+                        LocalizationKey.WorldTrolleyUpgrade,
+                        200)) ==
+                    "ПЛАТФОРМЕННАЯ ТЕЛЕЖКА • 200 ₽",
+                "Russian trolley localization did not preserve key arity or price formatting.");
+            Require(localization.Resolve(LocalizedTexts.Text(
+                        LocalizationKey.NotificationProductDropBlocked)) ==
+                    "Недостаточно места, чтобы бросить товар",
+                "Russian collision-safe drop localization did not preserve its zero-argument text.");
         }
 
         private static ILocalizationService CreateRussianLocalization()
@@ -2355,13 +3598,10 @@ namespace HardwareStore.Editor
         private static GameEntity[] FindDeliveryProducts(
             GameContext context,
             int deliveryEntityId) =>
-            context.GetGroup(GameMatcher.AllOf(
-                    GameMatcher.EntityId,
-                    GameMatcher.Product,
-                    GameMatcher.InboundProduct,
-                    GameMatcher.DeliveryEntityId))
-                .GetEntities()
-                .Where(product => product.DeliveryEntityId == deliveryEntityId)
+            context.GetEntitiesWithDeliveryEntityId(deliveryEntityId)
+                .Where(product => product.hasEntityId &&
+                                  product.isProduct &&
+                                  product.isInboundProduct)
                 .OrderBy(product => product.EntityId)
                 .ToArray();
 
@@ -2491,6 +3731,7 @@ namespace HardwareStore.Editor
                 GameEntity orderCounter,
                 GameEntity procurementTerminal,
                 GameEntity storageZone,
+                GameEntity trolleyUpgradeTerminal,
                 InputEntity input)
             {
                 Player = player;
@@ -2498,6 +3739,7 @@ namespace HardwareStore.Editor
                 OrderCounter = orderCounter;
                 ProcurementTerminal = procurementTerminal;
                 StorageZone = storageZone;
+                TrolleyUpgradeTerminal = trolleyUpgradeTerminal;
                 Input = input;
             }
 
@@ -2506,6 +3748,7 @@ namespace HardwareStore.Editor
             public GameEntity OrderCounter { get; }
             public GameEntity ProcurementTerminal { get; }
             public GameEntity StorageZone { get; }
+            public GameEntity TrolleyUpgradeTerminal { get; }
             public InputEntity Input { get; }
         }
 

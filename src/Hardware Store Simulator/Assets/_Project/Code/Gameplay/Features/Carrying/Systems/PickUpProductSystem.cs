@@ -35,19 +35,22 @@ namespace HardwareStore.Gameplay.Features.Carrying.Systems
                 if (product.hasCarrierEntityId || product.isLoaded)
                     continue;
 
+                GameEntity reservedOrderLine = null;
                 bool canPickUp = product.isInboundProduct
                     ? CanPickUpInbound(product, player)
-                    : CanPickUpStock(product, player);
+                    : CanPickUpStock(product, player, out reservedOrderLine);
                 if (!canPickUp)
                     continue;
 
                 if (product.isInStock)
-                    ReleaseStorageSlot(product);
+                    ReserveStoragePlacement(product, reservedOrderLine);
 
-                ReleaseDeliverySlot(product);
+                ReserveDeliverySlot(product);
+                ReleaseTrolleySlot(product);
                 ReleaseLoosePose(product);
                 if (product.hasDeliverySlotIndex || product.hasStorageSlotIndex ||
-                    product.hasOrderLineEntityId || product.hasLoadingSlotIndex)
+                    product.hasOrderLineEntityId || product.hasLoadingSlotIndex ||
+                    product.hasTrolleyEntityId || product.hasTrolleySlotIndex)
                 {
                     throw new InvalidOperationException(
                         $"Product {product.EntityId} contains stale slot placement state.");
@@ -55,6 +58,7 @@ namespace HardwareStore.Gameplay.Features.Carrying.Systems
 
                 product.AddCarrierEntityId(player.EntityId);
                 player.isHandsOccupied = true;
+                player.isCarryingProduct = true;
                 product.isInteractable = false;
                 product.isProductPlacementDirty = true;
                 _events.EmitAudio(AudioCueId.PickUp);
@@ -68,15 +72,31 @@ namespace HardwareStore.Gameplay.Features.Carrying.Systems
                     $"Inbound product {product.EntityId} has no delivery relation.");
 
             GameEntity delivery = _gameContext.GetEntityWithEntityId(product.DeliveryEntityId);
-            if (!delivery.isDeliveryActive)
+            if (delivery == null || !delivery.isDelivery || !delivery.isDeliveryActive ||
+                !delivery.hasEntityId || !delivery.hasSlots)
                 throw new InvalidOperationException(
                     $"Inbound product {product.EntityId} is linked to an inactive delivery.");
+            if (product.hasDeliverySlotIndex == product.hasReservedDeliverySlotIndex)
+                throw new InvalidOperationException(
+                    $"Inbound product {product.EntityId} must own exactly one delivery slot state.");
+
+            int slotIndex = product.hasDeliverySlotIndex
+                ? product.DeliverySlotIndex
+                : product.ReservedDeliverySlotIndex;
+            if (slotIndex < 0 || slotIndex >= delivery.Slots.Length)
+                throw new InvalidOperationException(
+                    $"Inbound product {product.EntityId} references invalid delivery slot " +
+                    $"{slotIndex}.");
 
             return delivery.StoreEntityId == player.StoreEntityId;
         }
 
-        private bool CanPickUpStock(GameEntity product, GameEntity player)
+        private bool CanPickUpStock(
+            GameEntity product,
+            GameEntity player,
+            out GameEntity reservedOrderLine)
         {
+            reservedOrderLine = null;
             if (!product.isInStock)
                 return false;
             if (!product.hasStorageZoneEntityId)
@@ -96,6 +116,28 @@ namespace HardwareStore.Gameplay.Features.Carrying.Systems
                 throw new InvalidOperationException(
                     $"Loading customer visit {customerVisit.EntityId} has no order.");
 
+            if (product.hasReservedOrderLineEntityId)
+            {
+                reservedOrderLine = _gameContext.GetEntityWithEntityId(
+                    product.ReservedOrderLineEntityId);
+                ValidateOrderLine(customerVisit, reservedOrderLine);
+                if (reservedOrderLine.ProductType != product.ProductType)
+                    throw new InvalidOperationException(
+                        $"Product {product.EntityId} reserves order line " +
+                        $"{reservedOrderLine.EntityId} for another product type.");
+                int existingReservationCount = CountReservedProducts(reservedOrderLine);
+                if (reservedOrderLine.LoadedProductCount >=
+                    reservedOrderLine.RequiredProductCount ||
+                    reservedOrderLine.LoadedProductCount + existingReservationCount >
+                    reservedOrderLine.RequiredProductCount)
+                {
+                    throw new InvalidOperationException(
+                        $"Order line {reservedOrderLine.EntityId} has invalid reserved quota.");
+                }
+
+                return true;
+            }
+
             GameEntity matchingLine = null;
             foreach (GameEntity line in
                      _gameContext.GetEntitiesWithOrderEntityId(customerVisit.EntityId))
@@ -111,8 +153,40 @@ namespace HardwareStore.Gameplay.Features.Carrying.Systems
                 matchingLine = line;
             }
 
-            return matchingLine != null &&
-                   matchingLine.LoadedProductCount < matchingLine.RequiredProductCount;
+            if (matchingLine == null)
+                return false;
+
+            int reservedProductCount = CountReservedProducts(matchingLine);
+            if (matchingLine.LoadedProductCount + reservedProductCount >=
+                matchingLine.RequiredProductCount)
+                return false;
+
+            reservedOrderLine = matchingLine;
+            return true;
+        }
+
+        private int CountReservedProducts(GameEntity orderLine)
+        {
+            int count = 0;
+            foreach (GameEntity product in
+                     _gameContext.GetEntitiesWithReservedOrderLineEntityId(orderLine.EntityId))
+            {
+                if (!product.isProduct || product.isDestructed || !product.isInStock ||
+                    !product.hasEntityId || !product.hasProductType ||
+                    !product.hasStorageZoneEntityId ||
+                    !product.hasReservedStorageSlotIndex ||
+                    product.ReservedOrderLineEntityId != orderLine.EntityId ||
+                    product.ProductType != orderLine.ProductType ||
+                    product.StorageZoneEntityId != orderLine.StorageZoneEntityId)
+                {
+                    throw new InvalidOperationException(
+                        $"Order line {orderLine.EntityId} has an invalid product reservation.");
+                }
+
+                count++;
+            }
+
+            return count;
         }
 
         private static void ValidateOrderLine(GameEntity visit, GameEntity line)
@@ -135,20 +209,54 @@ namespace HardwareStore.Gameplay.Features.Carrying.Systems
             }
         }
 
-        private static void ReleaseDeliverySlot(GameEntity product)
+        private static void ReserveDeliverySlot(GameEntity product)
         {
             if (product.hasDeliverySlotIndex)
+            {
+                if (product.hasReservedDeliverySlotIndex)
+                    throw new InvalidOperationException(
+                        $"Inbound product {product.EntityId} already reserves a delivery slot.");
+
+                int slotIndex = product.DeliverySlotIndex;
                 product.RemoveDeliverySlotIndex();
+                product.AddReservedDeliverySlotIndex(slotIndex);
+            }
         }
 
-        private static void ReleaseStorageSlot(GameEntity product)
+        private static void ReserveStoragePlacement(
+            GameEntity product,
+            GameEntity orderLine)
         {
             if (!product.hasStorageZoneEntityId)
                 throw new InvalidOperationException(
                     $"In-stock product {product.EntityId} has no storage ownership relation.");
 
             if (product.hasStorageSlotIndex)
+            {
+                if (product.hasReservedStorageSlotIndex)
+                    throw new InvalidOperationException(
+                        $"Stock product {product.EntityId} already reserves a storage slot.");
+
+                int slotIndex = product.StorageSlotIndex;
                 product.RemoveStorageSlotIndex();
+                product.AddReservedStorageSlotIndex(slotIndex);
+            }
+            else if (!product.hasReservedStorageSlotIndex)
+            {
+                throw new InvalidOperationException(
+                    $"Stock product {product.EntityId} has no storage slot reservation.");
+            }
+
+            if (product.hasReservedOrderLineEntityId)
+            {
+                if (product.ReservedOrderLineEntityId != orderLine.EntityId)
+                    throw new InvalidOperationException(
+                        $"Stock product {product.EntityId} reserves another order line.");
+            }
+            else
+            {
+                product.AddReservedOrderLineEntityId(orderLine.EntityId);
+            }
         }
 
         private static void ReleaseLoosePose(GameEntity product)
@@ -169,6 +277,18 @@ namespace HardwareStore.Gameplay.Features.Carrying.Systems
             product.isLooseProduct = false;
             product.RemoveWorldPosition();
             product.RemoveWorldRotation();
+        }
+
+        private static void ReleaseTrolleySlot(GameEntity product)
+        {
+            if (product.hasTrolleyEntityId != product.hasTrolleySlotIndex)
+                throw new InvalidOperationException(
+                    $"Product {product.EntityId} has incomplete trolley placement state.");
+            if (!product.hasTrolleyEntityId)
+                return;
+
+            product.RemoveTrolleyEntityId();
+            product.RemoveTrolleySlotIndex();
         }
     }
 }

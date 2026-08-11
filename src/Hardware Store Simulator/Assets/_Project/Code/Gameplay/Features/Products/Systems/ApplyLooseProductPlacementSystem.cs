@@ -21,13 +21,18 @@ namespace HardwareStore.Gameplay.Features.Products.Systems
                     GameMatcher.Colliders,
                     GameMatcher.RigidbodyInterpolationMode,
                     GameMatcher.RigidbodyCollisionDetectionMode)
+                .AnyOf(
+                    GameMatcher.ReservedDeliverySlotIndex,
+                    GameMatcher.ReservedStorageSlotIndex)
                 .NoneOf(
                     GameMatcher.CarrierEntityId,
                     GameMatcher.Loaded,
                     GameMatcher.OrderLineEntityId,
                     GameMatcher.DeliverySlotIndex,
                     GameMatcher.StorageSlotIndex,
-                    GameMatcher.LoadingSlotIndex));
+                    GameMatcher.LoadingSlotIndex,
+                    GameMatcher.TrolleyEntityId,
+                    GameMatcher.TrolleySlotIndex));
 
         public void Execute()
         {

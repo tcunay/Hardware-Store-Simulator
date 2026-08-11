@@ -20,6 +20,8 @@ namespace HardwareStore.Gameplay.StaticData
         public PlayerConfig Player { get; private set; }
         public InteractionConfig Interaction { get; private set; }
         public EconomyConfig Economy { get; private set; }
+        public ProductRecoveryConfig ProductRecovery { get; private set; }
+        public PlatformTrolleyConfig PlatformTrolley { get; private set; }
         public CustomerConfig Customer { get; private set; }
         public CustomerVehicleConfig CustomerVehicle { get; private set; }
         public IReadOnlyList<ProductTypeId> ProductTypes =>
@@ -34,6 +36,10 @@ namespace HardwareStore.Gameplay.StaticData
             PlayerConfig player = Load<PlayerConfig>(nameof(PlayerConfig));
             InteractionConfig interaction = Load<InteractionConfig>(nameof(InteractionConfig));
             EconomyConfig economy = Load<EconomyConfig>(nameof(EconomyConfig));
+            ProductRecoveryConfig productRecovery =
+                Load<ProductRecoveryConfig>(nameof(ProductRecoveryConfig));
+            PlatformTrolleyConfig platformTrolley =
+                Load<PlatformTrolleyConfig>(nameof(PlatformTrolleyConfig));
             CustomerConfig customer = Load<CustomerConfig>(nameof(CustomerConfig));
             CustomerVehicleConfig customerVehicle =
                 Load<CustomerVehicleConfig>(nameof(CustomerVehicleConfig));
@@ -54,6 +60,8 @@ namespace HardwareStore.Gameplay.StaticData
             player.Validate();
             interaction.Validate();
             economy.Validate();
+            productRecovery.Validate();
+            platformTrolley.Validate();
             customer.Validate();
             customerVehicle.Validate();
             ValidateEnumCoverage<ProductTypeId, ProductConfig>(products, "Product");
@@ -65,6 +73,7 @@ namespace HardwareStore.Gameplay.StaticData
                 player,
                 economy,
                 customerVehicle,
+                platformTrolley,
                 productTypes,
                 projectTypes,
                 products,
@@ -74,6 +83,8 @@ namespace HardwareStore.Gameplay.StaticData
             Player = player;
             Interaction = interaction;
             Economy = economy;
+            ProductRecovery = productRecovery;
+            PlatformTrolley = platformTrolley;
             Customer = customer;
             CustomerVehicle = customerVehicle;
             _products = products;
@@ -136,6 +147,7 @@ namespace HardwareStore.Gameplay.StaticData
             PlayerConfig player,
             EconomyConfig economy,
             CustomerVehicleConfig customerVehicle,
+            PlatformTrolleyConfig platformTrolley,
             IReadOnlyList<ProductTypeId> productTypes,
             IReadOnlyList<CustomerProjectTypeId> projectTypes,
             IReadOnlyDictionary<ProductTypeId, ProductConfig> products,
@@ -161,11 +173,34 @@ namespace HardwareStore.Gameplay.StaticData
                 }
             }
 
+            float fastestCarryMovementSpeed = productTypes
+                .Max(productType => products[productType].CarryMovementSpeed);
+            if (platformTrolley.MovementSpeed <= fastestCarryMovementSpeed ||
+                platformTrolley.MovementSpeed >= player.WalkSpeed)
+            {
+                throw new InvalidOperationException(
+                    $"{nameof(PlatformTrolleyConfig)}.{nameof(PlatformTrolleyConfig.MovementSpeed)} " +
+                    "must be faster than carrying every product and slower than walking.");
+            }
+            if (platformTrolley.Capacity < customerVehicle.CargoCapacity)
+            {
+                throw new InvalidOperationException(
+                    $"{nameof(PlatformTrolleyConfig)}.{nameof(PlatformTrolleyConfig.Capacity)} " +
+                    "must fit a complete customer-vehicle order.");
+            }
+
             foreach (CustomerProjectTypeId projectType in projectTypes)
                 ValidateProject(projects[projectType], customerVehicle, products);
 
             ValidateDefaultProjectSequenceEconomy(
                 economy.InitialMoney,
+                projectTypes,
+                projects,
+                products,
+                deliveries);
+            ValidateTrolleyUpgradeLiquidity(
+                economy.InitialMoney,
+                platformTrolley,
                 projectTypes,
                 projects,
                 products,
@@ -283,6 +318,169 @@ namespace HardwareStore.Gameplay.StaticData
                 }
             }
         }
+
+        private static void ValidateTrolleyUpgradeLiquidity(
+            int initialMoney,
+            PlatformTrolleyConfig trolley,
+            IReadOnlyList<CustomerProjectTypeId> projectTypes,
+            IReadOnlyDictionary<CustomerProjectTypeId, CustomerProjectConfig> projects,
+            IReadOnlyDictionary<ProductTypeId, ProductConfig> products,
+            IReadOnlyDictionary<ProductTypeId, DeliveryConfig> deliveries)
+        {
+            int validatedProjectCount = trolley.RequiredCompletedOrderCount + 1;
+            if (projectTypes.Count < validatedProjectCount)
+            {
+                throw new InvalidOperationException(
+                    $"The trolley unlock after {trolley.RequiredCompletedOrderCount} orders " +
+                    "requires at least one subsequent configured customer project.");
+            }
+
+            var initialStock = products.Keys.ToDictionary(
+                productType => productType,
+                ignoredProductType => 0);
+            ValidateTrolleyOfferPaths(
+                projectIndex: 0,
+                validatedProjectCount,
+                initialMoney,
+                initialStock,
+                new List<int>(validatedProjectCount),
+                trolley,
+                projectTypes,
+                projects,
+                products,
+                deliveries);
+        }
+
+        private static void ValidateTrolleyOfferPaths(
+            int projectIndex,
+            int validatedProjectCount,
+            int money,
+            IReadOnlyDictionary<ProductTypeId, int> stock,
+            List<int> offerPath,
+            PlatformTrolleyConfig trolley,
+            IReadOnlyList<CustomerProjectTypeId> projectTypes,
+            IReadOnlyDictionary<CustomerProjectTypeId, CustomerProjectConfig> projects,
+            IReadOnlyDictionary<ProductTypeId, ProductConfig> products,
+            IReadOnlyDictionary<ProductTypeId, DeliveryConfig> deliveries)
+        {
+            if (projectIndex >= validatedProjectCount)
+                return;
+
+            CustomerProjectTypeId projectType = projectTypes[projectIndex];
+            CustomerProjectConfig project = projects[projectType];
+            for (int offerIndex = 0; offerIndex < project.Offers.Count; offerIndex++)
+            {
+                var nextStock = stock.ToDictionary(pair => pair.Key, pair => pair.Value);
+                offerPath.Add(offerIndex);
+                int nextMoney;
+                try
+                {
+                    nextMoney = CompleteProjectedProject(
+                        money,
+                        nextStock,
+                        project.Offers[offerIndex],
+                        products,
+                        deliveries,
+                        projectType,
+                        offerPath);
+                    if (projectIndex + 1 == trolley.RequiredCompletedOrderCount)
+                    {
+                        if (nextMoney < trolley.PurchasePrice)
+                        {
+                            throw new InvalidOperationException(
+                                $"Trolley liquidity path {FormatOfferPath(projectTypes, offerPath)} " +
+                                $"cannot afford the {trolley.PurchasePrice} trolley after " +
+                                $"{trolley.RequiredCompletedOrderCount} orders; available " +
+                                $"money is {nextMoney}.");
+                        }
+
+                        nextMoney = checked(nextMoney - trolley.PurchasePrice);
+                    }
+
+                    ValidateTrolleyOfferPaths(
+                        projectIndex + 1,
+                        validatedProjectCount,
+                        nextMoney,
+                        nextStock,
+                        offerPath,
+                        trolley,
+                        projectTypes,
+                        projects,
+                        products,
+                        deliveries);
+                }
+                catch (OverflowException exception)
+                {
+                    throw new InvalidOperationException(
+                        $"Trolley liquidity path {FormatOfferPath(projectTypes, offerPath)} " +
+                        "must fit a 32-bit signed integer.",
+                        exception);
+                }
+                finally
+                {
+                    offerPath.RemoveAt(offerPath.Count - 1);
+                }
+            }
+        }
+
+        private static int CompleteProjectedProject(
+            int money,
+            IDictionary<ProductTypeId, int> stock,
+            CustomerProjectOfferDefinition offer,
+            IReadOnlyDictionary<ProductTypeId, ProductConfig> products,
+            IReadOnlyDictionary<ProductTypeId, DeliveryConfig> deliveries,
+            CustomerProjectTypeId projectType,
+            IReadOnlyList<int> offerPath)
+        {
+            int purchaseCost = 0;
+            int reward = 0;
+            foreach (CustomerProjectLineDefinition line in offer.Lines)
+            {
+                int availableCount = stock[line.ProductType];
+                int deficit = Math.Max(0, line.RequiredCount - availableCount);
+                DeliveryConfig delivery = deliveries[line.ProductType];
+                int batchCount = deficit == 0
+                    ? 0
+                    : checked((deficit + delivery.ProductCount - 1) /
+                              delivery.ProductCount);
+                purchaseCost = checked(
+                    purchaseCost + checked(batchCount * delivery.TotalCost));
+                stock[line.ProductType] = checked(
+                    availableCount + checked(batchCount * delivery.ProductCount));
+                reward = checked(
+                    reward + checked(products[line.ProductType].UnitPrice *
+                                     line.RequiredCount));
+            }
+
+            if (money < purchaseCost)
+            {
+                throw new InvalidOperationException(
+                    $"Trolley liquidity path {FormatOfferPathPrefix(projectType, offerPath)} " +
+                    $"cannot afford required deliveries: available {money}, required " +
+                    $"{purchaseCost}.");
+            }
+
+            foreach (CustomerProjectLineDefinition line in offer.Lines)
+            {
+                stock[line.ProductType] = checked(
+                    stock[line.ProductType] - line.RequiredCount);
+            }
+
+            return checked(money - purchaseCost + reward);
+        }
+
+        private static string FormatOfferPath(
+            IReadOnlyList<CustomerProjectTypeId> projectTypes,
+            IReadOnlyList<int> offerPath) =>
+            string.Join(
+                " -> ",
+                offerPath.Select((offerIndex, index) =>
+                    $"{projectTypes[index]}[{offerIndex}]"));
+
+        private static string FormatOfferPathPrefix(
+            CustomerProjectTypeId projectType,
+            IReadOnlyList<int> offerPath) =>
+            $"{projectType}[{offerPath[offerPath.Count - 1]}]";
 
         private static Dictionary<TKey, TConfig> LoadCatalog<TConfig, TKey>(
             Func<TConfig, TKey> keySelector)

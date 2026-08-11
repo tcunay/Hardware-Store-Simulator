@@ -26,14 +26,30 @@ namespace HardwareStore.Gameplay.Features.Movement.Systems
             foreach (GameEntity player in _players)
             {
                 float speed;
-                if (player.isHandsOccupied)
+                if (player.isPushingTrolley)
                 {
+                    if (!player.isHandsOccupied || player.isCarryingProduct)
+                        throw new System.InvalidOperationException(
+                            $"Player {player.EntityId} has invalid trolley handling state.");
+
+                    GameEntity trolley =
+                        _gameContext.GetEntityWithTrolleyPusherEntityId(player.EntityId);
+                    speed = trolley.TrolleyMovementSpeed;
+                }
+                else if (player.isCarryingProduct)
+                {
+                    if (!player.isHandsOccupied)
+                        throw new System.InvalidOperationException(
+                            $"Player {player.EntityId} carries a product with free hands.");
                     GameEntity product =
                         _gameContext.GetEntityWithCarrierEntityId(player.EntityId);
                     speed = product.CarryMovementSpeed;
                 }
                 else
                 {
+                    if (player.isHandsOccupied)
+                        throw new System.InvalidOperationException(
+                            $"Player {player.EntityId} has occupied hands without a handling role.");
                     speed = input.isSprintHeld
                         ? player.SprintSpeed
                         : player.WalkSpeed;

@@ -7,6 +7,7 @@ namespace HardwareStore.Gameplay.Factories
         GameEntity CreateOrderCounter(int storeEntityId);
         GameEntity CreateProcurementTerminal(int storeEntityId, int storageZoneEntityId,
             Pose deliveryPose);
+        GameEntity CreateTrolleyUpgradeTerminal(int storeEntityId, Pose trolleySpawnPose);
         GameEntity CreateStorageZone();
     }
 }

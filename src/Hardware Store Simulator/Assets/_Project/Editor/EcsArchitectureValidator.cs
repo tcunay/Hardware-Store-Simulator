@@ -6,6 +6,7 @@ using System.Reflection;
 using System.Text.RegularExpressions;
 using Entitas;
 using HardwareStore.Gameplay.Common.Registrars;
+using HardwareStore.Gameplay.Common.Physics;
 using HardwareStore.Gameplay.Components;
 using HardwareStore.Gameplay.Configs;
 using HardwareStore.Gameplay.Factories;
@@ -51,6 +52,10 @@ namespace HardwareStore.Editor
         private const string CustomerConfigPath =
             "Assets/Resources/Configs/CustomerConfig.asset";
         private const string EconomyConfigPath = "Assets/Resources/Configs/EconomyConfig.asset";
+        private const string ProductRecoveryConfigPath =
+            "Assets/Resources/Configs/ProductRecoveryConfig.asset";
+        private const string PlatformTrolleyConfigPath =
+            "Assets/Resources/Configs/PlatformTrolleyConfig.asset";
         private const string CementProjectConfigPath =
             "Assets/Resources/Configs/CustomerProjectConfig_CementFoundation.asset";
         private const string LumberProjectConfigPath =
@@ -68,6 +73,8 @@ namespace HardwareStore.Editor
             "Assets/_Project/Prefabs/Gameplay/CustomerVehicle.prefab";
         private const string CustomerPrefabPath =
             "Assets/_Project/Prefabs/Gameplay/Customer.prefab";
+        private const string PlatformTrolleyPrefabPath =
+            "Assets/_Project/Prefabs/Gameplay/PlatformTrolley.prefab";
         private const int RequiredStorageSlotCapacity = 9;
 
         private static readonly ProductTypeId[] ExpectedProductTypes =
@@ -165,7 +172,9 @@ namespace HardwareStore.Editor
             typeof(CustomerVehicleConfig),
             typeof(CustomerConfig),
             typeof(CustomerProjectConfig),
-            typeof(ProductConfig)
+            typeof(ProductConfig),
+            typeof(ProductRecoveryConfig),
+            typeof(PlatformTrolleyConfig)
         };
 
         private static readonly (Type Type, string AssetPath)[] ExpectedSingletonGameplayConfigs =
@@ -174,7 +183,9 @@ namespace HardwareStore.Editor
             (typeof(InteractionConfig), InteractionConfigPath),
             (typeof(EconomyConfig), EconomyConfigPath),
             (typeof(CustomerVehicleConfig), CustomerVehicleConfigPath),
-            (typeof(CustomerConfig), CustomerConfigPath)
+            (typeof(CustomerConfig), CustomerConfigPath),
+            (typeof(ProductRecoveryConfig), ProductRecoveryConfigPath),
+            (typeof(PlatformTrolleyConfig), PlatformTrolleyConfigPath)
         };
 
         [MenuItem(MenuPath, priority = 120)]
@@ -205,6 +216,9 @@ namespace HardwareStore.Editor
             ValidateStoreArchitecture(componentTypes);
             ValidateEntityViewBindingBoundary(runtimeTypes, componentTypes);
             ValidateEntityIndices(runtimeTypes, componentTypes);
+            ValidateProductRecoveryArchitecture(runtimeTypes, componentTypes);
+            ValidateCollisionSafeProductDrop(runtimeTypes, componentTypes);
+            ValidateTrolleyArchitecture(runtimeTypes, componentTypes);
             ValidateLocalizationArchitecture(runtimeTypes, componentTypes);
             ValidateConsultationArchitecture(runtimeTypes, componentTypes);
             ValidateProcurementArchitecture(runtimeTypes, componentTypes);
@@ -617,6 +631,15 @@ namespace HardwareStore.Editor
                 "to its procurement terminal.");
             Require(discoveredComponents.Contains(typeof(CarrierEntityId)),
                 $"{nameof(CarrierEntityId)} must relate the carried product to its carrier.");
+            Require(discoveredComponents.Contains(typeof(ReservedDeliverySlotIndex)) &&
+                    discoveredComponents.Contains(typeof(ReservedStorageSlotIndex)) &&
+                    discoveredComponents.Contains(typeof(ReservedOrderLineEntityId)),
+                "Recoverable products require explicit delivery-slot, storage-slot and " +
+                "order-line reservations.");
+            Require(discoveredComponents.Contains(typeof(TrolleyStoreEntityId)) &&
+                    discoveredComponents.Contains(typeof(TrolleyPusherEntityId)) &&
+                    discoveredComponents.Contains(typeof(TrolleyEntityId)),
+                "Platform trolleys require indexed store, pusher and cargo relations.");
             RequireComponentIndexAttribute(
                 typeof(CarrierEntityId),
                 "Entitas.CodeGeneration.Attributes.PrimaryEntityIndexAttribute");
@@ -634,6 +657,21 @@ namespace HardwareStore.Editor
                 "Entitas.CodeGeneration.Attributes.EntityIndexAttribute");
             RequireComponentIndexAttribute(
                 typeof(OrderLineEntityId),
+                "Entitas.CodeGeneration.Attributes.EntityIndexAttribute");
+            RequireComponentIndexAttribute(
+                typeof(DeliveryEntityId),
+                "Entitas.CodeGeneration.Attributes.EntityIndexAttribute");
+            RequireComponentIndexAttribute(
+                typeof(ReservedOrderLineEntityId),
+                "Entitas.CodeGeneration.Attributes.EntityIndexAttribute");
+            RequireComponentIndexAttribute(
+                typeof(TrolleyStoreEntityId),
+                "Entitas.CodeGeneration.Attributes.PrimaryEntityIndexAttribute");
+            RequireComponentIndexAttribute(
+                typeof(TrolleyPusherEntityId),
+                "Entitas.CodeGeneration.Attributes.PrimaryEntityIndexAttribute");
+            RequireComponentIndexAttribute(
+                typeof(TrolleyEntityId),
                 "Entitas.CodeGeneration.Attributes.EntityIndexAttribute");
             RequireComponentIndexAttribute(
                 typeof(ConsultationOfferVisitEntityId),
@@ -660,6 +698,23 @@ namespace HardwareStore.Editor
                 typeof(GameEntity));
             RequireGeneratedIndexApi(runtimeTypes, "GetEntitiesWithOrderEntityId", returnType: null);
             RequireGeneratedIndexApi(runtimeTypes, "GetEntitiesWithOrderLineEntityId", returnType: null);
+            RequireGeneratedIndexApi(runtimeTypes, "GetEntitiesWithDeliveryEntityId", returnType: null);
+            RequireGeneratedIndexApi(
+                runtimeTypes,
+                "GetEntitiesWithReservedOrderLineEntityId",
+                returnType: null);
+            RequireGeneratedIndexApi(
+                runtimeTypes,
+                "GetEntityWithTrolleyStoreEntityId",
+                typeof(GameEntity));
+            RequireGeneratedIndexApi(
+                runtimeTypes,
+                "GetEntityWithTrolleyPusherEntityId",
+                typeof(GameEntity));
+            RequireGeneratedIndexApi(
+                runtimeTypes,
+                "GetEntitiesWithTrolleyEntityId",
+                returnType: null);
             RequireGeneratedIndexApi(
                 runtimeTypes,
                 "GetEntitiesWithConsultationOfferVisitEntityId",
@@ -705,6 +760,26 @@ namespace HardwareStore.Editor
                     combinedRuntimeSource,
                     @"\.GetEntitiesWithOrderLineEntityId\s*\("),
                 $"Runtime loading logic must consume the {nameof(OrderLineEntityId)} entity index.");
+            Require(Regex.IsMatch(
+                    combinedRuntimeSource,
+                    @"\.GetEntitiesWithDeliveryEntityId\s*\("),
+                $"Runtime delivery logic must consume the {nameof(DeliveryEntityId)} entity index.");
+            Require(Regex.IsMatch(
+                    combinedRuntimeSource,
+                    @"\.GetEntitiesWithReservedOrderLineEntityId\s*\("),
+                "Runtime pickup and loading logic must count outstanding order-line reservations.");
+            Require(Regex.IsMatch(
+                    combinedRuntimeSource,
+                    @"\.GetEntityWithTrolleyStoreEntityId\s*\("),
+                "Runtime purchase logic must consume the trolley store primary index.");
+            Require(Regex.IsMatch(
+                    combinedRuntimeSource,
+                    @"\.GetEntityWithTrolleyPusherEntityId\s*\("),
+                "Runtime handling logic must consume the trolley pusher primary index.");
+            Require(Regex.IsMatch(
+                    combinedRuntimeSource,
+                    @"\.GetEntitiesWithTrolleyEntityId\s*\("),
+                "Runtime cargo logic must consume the trolley cargo entity index.");
             Require(Regex.IsMatch(
                     combinedRuntimeSource,
                     @"\.GetEntitiesWithConsultationOfferVisitEntityId\s*\("),
@@ -953,6 +1028,731 @@ namespace HardwareStore.Editor
                 "RemoveDeliveryProcurementTerminalEntityId",
                 "isDeliveryActive = false",
                 "isDestructed = true");
+        }
+
+        private static void ValidateProductRecoveryArchitecture(
+            Type[] runtimeTypes,
+            IEnumerable<Type> componentTypes)
+        {
+            var discoveredComponents = new HashSet<Type>(componentTypes);
+            foreach (Type componentType in new[]
+                     {
+                         typeof(ReservedDeliverySlotIndex),
+                         typeof(ReservedStorageSlotIndex),
+                         typeof(ReservedOrderLineEntityId)
+                     })
+            {
+                Require(discoveredComponents.Contains(componentType),
+                    $"Product recovery requires the {componentType.Name} Game component.");
+            }
+
+            Type recoveryFeatureType = runtimeTypes.SingleOrDefault(type =>
+                type.Name == "ProductRecoveryFeature");
+            Type recoverySystemType = runtimeTypes.SingleOrDefault(type =>
+                type.Name == "RecoverLostLooseProductsSystem");
+            Require(recoveryFeatureType != null &&
+                    typeof(Feature).IsAssignableFrom(recoveryFeatureType),
+                "ProductRecoveryFeature must remain an Entitas feature.");
+            Require(recoverySystemType != null &&
+                    typeof(IExecuteSystem).IsAssignableFrom(recoverySystemType),
+                "RecoverLostLooseProductsSystem must remain an executable Entitas system.");
+
+            string configSource = ReadRuntimeSource(
+                "Gameplay", "Configs", "ProductRecoveryConfig.cs");
+            RequireSourceContains(configSource,
+                "private float _minimumWorldY = -10f",
+                "public float MinimumWorldY => _minimumWorldY",
+                "ConfigValidation.RequireNegative");
+
+            string staticDataSource = ReadRuntimeSource(
+                "Gameplay", "StaticData", "StaticDataService.cs");
+            RequireSourceContains(staticDataSource,
+                "Load<ProductRecoveryConfig>(nameof(ProductRecoveryConfig))",
+                "productRecovery.Validate()",
+                "ProductRecovery = productRecovery");
+
+            string recoveryFeatureSource = ReadRuntimeSource(
+                "Gameplay", "Features", "Products", "ProductRecoveryFeature.cs");
+            const string recoverySystemToken =
+                "Add(systems.Create<RecoverLostLooseProductsSystem>())";
+            Require(CountOccurrences(recoveryFeatureSource, recoverySystemToken) == 1,
+                "ProductRecoveryFeature must own exactly one lost-product recovery system.");
+
+            string storeFeatureSource = ReadRuntimeSource("Gameplay", "StoreFeature.cs");
+            RequireSourceOrder(
+                storeFeatureSource,
+                "Create<BindViewFeature>()",
+                "Create<StoreSceneBindingsFeature>()",
+                "Generic view binding must precede validation of static trolley scene bindings.");
+            int playerFeaturePosition = storeFeatureSource.IndexOf(
+                "Create<PlayerFeature>()", StringComparison.Ordinal);
+            int recoveryFeaturePosition = storeFeatureSource.IndexOf(
+                "Create<ProductRecoveryFeature>()", StringComparison.Ordinal);
+            int interactionFeaturePosition = storeFeatureSource.IndexOf(
+                "Create<InteractionFeature>()", StringComparison.Ordinal);
+            Require(playerFeaturePosition >= 0 &&
+                    recoveryFeaturePosition > playerFeaturePosition &&
+                    interactionFeaturePosition > recoveryFeaturePosition &&
+                    CountOccurrences(storeFeatureSource, "Create<ProductRecoveryFeature>()") == 1,
+                "StoreFeature must recover lost products once after player state and before " +
+                "world interaction is resolved.");
+
+            string recoverySource = ReadRuntimeSource(
+                "Gameplay", "Features", "Products", "Systems",
+                "RecoverLostLooseProductsSystem.cs");
+            RequireSourceContains(recoverySource,
+                "_minimumWorldY = staticData.ProductRecovery.MinimumWorldY",
+                "product.WorldPosition.y < _minimumWorldY",
+                "CollectDeliveryReservations()",
+                "CollectStorageReservations()",
+                "GetEntitiesWithDeliveryEntityId(delivery.EntityId)",
+                "ValidateReservedSlot(",
+                "int slotIndex = product.ReservedDeliverySlotIndex",
+                "product.RemoveReservedDeliverySlotIndex()",
+                "product.AddDeliverySlotIndex(slotIndex)",
+                "int slotIndex = product.ReservedStorageSlotIndex",
+                "product.RemoveReservedStorageSlotIndex()",
+                "product.RemoveReservedOrderLineEntityId()",
+                "product.AddStorageSlotIndex(slotIndex)",
+                "LocalizationKey.NotificationProductsRecovered",
+                "recoveredCount");
+            Require(!recoverySource.Contains("FindFreeSlot", StringComparison.Ordinal) &&
+                    !recoverySource.Contains("FirstFree", StringComparison.Ordinal),
+                "Lost-product recovery must restore the exact reserved slot and must never " +
+                "fall back to an arbitrary free slot.");
+
+            string pickupSource = ReadRuntimeSource(
+                "Gameplay", "Features", "Carrying", "Systems",
+                "PickUpProductSystem.cs");
+            RequireSourceContains(pickupSource,
+                "GetEntitiesWithReservedOrderLineEntityId(orderLine.EntityId)",
+                "matchingLine.LoadedProductCount + reservedProductCount",
+                "product.RemoveDeliverySlotIndex()",
+                "product.AddReservedDeliverySlotIndex(slotIndex)",
+                "product.RemoveStorageSlotIndex()",
+                "product.AddReservedStorageSlotIndex(slotIndex)",
+                "product.AddReservedOrderLineEntityId(orderLine.EntityId)");
+            RequireSourceOrder(
+                pickupSource,
+                "product.RemoveDeliverySlotIndex()",
+                "product.AddReservedDeliverySlotIndex(slotIndex)",
+                "Inbound pickup must atomically convert its active delivery slot to a reservation.");
+            RequireSourceOrder(
+                pickupSource,
+                "product.RemoveStorageSlotIndex()",
+                "product.AddReservedStorageSlotIndex(slotIndex)",
+                "Stock pickup must atomically convert its active storage slot to a reservation.");
+
+            string loadSource = ReadRuntimeSource(
+                "Gameplay", "Features", "Carrying", "Systems",
+                "LoadHeldProductSystem.cs");
+            RequireSourceContains(loadSource,
+                "product.ReservedOrderLineEntityId",
+                "product.RemoveReservedStorageSlotIndex()",
+                "product.RemoveReservedOrderLineEntityId()",
+                "product.AddOrderLineEntityId(orderLine.EntityId)");
+            RequireSourceOrder(
+                loadSource,
+                "product.RemoveReservedOrderLineEntityId()",
+                "product.AddOrderLineEntityId(orderLine.EntityId)",
+                "Loading must convert the reserved order-line relation to the permanent relation.");
+
+            string storageSource = ReadRuntimeSource(
+                "Gameplay", "Features", "Delivery", "Systems",
+                "StoreInboundProductSystem.cs");
+            RequireSourceContains(storageSource,
+                "ReturnStockProduct(",
+                "int slotIndex = product.ReservedStorageSlotIndex",
+                "reservationOwner != product.EntityId",
+                "product.RemoveReservedStorageSlotIndex()",
+                "product.RemoveReservedOrderLineEntityId()",
+                "product.AddStorageSlotIndex(slotIndex)");
+            int returnStockStart = storageSource.IndexOf(
+                "private void ReturnStockProduct(", StringComparison.Ordinal);
+            int collectSlotsStart = storageSource.IndexOf(
+                "private Dictionary<int, Dictionary<int, int>> CollectOccupiedSlots()",
+                StringComparison.Ordinal);
+            Require(returnStockStart >= 0 && collectSlotsStart > returnStockStart &&
+                    !storageSource[returnStockStart..collectSlotsStart]
+                        .Contains("FindFreeSlot", StringComparison.Ordinal),
+                "Returning held stock must use ReservedStorageSlotIndex exactly, without a " +
+                "first-free fallback.");
+
+            string dropSource = ReadRuntimeSource(
+                "Gameplay", "Features", "Carrying", "Systems",
+                "DropHeldProductSystem.cs");
+            RequireSourceContains(dropSource,
+                "product.hasReservedDeliverySlotIndex",
+                "product.hasReservedStorageSlotIndex",
+                "product.hasReservedOrderLineEntityId");
+
+            string occupiedSlotsSource = ReadRuntimeSource(
+                "Gameplay", "Features", "StorageState", "Systems",
+                "RefreshStorageOccupiedSlotCountSystem.cs");
+            RequireSourceContains(occupiedSlotsSource,
+                "GameMatcher.ReservedStorageSlotIndex",
+                "GameMatcher.ReservedOrderLineEntityId",
+                "product.hasStorageSlotIndex == product.hasReservedStorageSlotIndex",
+                "product.ReservedStorageSlotIndex",
+                "is occupied or ",
+                "reserved more than once.");
+
+            string productPromptSource = ReadRuntimeSource(
+                "Gameplay", "Features", "Interaction", "Systems",
+                "ResolveProductPromptSystem.cs");
+            RequireSourceContains(productPromptSource,
+                "GetEntitiesWithReservedOrderLineEntityId(orderLine.EntityId)",
+                "matchingLine.LoadedProductCount + reservedProductCount",
+                "LocalizationKey.PromptOrderLineAlreadyLoaded");
+
+            string heldStoragePromptSource = ReadRuntimeSource(
+                "Gameplay", "Features", "Interaction", "Systems",
+                "ResolveHeldProductStoragePromptSystem.cs");
+            RequireSourceContains(heldStoragePromptSource,
+                "LocalizationKey.PromptReturnStockProduct",
+                "LocalizedTexts.ProductName(heldProduct.ProductType)");
+        }
+
+        private static void ValidateCollisionSafeProductDrop(
+            Type[] runtimeTypes,
+            IEnumerable<Type> componentTypes)
+        {
+            Require(componentTypes.Contains(typeof(ProductDropCollisionRadius)),
+                $"Collision-safe product dropping requires the " +
+                $"{nameof(ProductDropCollisionRadius)} Game component.");
+
+            PropertyInfo radiusProperty = typeof(GameEntity).GetProperty(
+                nameof(ProductConfig.ProductDropCollisionRadius),
+                BindingFlags.Instance | BindingFlags.Public);
+            PropertyInfo hasRadiusProperty = typeof(GameEntity).GetProperty(
+                "hasProductDropCollisionRadius",
+                BindingFlags.Instance | BindingFlags.Public);
+            Require(radiusProperty?.PropertyType == typeof(float) &&
+                    hasRadiusProperty?.PropertyType == typeof(bool),
+                "Jenny must generate float ProductDropCollisionRadius and its presence API.");
+            RequireMethod(
+                typeof(GameEntity),
+                "AddProductDropCollisionRadius",
+                typeof(GameEntity),
+                typeof(float));
+            RequireMethod(
+                typeof(GameEntity),
+                "ReplaceProductDropCollisionRadius",
+                typeof(GameEntity),
+                typeof(float));
+            RequireMethod(
+                typeof(GameEntity),
+                "RemoveProductDropCollisionRadius",
+                typeof(GameEntity));
+            PropertyInfo matcherProperty = typeof(GameMatcher).GetProperty(
+                nameof(ProductConfig.ProductDropCollisionRadius),
+                BindingFlags.Static | BindingFlags.Public);
+            Require(matcherProperty != null &&
+                    typeof(IMatcher<GameEntity>).IsAssignableFrom(
+                        matcherProperty.PropertyType),
+                "Jenny must generate GameMatcher.ProductDropCollisionRadius.");
+
+            string productConfigSource = ReadRuntimeSource(
+                "Gameplay", "Configs", nameof(ProductConfig) + ".cs");
+            RequireSourceContains(productConfigSource,
+                "private float _productDropCollisionRadius",
+                "public float ProductDropCollisionRadius => _productDropCollisionRadius",
+                "ConfigValidation.RequirePositive(",
+                "nameof(ProductDropCollisionRadius)",
+                "_productDropCollisionRadius > _dropForwardDistance",
+                "ProductDropCollisionRadius must not exceed DropForwardDistance");
+            string productFactorySource = ReadRuntimeSource(
+                "Gameplay", "Factories", "ProductFactory.cs");
+            RequireSourceContains(productFactorySource,
+                "AddProductDropCollisionRadius(config.ProductDropCollisionRadius)");
+
+            Require(typeof(IProductDropPhysicsService).IsAssignableFrom(
+                    typeof(ProductDropPhysicsService)),
+                $"{nameof(ProductDropPhysicsService)} must implement " +
+                $"{nameof(IProductDropPhysicsService)}.");
+            RequireMethod(
+                typeof(IProductDropPhysicsService),
+                nameof(IProductDropPhysicsService.TryGetSafeDropPosition),
+                typeof(bool),
+                typeof(Vector3),
+                typeof(Vector3),
+                typeof(float),
+                typeof(float),
+                typeof(CharacterController),
+                typeof(Vector3).MakeByRefType());
+            string physicsSource = ReadRuntimeSource(
+                "Gameplay", "Common", "Physics", "ProductDropPhysicsService.cs");
+            RequireSourceContains(physicsSource,
+                "ValidateArguments(",
+                "HasBlockingOverlap(",
+                "origin,",
+                "SphereCastNonAlloc(",
+                "OverlapSphereNonAlloc(",
+                "UnityEngine.Physics.AllLayers",
+                "QueryTriggerInteraction.Ignore",
+                "hitCollider != sourceController",
+                "_overlapHits[index] != sourceController",
+                "ThrowIfSaturated(");
+
+            string dropSource = ReadRuntimeSource(
+                "Gameplay", "Features", "Carrying", "Systems",
+                "DropHeldProductSystem.cs");
+            RequireSourceContains(dropSource,
+                "GameMatcher.CarryingProduct",
+                "GameMatcher.CharacterController",
+                "product.ProductDropCollisionRadius",
+                "player.CharacterController",
+                "LocalizationKey.NotificationProductDropBlocked",
+                "product.RemoveCarrierEntityId()",
+                "player.isHandsOccupied = false",
+                "player.isCarryingProduct = false",
+                "product.isLooseProduct = true");
+            RequireSourceOrder(
+                dropSource,
+                "LocalizationKey.NotificationProductDropBlocked",
+                "continue;",
+                "A blocked product drop must exit before changing carrying state.");
+            RequireSourceOrder(
+                dropSource,
+                "continue;",
+                "product.RemoveCarrierEntityId()",
+                "A blocked product drop must preserve its CarrierEntityId relation.");
+
+            string bootstrapSource = ReadRuntimeSource(
+                "Infrastructure", "Installers", nameof(BootstrapInstaller) + ".cs");
+            RequireSourceContains(bootstrapSource,
+                "Bind<IProductDropPhysicsService>().To<ProductDropPhysicsService>().AsSingle()");
+
+            LocalizationEntry blockedDropEntry = new RussianLocalizationCatalog().Entries
+                .Single(entry => entry.Key ==
+                                 LocalizationKey.NotificationProductDropBlocked);
+            Require(blockedDropEntry.ArgumentCount == 0,
+                $"{LocalizationKey.NotificationProductDropBlocked} must have zero arguments.");
+        }
+
+        private static void ValidateTrolleyArchitecture(
+            Type[] runtimeTypes,
+            IEnumerable<Type> componentTypes)
+        {
+            var discoveredComponents = new HashSet<Type>(componentTypes);
+            Type[] requiredComponents =
+            {
+                typeof(PlatformTrolley),
+                typeof(TrolleyUpgradeTerminal),
+                typeof(CarryingProduct),
+                typeof(PushingTrolley),
+                typeof(TrolleyUpgradeUnlocked),
+                typeof(OrderProgressionCounted),
+                typeof(CompletedOrderCount),
+                typeof(TrolleyUpgradeTerminalEntityId),
+                typeof(TrolleyStoreEntityId),
+                typeof(TrolleyPusherEntityId),
+                typeof(TrolleyEntityId),
+                typeof(TrolleySlotIndex),
+                typeof(TrolleyCapacity),
+                typeof(OccupiedTrolleySlotCount),
+                typeof(TrolleyMovementSpeed),
+                typeof(TrolleyFollowDistance),
+                typeof(TrolleySpawnPosition),
+                typeof(TrolleySpawnRotation)
+            };
+            foreach (Type componentType in requiredComponents)
+            {
+                Require(discoveredComponents.Contains(componentType),
+                    $"Platform trolley gameplay requires the {componentType.Name} Game component.");
+            }
+
+            Type trolleyFeatureType = runtimeTypes.SingleOrDefault(type =>
+                type.Name == "TrolleyFeature");
+            Type trolleyMovementFeatureType = runtimeTypes.SingleOrDefault(type =>
+                type.Name == "TrolleyMovementFeature");
+            Require(trolleyFeatureType != null &&
+                    typeof(Feature).IsAssignableFrom(trolleyFeatureType) &&
+                    trolleyMovementFeatureType != null &&
+                    typeof(Feature).IsAssignableFrom(trolleyMovementFeatureType),
+                "Platform trolley state and movement must remain explicit Entitas features.");
+
+            string[] executableSystemNames =
+            {
+                "RegisterCompletedOrderForProgressionSystem",
+                "UnlockPlatformTrolleyUpgradeSystem",
+                "PurchasePlatformTrolleySystem",
+                "StartPushingTrolleySystem",
+                "DetachPushedTrolleySystem",
+                "LoadHeldProductOnTrolleySystem",
+                "RefreshTrolleyOccupiedSlotCountSystem",
+                "ValidatePlayerHandlingStateSystem",
+                "ValidatePlatformTrolleyStateSystem",
+                "FollowPushedTrolleySystem",
+                "ApplyTrolleyProductPlacementSystem"
+            };
+            foreach (string systemName in executableSystemNames)
+            {
+                Type systemType = runtimeTypes.SingleOrDefault(type => type.Name == systemName);
+                Require(systemType != null && typeof(IExecuteSystem).IsAssignableFrom(systemType),
+                    $"{systemName} must remain an executable Entitas system.");
+            }
+
+            string configSource = ReadRuntimeSource(
+                "Gameplay", "Configs", nameof(PlatformTrolleyConfig) + ".cs");
+            RequireSourceContains(configSource,
+                "private int _purchasePrice = 200",
+                "private int _requiredCompletedOrderCount = 2",
+                "private int _capacity = 3",
+                "private float _movementSpeed = 3.8f",
+                "private float _followDistance = 1.7f",
+                "public EntityBehaviour ViewPrefab => _viewPrefab",
+                "public int PurchasePrice => _purchasePrice",
+                "public int RequiredCompletedOrderCount => _requiredCompletedOrderCount",
+                "public int Capacity => _capacity",
+                "public float MovementSpeed => _movementSpeed",
+                "public float FollowDistance => _followDistance",
+                "ConfigValidation.RequireReference",
+                "ConfigValidation.RequirePositive");
+            RequireMethod(
+                typeof(PlatformTrolleyConfig),
+                nameof(PlatformTrolleyConfig.Configure),
+                typeof(void),
+                typeof(EntityBehaviour),
+                typeof(int),
+                typeof(int),
+                typeof(int),
+                typeof(float),
+                typeof(float));
+
+            string staticDataSource = ReadRuntimeSource(
+                "Gameplay", "StaticData", nameof(StaticDataService) + ".cs");
+            RequireSourceContains(staticDataSource,
+                "Load<PlatformTrolleyConfig>(nameof(PlatformTrolleyConfig))",
+                "platformTrolley.Validate()",
+                "PlatformTrolley = platformTrolley",
+                "platformTrolley.MovementSpeed <= fastestCarryMovementSpeed",
+                "platformTrolley.MovementSpeed >= player.WalkSpeed",
+                "platformTrolley.Capacity < customerVehicle.CargoCapacity",
+                "ValidateTrolleyUpgradeLiquidity(",
+                "trolley.RequiredCompletedOrderCount + 1",
+                "nextMoney < trolley.PurchasePrice",
+                "nextMoney = checked(nextMoney - trolley.PurchasePrice)");
+
+            Require(typeof(IPlatformTrolleyFactory).IsAssignableFrom(
+                    typeof(PlatformTrolleyFactory)),
+                $"{nameof(PlatformTrolleyFactory)} must implement " +
+                $"{nameof(IPlatformTrolleyFactory)}.");
+            RequireMethod(
+                typeof(IPlatformTrolleyFactory),
+                nameof(IPlatformTrolleyFactory.Create),
+                typeof(GameEntity),
+                typeof(Pose),
+                typeof(int));
+            string trolleyFactorySource = ReadRuntimeSource(
+                "Gameplay", "Factories", nameof(PlatformTrolleyFactory) + ".cs");
+            RequireSourceContains(trolleyFactorySource,
+                "CreateEntity.Empty(_identifiers.Next())",
+                "AddViewPrefab(config.ViewPrefab)",
+                "AddSpawnPosition(at.position)",
+                "AddSpawnRotation(at.rotation)",
+                "AddTrolleyStoreEntityId(storeEntityId)",
+                "AddTrolleyCapacity(config.Capacity)",
+                "AddOccupiedTrolleySlotCount(0)",
+                "AddTrolleyMovementSpeed(config.MovementSpeed)",
+                "AddTrolleyFollowDistance(config.FollowDistance)",
+                "isPlatformTrolley = true",
+                "isInteractable = true");
+            Require(!trolleyFactorySource.Contains("SetEntity", StringComparison.Ordinal) &&
+                    !trolleyFactorySource.Contains("CreateView", StringComparison.Ordinal),
+                "PlatformTrolleyFactory must remain entity-first and leave view binding to the " +
+                "shared infrastructure pipeline.");
+
+            RequireMethod(
+                typeof(IInteractionTargetFactory),
+                nameof(IInteractionTargetFactory.CreateTrolleyUpgradeTerminal),
+                typeof(GameEntity),
+                typeof(int),
+                typeof(Pose));
+            string interactionTargetFactorySource = ReadRuntimeSource(
+                "Gameplay", "Factories", nameof(InteractionTargetFactory) + ".cs");
+            RequireSourceContains(interactionTargetFactorySource,
+                "CreateTrolleyUpgradeTerminal(",
+                "AddSceneViewKey(SceneViewId.TrolleyUpgradeTerminal)",
+                "AddTrolleySpawnPosition(trolleySpawnPose.position)",
+                "AddTrolleySpawnRotation(trolleySpawnPose.rotation)",
+                "isTrolleyUpgradeTerminal = true");
+            string storeFactorySource = ReadRuntimeSource(
+                "Gameplay", "Factories", "StoreFactory.cs");
+            RequireSourceContains(storeFactorySource,
+                "GetSpawnPoint(SpawnPointId.PlatformTrolley)",
+                "AddCompletedOrderCount(0)",
+                "CreateTrolleyUpgradeTerminal(",
+                "store.AddTrolleyUpgradeTerminalEntityId");
+            string bootstrapSource = ReadRuntimeSource(
+                "Infrastructure", "Installers", nameof(BootstrapInstaller) + ".cs");
+            RequireSourceContains(bootstrapSource,
+                "Bind<IPlatformTrolleyFactory>().To<PlatformTrolleyFactory>().AsSingle()");
+
+            string trolleyFeatureSource = ReadRuntimeSource(
+                "Gameplay", "Features", "Trolley", "TrolleyFeature.cs");
+            string[] trolleySystemTokens =
+            {
+                "Add(systems.Create<DetachPushedTrolleySystem>())",
+                "Add(systems.Create<RegisterCompletedOrderForProgressionSystem>())",
+                "Add(systems.Create<UnlockPlatformTrolleyUpgradeSystem>())",
+                "Add(systems.Create<PurchasePlatformTrolleySystem>())",
+                "Add(systems.Create<StartPushingTrolleySystem>())",
+                "Add(systems.Create<LoadHeldProductOnTrolleySystem>())",
+                "Add(systems.Create<RefreshTrolleyOccupiedSlotCountSystem>())",
+                "Add(systems.Create<ValidatePlayerHandlingStateSystem>())",
+                "Add(systems.Create<ValidatePlatformTrolleyStateSystem>())"
+            };
+            for (int index = 0; index < trolleySystemTokens.Length; index++)
+            {
+                Require(CountOccurrences(trolleyFeatureSource, trolleySystemTokens[index]) == 1,
+                    $"TrolleyFeature must own {trolleySystemTokens[index]} exactly once.");
+                if (index > 0)
+                {
+                    RequireSourceOrder(
+                        trolleyFeatureSource,
+                        trolleySystemTokens[index - 1],
+                        trolleySystemTokens[index],
+                        "TrolleyFeature system order must preserve detach, progression, purchase, " +
+                        "cargo refresh and invariant validation sequencing.");
+                }
+            }
+
+            string trolleyMovementFeatureSource = ReadRuntimeSource(
+                "Gameplay", "Features", "Trolley", "TrolleyMovementFeature.cs");
+            Require(CountOccurrences(
+                        trolleyMovementFeatureSource,
+                        "Add(systems.Create<FollowPushedTrolleySystem>())") == 1,
+                "TrolleyMovementFeature must own exactly one follow system.");
+            string storeFeatureSource = ReadRuntimeSource("Gameplay", "StoreFeature.cs");
+            RequireSourceOrder(
+                storeFeatureSource,
+                "Create<OrderProgressFeature>()",
+                "Create<TrolleyFeature>()",
+                "Trolley progression must run after order progress.");
+            RequireSourceOrder(
+                storeFeatureSource,
+                "Create<TrolleyFeature>()",
+                "Create<StorageStateFeature>()",
+                "Trolley reservations must refresh before storage availability.");
+            RequireSourceOrder(
+                storeFeatureSource,
+                "Create<MovementFeature>()",
+                "Create<TrolleyMovementFeature>()",
+                "The trolley must follow the player after player movement is resolved.");
+            RequireSourceOrder(
+                storeFeatureSource,
+                "Create<TrolleyMovementFeature>()",
+                "Create<InteractionPromptFeature>()",
+                "Trolley movement must finish before interaction prompts are presented.");
+            string sceneBindingsSource = ReadRuntimeSource(
+                "Gameplay", "Features", "StoreSceneBindings", "Systems",
+                "ValidateStoreSceneBindingsSystem.cs");
+            RequireSourceContains(sceneBindingsSource,
+                "GameMatcher.TrolleyUpgradeTerminalEntityId",
+                "store.TrolleyUpgradeTerminalEntityId",
+                "terminal.isTrolleyUpgradeTerminal",
+                "terminal.hasTrolleySpawnPosition",
+                "terminal.hasTrolleySpawnRotation");
+            string interactionPromptFeatureSource = ReadRuntimeSource(
+                "Gameplay", "Features", "Interaction", "InteractionPromptFeature.cs");
+            RequireSourceOrder(
+                interactionPromptFeatureSource,
+                "Add(systems.Create<ResolveTrolleyUpgradeTerminalPromptSystem>())",
+                "Add(systems.Create<ResolvePlatformTrolleyPromptSystem>())",
+                "Trolley terminal and runtime trolley prompts must remain explicit systems.");
+
+            string progressionSource = ReadRuntimeSource(
+                "Gameplay", "Features", "Trolley", "Systems",
+                "RegisterCompletedOrderForProgressionSystem.cs");
+            RequireSourceContains(progressionSource,
+                "GameMatcher.OrderRewarded",
+                "GameMatcher.OrderProgressionCounted",
+                "GameMatcher.Destructed",
+                "checked(store.CompletedOrderCount + 1)",
+                "order.isOrderProgressionCounted = true");
+            string unlockSource = ReadRuntimeSource(
+                "Gameplay", "Features", "Trolley", "Systems",
+                "UnlockPlatformTrolleyUpgradeSystem.cs");
+            RequireSourceContains(unlockSource,
+                "GameMatcher.TrolleyUpgradeUnlocked",
+                "store.CompletedOrderCount < _config.RequiredCompletedOrderCount",
+                "store.isTrolleyUpgradeUnlocked = true",
+                "LocalizationKey.NotificationTrolleyUnlocked");
+            string purchaseSource = ReadRuntimeSource(
+                "Gameplay", "Features", "Trolley", "Systems",
+                "PurchasePlatformTrolleySystem.cs");
+            RequireSourceContains(purchaseSource,
+                "GetEntityWithTrolleyStoreEntityId(store.EntityId)",
+                "LocalizationKey.NotificationTrolleyAlreadyPurchased",
+                "!store.isTrolleyUpgradeUnlocked",
+                "store.Money < _config.PurchasePrice",
+                "checked(store.Money - _config.PurchasePrice)",
+                "_trolleys.Create(spawnPose, store.EntityId)",
+                "store.ReplaceMoney(moneyAfterPurchase)");
+            RequireSourceOrder(
+                purchaseSource,
+                "GetEntityWithTrolleyStoreEntityId(store.EntityId)",
+                "_trolleys.Create(spawnPose, store.EntityId)",
+                "Purchase must reject an existing trolley before creating another one.");
+            RequireSourceOrder(
+                purchaseSource,
+                "_trolleys.Create(spawnPose, store.EntityId)",
+                "store.ReplaceMoney(moneyAfterPurchase)",
+                "Purchase must create one trolley and then commit its single debit.");
+
+            string loadTrolleySource = ReadRuntimeSource(
+                "Gameplay", "Features", "Trolley", "Systems",
+                "LoadHeldProductOnTrolleySystem.cs");
+            RequireSourceContains(loadTrolleySource,
+                "product.hasReservedDeliverySlotIndex",
+                "product.hasReservedStorageSlotIndex",
+                "product.hasReservedOrderLineEntityId",
+                "GetEntitiesWithTrolleyEntityId(trolley.EntityId)",
+                "product.AddTrolleyEntityId(trolley.EntityId)",
+                "product.AddTrolleySlotIndex(freeSlotIndex)",
+                "LocalizationKey.NotificationTrolleyFull");
+            Require(!loadTrolleySource.Contains(
+                        "RemoveReservedDeliverySlotIndex",
+                        StringComparison.Ordinal) &&
+                    !loadTrolleySource.Contains(
+                        "RemoveReservedStorageSlotIndex",
+                        StringComparison.Ordinal) &&
+                    !loadTrolleySource.Contains(
+                        "RemoveReservedOrderLineEntityId",
+                        StringComparison.Ordinal),
+                "Putting cargo on the trolley must preserve every recovery reservation.");
+            string pickupSource = ReadRuntimeSource(
+                "Gameplay", "Features", "Carrying", "Systems", "PickUpProductSystem.cs");
+            RequireSourceContains(pickupSource,
+                "ReleaseTrolleySlot(product)",
+                "product.RemoveTrolleyEntityId()",
+                "product.RemoveTrolleySlotIndex()");
+            string trolleyPlacementSource = ReadRuntimeSource(
+                "Gameplay", "Features", "Products", "Systems",
+                "ApplyTrolleyProductPlacementSystem.cs");
+            RequireSourceContains(trolleyPlacementSource,
+                "GameMatcher.TrolleyEntityId",
+                "GameMatcher.TrolleySlotIndex",
+                "GameMatcher.ReservedDeliverySlotIndex",
+                "GameMatcher.ReservedStorageSlotIndex",
+                "trolley.Slots[product.TrolleySlotIndex]",
+                "ProductPhysicsUtility.ConfigureInteractiveSlot");
+            string productPlacementFeatureSource = ReadRuntimeSource(
+                "Gameplay", "Features", "Products", "ProductPlacementFeature.cs");
+            RequireSourceOrder(
+                productPlacementFeatureSource,
+                "Add(systems.Create<ApplyTrolleyProductPlacementSystem>())",
+                "Add(systems.Create<ValidateProductPlacementSystem>())",
+                "Trolley cargo placement must be applied before placement validation.");
+
+            string handlingValidationSource = ReadRuntimeSource(
+                "Gameplay", "Features", "Trolley", "Systems",
+                "ValidatePlayerHandlingStateSystem.cs");
+            RequireSourceContains(handlingValidationSource,
+                "bool hasExactlyOneHandlingRole = carryingProduct ^ pushingTrolley",
+                "player.isHandsOccupied != hasExactlyOneHandlingRole",
+                "player.isModalOpen && hasExactlyOneHandlingRole",
+                "GetEntityWithCarrierEntityId(player.EntityId)",
+                "GetEntityWithTrolleyPusherEntityId(player.EntityId)");
+            string movementSource = ReadRuntimeSource(
+                "Gameplay", "Features", "Movement", "Systems",
+                "ResolveMovementSpeedSystem.cs");
+            RequireSourceContains(movementSource,
+                "if (player.isPushingTrolley)",
+                "speed = trolley.TrolleyMovementSpeed",
+                "else if (player.isCarryingProduct)");
+            string followSource = ReadRuntimeSource(
+                "Gameplay", "Features", "Trolley", "Systems",
+                "FollowPushedTrolleySystem.cs");
+            RequireSourceContains(followSource,
+                "ITrolleyMotionService motion",
+                "playerTransform.forward * trolley.TrolleyFollowDistance",
+                "_motion.CanMoveTo(",
+                "trolley.Colliders",
+                "player.CharacterController",
+                "trolley.Rigidbody.position = position",
+                "trolley.Transform.SetPositionAndRotation(position, rotation)");
+            RequireSourceOrder(
+                followSource,
+                "_motion.CanMoveTo(",
+                "trolley.Rigidbody.position = position",
+                "Trolley movement must pass its collision query before mutating Rigidbody pose.");
+            RequireSourceOrder(
+                followSource,
+                "_motion.CanMoveTo(",
+                "trolley.Transform.SetPositionAndRotation(position, rotation)",
+                "Trolley movement must pass its collision query before mutating Transform pose.");
+            Require(typeof(ITrolleyMotionService).IsAssignableFrom(
+                    typeof(TrolleyMotionService)),
+                $"{nameof(TrolleyMotionService)} must implement " +
+                $"{nameof(ITrolleyMotionService)}.");
+            RequireMethod(
+                typeof(ITrolleyMotionService),
+                nameof(ITrolleyMotionService.CanMoveTo),
+                typeof(bool),
+                typeof(Rigidbody),
+                typeof(Collider[]),
+                typeof(CharacterController),
+                typeof(Vector3),
+                typeof(Quaternion));
+            string trolleyMotionSource = ReadRuntimeSource(
+                "Gameplay", "Common", "Physics", "TrolleyMotionService.cs");
+            RequireSourceContains(trolleyMotionSource,
+                "BoxCastNonAlloc(",
+                "OverlapBoxNonAlloc(",
+                "UnityEngine.Physics.AllLayers",
+                "QueryTriggerInteraction.Ignore",
+                "enabledSolidColliderCount != 1",
+                "candidate == sourceController",
+                "EnsureBufferWasNotSaturated(");
+            RequireSourceContains(bootstrapSource,
+                "Bind<ITrolleyMotionService>().To<TrolleyMotionService>().AsSingle()");
+            string emitInteractionSource = ReadRuntimeSource(
+                "Gameplay", "Features", "Interaction", "Systems",
+                "EmitInteractionRequestSystem.cs");
+            RequireSourceContains(emitInteractionSource,
+                ".NoneOf(GameMatcher.ModalOpen, GameMatcher.PushingTrolley)");
+            string procurementSource = ReadRuntimeSource(
+                "Gameplay", "Features", "Procurement", "Systems",
+                "OpenProcurementSystem.cs");
+            RequireSourceContains(procurementSource,
+                "player.isPushingTrolley",
+                "LocalizationKey.NotificationReleaseTrolleyFirst");
+
+            var trolleyLocalizationArities = new Dictionary<LocalizationKey, int>
+            {
+                { LocalizationKey.HudControlsPushingTrolley, 0 },
+                { LocalizationKey.PromptTrolleyUpgradeLocked, 2 },
+                { LocalizationKey.PromptPurchaseTrolley, 1 },
+                { LocalizationKey.PromptTrolleyInsufficientMoney, 1 },
+                { LocalizationKey.PromptTrolleyPurchased, 0 },
+                { LocalizationKey.PromptPushTrolley, 2 },
+                { LocalizationKey.PromptPlaceProductOnTrolley, 3 },
+                { LocalizationKey.PromptTrolleyFull, 2 },
+                { LocalizationKey.PromptTrolleyPushedByOther, 0 },
+                { LocalizationKey.PromptReleaseTrolley, 0 },
+                { LocalizationKey.PromptReleaseTrolleyFirst, 0 },
+                { LocalizationKey.PromptFreeHandsForTrolleyUpgrade, 0 },
+                { LocalizationKey.NotificationTrolleyUnlocked, 1 },
+                { LocalizationKey.NotificationTrolleyUpgradeLocked, 2 },
+                { LocalizationKey.NotificationTrolleyInsufficientMoney, 1 },
+                { LocalizationKey.NotificationTrolleyPurchased, 1 },
+                { LocalizationKey.NotificationTrolleyAlreadyPurchased, 0 },
+                { LocalizationKey.NotificationTrolleyFull, 0 },
+                { LocalizationKey.NotificationReleaseTrolleyFirst, 0 },
+                { LocalizationKey.NotificationFreeHandsForTrolleyUpgrade, 0 },
+                { LocalizationKey.WorldTrolleyUpgrade, 1 }
+            };
+            Dictionary<LocalizationKey, LocalizationEntry> localizationEntries =
+                new RussianLocalizationCatalog().Entries.ToDictionary(entry => entry.Key);
+            foreach ((LocalizationKey key, int argumentCount) in trolleyLocalizationArities)
+            {
+                Require(localizationEntries.TryGetValue(key, out LocalizationEntry entry) &&
+                        entry.ArgumentCount == argumentCount,
+                    $"Russian trolley localization {key} must exist with arity " +
+                    $"{argumentCount}.");
+            }
         }
 
         private static void ValidateLocalizationArchitecture(Type[] runtimeTypes,
@@ -1218,6 +2018,18 @@ namespace HardwareStore.Editor
                 BindingFlags.Instance | BindingFlags.Public | BindingFlags.DeclaredOnly);
             Require(customerProperty?.PropertyType == typeof(CustomerConfig),
                 $"{nameof(IStaticDataService)} must expose the validated {nameof(CustomerConfig)}.");
+            PropertyInfo productRecoveryProperty = staticDataType.GetProperty(
+                nameof(IStaticDataService.ProductRecovery),
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.DeclaredOnly);
+            Require(productRecoveryProperty?.PropertyType == typeof(ProductRecoveryConfig),
+                $"{nameof(IStaticDataService)} must expose the validated " +
+                $"{nameof(ProductRecoveryConfig)}.");
+            PropertyInfo platformTrolleyProperty = staticDataType.GetProperty(
+                nameof(IStaticDataService.PlatformTrolley),
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.DeclaredOnly);
+            Require(platformTrolleyProperty?.PropertyType == typeof(PlatformTrolleyConfig),
+                $"{nameof(IStaticDataService)} must expose the validated " +
+                $"{nameof(PlatformTrolleyConfig)}.");
 
             foreach (Type configType in ExpectedGameplayConfigTypes)
             {
@@ -1389,7 +2201,9 @@ namespace HardwareStore.Editor
                 "GetProject(CustomerProjectTypeId projectType)",
                 "ProductTypes",
                 "ProjectTypes",
-                "CustomerConfig Customer");
+                "CustomerConfig Customer",
+                "ProductRecoveryConfig ProductRecovery",
+                "PlatformTrolleyConfig PlatformTrolley");
         }
 
         private static void ValidateConsultationArchitecture(
@@ -1545,7 +2359,6 @@ namespace HardwareStore.Editor
             {
                 "ResolveProcurementTerminalPromptSystem.cs",
                 "ResolveEmptyHandsStoragePromptSystem.cs",
-                "ResolveHeldProductStoragePromptSystem.cs",
                 "ResolveOrderCounterPromptSystem.cs",
                 "ResolveProductPromptSystem.cs",
                 "ResolveLoadingZonePromptSystem.cs"
@@ -1558,6 +2371,18 @@ namespace HardwareStore.Editor
                     $"{promptSystemFile} must present the pre-order consultation state before " +
                     "reading order components.");
             }
+
+            string heldProductStoragePromptSource = ReadRuntimeSource(
+                "Gameplay", "Features", "Interaction", "Systems",
+                "ResolveHeldProductStoragePromptSystem.cs");
+            Require(!heldProductStoragePromptSource.Contains(
+                        "GetEntityWithCustomerVisitStoreEntityId",
+                        StringComparison.Ordinal) &&
+                    !heldProductStoragePromptSource.Contains(
+                        "GetEntitiesWithOrderEntityId",
+                        StringComparison.Ordinal),
+                "Held-product storage prompts must be derived from the already established " +
+                "inbound or reserved-stock relations, without querying consultation/order state.");
 
             RequireMethod(
                 typeof(IHudService),
@@ -1620,6 +2445,7 @@ namespace HardwareStore.Editor
                         typeof(int),
                         typeof(ProductTypeId?),
                         typeof(LocalizedText),
+                        typeof(bool),
                         typeof(bool),
                         typeof(bool),
                         typeof(bool),
@@ -1926,9 +2752,9 @@ namespace HardwareStore.Editor
                          (highlightSource, "world focus highlights")
                      })
             {
-                RequireSourceContains(source, ".NoneOf(GameMatcher.ModalOpen)");
+                RequireSourceContains(source, ".NoneOf(GameMatcher.ModalOpen");
                 Require(!source.Contains(
-                        ".NoneOf(GameMatcher.ConsultationVisitEntityId)",
+                        ".NoneOf(GameMatcher.ConsultationVisitEntityId",
                         StringComparison.Ordinal),
                     $"ModalOpen, rather than a consultation-specific relation, must capture " +
                     $"{owner}.");
@@ -2188,6 +3014,11 @@ namespace HardwareStore.Editor
                 RequireAsset<CustomerVehicleConfig>(CustomerVehicleConfigPath);
             CustomerConfig customerConfig = RequireAsset<CustomerConfig>(CustomerConfigPath);
             EconomyConfig economyConfig = RequireAsset<EconomyConfig>(EconomyConfigPath);
+            ProductRecoveryConfig productRecoveryConfig =
+                RequireAsset<ProductRecoveryConfig>(ProductRecoveryConfigPath);
+            PlatformTrolleyConfig platformTrolleyConfig =
+                RequireAsset<PlatformTrolleyConfig>(PlatformTrolleyConfigPath);
+            PlayerConfig playerConfig = RequireAsset<PlayerConfig>(PlayerConfigPath);
             CustomerProjectConfig cementProjectConfig =
                 RequireAsset<CustomerProjectConfig>(CementProjectConfigPath);
             CustomerProjectConfig lumberProjectConfig =
@@ -2226,6 +3057,7 @@ namespace HardwareStore.Editor
                 unitPrice: 350,
                 mass: 25f,
                 carryMovementSpeed: 3.2f,
+                productDropCollisionRadius: 0.51f,
                 deliveryCount: 3,
                 purchaseUnitPrice: 200);
             ValidateProductCatalogEntry(
@@ -2235,6 +3067,7 @@ namespace HardwareStore.Editor
                 unitPrice: 480,
                 mass: 18f,
                 carryMovementSpeed: 2.6f,
+                productDropCollisionRadius: 0.86f,
                 deliveryCount: 3,
                 purchaseUnitPrice: 260);
             ValidateSingleProductProject(
@@ -2259,6 +3092,21 @@ namespace HardwareStore.Editor
 
             Require(economyConfig.InitialMoney == 1100,
                 $"{EconomyConfigPath} must start the prototype with 1100.");
+            Require(Mathf.Approximately(productRecoveryConfig.MinimumWorldY, -10f),
+                $"{ProductRecoveryConfigPath} must recover products below world Y -10.");
+            Require(platformTrolleyConfig.PurchasePrice == 200 &&
+                    platformTrolleyConfig.RequiredCompletedOrderCount == 2 &&
+                    platformTrolleyConfig.Capacity == 3 &&
+                    Mathf.Approximately(platformTrolleyConfig.MovementSpeed, 3.8f) &&
+                    Mathf.Approximately(platformTrolleyConfig.FollowDistance, 1.7f),
+                $"{PlatformTrolleyConfigPath} must use price 200, unlock after two rewarded " +
+                "orders, capacity 3, movement speed 3.8 and follow distance 1.7.");
+            Require(platformTrolleyConfig.Capacity >= customerVehicleConfig.CargoCapacity &&
+                    platformTrolleyConfig.MovementSpeed >
+                    productConfigs.Max(config => config.CarryMovementSpeed) &&
+                    platformTrolleyConfig.MovementSpeed < playerConfig.WalkSpeed,
+                "The trolley must fit a complete order and move faster than carried products " +
+                "but slower than the unburdened player.");
             Require(deliveryConfigs.All(config => economyConfig.InitialMoney >= config.TotalCost),
                 "Initial money must cover either configured inbound delivery.");
             Require(!Mathf.Approximately(cementProductConfig.Mass, boardProductConfig.Mass) &&
@@ -2307,6 +3155,17 @@ namespace HardwareStore.Editor
                 boardProductPrefab,
                 BoardProductPrefabPath,
                 requireUnitScale: true);
+            float cementBoundingRadius = ReadSolidProductBoundingRadius(
+                cementProductPrefab,
+                CementProductPrefabPath);
+            float boardBoundingRadius = ReadSolidProductBoundingRadius(
+                boardProductPrefab,
+                BoardProductPrefabPath);
+            Require(cementProductConfig.ProductDropCollisionRadius >=
+                    cementBoundingRadius &&
+                    boardProductConfig.ProductDropCollisionRadius >= boardBoundingRadius,
+                "Each configured product drop radius must conservatively contain every corner " +
+                "of its solid collider.");
             float boardLength = Mathf.Max(boardGeometry.x, boardGeometry.z);
             float cementLength = Mathf.Max(cementGeometry.x, cementGeometry.z);
             Require(boardLength >= 1.4f && boardLength <= 1.6f,
@@ -2495,12 +3354,156 @@ namespace HardwareStore.Editor
             Require(customerConfig.ViewPrefab == customerActorViews[0],
                 $"{CustomerConfigPath} must reference the EntityBehaviour root from " +
                 $"{CustomerPrefabPath}.");
+
+            GameObject trolleyPrefab = RequireAsset<GameObject>(PlatformTrolleyPrefabPath);
+            ValidatePrefabRoot(trolleyPrefab, PlatformTrolleyPrefabPath, requireUnitScale: true);
+            InteractionView[] trolleyViews =
+                RequireExactlyOneInPrefab<InteractionView>(
+                    trolleyPrefab, PlatformTrolleyPrefabPath);
+            EntityBehaviour[] trolleyEntityViews =
+                RequireExactlyOneInPrefab<EntityBehaviour>(
+                    trolleyPrefab, PlatformTrolleyPrefabPath);
+            TransformRegistrar[] trolleyTransforms =
+                RequireExactlyOneInPrefab<TransformRegistrar>(
+                    trolleyPrefab, PlatformTrolleyPrefabPath);
+            RigidbodyRegistrar[] trolleyRigidbodyRegistrars =
+                RequireExactlyOneInPrefab<RigidbodyRegistrar>(
+                    trolleyPrefab, PlatformTrolleyPrefabPath);
+            InteractionViewRegistrar[] trolleyInteractionRegistrars =
+                RequireExactlyOneInPrefab<InteractionViewRegistrar>(
+                    trolleyPrefab, PlatformTrolleyPrefabPath);
+            CollidersRegistrar[] trolleyColliderRegistrars =
+                RequireExactlyOneInPrefab<CollidersRegistrar>(
+                    trolleyPrefab, PlatformTrolleyPrefabPath);
+            SlotsRegistrar[] trolleySlotRegistrars =
+                RequireExactlyOneInPrefab<SlotsRegistrar>(
+                    trolleyPrefab, PlatformTrolleyPrefabPath);
+            Rigidbody[] trolleyRigidbodies =
+                RequireExactlyOneInPrefab<Rigidbody>(
+                    trolleyPrefab, PlatformTrolleyPrefabPath);
+            InteractionHighlight[] trolleyHighlights =
+                RequireExactlyOneInPrefab<InteractionHighlight>(
+                    trolleyPrefab, PlatformTrolleyPrefabPath);
+            EntityComponentRegistrar[] trolleyRegistrars =
+                trolleyPrefab.GetComponentsInChildren<EntityComponentRegistrar>(true);
+            Collider[] trolleyColliders =
+                trolleyPrefab.GetComponentsInChildren<Collider>(true);
+            Transform[] trolleySlots = ReadSlots(
+                trolleySlotRegistrars[0], PlatformTrolleyPrefabPath);
+
+            Require(trolleyViews[0].GetType() == typeof(InteractionView) &&
+                    trolleyViews[0].gameObject == trolleyPrefab &&
+                    trolleyEntityViews[0] == trolleyViews[0],
+                $"{PlatformTrolleyPrefabPath} must use one generic InteractionView root.");
+            Require(trolleyTransforms[0].gameObject == trolleyPrefab &&
+                    trolleyRigidbodyRegistrars[0].gameObject == trolleyPrefab &&
+                    trolleyInteractionRegistrars[0].gameObject == trolleyPrefab &&
+                    trolleyColliderRegistrars[0].gameObject == trolleyPrefab &&
+                    trolleySlotRegistrars[0].gameObject == trolleyPrefab &&
+                    trolleyRigidbodies[0].gameObject == trolleyPrefab,
+                $"All generic platform trolley registrars and its Rigidbody must be on the " +
+                $"root of {PlatformTrolleyPrefabPath}.");
+            var expectedTrolleyRegistrarTypes = new HashSet<Type>
+            {
+                typeof(TransformRegistrar),
+                typeof(RigidbodyRegistrar),
+                typeof(InteractionViewRegistrar),
+                typeof(CollidersRegistrar),
+                typeof(SlotsRegistrar)
+            };
+            Require(trolleyRegistrars.Length == expectedTrolleyRegistrarTypes.Count &&
+                    new HashSet<Type>(trolleyRegistrars.Select(registrar => registrar.GetType()))
+                        .SetEquals(expectedTrolleyRegistrarTypes),
+                $"{PlatformTrolleyPrefabPath} must contain exactly the generic Transform, " +
+                "Rigidbody, InteractionView, Colliders and Slots registrars.");
+            Require(trolleySlots.Length == platformTrolleyConfig.Capacity &&
+                    trolleySlots.All(slot => slot.IsChildOf(trolleyPrefab.transform)),
+                $"{PlatformTrolleyPrefabPath} must expose exactly three unique cargo slots " +
+                "inside its hierarchy.");
+            Require(trolleyPrefab.transform.Find("Deck") != null &&
+                    trolleyPrefab.transform.Find("Handle") != null &&
+                    trolleyPrefab.GetComponentsInChildren<Transform>(true)
+                        .Count(candidate => candidate.name.EndsWith(
+                            "Wheel", StringComparison.Ordinal)) == 4,
+                $"{PlatformTrolleyPrefabPath} must visibly contain a deck, handle and four wheels.");
+
+            Transform trolleyBodyColliderTransform =
+                trolleyPrefab.transform.Find("Body Collider");
+            Transform trolleyInteractionAreaTransform =
+                trolleyPrefab.transform.Find("Interaction Area");
+            Require(trolleyBodyColliderTransform != null &&
+                    trolleyInteractionAreaTransform != null,
+                $"{PlatformTrolleyPrefabPath} must contain separate body and interaction colliders.");
+            Collider trolleyBodyCollider = trolleyBodyColliderTransform.GetComponent<Collider>();
+            Collider trolleyInteractionCollider =
+                trolleyInteractionAreaTransform.GetComponent<Collider>();
+            Require(trolleyColliders.Length == 2 &&
+                    trolleyBodyCollider != null && !trolleyBodyCollider.isTrigger &&
+                    trolleyBodyCollider.gameObject.layer == ignoreRaycastLayer &&
+                    trolleyInteractionCollider != null && trolleyInteractionCollider.isTrigger &&
+                    trolleyInteractionCollider.gameObject.layer != ignoreRaycastLayer,
+                $"{PlatformTrolleyPrefabPath} must keep its solid body on Ignore Raycast and " +
+                "expose one raycastable interaction trigger.");
+            BoxCollider trolleyBodyBox = trolleyBodyCollider as BoxCollider;
+            BoxCollider trolleyHandleTrigger = trolleyInteractionCollider as BoxCollider;
+            Require(trolleyBodyBox != null &&
+                    Vector3.Distance(
+                        trolleyBodyBox.center,
+                        new Vector3(0f, 0.27f, 0.15f)) < 0.001f &&
+                    Vector3.Distance(
+                        trolleyBodyBox.size,
+                        new Vector3(2f, 0.5f, 2.1f)) < 0.001f &&
+                    trolleyHandleTrigger != null &&
+                    Vector3.Distance(
+                        trolleyHandleTrigger.center,
+                        new Vector3(0f, 1.76f, -1.12f)) < 0.001f &&
+                    Vector3.Distance(
+                        trolleyHandleTrigger.size,
+                        new Vector3(1.8f, 0.35f, 0.3f)) < 0.001f,
+                $"{PlatformTrolleyPrefabPath} must keep its body hull under the forward deck " +
+                "and its interaction trigger only on the handle.");
+            Bounds trolleyHandleBounds = new(
+                trolleyHandleTrigger.center,
+                trolleyHandleTrigger.size);
+            Require(trolleySlots.All(slot => !trolleyHandleBounds.Contains(
+                        trolleyHandleTrigger.transform.InverseTransformPoint(slot.position))),
+                $"The handle trigger in {PlatformTrolleyPrefabPath} must not occlude cargo slots " +
+                "from physical product focus.");
+            CharacterController playerController =
+                RequireAsset<GameObject>(PlayerPrefabPath).GetComponent<CharacterController>();
+            float rearBodyDistance = platformTrolleyConfig.FollowDistance +
+                                     trolleyBodyBox.center.z -
+                                     trolleyBodyBox.size.z * 0.5f;
+            float rearHandleDistance = platformTrolleyConfig.FollowDistance +
+                                       trolleyHandleTrigger.center.z -
+                                       trolleyHandleTrigger.size.z * 0.5f;
+            Require(playerController != null &&
+                    rearBodyDistance > playerController.radius + 0.05f &&
+                    rearHandleDistance > playerController.radius + 0.05f,
+                "Platform trolley follow distance must leave a physical gap between the player " +
+                "capsule, trolley body and handle trigger.");
+            Rigidbody trolleyBody = trolleyRigidbodies[0];
+            Require(trolleyBody.isKinematic && !trolleyBody.useGravity &&
+                    trolleyBody.interpolation == RigidbodyInterpolation.None,
+                $"{PlatformTrolleyPrefabPath} must use a deterministic kinematic, gravity-free " +
+                "Rigidbody.");
+            SerializedProperty trolleyHighlight =
+                new SerializedObject(trolleyViews[0]).FindProperty("_highlight");
+            Require(trolleyHighlight?.objectReferenceValue == trolleyHighlights[0],
+                $"The InteractionView in {PlatformTrolleyPrefabPath} must reference its deck " +
+                "highlight.");
+            Require(platformTrolleyConfig.ViewPrefab == trolleyViews[0],
+                $"{PlatformTrolleyConfigPath} must reference the InteractionView root from " +
+                $"{PlatformTrolleyPrefabPath}.");
+            Require(!ContainsPrefabInstance(trolleyPrefab, cementProductPrefab) &&
+                    !ContainsPrefabInstance(trolleyPrefab, boardProductPrefab),
+                $"{PlatformTrolleyPrefabPath} must be empty before runtime cargo placement.");
         }
 
         private static void ValidateProductCatalogEntry(ProductConfig productConfig,
             DeliveryConfig deliveryConfig, ProductTypeId productType,
-            int unitPrice, float mass, float carryMovementSpeed, int deliveryCount,
-            int purchaseUnitPrice)
+            int unitPrice, float mass, float carryMovementSpeed,
+            float productDropCollisionRadius, int deliveryCount, int purchaseUnitPrice)
         {
             string productPath = AssetDatabase.GetAssetPath(productConfig);
             string deliveryPath = AssetDatabase.GetAssetPath(deliveryConfig);
@@ -2509,8 +3512,14 @@ namespace HardwareStore.Editor
                 $"Catalog entry {productType} must use the same key across product and delivery.");
             Require(productConfig.UnitPrice == unitPrice &&
                     Mathf.Approximately(productConfig.Mass, mass) &&
-                    Mathf.Approximately(productConfig.CarryMovementSpeed, carryMovementSpeed),
-                $"{productPath} has incorrect sale, mass or carry-speed values.");
+                    Mathf.Approximately(productConfig.CarryMovementSpeed, carryMovementSpeed) &&
+                    Mathf.Approximately(
+                        productConfig.ProductDropCollisionRadius,
+                        productDropCollisionRadius) &&
+                    productConfig.ProductDropCollisionRadius <=
+                    productConfig.DropForwardDistance,
+                $"{productPath} has incorrect sale, mass, carry-speed or collision-safe drop " +
+                "values.");
             Require(productConfig.WorldInterpolation == RigidbodyInterpolation.Interpolate &&
                     productConfig.WorldCollisionDetection ==
                     CollisionDetectionMode.ContinuousSpeculative,
@@ -2796,6 +3805,35 @@ namespace HardwareStore.Editor
                 new Vector3(Mathf.Abs(lossyScale.x), Mathf.Abs(lossyScale.y), Mathf.Abs(lossyScale.z)));
         }
 
+        private static float ReadSolidProductBoundingRadius(GameObject productPrefab,
+            string productPrefabPath)
+        {
+            Collider[] solidColliders = productPrefab.GetComponentsInChildren<Collider>(true)
+                .Where(collider => !collider.isTrigger)
+                .ToArray();
+            Require(solidColliders.Length == 1 && solidColliders[0] is BoxCollider,
+                $"{productPrefabPath} must provide exactly one solid BoxCollider.");
+
+            BoxCollider boxCollider = (BoxCollider)solidColliders[0];
+            Vector3 halfSize = boxCollider.size * 0.5f;
+            float maximumRadius = 0f;
+
+            for (int x = -1; x <= 1; x += 2)
+            for (int y = -1; y <= 1; y += 2)
+            for (int z = -1; z <= 1; z += 2)
+            {
+                Vector3 localCorner = boxCollider.center + Vector3.Scale(
+                    halfSize,
+                    new Vector3(x, y, z));
+                Vector3 worldCorner = boxCollider.transform.TransformPoint(localCorner);
+                maximumRadius = Mathf.Max(
+                    maximumRadius,
+                    Vector3.Distance(productPrefab.transform.position, worldCorner));
+            }
+
+            return maximumRadius;
+        }
+
         private static void ValidatePrototypeSceneComposition()
         {
             Require(AssetDatabase.LoadAssetAtPath<SceneAsset>(PrototypeScenePath) != null,
@@ -2884,11 +3922,13 @@ namespace HardwareStore.Editor
                 var expectedSpawnIds = new HashSet<SpawnPointId>
                 {
                     SpawnPointId.Player,
-                    SpawnPointId.DeliveryVehicle
+                    SpawnPointId.DeliveryVehicle,
+                    SpawnPointId.PlatformTrolley
                 };
                 var actualSpawnIds = new HashSet<SpawnPointId>(spawnPoints.Select(marker => marker.Id));
                 Require(spawnPoints.Length == expectedSpawnIds.Count && actualSpawnIds.SetEquals(expectedSpawnIds),
-                    $"{PrototypeScenePath} must contain one spawn point for Player and DeliveryVehicle.");
+                    $"{PrototypeScenePath} must contain one spawn point for Player, " +
+                    "DeliveryVehicle and PlatformTrolley.");
 
                 var expectedRouteIds = new HashSet<SceneRouteId>
                 {
@@ -2966,7 +4006,8 @@ namespace HardwareStore.Editor
                 {
                     SceneViewId.CustomerOrderCounter,
                     SceneViewId.ProcurementTerminal,
-                    SceneViewId.StorageZone
+                    SceneViewId.StorageZone,
+                    SceneViewId.TrolleyUpgradeTerminal
                 };
                 var actualSceneViewIds = new HashSet<SceneViewId>(sceneViews.Select(marker => marker.Id));
                 Require(sceneViews.Length == expectedSceneViewIds.Count &&
@@ -2976,7 +4017,7 @@ namespace HardwareStore.Editor
                     "Every static scene view marker must reference an InteractionView on the same object.");
                 Require(entityViews.Length == sceneViews.Length &&
                         new HashSet<EntityBehaviour>(sceneViews.Select(marker => marker.View)).SetEquals(entityViews),
-                    $"{PrototypeScenePath} must contain only the three marked static entity views.");
+                    $"{PrototypeScenePath} must contain only the four marked static entity views.");
                 Require(slotRegistrars.Length == 1,
                     $"{PrototypeScenePath} must contain scene slots only for storage.");
 
@@ -3028,6 +4069,26 @@ namespace HardwareStore.Editor
                         $"{slotPosition}; the receiving target must be spatially separate from stored products.");
                 }
 
+                SceneViewMarker trolleyUpgradeTerminal = sceneViews.Single(
+                    marker => marker.Id == SceneViewId.TrolleyUpgradeTerminal);
+                Require(trolleyUpgradeTerminal.GetComponent<InteractionViewRegistrar>() != null &&
+                        trolleyUpgradeTerminal.GetComponent<SlotsRegistrar>() == null,
+                    "The trolley upgrade terminal must use the generic interaction registrar " +
+                    "without owning runtime cargo slots.");
+                SpawnPointMarker trolleySpawn = spawnPoints.Single(
+                    marker => marker.Id == SpawnPointId.PlatformTrolley);
+                Transform trolleyStationPad = allSceneTransforms.SingleOrDefault(candidate =>
+                    candidate.name == "Station Pad" && candidate.parent != null &&
+                    candidate.parent.name == "Trolley Upgrade Station");
+                Require(trolleySpawn.gameObject.scene == scene &&
+                        trolleySpawn.transform != trolleyUpgradeTerminal.transform &&
+                        Mathf.Approximately(trolleySpawn.transform.position.y, 0.01f) &&
+                        trolleyStationPad != null &&
+                        trolleyStationPad.GetComponent<Collider>() == null,
+                    "The platform trolley must have one distinct authored runtime spawn pose " +
+                    "on yard level, and its station pad must remain decorative so it cannot " +
+                    "block the trolley's first collision-safe movement.");
+
                 Transform lumberDisplay = allSceneTransforms.SingleOrDefault(
                     candidate => candidate.name == "Lumber Display");
                 Require(lumberDisplay != null,
@@ -3047,9 +4108,14 @@ namespace HardwareStore.Editor
                         LocalizationKey.WorldStorageIntake,
                         LocalizationKey.WorldCustomerLoadingBay,
                         LocalizationKey.WorldDeliveryIntake,
-                        LocalizationKey.WorldBoardProductLabel
+                        LocalizationKey.WorldBoardProductLabel,
+                        LocalizationKey.WorldTrolleyUpgrade
                     },
                     PrototypeScenePath);
+                LocalizedTextMeshView trolleyUpgradeLabel = localizedWorldLabels.Single(
+                    view => view.Key == LocalizationKey.WorldTrolleyUpgrade);
+                Require(trolleyUpgradeLabel.NumberArguments.SequenceEqual(new[] { 200 }),
+                    "The trolley upgrade world label must author the configured 200 price.");
 
                 GameObject deliveryPrefab = RequireAsset<GameObject>(DeliveryVehiclePrefabPath);
                 Require(!ContainsPrefabInstance(scene, deliveryPrefab),
@@ -3057,6 +4123,10 @@ namespace HardwareStore.Editor
                 GameObject customerVehiclePrefab = RequireAsset<GameObject>(CustomerVehiclePrefabPath);
                 Require(!ContainsPrefabInstance(scene, customerVehiclePrefab),
                     $"{PrototypeScenePath} must not contain a customer vehicle prefab instance.");
+                GameObject trolleyPrefab = RequireAsset<GameObject>(PlatformTrolleyPrefabPath);
+                Require(!ContainsPrefabInstance(scene, trolleyPrefab),
+                    $"{PrototypeScenePath} must spawn the platform trolley at runtime, not " +
+                    "contain a prefab instance.");
             }
             finally
             {
@@ -3377,6 +4447,17 @@ namespace HardwareStore.Editor
                 Require(source.Contains(fragment, StringComparison.Ordinal),
                     $"Required architecture source fragment is missing: {fragment}.");
             }
+        }
+
+        private static void RequireSourceOrder(
+            string source,
+            string first,
+            string second,
+            string message)
+        {
+            int firstIndex = source.IndexOf(first, StringComparison.Ordinal);
+            int secondIndex = source.IndexOf(second, StringComparison.Ordinal);
+            Require(firstIndex >= 0 && secondIndex > firstIndex, message);
         }
 
         private static void ValidatePrefabRoot(GameObject prefab, string path, bool requireUnitScale)

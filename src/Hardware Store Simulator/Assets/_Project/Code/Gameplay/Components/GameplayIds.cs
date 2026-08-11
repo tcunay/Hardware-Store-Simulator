@@ -3,14 +3,16 @@ namespace HardwareStore.Gameplay.Components
     public enum SpawnPointId
     {
         Player,
-        DeliveryVehicle
+        DeliveryVehicle,
+        PlatformTrolley
     }
 
     public enum SceneViewId
     {
         CustomerOrderCounter,
         ProcurementTerminal,
-        StorageZone
+        StorageZone,
+        TrolleyUpgradeTerminal
     }
 
     public enum SceneRouteId
@@ -40,7 +42,9 @@ namespace HardwareStore.Gameplay.Components
         StorageZone,
         OrderCounter,
         Product,
-        LoadingZone
+        LoadingZone,
+        TrolleyUpgradeTerminal,
+        PlatformTrolley
     }
 
     public enum AudioCueId
