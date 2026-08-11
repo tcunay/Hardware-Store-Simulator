@@ -19,6 +19,7 @@ namespace HardwareStore.Gameplay.Features.Consultation.Systems
         private readonly IGroup<InputEntity> _inputs;
         private readonly List<GameEntity> _playerBuffer = new(1);
         private readonly List<GameEntity> _offers = new(OfferCount);
+        private readonly List<GameEntity> _lineBuffer = new(8);
 
         public ConfirmConsultationOfferSystem(GameContext gameContext,
             InputContext inputContext, IOrderFactory orderFactory,
@@ -31,6 +32,7 @@ namespace HardwareStore.Gameplay.Features.Consultation.Systems
             _players = gameContext.GetGroup(GameMatcher.AllOf(
                 GameMatcher.Player,
                 GameMatcher.MoveDirection,
+                GameMatcher.ModalOpen,
                 GameMatcher.ConsultationVisitEntityId));
             _inputs = inputContext.GetGroup(InputMatcher.AllOf(
                 InputMatcher.InputState,
@@ -69,18 +71,17 @@ namespace HardwareStore.Gameplay.Features.Consultation.Systems
                 throw new InvalidOperationException(
                     $"Customer visit {visit.EntityId} has no selected offer.");
 
+            int totalRequiredCount = CountRequiredProducts(selectedOffer);
             _orderFactory.AddOrderComponents(visit, selectedOffer);
             _events.EmitNotification(
                 $"Предложение сформировано • {selectedOffer.OfferTitle} • объём: " +
-                $"{selectedOffer.RequiredProductCount} • сумма: " +
-                $"{selectedOffer.OrderReward:N0} ₽");
-            visit.RemoveRequestedProductType();
+                $"{totalRequiredCount} • сумма: {selectedOffer.OrderReward:N0} ₽");
             visit.isCustomerVisitConsulting = false;
             visit.isCustomerVisitWaiting = true;
-            foreach (GameEntity offer in _offers)
-                offer.isDestructed = true;
+            DestructOffers();
 
             player.RemoveConsultationVisitEntityId();
+            player.isModalOpen = false;
             player.ReplaceMoveDirection(Vector3.zero);
             if (player.hasInteractionPrompt)
                 player.RemoveInteractionPrompt();
@@ -89,11 +90,55 @@ namespace HardwareStore.Gameplay.Features.Consultation.Systems
             _cursor.SetLocked(true);
         }
 
+        private int CountRequiredProducts(GameEntity offer)
+        {
+            int totalRequiredCount = 0;
+            foreach (GameEntity line in
+                     _gameContext.GetEntitiesWithConsultationOfferEntityId(offer.EntityId))
+            {
+                if (!line.isConsultationOfferLine || line.isDestructed ||
+                    !line.hasRequiredProductCount)
+                {
+                    throw new InvalidOperationException(
+                        $"Consultation offer {offer.EntityId} has an invalid line.");
+                }
+                totalRequiredCount = checked(
+                    totalRequiredCount + line.RequiredProductCount);
+            }
+
+            return totalRequiredCount;
+        }
+
+        private void DestructOffers()
+        {
+            _lineBuffer.Clear();
+            foreach (GameEntity offer in _offers)
+            {
+                foreach (GameEntity line in
+                         _gameContext.GetEntitiesWithConsultationOfferEntityId(offer.EntityId))
+                {
+                    if (!line.isDestructed)
+                        _lineBuffer.Add(line);
+                }
+            }
+
+            foreach (GameEntity line in _lineBuffer)
+            {
+                line.RemoveConsultationOfferEntityId();
+                line.isDestructed = true;
+            }
+            foreach (GameEntity offer in _offers)
+            {
+                offer.RemoveConsultationOfferVisitEntityId();
+                offer.isDestructed = true;
+            }
+        }
+
         private void CollectOffers(GameEntity visit)
         {
             _offers.Clear();
             foreach (GameEntity entity in
-                     _gameContext.GetEntitiesWithCustomerVisitEntityId(visit.EntityId))
+                     _gameContext.GetEntitiesWithConsultationOfferVisitEntityId(visit.EntityId))
             {
                 if (entity.isConsultationOffer && !entity.isDestructed)
                     _offers.Add(entity);

@@ -1,3 +1,5 @@
+using System;
+using System.Collections.Generic;
 using Entitas;
 using HardwareStore.Gameplay.Configs;
 using HardwareStore.Gameplay.Components;
@@ -23,7 +25,7 @@ namespace HardwareStore.Gameplay.Features.Delivery.Systems
             _deliveryFactory = deliveryFactory;
             _events = events;
             _requests = gameContext.GetGroup(GameMatcher.AllOf(
-                GameMatcher.InteractionRequest,
+                GameMatcher.PurchaseDeliveryRequest,
                 GameMatcher.SourceEntityId,
                 GameMatcher.TargetEntityId));
         }
@@ -35,15 +37,24 @@ namespace HardwareStore.Gameplay.Features.Delivery.Systems
                 GameEntity terminal =
                     _gameContext.GetEntityWithEntityId(request.TargetEntityId);
                 if (!terminal.isProcurementTerminal)
-                    continue;
+                    throw new InvalidOperationException(
+                        $"Purchase request targets non-procurement entity " +
+                        $"{terminal.EntityId}.");
                 if (!terminal.hasSelectedProductType)
-                    throw new System.InvalidOperationException(
+                    throw new InvalidOperationException(
                         $"Procurement terminal {terminal.EntityId} has no selected product type.");
 
                 GameEntity player =
                     _gameContext.GetEntityWithEntityId(request.SourceEntityId);
-                if (player.StoreEntityId != terminal.StoreEntityId)
-                    continue;
+                if (!player.isPlayer || !player.isModalOpen ||
+                    !player.hasProcurementTerminalEntityId ||
+                    player.ProcurementTerminalEntityId != terminal.EntityId ||
+                    player.StoreEntityId != terminal.StoreEntityId)
+                {
+                    throw new InvalidOperationException(
+                        $"Purchase request source {player.EntityId} does not own procurement " +
+                        $"modal for terminal {terminal.EntityId}.");
+                }
 
                 if (_gameContext.GetEntityWithDeliveryProcurementTerminalEntityId(
                         terminal.EntityId) != null)
@@ -82,12 +93,52 @@ namespace HardwareStore.Gameplay.Features.Delivery.Systems
                     continue;
                 }
 
-                if (terminal.SelectedProductType != customerVisit.RequiredProductType)
+                if (!customerVisit.isOrder || !customerVisit.hasEntityId ||
+                    (!customerVisit.isCustomerVisitWaiting &&
+                     !customerVisit.isCustomerVisitLoading))
                 {
-                    ProductConfig requiredProduct =
-                        _staticData.GetProduct(customerVisit.RequiredProductType);
+                    throw new InvalidOperationException(
+                        $"Customer visit {customerVisit.EntityId} cannot procure order stock.");
+                }
+
+                GameEntity selectedLine = null;
+                var requiredProductNames = new List<string>(4);
+                foreach (GameEntity line in
+                         _gameContext.GetEntitiesWithOrderEntityId(customerVisit.EntityId))
+                {
+                    ValidateOrderLine(customerVisit, line);
+                    requiredProductNames.Add(
+                        _staticData.GetProduct(line.ProductType).DisplayName);
+                    if (line.ProductType != terminal.SelectedProductType)
+                        continue;
+                    if (selectedLine != null)
+                        throw new InvalidOperationException(
+                            $"Customer visit {customerVisit.EntityId} has duplicate order " +
+                            $"lines for {line.ProductType}.");
+
+                    selectedLine = line;
+                }
+
+                if (requiredProductNames.Count == 0)
+                    throw new InvalidOperationException(
+                        $"Customer visit {customerVisit.EntityId} has no order lines.");
+                if (selectedLine == null)
+                {
                     _events.EmitNotification(
-                        $"Для текущего заказа нужен товар: {requiredProduct.DisplayName}");
+                        $"Для текущего заказа нужны: " +
+                        $"{string.Join(", ", requiredProductNames)}");
+                    continue;
+                }
+
+                int remainingCount =
+                    selectedLine.RequiredProductCount - selectedLine.LoadedProductCount;
+                if (selectedLine.AvailableProductCount >= remainingCount)
+                {
+                    ProductConfig selectedProduct =
+                        _staticData.GetProduct(selectedLine.ProductType);
+                    _events.EmitNotification(
+                        $"Товара уже достаточно: {selectedProduct.DisplayName} • " +
+                        $"доступно {selectedLine.AvailableProductCount}/{remainingCount}");
                     continue;
                 }
 
@@ -128,6 +179,27 @@ namespace HardwareStore.Gameplay.Features.Delivery.Systems
                     $"количество: {delivery.DeliveryProductCount} {productConfig.UnitLabel} • " +
                     $"−{delivery.DeliveryCost:N0} ₽");
                 _events.EmitAudio(AudioCueId.DeliveryPurchased);
+                request.isPurchaseDeliverySucceeded = true;
+            }
+        }
+
+        private static void ValidateOrderLine(GameEntity visit, GameEntity line)
+        {
+            if (!line.isOrderLine || line.isDestructed || !line.hasEntityId ||
+                !line.hasOrderEntityId || !line.hasStorageZoneEntityId ||
+                !line.hasProductType || !line.hasRequiredProductCount ||
+                !line.hasAvailableProductCount || !line.hasLoadedProductCount)
+            {
+                throw new InvalidOperationException(
+                    $"Customer visit {visit.EntityId} has an invalid order line.");
+            }
+            if (line.OrderEntityId != visit.EntityId ||
+                line.StorageZoneEntityId != visit.StorageZoneEntityId ||
+                line.LoadedProductCount < 0 ||
+                line.LoadedProductCount > line.RequiredProductCount)
+            {
+                throw new InvalidOperationException(
+                    $"Order line {line.EntityId} has invalid runtime state.");
             }
         }
     }

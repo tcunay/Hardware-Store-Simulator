@@ -8,6 +8,7 @@ namespace HardwareStore.Gameplay.Features.Delivery
         public DeliveryFeature(ISystemFactory systems)
         {
             Add(systems.Create<PurchaseDeliverySystem>());
+            Add(systems.Create<CloseProcurementAfterPurchaseSystem>());
             Add(systems.Create<SpawnDeliveryProductsSystem>());
             Add(systems.Create<StoreInboundProductSystem>());
             Add(systems.Create<RegisterStockedProductSystem>());

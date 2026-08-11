@@ -9,6 +9,7 @@ using HardwareStore.Gameplay.Features.Movement;
 using HardwareStore.Gameplay.Features.Orders;
 using HardwareStore.Gameplay.Features.Player;
 using HardwareStore.Gameplay.Features.Presentation;
+using HardwareStore.Gameplay.Features.Procurement;
 using HardwareStore.Gameplay.Features.Products;
 using HardwareStore.Gameplay.Features.StorageState;
 using HardwareStore.Gameplay.Features.StoreSceneBindings;
@@ -26,6 +27,7 @@ namespace HardwareStore.Gameplay
             Add(systems.Create<InputFeature>());
             Add(systems.Create<PlayerFeature>());
             Add(systems.Create<InteractionFeature>());
+            Add(systems.Create<ProcurementFeature>());
             Add(systems.Create<ConsultationFeature>());
             Add(systems.Create<DeliveryFeature>());
             Add(systems.Create<OrdersFeature>());
@@ -35,6 +37,7 @@ namespace HardwareStore.Gameplay
             Add(systems.Create<ProductPlacementFeature>());
             Add(systems.Create<CustomerFeature>());
             Add(systems.Create<MovementFeature>());
+            Add(systems.Create<InteractionPromptFeature>());
             Add(systems.Create<PresentationFeature>());
             Add(systems.Create<CleanupFeature>());
         }

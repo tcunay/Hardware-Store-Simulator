@@ -24,11 +24,10 @@ namespace HardwareStore.Gameplay.Features.Customers.Systems
                     GameMatcher.CustomerVisitDeparting,
                     GameMatcher.Order,
                     GameMatcher.OrderRewarded,
+                    GameMatcher.OrderContentReleased,
                     GameMatcher.EntityId,
                     GameMatcher.CustomerVisitStoreEntityId,
                     GameMatcher.LoadingZone,
-                    GameMatcher.LoadedProductCount,
-                    GameMatcher.RequiredProductCount,
                     GameMatcher.RouteCompleted)
                 .NoneOf(GameMatcher.Destructed));
         }
@@ -36,42 +35,23 @@ namespace HardwareStore.Gameplay.Features.Customers.Systems
         public void Execute()
         {
             foreach (GameEntity visit in _visits.GetEntities(_buffer))
-                CompleteVisit(visit);
-        }
-
-        private void CompleteVisit(GameEntity visit)
-        {
-            GameEntity store = _gameContext.GetEntityWithEntityId(
-                visit.CustomerVisitStoreEntityId);
-            if (store.hasCustomerCooldownRemaining)
-                throw new InvalidOperationException(
-                    $"Customer visit {visit.EntityId} references an invalid active store.");
-
-            int loadedProductCount = 0;
-            foreach (GameEntity product in
-                     _gameContext.GetEntitiesWithCustomerVisitEntityId(visit.EntityId))
             {
-                if (!product.isProduct || !product.isLoaded || product.isDestructed)
+                if (_gameContext.GetEntitiesWithOrderEntityId(visit.EntityId).Count != 0)
+                {
                     throw new InvalidOperationException(
-                        $"Customer visit {visit.EntityId} has invalid linked entity " +
-                        $"{product.EntityId}.");
+                        $"Departed customer visit {visit.EntityId} still owns order content.");
+                }
 
-                product.isDestructed = true;
-                loadedProductCount++;
+                GameEntity store = _gameContext.GetEntityWithEntityId(
+                    visit.CustomerVisitStoreEntityId);
+                if (store.hasCustomerCooldownRemaining)
+                    throw new InvalidOperationException(
+                        $"Customer visit {visit.EntityId} references an invalid active store.");
+
+                visit.RemoveCustomerVisitStoreEntityId();
+                visit.isDestructed = true;
+                store.AddCustomerCooldownRemaining(_config.NextCustomerDelay);
             }
-
-            if (loadedProductCount != visit.LoadedProductCount ||
-                loadedProductCount != visit.RequiredProductCount)
-            {
-                throw new InvalidOperationException(
-                    $"Departed customer visit {visit.EntityId} contains {loadedProductCount} " +
-                    $"products, but its order contains {visit.LoadedProductCount}/" +
-                    $"{visit.RequiredProductCount}.");
-            }
-
-            visit.RemoveCustomerVisitStoreEntityId();
-            visit.isDestructed = true;
-            store.AddCustomerCooldownRemaining(_config.NextCustomerDelay);
         }
     }
 }

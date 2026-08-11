@@ -32,7 +32,7 @@ namespace HardwareStore.Gameplay.Features.Products.Systems
                     GameMatcher.LooseProduct,
                     GameMatcher.Loaded,
                     GameMatcher.StorageZoneEntityId,
-                    GameMatcher.CustomerVisitEntityId,
+                    GameMatcher.OrderLineEntityId,
                     GameMatcher.StorageSlotIndex,
                     GameMatcher.LoadingSlotIndex,
                     GameMatcher.WorldPosition,

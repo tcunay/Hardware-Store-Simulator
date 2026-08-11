@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using Entitas;
 using HardwareStore.Gameplay.Configs;
 using HardwareStore.Gameplay.Components;
@@ -139,17 +140,35 @@ namespace HardwareStore.Gameplay.Features.Interaction.Systems
                     throw new InvalidOperationException(
                         $"Customer visit {customerVisit.EntityId} has no valid lifecycle state.");
 
-                bool available =
-                    product.ProductType == customerVisit.RequiredProductType;
-                ProductConfig requiredProduct =
-                    _staticData.GetProduct(customerVisit.RequiredProductType);
+                GameEntity[] lines = GetOrderLines(customerVisit);
+                GameEntity matchingLine = lines.FirstOrDefault(line =>
+                    line.ProductType == product.ProductType);
+                bool available = matchingLine != null &&
+                                 matchingLine.LoadedProductCount <
+                                 matchingLine.RequiredProductCount;
                 player.SetInteractionPrompt(
                     available
                         ? $"E — взять со склада • товар: {productConfig.DisplayName}"
-                        : $"Для заказа нужен товар: {requiredProduct.DisplayName} • " +
-                          $"выбран: {productConfig.DisplayName}",
+                        : matchingLine == null
+                            ? $"Товар не входит в заказ: {productConfig.DisplayName}"
+                            : $"Позиция уже загружена полностью: " +
+                              $"{productConfig.DisplayName}",
                     available);
             }
+        }
+
+        private GameEntity[] GetOrderLines(GameEntity order)
+        {
+            GameEntity[] lines = _gameContext
+                .GetEntitiesWithOrderEntityId(order.EntityId)
+                .Where(line => line.isOrderLine && !line.isDestructed)
+                .OrderBy(line => line.LineIndex)
+                .ToArray();
+            if (lines.Length == 0)
+                throw new InvalidOperationException(
+                    $"Order {order.EntityId} has no active product lines.");
+
+            return lines;
         }
     }
 }

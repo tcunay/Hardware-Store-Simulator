@@ -17,7 +17,7 @@ namespace HardwareStore.Gameplay.Features.Products.Systems
                     GameMatcher.Product,
                     GameMatcher.EntityId,
                     GameMatcher.Loaded,
-                    GameMatcher.CustomerVisitEntityId,
+                    GameMatcher.OrderLineEntityId,
                     GameMatcher.LoadingSlotIndex,
                     GameMatcher.ProductPlacementDirty,
                     GameMatcher.View,
@@ -43,8 +43,26 @@ namespace HardwareStore.Gameplay.Features.Products.Systems
         {
             foreach (GameEntity product in _products.GetEntities(_buffer))
             {
+                GameEntity orderLine =
+                    _gameContext.GetEntityWithEntityId(product.OrderLineEntityId);
+                if (!orderLine.isOrderLine || orderLine.isDestructed ||
+                    !orderLine.hasOrderEntityId || !orderLine.hasEntityId ||
+                    orderLine.EntityId != product.OrderLineEntityId)
+                {
+                    throw new InvalidOperationException(
+                        $"Loaded product {product.EntityId} references invalid order line " +
+                        $"{product.OrderLineEntityId}.");
+                }
+
                 GameEntity customerVisit =
-                    _gameContext.GetEntityWithEntityId(product.CustomerVisitEntityId);
+                    _gameContext.GetEntityWithEntityId(orderLine.OrderEntityId);
+                if (!customerVisit.isCustomerVisit || !customerVisit.hasEntityId ||
+                    !customerVisit.hasSlots || customerVisit.EntityId != orderLine.OrderEntityId)
+                {
+                    throw new InvalidOperationException(
+                        $"Order line {orderLine.EntityId} references invalid customer visit " +
+                        $"{orderLine.OrderEntityId}.");
+                }
                 if (product.LoadingSlotIndex < 0 ||
                     product.LoadingSlotIndex >= customerVisit.Slots.Length)
                     throw new InvalidOperationException(

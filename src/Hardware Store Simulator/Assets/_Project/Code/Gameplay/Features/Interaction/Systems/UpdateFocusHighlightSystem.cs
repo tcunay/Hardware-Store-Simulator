@@ -14,7 +14,7 @@ namespace HardwareStore.Gameplay.Features.Interaction.Systems
         {
             _gameContext = gameContext;
             _players = gameContext.GetGroup(GameMatcher.AllOf(GameMatcher.Player)
-                .NoneOf(GameMatcher.ConsultationVisitEntityId));
+                .NoneOf(GameMatcher.ModalOpen));
             _highlighted = gameContext.GetGroup(GameMatcher.AllOf(
                 GameMatcher.Highlighted,
                 GameMatcher.EntityId));

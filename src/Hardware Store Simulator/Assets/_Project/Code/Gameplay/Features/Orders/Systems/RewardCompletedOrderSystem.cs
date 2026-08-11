@@ -34,7 +34,7 @@ namespace HardwareStore.Gameplay.Features.Orders.Systems
                 GameEntity store =
                     _gameContext.GetEntityWithEntityId(visit.CustomerVisitStoreEntityId);
 
-                store.ReplaceMoney(store.Money + visit.OrderReward);
+                store.ReplaceMoney(checked(store.Money + visit.OrderReward));
                 visit.isOrderRewarded = true;
                 _events.EmitAudio(AudioCueId.Reward);
             }

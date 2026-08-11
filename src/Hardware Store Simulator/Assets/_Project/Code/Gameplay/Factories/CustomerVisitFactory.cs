@@ -33,16 +33,18 @@ namespace HardwareStore.Gameplay.Factories
             Pose[] arrival = CloneAndValidateRoute(arrivalRoute, nameof(arrivalRoute));
             Pose[] departure = CloneAndValidateRoute(departureRoute, nameof(departureRoute));
             ValidateRouteContinuity(arrival, departure, config.WaypointTolerance);
-            int orderSequenceIndex = store.NextOrderSequenceIndex;
-            if (orderSequenceIndex < 0 || orderSequenceIndex >= _staticData.ProductTypes.Count)
+            int projectSequenceIndex = store.NextProjectSequenceIndex;
+            if (projectSequenceIndex < 0 ||
+                projectSequenceIndex >= _staticData.ProjectTypes.Count)
             {
                 throw new InvalidOperationException(
-                    $"Store {store.EntityId} has invalid next order sequence index " +
-                    $"{orderSequenceIndex} for {_staticData.ProductTypes.Count} product types.");
+                    $"Store {store.EntityId} has invalid next project sequence index " +
+                    $"{projectSequenceIndex} for {_staticData.ProjectTypes.Count} projects.");
             }
 
-            ProductTypeId productType = _staticData.ProductTypes[orderSequenceIndex];
-            OrderConfig order = _staticData.GetOrder(productType);
+            CustomerProjectTypeId projectType =
+                _staticData.ProjectTypes[projectSequenceIndex];
+            CustomerProjectConfig project = _staticData.GetProject(projectType);
 
             GameEntity customerVisit = CreateEntity.Empty(_identifiers.Next())
                 .AddViewPrefab(config.ViewPrefab)
@@ -50,9 +52,9 @@ namespace HardwareStore.Gameplay.Factories
                 .AddSpawnRotation(arrival[0].rotation)
                 .AddCustomerVisitStoreEntityId(store.EntityId)
                 .AddStorageZoneEntityId(store.StorageZoneEntityId)
-                .AddRequestedProductType(productType)
-                .AddCustomerProjectTitle(order.CustomerProjectTitle)
-                .AddCustomerRequest(order.CustomerRequest)
+                .AddCustomerProjectType(projectType)
+                .AddCustomerProjectTitle(project.ProjectTitle)
+                .AddCustomerRequest(project.Request)
                 .AddRoute(arrival)
                 .AddDepartureRoute(departure)
                 .AddRouteWaypointIndex(1)
@@ -66,8 +68,8 @@ namespace HardwareStore.Gameplay.Factories
                 .With(x => x.isLoadingZone = true);
 
             _consultationOffers.CreateOffers(customerVisit);
-            store.ReplaceNextOrderSequenceIndex(
-                (orderSequenceIndex + 1) % _staticData.ProductTypes.Count);
+            store.ReplaceNextProjectSequenceIndex(
+                (projectSequenceIndex + 1) % _staticData.ProjectTypes.Count);
             store.RemoveCustomerCooldownRemaining();
             return customerVisit;
         }
@@ -77,7 +79,7 @@ namespace HardwareStore.Gameplay.Factories
             if (store == null)
                 throw new ArgumentNullException(nameof(store));
             if (!store.isStore || !store.hasEntityId || !store.hasStorageZoneEntityId ||
-                !store.hasNextOrderSequenceIndex)
+                !store.hasNextProjectSequenceIndex)
                 throw new InvalidOperationException("A customer visit requires a configured store.");
             if (!store.hasCustomerCooldownRemaining)
                 throw new InvalidOperationException(

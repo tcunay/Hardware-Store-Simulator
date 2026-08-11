@@ -22,41 +22,47 @@ namespace HardwareStore.Gameplay.Features.Carrying.Systems
             foreach (GameEntity request in _requests)
             {
                 GameEntity visit = _gameContext.GetEntityWithEntityId(request.TargetEntityId);
-                if (!visit.isLoadingZone)
-                    continue;
-                if (!visit.isCustomerVisitLoading)
+                if (!visit.isLoadingZone || !visit.isCustomerVisitLoading)
                     continue;
 
                 GameEntity player = _gameContext.GetEntityWithEntityId(request.SourceEntityId);
                 if (player.StoreEntityId != visit.CustomerVisitStoreEntityId ||
                     !player.isHandsOccupied)
                     continue;
-                if (visit.LoadedProductCount >= visit.RequiredProductCount)
-                    continue;
+                if (!visit.isOrder || !visit.hasEntityId ||
+                    !visit.hasStorageZoneEntityId || !visit.hasSlots)
+                {
+                    throw new InvalidOperationException(
+                        $"Loading customer visit {visit.EntityId} has incomplete order state.");
+                }
 
                 GameEntity product = _gameContext.GetEntityWithCarrierEntityId(player.EntityId);
-                if (!product.isInStock || product.isLoaded ||
-                    product.ProductType != visit.RequiredProductType)
+                if (!product.isInStock || product.isLoaded)
                     continue;
-                if (!product.hasStorageZoneEntityId)
-                    throw new InvalidOperationException(
-                        $"In-stock product {product.EntityId} has no storage ownership relation.");
-                if (product.StorageZoneEntityId != visit.StorageZoneEntityId)
-                    throw new InvalidOperationException(
-                        $"Held product {product.EntityId} belongs to storage " +
-                        $"{product.StorageZoneEntityId}, not customer visit storage " +
-                        $"{visit.StorageZoneEntityId}.");
-                if (product.hasStorageSlotIndex)
-                    throw new InvalidOperationException(
-                        $"Carried product {product.EntityId} still occupies storage slot " +
-                        $"{product.StorageSlotIndex}.");
-                if (product.isLooseProduct || product.hasWorldPosition || product.hasWorldRotation)
-                    throw new InvalidOperationException(
-                        $"Carried product {product.EntityId} still contains loose placement state.");
-                if (product.hasCustomerVisitEntityId || product.hasLoadingSlotIndex)
-                    throw new InvalidOperationException(
-                        $"Carried product {product.EntityId} already contains customer loading state.");
-                if (visit.Slots.Length <= visit.LoadedProductCount)
+                GameEntity orderLine = null;
+                int totalLoadedProductCount = 0;
+                foreach (GameEntity line in
+                         _gameContext.GetEntitiesWithOrderEntityId(visit.EntityId))
+                {
+                    ValidateOrderLine(visit, line);
+                    totalLoadedProductCount = checked(
+                        totalLoadedProductCount + line.LoadedProductCount);
+                    if (line.ProductType != product.ProductType)
+                        continue;
+                    if (orderLine != null)
+                        throw new InvalidOperationException(
+                            $"Customer visit {visit.EntityId} has duplicate order lines for " +
+                            $"{product.ProductType}.");
+
+                    orderLine = line;
+                }
+
+                if (orderLine == null ||
+                    orderLine.LoadedProductCount >= orderLine.RequiredProductCount)
+                    continue;
+
+                ValidateHeldProduct(visit, product);
+                if (visit.Slots.Length <= totalLoadedProductCount)
                     throw new InvalidOperationException(
                         $"Customer visit {visit.EntityId} has insufficient loading slots.");
 
@@ -66,10 +72,54 @@ namespace HardwareStore.Gameplay.Features.Carrying.Systems
                 product.isLoaded = true;
                 product.isInteractable = false;
                 product.RemoveStorageZoneEntityId();
-                product.AddCustomerVisitEntityId(visit.EntityId);
-                product.AddLoadingSlotIndex(visit.LoadedProductCount);
+                product.AddOrderLineEntityId(orderLine.EntityId);
+                product.AddLoadingSlotIndex(totalLoadedProductCount);
                 product.isProductLoaded = true;
                 product.isProductPlacementDirty = true;
+            }
+        }
+
+        private static void ValidateHeldProduct(GameEntity visit, GameEntity product)
+        {
+            if (!product.hasStorageZoneEntityId)
+                throw new InvalidOperationException(
+                    $"In-stock product {product.EntityId} has no storage ownership relation.");
+            if (product.StorageZoneEntityId != visit.StorageZoneEntityId)
+                throw new InvalidOperationException(
+                    $"Held product {product.EntityId} belongs to storage " +
+                    $"{product.StorageZoneEntityId}, not customer visit storage " +
+                    $"{visit.StorageZoneEntityId}.");
+            if (product.hasStorageSlotIndex)
+                throw new InvalidOperationException(
+                    $"Carried product {product.EntityId} still occupies storage slot " +
+                    $"{product.StorageSlotIndex}.");
+            if (product.isLooseProduct || product.hasWorldPosition || product.hasWorldRotation)
+                throw new InvalidOperationException(
+                    $"Carried product {product.EntityId} still contains loose placement state.");
+            if (product.hasOrderLineEntityId || product.hasLoadingSlotIndex)
+            {
+                throw new InvalidOperationException(
+                    $"Carried product {product.EntityId} already contains customer loading state.");
+            }
+        }
+
+        private static void ValidateOrderLine(GameEntity visit, GameEntity line)
+        {
+            if (!line.isOrderLine || line.isDestructed || !line.hasEntityId ||
+                !line.hasOrderEntityId || !line.hasStorageZoneEntityId ||
+                !line.hasProductType || !line.hasRequiredProductCount ||
+                !line.hasLoadedProductCount)
+            {
+                throw new InvalidOperationException(
+                    $"Customer visit {visit.EntityId} has an invalid order line.");
+            }
+            if (line.OrderEntityId != visit.EntityId ||
+                line.StorageZoneEntityId != visit.StorageZoneEntityId ||
+                line.LoadedProductCount < 0 ||
+                line.LoadedProductCount > line.RequiredProductCount)
+            {
+                throw new InvalidOperationException(
+                    $"Order line {line.EntityId} has invalid runtime state.");
             }
         }
     }

@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using Entitas;
 using HardwareStore.Gameplay.Configs;
 using HardwareStore.Gameplay.Components;
@@ -88,38 +89,59 @@ namespace HardwareStore.Gameplay.Features.Interaction.Systems
                     throw new InvalidOperationException(
                         $"Customer visit {loadingZone.EntityId} has no valid lifecycle state.");
 
+                GameEntity[] lines = GetOrderLines(loadingZone);
                 if (!player.isHandsOccupied)
                 {
+                    GameEntity incompleteLine = lines.FirstOrDefault(line =>
+                        line.LoadedProductCount < line.RequiredProductCount);
+                    if (incompleteLine == null)
+                    {
+                        player.SetInteractionPrompt(
+                            "Все позиции загружены — заказ завершается",
+                            false);
+                        continue;
+                    }
+
                     ProductConfig requiredProduct =
-                        _staticData.GetProduct(loadingZone.RequiredProductType);
+                        _staticData.GetProduct(incompleteLine.ProductType);
                     player.SetInteractionPrompt(
-                        $"Принесите товар со склада • товар: " +
-                        $"{requiredProduct.DisplayName}",
+                        $"Принесите со склада: {requiredProduct.DisplayName} • " +
+                        $"загружено {incompleteLine.LoadedProductCount}/" +
+                        $"{incompleteLine.RequiredProductCount}",
                         false);
                     continue;
                 }
 
                 GameEntity heldProduct =
                     _gameContext.GetEntityWithCarrierEntityId(player.EntityId);
+                GameEntity matchingLine = lines.FirstOrDefault(line =>
+                    line.ProductType == heldProduct.ProductType);
 
                 bool available = heldProduct.isInStock &&
                                  heldProduct.StorageZoneEntityId ==
                                  loadingZone.StorageZoneEntityId &&
-                                 heldProduct.ProductType == loadingZone.RequiredProductType;
+                                 matchingLine != null &&
+                                 matchingLine.LoadedProductCount <
+                                 matchingLine.RequiredProductCount;
                 if (!available)
                 {
-                    ProductConfig requiredProduct =
-                        _staticData.GetProduct(loadingZone.RequiredProductType);
                     ProductConfig heldProductConfig =
                         _staticData.GetProduct(heldProduct.ProductType);
                     player.SetInteractionPrompt(
-                        $"Для заказа нужен товар: {requiredProduct.DisplayName} • " +
-                        $"в руках: {heldProductConfig.DisplayName}",
+                        matchingLine == null
+                            ? $"Товар не входит в заказ: {heldProductConfig.DisplayName}"
+                            : matchingLine.LoadedProductCount >=
+                              matchingLine.RequiredProductCount
+                                ? $"Позиция уже загружена: " +
+                                  $"{heldProductConfig.DisplayName}"
+                                : $"Товар нужно взять со склада: " +
+                                  $"{heldProductConfig.DisplayName}",
                         false);
                     continue;
                 }
 
-                if (loadingZone.Slots.Length <= loadingZone.LoadedProductCount)
+                int loadedUnitCount = lines.Sum(line => line.LoadedProductCount);
+                if (loadingZone.Slots.Length <= loadedUnitCount)
                 {
                     player.SetInteractionPrompt(
                         "В машине клиента нет свободного места",
@@ -129,9 +151,25 @@ namespace HardwareStore.Gameplay.Features.Interaction.Systems
 
                 ProductConfig product = _staticData.GetProduct(heldProduct.ProductType);
                 player.SetInteractionPrompt(
-                    $"E — загрузить клиенту • товар: {product.DisplayName}",
+                    $"E — загрузить • {product.DisplayName} • " +
+                    $"{matchingLine.LoadedProductCount}/" +
+                    $"{matchingLine.RequiredProductCount}",
                     true);
             }
+        }
+
+        private GameEntity[] GetOrderLines(GameEntity order)
+        {
+            GameEntity[] lines = _gameContext
+                .GetEntitiesWithOrderEntityId(order.EntityId)
+                .Where(line => line.isOrderLine && !line.isDestructed)
+                .OrderBy(line => line.LineIndex)
+                .ToArray();
+            if (lines.Length == 0)
+                throw new InvalidOperationException(
+                    $"Order {order.EntityId} has no active product lines.");
+
+            return lines;
         }
     }
 }

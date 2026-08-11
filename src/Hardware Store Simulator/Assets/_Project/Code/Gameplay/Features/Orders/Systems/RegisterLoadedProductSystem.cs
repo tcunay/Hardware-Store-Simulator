@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using Entitas;
-using HardwareStore.Gameplay.Configs;
 using HardwareStore.Gameplay.Components;
 using HardwareStore.Gameplay.Factories;
 using HardwareStore.Gameplay.StaticData;
@@ -27,7 +26,7 @@ namespace HardwareStore.Gameplay.Features.Orders.Systems
                     GameMatcher.EntityId,
                     GameMatcher.ProductLoaded,
                     GameMatcher.Loaded,
-                    GameMatcher.CustomerVisitEntityId,
+                    GameMatcher.OrderLineEntityId,
                     GameMatcher.ProductType)
                 .NoneOf(GameMatcher.Destructed));
         }
@@ -36,34 +35,83 @@ namespace HardwareStore.Gameplay.Features.Orders.Systems
         {
             foreach (GameEntity product in _loadedProducts.GetEntities(_buffer))
             {
+                GameEntity orderLine = _gameContext.GetEntityWithEntityId(
+                    product.OrderLineEntityId);
+                ValidateOrderLine(product, orderLine);
                 GameEntity visit = _gameContext.GetEntityWithEntityId(
-                    product.CustomerVisitEntityId);
-                if (!visit.isCustomerVisitLoading ||
-                    product.ProductType != visit.RequiredProductType)
-                {
-                    throw new InvalidOperationException(
-                        $"Product {product.EntityId} cannot be registered for customer visit " +
-                        $"{visit.EntityId}.");
-                }
+                    orderLine.OrderEntityId);
+                ValidateRelations(product, visit, orderLine);
 
-                int loaded = visit.LoadedProductCount;
-                int required = visit.RequiredProductCount;
+                int loaded = orderLine.LoadedProductCount;
+                int required = orderLine.RequiredProductCount;
                 if (loaded >= required)
                     throw new InvalidOperationException(
-                        $"Customer visit {visit.EntityId} already contains all required products.");
+                        $"Order line {orderLine.EntityId} already contains all required products.");
+
+                int linkedProductCount = CountLinkedProducts(orderLine);
+                if (linkedProductCount != loaded + 1)
+                {
+                    throw new InvalidOperationException(
+                        $"Order line {orderLine.EntityId} contains {linkedProductCount} linked " +
+                        $"products before registration, expected {loaded + 1}.");
+                }
 
                 loaded++;
-                visit.ReplaceLoadedProductCount(loaded);
+                orderLine.ReplaceLoadedProductCount(loaded);
                 product.isProductLoaded = false;
-                if (loaded < required)
+                var productConfig = _staticData.GetProduct(product.ProductType);
+                _events.EmitNotification(
+                    $"Товар загружен • {productConfig.DisplayName}: " +
+                    $"{loaded}/{required} {productConfig.UnitLabel}");
+                _events.EmitAudio(AudioCueId.Load);
+            }
+        }
+
+        private int CountLinkedProducts(GameEntity orderLine)
+        {
+            int productCount = 0;
+            foreach (GameEntity product in
+                     _gameContext.GetEntitiesWithOrderLineEntityId(orderLine.EntityId))
+            {
+                if (!product.isProduct || !product.isLoaded || product.isDestructed ||
+                    !product.hasProductType ||
+                    product.OrderLineEntityId != orderLine.EntityId ||
+                    product.ProductType != orderLine.ProductType)
                 {
-                    ProductConfig productConfig =
-                        _staticData.GetProduct(product.ProductType);
-                    _events.EmitNotification(
-                        $"Товар загружен • {productConfig.DisplayName}: " +
-                        $"{loaded}/{required} {productConfig.UnitLabel}");
-                    _events.EmitAudio(AudioCueId.Load);
+                    throw new InvalidOperationException(
+                        $"Order line {orderLine.EntityId} has an invalid linked product.");
                 }
+
+                productCount++;
+            }
+
+            return productCount;
+        }
+
+        private static void ValidateOrderLine(GameEntity product, GameEntity orderLine)
+        {
+            if (!orderLine.isOrderLine || orderLine.isDestructed ||
+                !orderLine.hasEntityId || !orderLine.hasOrderEntityId ||
+                !orderLine.hasProductType || !orderLine.hasRequiredProductCount ||
+                !orderLine.hasLoadedProductCount ||
+                orderLine.EntityId != product.OrderLineEntityId ||
+                orderLine.ProductType != product.ProductType)
+            {
+                throw new InvalidOperationException(
+                    $"Product {product.EntityId} cannot be registered for order line " +
+                    $"{product.OrderLineEntityId}.");
+            }
+        }
+
+        private static void ValidateRelations(GameEntity product, GameEntity visit,
+            GameEntity orderLine)
+        {
+            if (!visit.isCustomerVisitLoading || !visit.isOrder || !visit.hasEntityId ||
+                visit.EntityId != orderLine.OrderEntityId)
+            {
+                throw new InvalidOperationException(
+                    $"Product {product.EntityId} references inactive customer visit " +
+                    $"{visit.EntityId}.");
             }
         }
     }

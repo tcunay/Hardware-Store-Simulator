@@ -4,5 +4,6 @@ namespace HardwareStore.Gameplay.Presentation
     {
         void Present(HudSnapshot snapshot);
         void PresentConsultation(ConsultationSnapshot? snapshot);
+        void PresentProcurement(ProcurementSnapshot? snapshot);
     }
 }

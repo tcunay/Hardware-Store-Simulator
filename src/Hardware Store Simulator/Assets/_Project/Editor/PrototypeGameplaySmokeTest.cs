@@ -14,7 +14,10 @@ using HardwareStore.Gameplay.Features.Interaction;
 using HardwareStore.Gameplay.Features.Interaction.Systems;
 using HardwareStore.Gameplay.Features.Movement.Systems;
 using HardwareStore.Gameplay.Features.Orders.Systems;
+using HardwareStore.Gameplay.Features.Player.Systems;
 using HardwareStore.Gameplay.Features.Presentation.Systems;
+using HardwareStore.Gameplay.Features.Procurement;
+using HardwareStore.Gameplay.Features.Procurement.Systems;
 using HardwareStore.Gameplay.Features.Products;
 using HardwareStore.Gameplay.Features.StorageState;
 using HardwareStore.Gameplay.Features.StoreSceneBindings.Systems;
@@ -48,6 +51,56 @@ namespace HardwareStore.Editor
                 $"{GetConsultationOffers(runtime.Game, visit.Entity).Length} offers.");
         }
 
+        [MenuItem("Tools/Hardware Store/Prepare Mixed Consultation Visual Check")]
+        public static void PrepareMixedConsultationVisualCheck()
+        {
+            Runtime runtime = ResolveRuntime();
+            Scenario scenario = ResolveFreshScenario(runtime);
+            int mixedProjectIndex = runtime.StaticData.ProjectTypes
+                .Select((projectType, index) => (projectType, index))
+                .Single(item =>
+                    item.projectType == CustomerProjectTypeId.WorkbenchFoundation)
+                .index;
+            scenario.Store.ReplaceNextProjectSequenceIndex(mixedProjectIndex);
+
+            CustomerVisit visit = SpawnAndParkCustomer(runtime, scenario);
+            Require(visit.Entity.CustomerProjectType ==
+                    CustomerProjectTypeId.WorkbenchFoundation,
+                "The mixed consultation visual check did not spawn the workbench project.");
+            OpenConsultation(runtime, scenario, visit.Entity);
+            runtime.Systems.Create<PresentConsultationSystem>().Execute();
+
+            Debug.Log(
+                $"[Hardware Store] Mixed consultation visual check prepared: customer visit " +
+                $"{visit.Entity.EntityId}, project '{visit.Entity.CustomerProjectTitle}' and " +
+                $"capacity {runtime.StaticData.CustomerVehicle.CargoCapacity}.");
+        }
+
+        [MenuItem("Tools/Hardware Store/Prepare Procurement Visual Check")]
+        public static void PrepareProcurementVisualCheck()
+        {
+            Runtime runtime = ResolveRuntime();
+            Scenario scenario = ResolveFreshScenario(runtime);
+            CustomerVisit visit = SpawnAndParkCustomer(runtime, scenario);
+            CustomerProjectConfig project = runtime.StaticData.GetProject(
+                visit.Entity.CustomerProjectType);
+
+            OpenConsultation(runtime, scenario, visit.Entity);
+            GameEntity selectedOffer = SelectedConsultationOffer(runtime.Game, visit.Entity);
+            ConfirmConsultation(
+                runtime,
+                scenario,
+                visit.Entity,
+                project.Offers[selectedOffer.OfferIndex]);
+            OpenProcurement(runtime, scenario);
+            runtime.Systems.Create<PresentProcurementSystem>().Execute();
+
+            Debug.Log(
+                $"[Hardware Store] Procurement visual check prepared: customer project " +
+                $"'{visit.Entity.CustomerProjectTitle}', selected product " +
+                $"{scenario.ProcurementTerminal.SelectedProductType}.");
+        }
+
         [MenuItem("Tools/Hardware Store/Run Gameplay Smoke Test")]
         public static void Run()
         {
@@ -56,20 +109,41 @@ namespace HardwareStore.Editor
             int initialMoney = scenario.Store.Money;
             ProductTypeId cement = ProductTypeId.CementBag;
             ProductTypeId boards = ProductTypeId.BoardBundle;
-            var cementDelivery = runtime.StaticData.GetDelivery(cement);
-            var boardDelivery = runtime.StaticData.GetDelivery(boards);
-            var cementOrder = runtime.StaticData.GetOrder(cement);
-            var boardOrder = runtime.StaticData.GetOrder(boards);
-            var cementOffer = cementOrder.Offers[0];
-            var boardOffer = boardOrder.Offers[2];
+            DeliveryConfig cementDelivery = runtime.StaticData.GetDelivery(cement);
+            DeliveryConfig boardDelivery = runtime.StaticData.GetDelivery(boards);
+            CustomerProjectConfig cementProject = runtime.StaticData.GetProject(
+                CustomerProjectTypeId.CementFoundation);
+            CustomerProjectConfig boardProject = runtime.StaticData.GetProject(
+                CustomerProjectTypeId.LumberShelving);
+            CustomerProjectConfig mixedProject = runtime.StaticData.GetProject(
+                CustomerProjectTypeId.WorkbenchFoundation);
+            CustomerProjectOfferDefinition cementOffer = cementProject.Offers[0];
+            CustomerProjectOfferDefinition boardOffer = boardProject.Offers[2];
+            CustomerProjectOfferDefinition mixedOffer = mixedProject.Offers[1];
+            int cementReward = CalculateReward(runtime, cementOffer);
+            int boardReward = CalculateReward(runtime, boardOffer);
+            int mixedReward = CalculateReward(runtime, mixedOffer);
+            int cementOrderCount = RequiredCount(cementOffer, cement);
+            int boardOrderCount = RequiredCount(boardOffer, boards);
+            int mixedCementCount = RequiredCount(mixedOffer, cement);
+            int mixedBoardCount = RequiredCount(mixedOffer, boards);
 
             ValidateRuntimePlayerView(scenario.Player);
             Require(scenario.Player.WalkSpeed < scenario.Player.SprintSpeed,
                 "Player movement config must define walking < sprinting speeds.");
             Require(runtime.StaticData.ProductTypes.SequenceEqual(new[] { cement, boards }),
                 "The smoke test requires the stable CementBag -> BoardBundle order sequence.");
-            Require(scenario.Store.NextOrderSequenceIndex == 0,
-                "A fresh store must begin with the first configured order type.");
+            Require(runtime.StaticData.ProjectTypes.SequenceEqual(new[]
+                {
+                    CustomerProjectTypeId.CementFoundation,
+                    CustomerProjectTypeId.LumberShelving,
+                    CustomerProjectTypeId.WorkbenchFoundation
+                }),
+                "The smoke test requires the stable cement -> lumber -> workbench sequence.");
+            Require(scenario.Store.NextProjectSequenceIndex == 0,
+                "A fresh store must begin with the first configured project type.");
+            Require(runtime.StaticData.CustomerVehicle.CargoCapacity == 3,
+                "The mixed-order smoke requires a three-slot customer vehicle.");
             ValidateCooldownPresentation(runtime, scenario);
             ValidateRejectedDeliveryPurchase(
                 runtime,
@@ -79,10 +153,11 @@ namespace HardwareStore.Editor
 
             CustomerVisit firstVisit = SpawnAndParkCustomer(runtime, scenario);
             int firstCustomerActorId = firstVisit.Actor.EntityId;
-            Require(firstVisit.Entity.RequestedProductType == cement &&
-                    firstVisit.Entity.CustomerProjectTitle == cementOrder.CustomerProjectTitle &&
-                    firstVisit.Entity.CustomerRequest == cementOrder.CustomerRequest &&
-                    scenario.Store.NextOrderSequenceIndex == 1,
+            Require(firstVisit.Entity.CustomerProjectType ==
+                    CustomerProjectTypeId.CementFoundation &&
+                    firstVisit.Entity.CustomerProjectTitle == cementProject.ProjectTitle &&
+                    firstVisit.Entity.CustomerRequest == cementProject.Request &&
+                    scenario.Store.NextProjectSequenceIndex == 1,
                 "The first customer visit did not receive the configured cement project.");
 
             ValidateRejectedDeliveryPurchase(
@@ -98,11 +173,8 @@ namespace HardwareStore.Editor
                 scenario,
                 firstVisit.Entity,
                 selectedIndex: 0);
-            ConfirmConsultation(runtime, scenario, firstVisit.Entity, cementOffer, cementDelivery);
-            Require(firstVisit.Entity.RequiredProductType == cement &&
-                    firstVisit.Entity.RequiredProductCount == cementOffer.RequiredProductCount &&
-                    firstVisit.Entity.OrderReward == cementOffer.Reward,
-                "The confirmed cement offer did not form the configured order.");
+            GameEntity[] firstOrderLines = ConfirmConsultation(
+                runtime, scenario, firstVisit.Entity, cementOffer);
 
             AttemptOrderAcceptance(runtime, scenario);
             Require(firstVisit.Entity.isCustomerVisitWaiting,
@@ -113,7 +185,11 @@ namespace HardwareStore.Editor
                 boards,
                 "A wrong-SKU board delivery was purchased for the cement customer.");
 
-            DeliveryArrival firstArrival = PurchaseAndPrepareArrival(runtime, scenario, cement);
+            DeliveryArrival firstArrival = PurchaseAndPrepareArrival(
+                runtime,
+                scenario,
+                cement,
+                validateModalControls: true);
             Require(scenario.Store.Money == initialMoney - cementDelivery.TotalCost,
                 "The first delivery did not deduct its cost exactly once.");
             TestCarryDropAndRepick(runtime, scenario, firstArrival.Products[0]);
@@ -132,9 +208,9 @@ namespace HardwareStore.Editor
             GameEntity[] firstOutboundProducts = FindStockProducts(runtime.Game,
                     scenario.StorageZone.EntityId)
                 .Where(product => product.ProductType == cement)
-                .Take(cementOffer.RequiredProductCount)
+                .Take(TotalRequiredCount(cementOffer))
                 .ToArray();
-            Require(firstOutboundProducts.Length == cementOffer.RequiredProductCount,
+            Require(firstOutboundProducts.Length == TotalRequiredCount(cementOffer),
                 "The first cycle could not resolve enough stock for its order.");
             LoadAndRewardCustomerOrder(
                 runtime,
@@ -142,13 +218,15 @@ namespace HardwareStore.Editor
                 firstVisit.Entity,
                 firstOutboundProducts);
             Require(scenario.Store.Money ==
-                    initialMoney - cementDelivery.TotalCost + cementOffer.Reward,
+                    initialMoney - cementDelivery.TotalCost + cementReward,
                 "The first cycle balance is not purchase cost plus exactly one reward.");
 
             int firstVisitId = firstVisit.Entity.EntityId;
-            DepartAndCleanupCustomer(runtime, scenario, firstVisit, firstOutboundProducts);
+            DepartAndCleanupCustomer(
+                runtime, scenario, firstVisit, firstOrderLines, firstOutboundProducts);
             ValidateCooldownSafety(runtime, scenario);
-            Require(CountStockProducts(runtime.Game, scenario.StorageZone.EntityId, cement) == 2 &&
+            Require(CountStockProducts(runtime.Game, scenario.StorageZone.EntityId, cement) ==
+                    cementDelivery.ProductCount - cementOrderCount &&
                     CountStockProducts(runtime.Game, scenario.StorageZone.EntityId, boards) == 0,
                 "The economy cement cycle did not leave exactly two cement bags.");
 
@@ -159,13 +237,16 @@ namespace HardwareStore.Editor
                 "The second customer actor reused the first actor identifier.");
             Require(secondVisit.Entity.Slots.All(slot => slot.childCount == 0),
                 "The second customer vehicle inherited occupied loading slots.");
-            Require(secondVisit.Entity.RequestedProductType == boards &&
-                    secondVisit.Entity.CustomerProjectTitle == boardOrder.CustomerProjectTitle &&
-                    secondVisit.Entity.CustomerRequest == boardOrder.CustomerRequest &&
-                    scenario.Store.NextOrderSequenceIndex == 0,
+            Require(secondVisit.Entity.CustomerProjectType ==
+                    CustomerProjectTypeId.LumberShelving &&
+                    secondVisit.Entity.CustomerProjectTitle == boardProject.ProjectTitle &&
+                    secondVisit.Entity.CustomerRequest == boardProject.Request &&
+                    scenario.Store.NextProjectSequenceIndex == 2,
                 "The second customer visit did not receive the configured board project.");
             Require(GetConsultationOffers(runtime.Game, secondVisit.Entity)
-                        .All(offer => offer.AvailableProductCount == 0) &&
+                        .SelectMany(offer => GetConsultationOfferLines(runtime.Game, offer))
+                        .All(line => line.ProductType == boards &&
+                                     line.AvailableProductCount == 0) &&
                     scenario.StorageZone.StorageProductCount == 2,
                 "Wrong-SKU cement stock was counted as available for a board offer.");
 
@@ -180,11 +261,8 @@ namespace HardwareStore.Editor
                 scenario,
                 secondVisit.Entity,
                 selectedIndex: 2);
-            ConfirmConsultation(runtime, scenario, secondVisit.Entity, boardOffer, boardDelivery);
-            Require(secondVisit.Entity.RequiredProductType == boards &&
-                    secondVisit.Entity.RequiredProductCount == boardOffer.RequiredProductCount &&
-                    secondVisit.Entity.OrderReward == boardOffer.Reward,
-                "The confirmed board offer did not form the configured order.");
+            GameEntity[] secondOrderLines = ConfirmConsultation(
+                runtime, scenario, secondVisit.Entity, boardOffer);
 
             AttemptOrderAcceptance(runtime, scenario);
             Require(secondVisit.Entity.isCustomerVisitWaiting &&
@@ -193,7 +271,7 @@ namespace HardwareStore.Editor
 
             DeliveryArrival secondArrival = PurchaseAndPrepareArrival(runtime, scenario, boards);
             Require(scenario.Store.Money ==
-                    initialMoney - cementDelivery.TotalCost + cementOffer.Reward -
+                    initialMoney - cementDelivery.TotalCost + cementReward -
                     boardDelivery.TotalCost,
                 "The second delivery did not deduct its cost exactly once.");
             TestCarryDropAndRepick(runtime, scenario, secondArrival.Products[0]);
@@ -215,9 +293,9 @@ namespace HardwareStore.Editor
             GameEntity[] secondOutboundProducts = FindStockProducts(runtime.Game,
                     scenario.StorageZone.EntityId)
                 .Where(product => product.ProductType == boards)
-                .Take(secondVisit.Entity.RequiredProductCount)
+                .Take(TotalRequiredCount(boardOffer))
                 .ToArray();
-            Require(secondOutboundProducts.Length == secondVisit.Entity.RequiredProductCount,
+            Require(secondOutboundProducts.Length == TotalRequiredCount(boardOffer),
                 "The second cycle could not resolve enough stock for its order.");
             LoadAndRewardCustomerOrder(
                 runtime,
@@ -225,43 +303,157 @@ namespace HardwareStore.Editor
                 secondVisit.Entity,
                 secondOutboundProducts);
 
-            int expectedFinalMoney = initialMoney - cementDelivery.TotalCost +
-                                     cementOffer.Reward - boardDelivery.TotalCost +
-                                     boardOffer.Reward;
-            Require(scenario.Store.Money == expectedFinalMoney,
+            int moneyAfterTwoCycles = initialMoney - cementDelivery.TotalCost +
+                                      cementReward - boardDelivery.TotalCost + boardReward;
+            Require(scenario.Store.Money == moneyAfterTwoCycles,
                 "Two cycles did not produce exactly two purchase deductions and two rewards.");
-            int expectedFinalStock = cementDelivery.ProductCount + boardDelivery.ProductCount -
-                                     cementOffer.RequiredProductCount -
-                                     boardOffer.RequiredProductCount;
-            Require(scenario.StorageZone.StorageProductCount == expectedFinalStock &&
-                    CountStockProducts(runtime.Game, scenario.StorageZone.EntityId, cement) == 2 &&
-                    CountStockProducts(runtime.Game, scenario.StorageZone.EntityId, boards) == 0,
+            int stockAfterTwoCycles = cementDelivery.ProductCount +
+                                      boardDelivery.ProductCount -
+                                      TotalRequiredCount(cementOffer) -
+                                      TotalRequiredCount(boardOffer);
+            Require(scenario.StorageZone.StorageProductCount == stockAfterTwoCycles &&
+                    CountStockProducts(runtime.Game, scenario.StorageZone.EntityId, cement) ==
+                    cementDelivery.ProductCount - cementOrderCount &&
+                    CountStockProducts(runtime.Game, scenario.StorageZone.EntityId, boards) ==
+                    boardDelivery.ProductCount - boardOrderCount,
                 "The second customer cycle left an incorrect stock count.");
 
             int secondVisitId = secondVisit.Entity.EntityId;
-            DepartAndCleanupCustomer(runtime, scenario, secondVisit, secondOutboundProducts);
+            DepartAndCleanupCustomer(
+                runtime, scenario, secondVisit, secondOrderLines, secondOutboundProducts);
+            ValidateCooldownSafety(runtime, scenario);
+
+            CustomerVisit thirdVisit = SpawnAndParkCustomer(runtime, scenario);
+            Require(thirdVisit.Entity.CustomerProjectType ==
+                    CustomerProjectTypeId.WorkbenchFoundation &&
+                    thirdVisit.Entity.CustomerProjectTitle == mixedProject.ProjectTitle &&
+                    thirdVisit.Entity.CustomerRequest == mixedProject.Request &&
+                    scenario.Store.NextProjectSequenceIndex == 0,
+                "The third customer visit did not receive the mixed workbench project.");
+            ValidateConsultationLineAvailability(runtime, scenario, thirdVisit.Entity);
+
+            OpenConsultation(runtime, scenario, thirdVisit.Entity);
+            Require(SelectedConsultationOffer(runtime.Game, thirdVisit.Entity).OfferIndex == 1,
+                "The mixed project did not select its configured C2+B1 default offer.");
+            GameEntity[] thirdOrderLines = ConfirmConsultation(
+                runtime, scenario, thirdVisit.Entity, mixedOffer);
+            Require(thirdOrderLines.Length == mixedOffer.Lines.Count &&
+                    FindOrderLine(thirdOrderLines, cement).RequiredProductCount == 2 &&
+                    FindOrderLine(thirdOrderLines, boards).RequiredProductCount == 1,
+                "The mixed consultation did not create the C2+B1 order lines.");
+
+            AttemptOrderAcceptance(runtime, scenario);
+            Require(thirdVisit.Entity.isCustomerVisitWaiting &&
+                    !thirdVisit.Entity.isCustomerVisitLoading,
+                "The mixed order was accepted without its missing board line.");
+            ValidateRejectedDeliveryPurchase(
+                runtime,
+                scenario,
+                cement,
+                "A redundant cement delivery was purchased for the already-stocked mixed line.");
+
+            DeliveryArrival mixedBoardArrival = PurchaseAndPrepareArrival(
+                runtime, scenario, boards);
+            Require(scenario.Store.Money == moneyAfterTwoCycles - boardDelivery.TotalCost,
+                "The mixed cycle board delivery did not deduct its cost exactly once.");
+            StoreCompleteDelivery(runtime, scenario, thirdVisit.Entity, mixedBoardArrival);
+            CleanupCompletedDelivery(runtime, scenario, mixedBoardArrival);
+            AttemptOrderAcceptance(runtime, scenario);
+            Require(thirdVisit.Entity.isCustomerVisitLoading &&
+                    !thirdVisit.Entity.isCustomerVisitWaiting,
+                "The mixed order did not enter loading after both lines became available.");
+
+            GameEntity mixedBoard = FindStockProducts(runtime.Game,
+                    scenario.StorageZone.EntityId)
+                .First(product => product.ProductType == boards);
+            LoadOrderProduct(
+                runtime, scenario, thirdVisit.Entity, mixedBoard, expectCompleted: false);
+            GameEntity extraBoard = FindStockProducts(runtime.Game,
+                    scenario.StorageZone.EntityId)
+                .First(product => product.ProductType == boards);
+            ValidateRejectedStockProductCannotLoad(
+                runtime,
+                scenario,
+                thirdVisit.Entity,
+                extraBoard,
+                "A board beyond the mixed order line quota was loaded.");
+
+            GameEntity[] mixedCement = FindStockProducts(runtime.Game,
+                    scenario.StorageZone.EntityId)
+                .Where(product => product.ProductType == cement)
+                .Take(mixedCementCount)
+                .ToArray();
+            Require(mixedCement.Length == mixedCementCount,
+                "The mixed cycle could not resolve its two already-stocked cement bags.");
+            LoadOrderProduct(
+                runtime, scenario, thirdVisit.Entity, mixedCement[0], expectCompleted: false);
+            Require(thirdVisit.Entity.isCustomerVisitLoading &&
+                    !thirdVisit.Entity.isCustomerVisitCompleted,
+                "The mixed order completed before its final cement bag.");
+            LoadOrderProduct(
+                runtime, scenario, thirdVisit.Entity, mixedCement[1], expectCompleted: true);
+
+            GameEntity[] thirdOutboundProducts = new[] { mixedBoard }
+                .Concat(mixedCement)
+                .ToArray();
+            RewardCustomerOrder(runtime, scenario, thirdVisit.Entity, thirdOutboundProducts);
+            int expectedFinalMoney = moneyAfterTwoCycles - boardDelivery.TotalCost + mixedReward;
+            Require(scenario.Store.Money == expectedFinalMoney,
+                "The mixed cycle did not apply one board purchase and one derived reward.");
+            int expectedFinalStock = stockAfterTwoCycles + boardDelivery.ProductCount -
+                                     TotalRequiredCount(mixedOffer);
+            int expectedFinalCementStock = cementDelivery.ProductCount -
+                                           cementOrderCount - mixedCementCount;
+            int expectedFinalBoardStock = boardDelivery.ProductCount * 2 -
+                                          boardOrderCount - mixedBoardCount;
+            Require(scenario.StorageZone.StorageProductCount == expectedFinalStock &&
+                    CountStockProducts(runtime.Game, scenario.StorageZone.EntityId, cement) ==
+                    expectedFinalCementStock &&
+                    CountStockProducts(runtime.Game, scenario.StorageZone.EntityId, boards) ==
+                    expectedFinalBoardStock,
+                "The mixed customer cycle left an incorrect typed stock count.");
+
+            int thirdVisitId = thirdVisit.Entity.EntityId;
+            DepartAndCleanupCustomer(
+                runtime, scenario, thirdVisit, thirdOrderLines, thirdOutboundProducts);
             ValidateCooldownSafety(runtime, scenario);
 
             Require(runtime.Game.GetEntityWithEntityId(firstVisitId) == null &&
                     runtime.Game.GetEntityWithEntityId(secondVisitId) == null &&
+                    runtime.Game.GetEntityWithEntityId(thirdVisitId) == null &&
                     runtime.Game.GetGroup(GameMatcher.CustomerVisit).count == 0 &&
                     runtime.Game.GetGroup(GameMatcher.Customer).count == 0 &&
                     runtime.Game.GetGroup(GameMatcher.Order).count == 0 &&
+                    runtime.Game.GetGroup(GameMatcher.OrderLine).count == 0 &&
                     runtime.Game.GetGroup(GameMatcher.ConsultationOffer).count == 0 &&
-                    runtime.Game.GetGroup(GameMatcher.ConsultationVisitEntityId).count == 0,
-                "A completed customer cycle retained a visit, offer or modal relation.");
+                    runtime.Game.GetGroup(GameMatcher.ConsultationOfferLine).count == 0 &&
+                    runtime.Game.GetGroup(GameMatcher.OrderEntityId).count == 0 &&
+                    runtime.Game.GetGroup(GameMatcher.OrderLineEntityId).count == 0 &&
+                    runtime.Game.GetGroup(GameMatcher.ConsultationOfferVisitEntityId).count == 0 &&
+                    runtime.Game.GetGroup(GameMatcher.ConsultationOfferEntityId).count == 0 &&
+                    runtime.Game.GetGroup(GameMatcher.ConsultationVisitEntityId).count == 0 &&
+                    runtime.Game.GetGroup(GameMatcher.ProcurementTerminalEntityId).count == 1 &&
+                    runtime.Game.GetGroup(GameMatcher.ModalOpen).count == 0 &&
+                    runtime.Game.GetGroup(GameMatcher.PurchaseDeliveryRequest).count == 0 &&
+                    runtime.Game.GetGroup(GameMatcher.PurchaseDeliverySucceeded).count == 0,
+                "A completed customer cycle retained a visit, line, offer or relation index.");
             Require(runtime.Game.GetEntityWithDeliveryProcurementTerminalEntityId(
                         scenario.ProcurementTerminal.EntityId) == null &&
                     runtime.Game.GetGroup(GameMatcher.Delivery).count == 0,
                 "A completed cycle retained an active delivery.");
             Require(!scenario.Player.isHandsOccupied &&
+                    !scenario.Player.isModalOpen &&
+                    !scenario.Player.hasProcurementTerminalEntityId &&
+                    !scenario.Player.hasConsultationVisitEntityId &&
                     runtime.Game.GetEntityWithCarrierEntityId(scenario.Player.EntityId) == null,
                 "The player retained a carrier relation after both cycles.");
 
             Debug.Log(
-                $"[Hardware Store] Gameplay smoke passed: modal consultation, min/max offers, " +
-                $"walking customer NPC lifecycle, cement and boards cycles, " +
-                $"wrong-SKU rejection, both physics flows, " +
+                $"[Hardware Store] Gameplay smoke passed: consultation and procurement modals, " +
+                $"arrow wrap, Enter/Esc and modal input capture, min/max offers, " +
+                $"walking customer NPC lifecycle, two single-SKU cycles and one C2+B1 cycle, " +
+                $"missing-line, redundant-delivery, quota and wrong-SKU rejection, " +
+                $"both physics flows, " +
                 $"stock {expectedFinalStock}, balance {expectedFinalMoney:N0} ₽.");
         }
 
@@ -295,7 +487,7 @@ namespace HardwareStore.Editor
                 GameMatcher.OrderCounterEntityId,
                 GameMatcher.ProcurementTerminalEntityId,
                 GameMatcher.StorageZoneEntityId,
-                GameMatcher.NextOrderSequenceIndex,
+                GameMatcher.NextProjectSequenceIndex,
                 GameMatcher.StoreSceneBindingsValidated)), "store");
             GameEntity orderCounter = RequireSingle(runtime.Game.GetGroup(GameMatcher.AllOf(
                 GameMatcher.EntityId,
@@ -356,6 +548,9 @@ namespace HardwareStore.Editor
             Require(runtime.Game.GetGroup(GameMatcher.Customer).count == 0,
                 "The smoke test must start without a customer actor.");
             Require(!player.isHandsOccupied &&
+                    !player.isModalOpen &&
+                    !player.hasConsultationVisitEntityId &&
+                    !player.hasProcurementTerminalEntityId &&
                     runtime.Game.GetEntityWithCarrierEntityId(player.EntityId) == null,
                 "The smoke test must start with empty hands.");
             Require(storageZone.OccupiedStorageSlotCount == 0 &&
@@ -393,11 +588,11 @@ namespace HardwareStore.Editor
                     FindProducts(runtime.Game).Length == 0 &&
                     runtime.Game.GetGroup(GameMatcher.Delivery).count == 0 &&
                     !visit.isOrder &&
-                    visit.hasRequestedProductType &&
+                    visit.hasCustomerProjectType &&
                     visit.hasCustomerProjectTitle &&
                     visit.hasCustomerRequest &&
                     !visit.isOrderRewarded &&
-                    !visit.hasLoadedProductCount &&
+                    runtime.Game.GetEntitiesWithOrderEntityId(visit.EntityId).Count == 0 &&
                     (visit.isCustomerVisitArriving || visit.isCustomerVisitConsulting) &&
                     runtime.Game.GetGroup(GameMatcher.ConsultationVisitEntityId).count == 0,
                 "The smoke test can only reset an untouched auto-spawned customer visit.");
@@ -415,17 +610,29 @@ namespace HardwareStore.Editor
                 : null;
 
             int resetSequenceIndex = Array.IndexOf(
-                runtime.StaticData.ProductTypes.ToArray(),
-                visit.RequestedProductType);
+                runtime.StaticData.ProjectTypes.ToArray(),
+                visit.CustomerProjectType);
             Require(resetSequenceIndex >= 0,
-                "The auto-spawned customer requests a product outside static data.");
-            store.ReplaceNextOrderSequenceIndex(resetSequenceIndex);
+                "The auto-spawned customer project is outside static data.");
+            store.ReplaceNextProjectSequenceIndex(resetSequenceIndex);
             store.AddCustomerCooldownRemaining(
                 runtime.StaticData.CustomerVehicle.FirstCustomerDelay);
             GameEntity[] offers = GetConsultationOffers(runtime.Game, visit);
             int[] offerIds = offers.Select(offer => offer.EntityId).ToArray();
+            GameEntity[] offerLines = offers
+                .SelectMany(offer => GetConsultationOfferLines(runtime.Game, offer))
+                .ToArray();
+            int[] offerLineIds = offerLines.Select(line => line.EntityId).ToArray();
+            foreach (GameEntity line in offerLines)
+            {
+                line.RemoveConsultationOfferEntityId();
+                line.isDestructed = true;
+            }
             foreach (GameEntity offer in offers)
+            {
+                offer.RemoveConsultationOfferVisitEntityId();
                 offer.isDestructed = true;
+            }
             if (actor != null)
             {
                 actor.RemoveCustomerActorVisitEntityId();
@@ -440,6 +647,9 @@ namespace HardwareStore.Editor
                     !visit.hasCustomerVisitStoreEntityId &&
                     runtime.Game.GetEntityWithEntityId(visitId) == null &&
                     offerIds.All(id => runtime.Game.GetEntityWithEntityId(id) == null) &&
+                    offerLineIds.All(id => runtime.Game.GetEntityWithEntityId(id) == null) &&
+                    runtime.Game.GetGroup(GameMatcher.ConsultationOfferVisitEntityId).count == 0 &&
+                    runtime.Game.GetGroup(GameMatcher.ConsultationOfferEntityId).count == 0 &&
                     runtime.Game.GetGroup(GameMatcher.Customer).count == 0 &&
                     (view == null || !view.HasEntity) &&
                     (actorView == null || !actorView.HasEntity),
@@ -478,14 +688,15 @@ namespace HardwareStore.Editor
                 "The ready store did not create a customer visit.");
             Require(visit.isCustomerVisit && visit.isCustomerVehicle && !visit.isOrder &&
                     visit.isLoadingZone && visit.isCustomerVisitArriving &&
-                    visit.hasRequestedProductType &&
+                    visit.hasCustomerProjectType &&
                     visit.hasCustomerProjectTitle &&
                     visit.hasCustomerRequest &&
-                    !visit.hasRequiredProductType &&
+                    !visit.hasProductType &&
                     !visit.hasRequiredProductCount &&
                     !visit.hasAvailableProductCount &&
                     !visit.hasLoadedProductCount &&
                     !visit.hasOrderReward &&
+                    runtime.Game.GetEntitiesWithOrderEntityId(visit.EntityId).Count == 0 &&
                     !visit.isInteractable &&
                     !visit.hasView,
                 "The spawned unified customer visit has an invalid arrival state.");
@@ -497,13 +708,30 @@ namespace HardwareStore.Editor
                 "The customer visit did not create three indexed offers with one selection.");
             foreach (GameEntity offer in offers)
             {
-                Require(offer.CustomerVisitEntityId == visit.EntityId &&
-                        offer.StorageZoneEntityId == scenario.StorageZone.EntityId &&
-                        offer.RequiredProductType == visit.RequestedProductType &&
-                        offer.RequiredProductCount == offer.OfferIndex + 1 &&
+                Require(offer.ConsultationOfferVisitEntityId == visit.EntityId &&
                         !string.IsNullOrWhiteSpace(offer.OfferTitle) &&
-                        !string.IsNullOrWhiteSpace(offer.OfferDescription),
+                        !string.IsNullOrWhiteSpace(offer.OfferDescription) &&
+                        offer.hasOrderReward &&
+                        offer.hasExpectedProfit &&
+                        !offer.hasProductType &&
+                        !offer.hasRequiredProductCount &&
+                        !offer.hasAvailableProductCount &&
+                        !offer.hasLoadedProductCount,
                     $"Consultation offer {offer.EntityId} has invalid project data.");
+                GameEntity[] lines = GetConsultationOfferLines(runtime.Game, offer);
+                Require(lines.Length > 0 &&
+                        lines.Length <= CustomerProjectConfig.MaxLinesPerOffer,
+                    $"Consultation offer {offer.EntityId} has an invalid line count.");
+                for (int lineIndex = 0; lineIndex < lines.Length; lineIndex++)
+                {
+                    GameEntity line = lines[lineIndex];
+                    Require(line.ConsultationOfferEntityId == offer.EntityId &&
+                            line.StorageZoneEntityId == scenario.StorageZone.EntityId &&
+                            line.LineIndex == lineIndex &&
+                            line.RequiredProductCount > 0 &&
+                            line.AvailableProductCount >= 0,
+                        $"Consultation offer line {line.EntityId} has invalid project data.");
+                }
             }
 
             runtime.Systems.Create<BindEntityViewFromPrefabSystem>().Execute();
@@ -512,7 +740,7 @@ namespace HardwareStore.Editor
                 runtime.StaticData.CustomerVehicle.ViewPrefab,
                 $"customer visit {visit.EntityId}");
             Require(visit.hasTransform && visit.hasRigidbody && visit.hasSlots &&
-                    visit.Slots.Length >= offers.Max(offer => offer.RequiredProductCount),
+                    visit.Slots.Length == runtime.StaticData.CustomerVehicle.CargoCapacity,
                 "The customer visit view did not register movement and loading data.");
             Require(visit.Rigidbody.isKinematic &&
                     visit.Rigidbody.interpolation == RigidbodyInterpolation.None,
@@ -589,12 +817,7 @@ namespace HardwareStore.Editor
                     actor.CustomerActorVisitEntityId == visit.EntityId &&
                     !actor.isDestructed,
                 "The customer actor did not enter its counter waiting state.");
-            int typedStock = CountStockProducts(
-                runtime.Game,
-                scenario.StorageZone.EntityId,
-                visit.RequestedProductType);
-            Require(offers.All(offer => offer.AvailableProductCount == typedStock),
-                "The parked consultation offers do not observe current typed stock.");
+            ValidateConsultationLineAvailability(runtime, scenario, visit);
 
             return new CustomerVisit(visit, view, actor, actorView);
         }
@@ -605,7 +828,9 @@ namespace HardwareStore.Editor
             GameEntity visit)
         {
             Require(visit.isCustomerVisitConsulting && !visit.isOrder &&
-                    !scenario.Player.hasConsultationVisitEntityId,
+                    !scenario.Player.isModalOpen &&
+                    !scenario.Player.hasConsultationVisitEntityId &&
+                    !scenario.Player.hasProcurementTerminalEntityId,
                 "Only a closed pre-order consultation can be opened.");
             int[] offerIds = GetConsultationOffers(runtime.Game, visit)
                 .Select(offer => offer.EntityId)
@@ -618,8 +843,10 @@ namespace HardwareStore.Editor
             RequestInteraction(scenario.Player, scenario.OrderCounter);
             runtime.Systems.Create<ConsultationFeature>().Execute();
 
-            Require(scenario.Player.hasConsultationVisitEntityId &&
+            Require(scenario.Player.isModalOpen &&
+                    scenario.Player.hasConsultationVisitEntityId &&
                     scenario.Player.ConsultationVisitEntityId == visit.EntityId &&
+                    !scenario.Player.hasProcurementTerminalEntityId &&
                     scenario.Player.MoveDirection == Vector3.zero &&
                     scenario.Player.isCursorLocked &&
                     visit.isCustomerVisitConsulting &&
@@ -641,7 +868,9 @@ namespace HardwareStore.Editor
 
             scenario.Input.isToggleCursorPressed = true;
             runtime.Systems.Create<ConsultationFeature>().Execute();
-            Require(!scenario.Player.hasConsultationVisitEntityId &&
+            Require(!scenario.Player.isModalOpen &&
+                    !scenario.Player.hasConsultationVisitEntityId &&
+                    !scenario.Player.hasProcurementTerminalEntityId &&
                     scenario.Player.MoveDirection == Vector3.zero &&
                     scenario.Player.isCursorLocked &&
                     visit.isCustomerVisitConsulting &&
@@ -658,7 +887,8 @@ namespace HardwareStore.Editor
             GameEntity visit,
             int selectedIndex)
         {
-            Require(scenario.Player.hasConsultationVisitEntityId &&
+            Require(scenario.Player.isModalOpen &&
+                    scenario.Player.hasConsultationVisitEntityId &&
                     scenario.Player.ConsultationVisitEntityId == visit.EntityId,
                 "Offer selection requires the visit's modal consultation.");
             Require(SelectedConsultationOffer(runtime.Game, visit).OfferIndex == 1,
@@ -706,22 +936,39 @@ namespace HardwareStore.Editor
             CleanupEvents(runtime);
         }
 
-        private static void ConfirmConsultation(
+        private static GameEntity[] ConfirmConsultation(
             Runtime runtime,
             Scenario scenario,
             GameEntity visit,
-            OrderOfferDefinition expectedOffer,
-            DeliveryConfig delivery)
+            CustomerProjectOfferDefinition expectedOffer)
         {
             GameEntity[] offers = GetConsultationOffers(runtime.Game, visit);
             GameEntity selectedOffer = SelectedConsultationOffer(runtime.Game, visit);
             int[] offerIds = offers.Select(offer => offer.EntityId).ToArray();
-            Require(selectedOffer.RequiredProductCount == expectedOffer.RequiredProductCount &&
-                    selectedOffer.OrderReward == expectedOffer.Reward &&
-                    selectedOffer.ExpectedProfit == checked(
-                        expectedOffer.Reward -
-                        delivery.PurchaseUnitPrice * expectedOffer.RequiredProductCount),
+            GameEntity[] offerLines = offers
+                .SelectMany(offer => GetConsultationOfferLines(runtime.Game, offer))
+                .ToArray();
+            int[] offerLineIds = offerLines.Select(line => line.EntityId).ToArray();
+            GameEntity[] selectedLines = GetConsultationOfferLines(
+                runtime.Game, selectedOffer);
+            Require(selectedLines.Length == expectedOffer.Lines.Count &&
+                    selectedOffer.OrderReward == CalculateReward(runtime, expectedOffer) &&
+                    selectedOffer.ExpectedProfit == CalculateExpectedProfit(
+                        runtime, expectedOffer),
                 "The selected offer does not match its static configuration.");
+            for (int lineIndex = 0; lineIndex < selectedLines.Length; lineIndex++)
+            {
+                CustomerProjectLineDefinition expectedLine = expectedOffer.Lines[lineIndex];
+                GameEntity line = selectedLines[lineIndex];
+                Require(line.LineIndex == lineIndex &&
+                        line.ProductType == expectedLine.ProductType &&
+                        line.RequiredProductCount == expectedLine.RequiredCount &&
+                        line.AvailableProductCount == CountStockProducts(
+                            runtime.Game,
+                            visit.StorageZoneEntityId,
+                            expectedLine.ProductType),
+                    $"Selected consultation line {lineIndex} does not match static data.");
+            }
 
             scenario.Input.isInteractPressed = true;
             runtime.Systems.Create<EmitInteractionRequestSystem>().Execute();
@@ -729,7 +976,8 @@ namespace HardwareStore.Editor
                 "Modal consultation did not capture repeated E from world interaction.");
             runtime.Systems.Create<ConsultationFeature>().Execute();
 
-            Require(scenario.Player.hasConsultationVisitEntityId &&
+            Require(scenario.Player.isModalOpen &&
+                    scenario.Player.hasConsultationVisitEntityId &&
                     scenario.Player.ConsultationVisitEntityId == visit.EntityId &&
                     visit.isCustomerVisitConsulting &&
                     !visit.isOrder &&
@@ -741,34 +989,143 @@ namespace HardwareStore.Editor
             scenario.Input.isConfirmPressed = true;
             runtime.Systems.Create<ConsultationFeature>().Execute();
 
-            Require(!scenario.Player.hasConsultationVisitEntityId &&
+            GameEntity[] orderLines = GetOrderLines(runtime.Game, visit);
+
+            Require(!scenario.Player.isModalOpen &&
+                    !scenario.Player.hasConsultationVisitEntityId &&
+                    !scenario.Player.hasProcurementTerminalEntityId &&
                     visit.isOrder &&
                     visit.isCustomerVisitWaiting &&
                     !visit.isCustomerVisitConsulting &&
-                    !visit.hasRequestedProductType &&
-                    visit.RequiredProductType == selectedOffer.RequiredProductType &&
-                    visit.RequiredProductCount == selectedOffer.RequiredProductCount &&
-                    visit.AvailableProductCount == selectedOffer.AvailableProductCount &&
-                    visit.LoadedProductCount == 0 &&
+                    !visit.hasProductType &&
+                    !visit.hasRequiredProductCount &&
+                    !visit.hasAvailableProductCount &&
+                    !visit.hasLoadedProductCount &&
                     visit.OrderReward == selectedOffer.OrderReward &&
                     visit.ExpectedProfit == selectedOffer.ExpectedProfit &&
-                    offers.All(offer => offer.isDestructed),
-                "Confirming an offer did not create exactly one waiting order on the visit.");
+                    orderLines.Length == expectedOffer.Lines.Count &&
+                    offers.All(offer => offer.isDestructed &&
+                                          !offer.hasConsultationOfferVisitEntityId) &&
+                    offerLines.All(line => line.isDestructed &&
+                                           !line.hasConsultationOfferEntityId),
+                "Confirming an offer did not create the waiting order-line graph.");
+            for (int lineIndex = 0; lineIndex < orderLines.Length; lineIndex++)
+            {
+                CustomerProjectLineDefinition expectedLine = expectedOffer.Lines[lineIndex];
+                GameEntity line = orderLines[lineIndex];
+                Require(line.OrderEntityId == visit.EntityId &&
+                        line.LineIndex == lineIndex &&
+                        line.ProductType == expectedLine.ProductType &&
+                        line.RequiredProductCount == expectedLine.RequiredCount &&
+                        line.AvailableProductCount == CountStockProducts(
+                            runtime.Game,
+                            visit.StorageZoneEntityId,
+                            expectedLine.ProductType) &&
+                        line.LoadedProductCount == 0,
+                    $"Confirmed order line {lineIndex} does not match its offer line.");
+            }
             CleanupEvents(runtime);
 
             runtime.Systems.Create<CleanupDestructedEntitiesSystem>().Cleanup();
             Require(offerIds.All(id => runtime.Game.GetEntityWithEntityId(id) == null) &&
+                    offerLineIds.All(id => runtime.Game.GetEntityWithEntityId(id) == null) &&
+                    runtime.Game.GetGroup(GameMatcher.ConsultationOfferVisitEntityId).count == 0 &&
+                    runtime.Game.GetGroup(GameMatcher.ConsultationOfferEntityId).count == 0 &&
                     GetConsultationOffers(runtime.Game, visit).Length == 0,
                 "Confirmed consultation offers survived the Destructed cleanup pipeline.");
+            return orderLines;
         }
 
         private static GameEntity[] GetConsultationOffers(
             GameContext context,
             GameEntity visit) =>
-            context.GetEntitiesWithCustomerVisitEntityId(visit.EntityId)
+            context.GetEntitiesWithConsultationOfferVisitEntityId(visit.EntityId)
                 .Where(entity => entity.isConsultationOffer && !entity.isDestructed)
                 .OrderBy(entity => entity.OfferIndex)
                 .ToArray();
+
+        private static GameEntity[] GetConsultationOfferLines(
+            GameContext context,
+            GameEntity offer) =>
+            context.GetEntitiesWithConsultationOfferEntityId(offer.EntityId)
+                .Where(entity => entity.isConsultationOfferLine && !entity.isDestructed)
+                .OrderBy(entity => entity.LineIndex)
+                .ToArray();
+
+        private static GameEntity[] GetOrderLines(
+            GameContext context,
+            GameEntity visit) =>
+            context.GetEntitiesWithOrderEntityId(visit.EntityId)
+                .Where(entity => entity.isOrderLine && !entity.isDestructed)
+                .OrderBy(entity => entity.LineIndex)
+                .ToArray();
+
+        private static void ValidateConsultationLineAvailability(
+            Runtime runtime,
+            Scenario scenario,
+            GameEntity visit)
+        {
+            CustomerProjectConfig project = runtime.StaticData.GetProject(
+                visit.CustomerProjectType);
+            GameEntity[] offers = GetConsultationOffers(runtime.Game, visit);
+            Require(offers.Length == project.Offers.Count,
+                "The customer visit offer count does not match its project config.");
+
+            for (int offerIndex = 0; offerIndex < offers.Length; offerIndex++)
+            {
+                CustomerProjectOfferDefinition definition = project.Offers[offerIndex];
+                GameEntity[] lines = GetConsultationOfferLines(
+                    runtime.Game, offers[offerIndex]);
+                Require(lines.Length == definition.Lines.Count &&
+                        TotalRequiredCount(definition) <=
+                        runtime.StaticData.CustomerVehicle.CargoCapacity,
+                    $"Consultation offer {offerIndex} does not match its configured lines.");
+                for (int lineIndex = 0; lineIndex < lines.Length; lineIndex++)
+                {
+                    CustomerProjectLineDefinition expected = definition.Lines[lineIndex];
+                    GameEntity line = lines[lineIndex];
+                    Require(line.LineIndex == lineIndex &&
+                            line.ProductType == expected.ProductType &&
+                            line.RequiredProductCount == expected.RequiredCount &&
+                            line.AvailableProductCount == CountStockProducts(
+                                runtime.Game,
+                                scenario.StorageZone.EntityId,
+                                expected.ProductType),
+                        $"Consultation offer {offerIndex} line {lineIndex} has stale stock.");
+                }
+            }
+        }
+
+        private static GameEntity FindOrderLine(
+            GameEntity[] orderLines,
+            ProductTypeId productType) =>
+            orderLines.Single(line => line.ProductType == productType);
+
+        private static int TotalRequiredCount(CustomerProjectOfferDefinition offer) =>
+            offer.Lines.Sum(line => line.RequiredCount);
+
+        private static int RequiredCount(
+            CustomerProjectOfferDefinition offer,
+            ProductTypeId productType) =>
+            offer.Lines.Single(line => line.ProductType == productType).RequiredCount;
+
+        private static int CalculateReward(
+            Runtime runtime,
+            CustomerProjectOfferDefinition offer) =>
+            offer.Lines.Aggregate(
+                0,
+                (total, line) => checked(
+                    total + checked(runtime.StaticData.GetProduct(line.ProductType).UnitPrice *
+                                    line.RequiredCount)));
+
+        private static int CalculateExpectedProfit(
+            Runtime runtime,
+            CustomerProjectOfferDefinition offer) =>
+            offer.Lines.Aggregate(
+                CalculateReward(runtime, offer),
+                (profit, line) => checked(
+                    profit - checked(runtime.StaticData.GetDelivery(line.ProductType)
+                        .PurchaseUnitPrice * line.RequiredCount)));
 
         private static GameEntity SelectedConsultationOffer(
             GameContext context,
@@ -802,21 +1159,47 @@ namespace HardwareStore.Editor
         private static DeliveryArrival PurchaseAndPrepareArrival(
             Runtime runtime,
             Scenario scenario,
-            ProductTypeId productType)
+            ProductTypeId productType,
+            bool validateModalControls = false)
         {
             Require(runtime.Game.GetEntityWithDeliveryProcurementTerminalEntityId(
                         scenario.ProcurementTerminal.EntityId) == null,
                 "A new delivery cannot be purchased while another is active.");
 
+            OpenProcurement(runtime, scenario);
+            Require(scenario.ProcurementTerminal.SelectedProductType == productType,
+                $"Procurement did not open on the current deficit SKU {productType}.");
+            if (validateModalControls)
+            {
+                ValidateProcurementModalControls(runtime, scenario);
+                OpenProcurement(runtime, scenario);
+                Require(scenario.ProcurementTerminal.SelectedProductType == productType,
+                    $"Reopened procurement did not restore deficit SKU {productType}.");
+            }
             SelectProcurementProduct(runtime, scenario, productType);
             var deliveryConfig = runtime.StaticData.GetDelivery(productType);
             var productConfig = runtime.StaticData.GetProduct(productType);
             int moneyBeforePurchase = scenario.Store.Money;
-            RequestInteraction(scenario.Player, scenario.ProcurementTerminal);
+            scenario.Input.isConfirmPressed = true;
+            runtime.Systems.Create<ProcurementFeature>().Execute();
+            GameEntity[] purchaseRequests = runtime.Game.GetGroup(GameMatcher.AllOf(
+                    GameMatcher.PurchaseDeliveryRequest,
+                    GameMatcher.SourceEntityId,
+                    GameMatcher.TargetEntityId))
+                .GetEntities();
+            Require(purchaseRequests.Length == 1 &&
+                    purchaseRequests[0].SourceEntityId == scenario.Player.EntityId &&
+                    purchaseRequests[0].TargetEntityId ==
+                    scenario.ProcurementTerminal.EntityId &&
+                    !purchaseRequests[0].isPurchaseDeliverySucceeded &&
+                    scenario.Player.isModalOpen,
+                "Enter did not emit exactly one modal purchase request.");
+
             runtime.Systems.Create<PurchaseDeliverySystem>().Execute();
             GameEntity delivery = runtime.Game.GetEntityWithDeliveryProcurementTerminalEntityId(
                 scenario.ProcurementTerminal.EntityId);
             Require(delivery != null &&
+                    purchaseRequests[0].isPurchaseDeliverySucceeded &&
                     delivery.hasDeliveryProcurementTerminalEntityId &&
                     delivery.DeliveryProcurementTerminalEntityId ==
                     scenario.ProcurementTerminal.EntityId &&
@@ -826,6 +1209,23 @@ namespace HardwareStore.Editor
                     delivery.DeliveryCost == deliveryConfig.TotalCost &&
                     scenario.Store.Money == moneyBeforePurchase - deliveryConfig.TotalCost,
                 "Purchasing did not create an indexed active delivery.");
+
+            runtime.Systems.Create<PurchaseDeliverySystem>().Execute();
+            Require(ReferenceEquals(
+                        runtime.Game.GetEntityWithDeliveryProcurementTerminalEntityId(
+                            scenario.ProcurementTerminal.EntityId),
+                        delivery) &&
+                    runtime.Game.GetGroup(GameMatcher.Delivery).count == 1 &&
+                    scenario.Store.Money == moneyBeforePurchase - deliveryConfig.TotalCost,
+                "One Enter confirmation purchased or charged the selected delivery twice.");
+            runtime.Systems.Create<CloseProcurementAfterPurchaseSystem>().Execute();
+            Require(!scenario.Player.isModalOpen &&
+                    !scenario.Player.hasProcurementTerminalEntityId &&
+                    !scenario.Player.hasConsultationVisitEntityId &&
+                    scenario.Player.MoveDirection == Vector3.zero &&
+                    scenario.Player.isCursorLocked,
+                "A successful purchase did not close and release the procurement modal.");
+            runtime.Systems.Create<PresentProcurementSystem>().Execute();
             CleanupEvents(runtime);
 
             runtime.Systems.Create<BindEntityViewFromPrefabSystem>().Execute();
@@ -882,15 +1282,127 @@ namespace HardwareStore.Editor
             ProductTypeId selectedProductType,
             string failureMessage)
         {
+            GameEntity visit = runtime.Game.GetEntityWithCustomerVisitStoreEntityId(
+                scenario.Store.EntityId);
+            bool canOpen = visit != null && visit.isOrder &&
+                           (visit.isCustomerVisitWaiting ||
+                            visit.isCustomerVisitLoading) &&
+                           GetOrderLines(runtime.Game, visit).Any(line =>
+                               line.AvailableProductCount <
+                               line.RequiredProductCount - line.LoadedProductCount);
+            if (!canOpen)
+            {
+                ValidateProcurementOpenRejected(
+                    runtime,
+                    scenario,
+                    failureMessage);
+                return;
+            }
+
+            OpenProcurement(runtime, scenario);
             SelectProcurementProduct(runtime, scenario, selectedProductType);
             int moneyBefore = scenario.Store.Money;
-            RequestInteraction(scenario.Player, scenario.ProcurementTerminal);
+            scenario.Input.isConfirmPressed = true;
+            runtime.Systems.Create<ProcurementFeature>().Execute();
+            GameEntity request = RequireSingle(
+                runtime.Game.GetGroup(GameMatcher.AllOf(
+                    GameMatcher.PurchaseDeliveryRequest,
+                    GameMatcher.SourceEntityId,
+                    GameMatcher.TargetEntityId)),
+                "purchase request");
             runtime.Systems.Create<PurchaseDeliverySystem>().Execute();
+            runtime.Systems.Create<CloseProcurementAfterPurchaseSystem>().Execute();
             Require(runtime.Game.GetEntityWithDeliveryProcurementTerminalEntityId(
                         scenario.ProcurementTerminal.EntityId) == null &&
                     runtime.Game.GetGroup(GameMatcher.Delivery).count == 0 &&
+                    scenario.Store.Money == moneyBefore &&
+                    scenario.Player.isModalOpen &&
+                    scenario.Player.hasProcurementTerminalEntityId &&
+                    !request.isPurchaseDeliverySucceeded &&
+                    runtime.Game.GetGroup(GameMatcher.NotificationMessage).count > 0,
+                failureMessage);
+            CleanupEvents(runtime);
+            CancelProcurement(runtime, scenario, moneyBefore);
+        }
+
+        private static void ValidateProcurementOpenRejected(
+            Runtime runtime,
+            Scenario scenario,
+            string failureMessage)
+        {
+            int moneyBefore = scenario.Store.Money;
+            scenario.Player.ReplaceFocusedEntityId(
+                scenario.ProcurementTerminal.EntityId);
+            ExecuteInteractionPrompts(runtime);
+            Require(scenario.Player.hasInteractionPrompt &&
+                    !scenario.Player.isFocusInteractionAvailable,
+                "An unavailable procurement lifecycle exposed an enabled E prompt.");
+
+            scenario.Input.isInteractPressed = true;
+            runtime.Systems.Create<EmitInteractionRequestSystem>().Execute();
+            runtime.Systems.Create<ProcurementFeature>().Execute();
+            Require(runtime.Game.GetGroup(GameMatcher.InteractionRequest).count == 0 &&
+                    !scenario.Player.isModalOpen &&
+                    !scenario.Player.hasProcurementTerminalEntityId &&
+                    runtime.Game.GetGroup(GameMatcher.Delivery).count == 0 &&
                     scenario.Store.Money == moneyBefore,
                 failureMessage);
+            CleanupEvents(runtime);
+
+            RequestInteraction(scenario.Player, scenario.ProcurementTerminal);
+            runtime.Systems.Create<ProcurementFeature>().Execute();
+            Require(!scenario.Player.isModalOpen &&
+                    !scenario.Player.hasProcurementTerminalEntityId &&
+                    runtime.Game.GetGroup(GameMatcher.Delivery).count == 0 &&
+                    runtime.Game.GetGroup(GameMatcher.NotificationMessage).count > 0 &&
+                    scenario.Store.Money == moneyBefore,
+                "A synthetic request bypassed the procurement lifecycle guard.");
+            CleanupEvents(runtime);
+
+            if (scenario.Player.hasFocusedEntityId)
+                scenario.Player.RemoveFocusedEntityId();
+            if (scenario.Player.hasFocusedInteractionType)
+                scenario.Player.RemoveFocusedInteractionType();
+            ExecuteInteractionPrompts(runtime);
+        }
+
+        private static void OpenProcurement(Runtime runtime, Scenario scenario)
+        {
+            Require(!scenario.Player.isModalOpen &&
+                    !scenario.Player.hasConsultationVisitEntityId &&
+                    !scenario.Player.hasProcurementTerminalEntityId &&
+                    runtime.Game.GetEntityWithDeliveryProcurementTerminalEntityId(
+                        scenario.ProcurementTerminal.EntityId) == null,
+                "Procurement can only open from a closed, delivery-free player state.");
+
+            int moneyBefore = scenario.Store.Money;
+            scenario.Player.ReplaceFocusedEntityId(
+                scenario.ProcurementTerminal.EntityId);
+            ExecuteInteractionPrompts(runtime);
+            Require(scenario.Player.isFocusInteractionAvailable &&
+                    scenario.Player.hasInteractionPrompt &&
+                    scenario.Player.InteractionPrompt == "E — открыть каталог закупок",
+                "An order deficit did not expose the procurement modal prompt.");
+
+            scenario.Input.isInteractPressed = true;
+            runtime.Systems.Create<EmitInteractionRequestSystem>().Execute();
+            Require(runtime.Game.GetGroup(GameMatcher.InteractionRequest).count == 1,
+                "E did not emit the world request used to open procurement.");
+            runtime.Systems.Create<ProcurementFeature>().Execute();
+            Require(scenario.Player.isModalOpen &&
+                    scenario.Player.hasProcurementTerminalEntityId &&
+                    scenario.Player.ProcurementTerminalEntityId ==
+                    scenario.ProcurementTerminal.EntityId &&
+                    !scenario.Player.hasConsultationVisitEntityId &&
+                    scenario.Player.MoveDirection == Vector3.zero &&
+                    scenario.Player.isCursorLocked &&
+                    !scenario.Player.hasFocusedEntityId &&
+                    !scenario.Player.isFocusInteractionAvailable &&
+                    runtime.Game.GetGroup(GameMatcher.PurchaseDeliveryRequest).count == 0 &&
+                    runtime.Game.GetGroup(GameMatcher.Delivery).count == 0 &&
+                    scenario.Store.Money == moneyBefore,
+                "E must open procurement without purchasing or charging anything.");
+            runtime.Systems.Create<PresentProcurementSystem>().Execute();
             CleanupEvents(runtime);
         }
 
@@ -904,27 +1416,142 @@ namespace HardwareStore.Editor
             Require(runtime.Game.GetEntityWithDeliveryProcurementTerminalEntityId(
                         scenario.ProcurementTerminal.EntityId) == null,
                 "Procurement selection cannot change during an active delivery.");
+            Require(scenario.Player.isModalOpen &&
+                    scenario.Player.hasProcurementTerminalEntityId &&
+                    scenario.Player.ProcurementTerminalEntityId ==
+                    scenario.ProcurementTerminal.EntityId,
+                "Procurement selection requires the terminal's open modal.");
 
             int stepCount = 0;
             while (scenario.ProcurementTerminal.SelectedProductType != productType &&
                    stepCount < runtime.StaticData.ProductTypes.Count)
             {
-                scenario.Player.ReplaceFocusedEntityId(scenario.ProcurementTerminal.EntityId);
-                scenario.Player.ReplaceFocusedInteractionType(
-                    InteractionTypeId.ProcurementTerminal);
-                scenario.Input.isNextPressed = true;
-                runtime.Systems.Create<ChangeProcurementSelectionSystem>().Execute();
-                CleanupEvents(runtime);
+                CycleProcurementProduct(runtime, scenario, next: true);
                 stepCount++;
             }
 
-            if (scenario.Player.hasFocusedEntityId)
-                scenario.Player.RemoveFocusedEntityId();
-            if (scenario.Player.hasFocusedInteractionType)
-                scenario.Player.RemoveFocusedInteractionType();
-
             Require(scenario.ProcurementTerminal.SelectedProductType == productType,
                 $"Procurement selection did not reach {productType}.");
+        }
+
+        private static void CycleProcurementProduct(
+            Runtime runtime,
+            Scenario scenario,
+            bool next)
+        {
+            scenario.Input.isPreviousPressed = !next;
+            scenario.Input.isNextPressed = next;
+            runtime.Systems.Create<ProcurementFeature>().Execute();
+            runtime.Systems.Create<PresentProcurementSystem>().Execute();
+            CleanupEvents(runtime);
+        }
+
+        private static void ValidateProcurementModalControls(
+            Runtime runtime,
+            Scenario scenario)
+        {
+            ProductTypeId[] productTypes = runtime.StaticData.ProductTypes.ToArray();
+            Require(productTypes.Length == 2,
+                "The procurement modal smoke requires exactly two product cards.");
+
+            SelectProcurementProduct(runtime, scenario, productTypes[0]);
+            CycleProcurementProduct(runtime, scenario, next: false);
+            Require(scenario.ProcurementTerminal.SelectedProductType == productTypes[^1],
+                "Previous did not wrap procurement from the first to the last product.");
+            CycleProcurementProduct(runtime, scenario, next: true);
+            Require(scenario.ProcurementTerminal.SelectedProductType == productTypes[0],
+                "Next did not wrap procurement from the last to the first product.");
+            SelectProcurementProduct(runtime, scenario, productTypes[^1]);
+            CycleProcurementProduct(runtime, scenario, next: true);
+            Require(scenario.ProcurementTerminal.SelectedProductType == productTypes[0],
+                "Next did not wrap procurement from the last product card.");
+
+            int moneyBefore = scenario.Store.Money;
+            ProductTypeId selectionBefore =
+                scenario.ProcurementTerminal.SelectedProductType;
+            scenario.Player.ReplaceFocusedEntityId(
+                scenario.ProcurementTerminal.EntityId);
+            scenario.Player.ReplaceFocusedInteractionType(
+                InteractionTypeId.ProcurementTerminal);
+            scenario.Player.isFocusInteractionAvailable = true;
+            scenario.Input.isInteractPressed = true;
+            runtime.Systems.Create<EmitInteractionRequestSystem>().Execute();
+            runtime.Systems.Create<ProcurementFeature>().Execute();
+            Require(runtime.Game.GetGroup(GameMatcher.InteractionRequest).count == 0 &&
+                    runtime.Game.GetGroup(GameMatcher.PurchaseDeliveryRequest).count == 0 &&
+                    runtime.Game.GetGroup(GameMatcher.Delivery).count == 0 &&
+                    scenario.Player.isModalOpen &&
+                    scenario.Player.hasProcurementTerminalEntityId &&
+                    scenario.ProcurementTerminal.SelectedProductType == selectionBefore &&
+                    scenario.Store.Money == moneyBefore,
+                "Repeated E inside procurement escaped to world interaction or purchased.");
+            scenario.Player.RemoveFocusedEntityId();
+            scenario.Player.RemoveFocusedInteractionType();
+            scenario.Player.isFocusInteractionAvailable = false;
+            CleanupEvents(runtime);
+
+            Vector3 playerRotationBefore = scenario.Player.Transform.eulerAngles;
+            Quaternion pivotRotationBefore = scenario.Player.ViewPivot.localRotation;
+            float pitchBefore = scenario.Player.ViewPitch;
+            scenario.Input.ReplaceMoveInput(Vector2.one);
+            scenario.Input.ReplaceLookInput(new Vector2(17f, -11f));
+            scenario.Input.isPointerLook = true;
+            runtime.Systems.Create<SetMoveDirectionFromInputSystem>().Execute();
+            runtime.Systems.Create<ApplyLookInputSystem>().Execute();
+            Require(scenario.Player.MoveDirection == Vector3.zero &&
+                    Vector3.Distance(
+                        scenario.Player.Transform.eulerAngles,
+                        playerRotationBefore) < 0.001f &&
+                    Quaternion.Angle(
+                        scenario.Player.ViewPivot.localRotation,
+                        pivotRotationBefore) < 0.001f &&
+                    Mathf.Approximately(scenario.Player.ViewPitch, pitchBefore),
+                "Procurement modal did not capture movement or look input.");
+            scenario.Input.ReplaceMoveInput(Vector2.zero);
+            scenario.Input.ReplaceLookInput(Vector2.zero);
+            scenario.Input.isPointerLook = false;
+
+            GameEntity dropSentinel = CreateEntity.Empty();
+            dropSentinel.isProduct = true;
+            dropSentinel.AddCarrierEntityId(scenario.Player.EntityId);
+            scenario.Player.isHandsOccupied = true;
+            scenario.Input.isDropPressed = true;
+            runtime.Systems.Create<DropHeldProductSystem>().Execute();
+            Require(scenario.Player.isHandsOccupied &&
+                    dropSentinel.hasCarrierEntityId &&
+                    dropSentinel.CarrierEntityId == scenario.Player.EntityId,
+                "Procurement modal did not capture product drop input.");
+            scenario.Input.isDropPressed = false;
+            scenario.Player.isHandsOccupied = false;
+            dropSentinel.RemoveCarrierEntityId();
+            dropSentinel.isDestructed = true;
+            runtime.Systems.Create<CleanupDestructedEntitiesSystem>().Cleanup();
+
+            scenario.ProcurementTerminal.isHighlighted = true;
+            runtime.Systems.Create<UpdateFocusHighlightSystem>().Execute();
+            Require(!scenario.ProcurementTerminal.isHighlighted,
+                "Procurement modal did not clear the world focus highlight.");
+
+            CancelProcurement(runtime, scenario, moneyBefore);
+        }
+
+        private static void CancelProcurement(
+            Runtime runtime,
+            Scenario scenario,
+            int expectedMoney)
+        {
+            scenario.Input.isToggleCursorPressed = true;
+            runtime.Systems.Create<ProcurementFeature>().Execute();
+            Require(!scenario.Player.isModalOpen &&
+                    !scenario.Player.hasProcurementTerminalEntityId &&
+                    !scenario.Player.hasConsultationVisitEntityId &&
+                    scenario.Player.MoveDirection == Vector3.zero &&
+                    scenario.Player.isCursorLocked &&
+                    runtime.Game.GetGroup(GameMatcher.Delivery).count == 0 &&
+                    scenario.Store.Money == expectedMoney,
+                "Esc did not close procurement without charging the store.");
+            runtime.Systems.Create<PresentProcurementSystem>().Execute();
+            CleanupEvents(runtime);
         }
 
         private static void TestCarryDropAndRepick(
@@ -1027,10 +1654,11 @@ namespace HardwareStore.Editor
                     $"Product {product.EntityId} did not enter storage correctly.");
                 Require(scenario.StorageZone.StorageProductCount == expectedStock &&
                         scenario.StorageZone.OccupiedStorageSlotCount == expectedStock &&
-                        visit.AvailableProductCount == CountStockProducts(
-                            runtime.Game,
-                            scenario.StorageZone.EntityId,
-                            visit.RequiredProductType),
+                        GetOrderLines(runtime.Game, visit).All(line =>
+                            line.AvailableProductCount == CountStockProducts(
+                                runtime.Game,
+                                scenario.StorageZone.EntityId,
+                                line.ProductType)),
                     $"Derived storage state is incorrect after product {product.EntityId}.");
 
                 bool isLast = index == arrival.Products.Length - 1;
@@ -1081,49 +1709,80 @@ namespace HardwareStore.Editor
         {
             Require(visit.isCustomerVisitLoading &&
                     wrongProduct.isInStock &&
-                    wrongProduct.ProductType != visit.RequiredProductType &&
+                    GetOrderLines(runtime.Game, visit)
+                        .All(line => line.ProductType != wrongProduct.ProductType) &&
                     wrongProduct.hasStorageSlotIndex,
                 "Wrong-SKU loading check requires a slotted stock product of another type.");
 
-            int storageSlotIndex = wrongProduct.StorageSlotIndex;
-            int loadedBefore = visit.LoadedProductCount;
-            wrongProduct.RemoveStorageSlotIndex();
-            wrongProduct.AddCarrierEntityId(scenario.Player.EntityId);
-            wrongProduct.isInteractable = false;
-            wrongProduct.isProductPlacementDirty = true;
+            ValidateRejectedStockProductCannotLoad(
+                runtime,
+                scenario,
+                visit,
+                wrongProduct,
+                "A wrong-SKU stock product was loaded into the customer vehicle.");
+        }
+
+        private static void ValidateRejectedStockProductCannotLoad(
+            Runtime runtime,
+            Scenario scenario,
+            GameEntity visit,
+            GameEntity rejectedProduct,
+            string failureMessage)
+        {
+            GameEntity[] orderLines = GetOrderLines(runtime.Game, visit);
+            GameEntity matchingLine = orderLines
+                .SingleOrDefault(line => line.ProductType == rejectedProduct.ProductType);
+            Require(visit.isCustomerVisitLoading &&
+                    rejectedProduct.isInStock &&
+                    rejectedProduct.hasStorageSlotIndex &&
+                    (matchingLine == null ||
+                     matchingLine.LoadedProductCount == matchingLine.RequiredProductCount),
+                "Rejected loading requires either a wrong SKU or a complete order line.");
+
+            int storageSlotIndex = rejectedProduct.StorageSlotIndex;
+            int[] loadedBefore = orderLines
+                .Select(line => line.LoadedProductCount)
+                .ToArray();
+            rejectedProduct.RemoveStorageSlotIndex();
+            rejectedProduct.AddCarrierEntityId(scenario.Player.EntityId);
+            rejectedProduct.isInteractable = false;
+            rejectedProduct.isProductPlacementDirty = true;
             scenario.Player.isHandsOccupied = true;
             ExecuteProductPlacement(runtime);
             runtime.Systems.Create<FollowHeldProductSystem>().Execute();
 
             RequestInteraction(scenario.Player, visit);
             runtime.Systems.Create<LoadHeldProductSystem>().Execute();
-            Require(visit.LoadedProductCount == loadedBefore &&
-                    !wrongProduct.isProductLoaded &&
-                    !wrongProduct.isLoaded &&
-                    wrongProduct.isInStock &&
-                    wrongProduct.hasCarrierEntityId &&
-                    wrongProduct.CarrierEntityId == scenario.Player.EntityId &&
+            Require(orderLines.Select(line => line.LoadedProductCount)
+                        .SequenceEqual(loadedBefore) &&
+                    !rejectedProduct.isProductLoaded &&
+                    !rejectedProduct.isLoaded &&
+                    !rejectedProduct.hasOrderLineEntityId &&
+                    !rejectedProduct.hasLoadingSlotIndex &&
+                    rejectedProduct.isInStock &&
+                    rejectedProduct.hasCarrierEntityId &&
+                    rejectedProduct.CarrierEntityId == scenario.Player.EntityId &&
                     scenario.Player.isHandsOccupied,
-                "A wrong-SKU stock product was loaded into the customer vehicle.");
+                failureMessage);
             CleanupEvents(runtime);
 
-            wrongProduct.RemoveCarrierEntityId();
-            wrongProduct.AddStorageSlotIndex(storageSlotIndex);
-            wrongProduct.isInteractable = true;
-            wrongProduct.isProductPlacementDirty = true;
+            rejectedProduct.RemoveCarrierEntityId();
+            rejectedProduct.AddStorageSlotIndex(storageSlotIndex);
+            rejectedProduct.isInteractable = true;
+            rejectedProduct.isProductPlacementDirty = true;
             scenario.Player.isHandsOccupied = false;
             ExecuteProductPlacement(runtime);
             ExecuteStorageState(runtime);
 
-            Require(wrongProduct.isInStock &&
-                    wrongProduct.hasStorageSlotIndex &&
-                    wrongProduct.StorageSlotIndex == storageSlotIndex &&
-                    wrongProduct.Transform.parent ==
+            Require(rejectedProduct.isInStock &&
+                    rejectedProduct.hasStorageSlotIndex &&
+                    rejectedProduct.StorageSlotIndex == storageSlotIndex &&
+                    rejectedProduct.Transform.parent ==
                     scenario.StorageZone.Slots[storageSlotIndex] &&
-                    !wrongProduct.isProductPlacementDirty &&
+                    !rejectedProduct.isProductPlacementDirty &&
                     runtime.Game.GetEntityWithCarrierEntityId(
                         scenario.Player.EntityId) == null,
-                "Wrong-SKU loading check did not restore the stock product cleanly.");
+                "Rejected loading check did not restore the stock product cleanly.");
         }
 
         private static void ValidatePhysicalStockFocus(
@@ -1178,62 +1837,106 @@ namespace HardwareStore.Editor
         {
             Require(visit.isCustomerVisitLoading,
                 "Products can only be loaded during CustomerVisitLoading.");
-            int moneyBeforeReward = scenario.Store.Money;
+            Require(products.Length == GetOrderLines(runtime.Game, visit)
+                    .Sum(line => line.RequiredProductCount),
+                "The smoke must load exactly the configured number of order products.");
 
-            foreach (GameEntity product in products)
+            for (int productIndex = 0; productIndex < products.Length; productIndex++)
             {
-                string displayName = runtime.StaticData
-                    .GetProduct(product.ProductType)
-                    .DisplayName;
-                scenario.Player.ReplaceFocusedEntityId(product.EntityId);
-                ExecuteInteractionPrompts(runtime);
-                Require(scenario.Player.isFocusInteractionAvailable &&
-                        scenario.Player.InteractionPrompt ==
-                        $"E — взять со склада • товар: {displayName}",
-                    $"Stock product {product.EntityId} has no active-order prompt.");
-                scenario.Player.RemoveFocusedEntityId();
-
-                PickUpProduct(runtime, scenario, product);
-                Require(product.hasCarrierEntityId &&
-                        product.CarrierEntityId == scenario.Player.EntityId &&
-                        product.isInStock &&
-                        !product.hasStorageSlotIndex,
-                    $"Stock product {product.EntityId} was not picked for loading.");
-
-                int loadedBefore = visit.LoadedProductCount;
-                RequestInteraction(scenario.Player, visit);
-                runtime.Systems.Create<LoadHeldProductSystem>().Execute();
-                Require(product.isProductLoaded &&
-                        product.isLoaded &&
-                        product.hasCustomerVisitEntityId &&
-                        product.CustomerVisitEntityId == visit.EntityId &&
-                        !product.hasCarrierEntityId &&
-                        !scenario.Player.isHandsOccupied,
-                    $"ProductLoaded was not raised on product {product.EntityId}.");
-
-                runtime.Systems.Create<RegisterLoadedProductSystem>().Execute();
-                Require(!product.isProductLoaded &&
-                        visit.LoadedProductCount == loadedBefore + 1,
-                    $"ProductLoaded was not consumed for product {product.EntityId}.");
-                runtime.Systems.Create<CompleteOrderSystem>().Execute();
-                ExecuteProductPlacement(runtime);
-                ExecuteStorageState(runtime);
-                CleanupEvents(runtime);
-
-                Require(product.isLoaded &&
-                        !product.isInStock &&
-                        product.hasCustomerVisitEntityId &&
-                        product.CustomerVisitEntityId == visit.EntityId &&
-                        product.hasLoadingSlotIndex &&
-                        product.Transform.parent == visit.Slots[product.LoadingSlotIndex] &&
-                        !product.isProductPlacementDirty,
-                    $"Loaded product {product.EntityId} has invalid visit placement.");
+                LoadOrderProduct(
+                    runtime,
+                    scenario,
+                    visit,
+                    products[productIndex],
+                    expectCompleted: productIndex == products.Length - 1);
             }
 
+            RewardCustomerOrder(runtime, scenario, visit, products);
+        }
+
+        private static void LoadOrderProduct(
+            Runtime runtime,
+            Scenario scenario,
+            GameEntity visit,
+            GameEntity product,
+            bool expectCompleted)
+        {
+            Require(visit.isCustomerVisitLoading,
+                "Products can only be loaded during CustomerVisitLoading.");
+            GameEntity[] orderLines = GetOrderLines(runtime.Game, visit);
+            GameEntity orderLine = FindOrderLine(orderLines, product.ProductType);
+            int totalLoadedBefore = orderLines.Sum(line => line.LoadedProductCount);
+            int lineLoadedBefore = orderLine.LoadedProductCount;
+            Require(lineLoadedBefore < orderLine.RequiredProductCount,
+                $"Order line {orderLine.EntityId} is already complete.");
+
+            string displayName = runtime.StaticData
+                .GetProduct(product.ProductType)
+                .DisplayName;
+            scenario.Player.ReplaceFocusedEntityId(product.EntityId);
+            ExecuteInteractionPrompts(runtime);
+            Require(scenario.Player.isFocusInteractionAvailable &&
+                    scenario.Player.InteractionPrompt ==
+                    $"E — взять со склада • товар: {displayName}",
+                $"Stock product {product.EntityId} has no active-order prompt.");
+            scenario.Player.RemoveFocusedEntityId();
+
+            PickUpProduct(runtime, scenario, product);
+            Require(product.hasCarrierEntityId &&
+                    product.CarrierEntityId == scenario.Player.EntityId &&
+                    product.isInStock &&
+                    !product.hasStorageSlotIndex,
+                $"Stock product {product.EntityId} was not picked for loading.");
+
+            RequestInteraction(scenario.Player, visit);
+            runtime.Systems.Create<LoadHeldProductSystem>().Execute();
+            Require(product.isProductLoaded &&
+                    product.isLoaded &&
+                    product.hasOrderLineEntityId &&
+                    product.OrderLineEntityId == orderLine.EntityId &&
+                    product.hasLoadingSlotIndex &&
+                    product.LoadingSlotIndex == totalLoadedBefore &&
+                    !product.hasCarrierEntityId &&
+                    !scenario.Player.isHandsOccupied,
+                $"ProductLoaded was not raised on product {product.EntityId}.");
+
+            runtime.Systems.Create<RegisterLoadedProductSystem>().Execute();
+            Require(!product.isProductLoaded &&
+                    orderLine.LoadedProductCount == lineLoadedBefore + 1 &&
+                    runtime.Game.GetEntitiesWithOrderLineEntityId(orderLine.EntityId)
+                        .Count == orderLine.LoadedProductCount,
+                $"ProductLoaded was not consumed for product {product.EntityId}.");
+            runtime.Systems.Create<CompleteOrderSystem>().Execute();
+            ExecuteProductPlacement(runtime);
+            ExecuteStorageState(runtime);
+            CleanupEvents(runtime);
+
+            Require(visit.isCustomerVisitCompleted == expectCompleted &&
+                    visit.isCustomerVisitLoading != expectCompleted,
+                expectCompleted
+                    ? "The order did not complete after its final product."
+                    : "The order completed before its final product.");
+            Require(product.isLoaded &&
+                    !product.isInStock &&
+                    product.hasOrderLineEntityId &&
+                    product.OrderLineEntityId == orderLine.EntityId &&
+                    product.Transform.parent == visit.Slots[product.LoadingSlotIndex] &&
+                    !product.isProductPlacementDirty,
+                $"Loaded product {product.EntityId} has invalid visit placement.");
+        }
+
+        private static void RewardCustomerOrder(
+            Runtime runtime,
+            Scenario scenario,
+            GameEntity visit,
+            GameEntity[] products)
+        {
+            int moneyBeforeReward = scenario.Store.Money;
             Require(visit.isCustomerVisitCompleted &&
                     !visit.isCustomerVisitLoading &&
                     !visit.isOrderRewarded &&
-                    visit.LoadedProductCount == visit.RequiredProductCount,
+                    GetOrderLines(runtime.Game, visit).All(line =>
+                        line.LoadedProductCount == line.RequiredProductCount),
                 "The customer visit did not complete after all products were loaded.");
 
             runtime.Systems.Create<BeginCustomerVehicleDepartureDelaySystem>().Execute();
@@ -1260,6 +1963,7 @@ namespace HardwareStore.Editor
             Runtime runtime,
             Scenario scenario,
             CustomerVisit visit,
+            GameEntity[] orderLines,
             GameEntity[] loadedProducts)
         {
             GameEntity entity = visit.Entity;
@@ -1336,7 +2040,26 @@ namespace HardwareStore.Editor
             int[] loadedProductIds = loadedProducts
                 .Select(product => product.EntityId)
                 .ToArray();
+            int[] orderLineIds = orderLines
+                .Select(line => line.EntityId)
+                .ToArray();
             int visitId = entity.EntityId;
+            runtime.Systems.Create<CompleteCustomerVehicleDepartureSystem>().Execute();
+            Require(!entity.isDestructed && !entity.isOrderContentReleased &&
+                    entity.hasCustomerVisitStoreEntityId,
+                "Vehicle departure completed before order content was released.");
+
+            runtime.Systems.Create<ReleaseDepartedOrderContentSystem>().Execute();
+            Require(entity.isOrderContentReleased &&
+                    loadedProducts.All(product => product.isDestructed &&
+                                                  !product.hasOrderLineEntityId) &&
+                    orderLines.All(line => line.isDestructed &&
+                                           !line.hasOrderEntityId) &&
+                    runtime.Game.GetEntitiesWithOrderEntityId(visitId).Count == 0 &&
+                    orderLineIds.All(lineId =>
+                        runtime.Game.GetEntitiesWithOrderLineEntityId(lineId).Count == 0),
+                "Departed order content did not release relation indices before Destructed.");
+
             runtime.Systems.Create<CompleteCustomerVehicleDepartureSystem>().Execute();
 
             Require(runtime.Game.GetEntityWithCustomerVisitStoreEntityId(
@@ -1362,7 +2085,12 @@ namespace HardwareStore.Editor
             Require(runtime.Game.GetEntityWithEntityId(visitId) == null &&
                     loadedProductIds.All(productId =>
                         runtime.Game.GetEntityWithEntityId(productId) == null) &&
+                    orderLineIds.All(lineId =>
+                        runtime.Game.GetEntityWithEntityId(lineId) == null) &&
                     runtime.Game.GetGroup(GameMatcher.Loaded).count == 0 &&
+                    runtime.Game.GetGroup(GameMatcher.OrderLine).count == 0 &&
+                    runtime.Game.GetGroup(GameMatcher.OrderEntityId).count == 0 &&
+                    runtime.Game.GetGroup(GameMatcher.OrderLineEntityId).count == 0 &&
                     runtime.Game.GetGroup(GameMatcher.Customer).count == 0 &&
                     runtime.Game.GetEntityWithCustomerActorVisitEntityId(visitId) == null,
                 "A departed customer graph survived cleanup.");
@@ -1394,10 +2122,13 @@ namespace HardwareStore.Editor
 
             int moneyBeforeRejectedPurchase = scenario.Store.Money;
             RequestInteraction(scenario.Player, scenario.ProcurementTerminal);
-            runtime.Systems.Create<PurchaseDeliverySystem>().Execute();
+            runtime.Systems.Create<ProcurementFeature>().Execute();
             Require(scenario.Store.Money == moneyBeforeRejectedPurchase &&
                     runtime.Game.GetEntityWithDeliveryProcurementTerminalEntityId(
-                        scenario.ProcurementTerminal.EntityId) == null,
+                        scenario.ProcurementTerminal.EntityId) == null &&
+                    !scenario.Player.isModalOpen &&
+                    !scenario.Player.hasProcurementTerminalEntityId &&
+                    runtime.Game.GetGroup(GameMatcher.NotificationMessage).count > 0,
                 "A delivery was purchased while the customer was returning.");
             CleanupEvents(runtime);
 
@@ -1503,6 +2234,10 @@ namespace HardwareStore.Editor
 
             Require(runtime.Game.GetGroup(GameMatcher.InteractionRequest).count == 0,
                 "An interaction request survived cleanup.");
+            Require(runtime.Game.GetGroup(GameMatcher.PurchaseDeliveryRequest).count == 0,
+                "A purchase-delivery request survived cleanup.");
+            Require(runtime.Game.GetGroup(GameMatcher.PurchaseDeliverySucceeded).count == 0,
+                "A purchase success marker survived its request cleanup.");
             Require(runtime.Game.GetGroup(GameMatcher.ProductLoaded).count == 0,
                 "A ProductLoaded marker survived its consumer.");
             Require(runtime.Game.GetGroup(GameMatcher.ProductStocked).count == 0,

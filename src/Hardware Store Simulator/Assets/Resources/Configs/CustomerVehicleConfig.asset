@@ -20,3 +20,4 @@ MonoBehaviour:
   _completedDwellDuration: 1.25
   _firstCustomerDelay: 1
   _nextCustomerDelay: 4
+  _cargoCapacity: 3

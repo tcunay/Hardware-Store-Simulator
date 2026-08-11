@@ -22,7 +22,7 @@ namespace HardwareStore.Gameplay.Features.Player.Systems
                 GameMatcher.GamepadLookSpeed,
                 GameMatcher.MaxPitch,
                 GameMatcher.CursorLocked)
-                .NoneOf(GameMatcher.ConsultationVisitEntityId));
+                .NoneOf(GameMatcher.ModalOpen));
             _inputs = inputContext.GetGroup(InputMatcher.AllOf(
                 InputMatcher.InputState,
                 InputMatcher.LookInput));

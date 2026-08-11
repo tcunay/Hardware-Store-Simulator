@@ -13,11 +13,11 @@ namespace HardwareStore.Gameplay.Features.StorageState.Systems
         {
             _consumers = gameContext.GetGroup(GameMatcher.AllOf(
                     GameMatcher.StorageZoneEntityId,
-                    GameMatcher.RequiredProductType,
+                    GameMatcher.ProductType,
                     GameMatcher.AvailableProductCount)
                 .AnyOf(
-                    GameMatcher.Order,
-                    GameMatcher.ConsultationOffer)
+                    GameMatcher.OrderLine,
+                    GameMatcher.ConsultationOfferLine)
                 .NoneOf(GameMatcher.Destructed));
             _stockedProducts = gameContext.GetGroup(GameMatcher.AllOf(
                     GameMatcher.Product,
@@ -42,7 +42,7 @@ namespace HardwareStore.Gameplay.Features.StorageState.Systems
             foreach (GameEntity consumer in _consumers)
             {
                 stockByStorageAndType.TryGetValue(
-                    (consumer.StorageZoneEntityId, consumer.RequiredProductType),
+                    (consumer.StorageZoneEntityId, consumer.ProductType),
                     out int availableProductCount);
                 consumer.ReplaceAvailableProductCount(availableProductCount);
             }

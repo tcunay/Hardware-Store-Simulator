@@ -19,6 +19,7 @@ namespace HardwareStore.Gameplay.Features.Consultation.Systems
             _gameContext = gameContext;
             _players = gameContext.GetGroup(GameMatcher.AllOf(
                 GameMatcher.Player,
+                GameMatcher.ModalOpen,
                 GameMatcher.ConsultationVisitEntityId));
             _inputs = inputContext.GetGroup(InputMatcher.AllOf(InputMatcher.InputState)
                 .AnyOf(InputMatcher.PreviousPressed, InputMatcher.NextPressed));
@@ -89,7 +90,7 @@ namespace HardwareStore.Gameplay.Features.Consultation.Systems
         {
             _offers.Clear();
             foreach (GameEntity entity in
-                     _gameContext.GetEntitiesWithCustomerVisitEntityId(visit.EntityId))
+                     _gameContext.GetEntitiesWithConsultationOfferVisitEntityId(visit.EntityId))
             {
                 if (entity.isConsultationOffer && !entity.isDestructed)
                     _offers.Add(entity);

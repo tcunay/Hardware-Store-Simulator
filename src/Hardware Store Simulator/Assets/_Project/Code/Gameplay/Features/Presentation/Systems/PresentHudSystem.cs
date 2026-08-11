@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using Entitas;
 using HardwareStore.Gameplay.Configs;
 using HardwareStore.Gameplay.Components;
@@ -29,109 +30,191 @@ namespace HardwareStore.Gameplay.Features.Presentation.Systems
         public void Execute()
         {
             foreach (GameEntity player in _players)
+                Present(player);
+        }
+
+        private void Present(GameEntity player)
+        {
+            GameEntity store = _gameContext.GetEntityWithEntityId(player.StoreEntityId);
+            GameEntity procurementTerminal = _gameContext.GetEntityWithEntityId(
+                store.ProcurementTerminalEntityId);
+            GameEntity storageZone = _gameContext.GetEntityWithEntityId(
+                store.StorageZoneEntityId);
+            GameEntity delivery =
+                _gameContext.GetEntityWithDeliveryProcurementTerminalEntityId(
+                    procurementTerminal.EntityId);
+
+            bool hasActiveDelivery = delivery != null;
+            ProductTypeId deliveryProductType = hasActiveDelivery
+                ? delivery.ProductType
+                : procurementTerminal.SelectedProductType;
+            ProductConfig deliveryProduct = _staticData.GetProduct(deliveryProductType);
+            int deliveryStockedCount = hasActiveDelivery ? delivery.StockedProductCount : 0;
+            int deliveryProductCount = hasActiveDelivery
+                ? delivery.DeliveryProductCount
+                : _staticData.GetDelivery(deliveryProductType).ProductCount;
+
+            HudOrderState orderState = HudOrderState.NoCustomer;
+            string projectTitle = string.Empty;
+            OrderLineSnapshot[] orderLines = Array.Empty<OrderLineSnapshot>();
+            int totalAvailableProductCount = 0;
+            int totalLoadedProductCount = 0;
+            int totalRequiredProductCount = 0;
+            GameEntity customerVisit =
+                _gameContext.GetEntityWithCustomerVisitStoreEntityId(store.EntityId);
+            if (customerVisit != null)
             {
-                GameEntity store =
-                    _gameContext.GetEntityWithEntityId(player.StoreEntityId);
-                GameEntity procurementTerminal = _gameContext.GetEntityWithEntityId(
-                    store.ProcurementTerminalEntityId);
-                GameEntity storageZone = _gameContext.GetEntityWithEntityId(
-                    store.StorageZoneEntityId);
-                GameEntity delivery =
-                    _gameContext.GetEntityWithDeliveryProcurementTerminalEntityId(
-                        procurementTerminal.EntityId);
-
-                bool hasActiveDelivery = delivery != null;
-                ProductTypeId deliveryProductType = hasActiveDelivery
-                    ? delivery.ProductType
-                    : procurementTerminal.SelectedProductType;
-                ProductConfig deliveryProduct =
-                    _staticData.GetProduct(deliveryProductType);
-                int deliveryStockedCount = 0;
-                int deliveryProductCount = hasActiveDelivery
-                    ? delivery.DeliveryProductCount
-                    : _staticData.GetDelivery(deliveryProductType).ProductCount;
-                if (hasActiveDelivery)
-                    deliveryStockedCount = delivery.StockedProductCount;
-
-                HudOrderState orderState;
-                ProductTypeId requiredProductType = deliveryProductType;
-                ProductConfig requiredProduct = deliveryProduct;
-                int availableProductCount = 0;
-                int loadedProductCount = 0;
-                int requiredProductCount = 0;
-                GameEntity customerVisit =
-                    _gameContext.GetEntityWithCustomerVisitStoreEntityId(store.EntityId);
-                if (customerVisit != null)
+                ValidateVisit(customerVisit);
+                orderState = ResolveOrderState(customerVisit);
+                projectTitle = customerVisit.CustomerProjectTitle;
+                bool lifecycleRequiresOrder = orderState is not (
+                    HudOrderState.Arriving or HudOrderState.Consulting);
+                if (customerVisit.isOrder != lifecycleRequiresOrder)
                 {
-                    orderState = ResolveOrderState(customerVisit);
-                    bool hasOrder = customerVisit.isOrder;
-                    bool requiresOrder = orderState is not (
-                        HudOrderState.Arriving or HudOrderState.Consulting);
-                    if (hasOrder != requiresOrder)
-                    {
+                    throw new InvalidOperationException(
+                        $"Customer visit {customerVisit.EntityId} has an order that does " +
+                        "not match its lifecycle state.");
+                }
+
+                GameEntity[] lineEntities = _gameContext
+                    .GetEntitiesWithOrderEntityId(customerVisit.EntityId)
+                    .Where(line => line.isOrderLine && !line.isDestructed)
+                    .OrderBy(line => line.LineIndex)
+                    .ToArray();
+                if (lifecycleRequiresOrder)
+                {
+                    ValidateOrderLines(customerVisit, lineEntities);
+                    orderLines = CreateLineSnapshots(lineEntities,
+                        out totalAvailableProductCount,
+                        out totalLoadedProductCount,
+                        out totalRequiredProductCount);
+                }
+                else if (lineEntities.Length != 0)
+                {
+                    throw new InvalidOperationException(
+                        $"Pre-order customer visit {customerVisit.EntityId} already contains " +
+                        $"{lineEntities.Length} order lines.");
+                }
+            }
+
+            string carriedProductDisplayName = string.Empty;
+            if (player.isHandsOccupied)
+            {
+                GameEntity carriedProduct =
+                    _gameContext.GetEntityWithCarrierEntityId(player.EntityId);
+                carriedProductDisplayName =
+                    _staticData.GetProduct(carriedProduct.ProductType).DisplayName;
+            }
+
+            _hud.Present(new HudSnapshot(
+                orderState,
+                projectTitle,
+                orderLines,
+                totalAvailableProductCount,
+                totalLoadedProductCount,
+                totalRequiredProductCount,
+                store.Money,
+                storageZone.StorageProductCount,
+                hasActiveDelivery,
+                deliveryProductType,
+                deliveryProduct.DisplayName,
+                deliveryProduct.UnitLabel,
+                deliveryStockedCount,
+                deliveryProductCount,
+                carriedProductDisplayName,
+                player.hasInteractionPrompt ? player.InteractionPrompt : string.Empty,
+                player.hasFocusedEntityId,
+                player.isFocusInteractionAvailable,
+                player.isHandsOccupied,
+                player.isCursorLocked));
+        }
+
+        private OrderLineSnapshot[] CreateLineSnapshots(
+            GameEntity[] lines,
+            out int totalAvailableProductCount,
+            out int totalLoadedProductCount,
+            out int totalRequiredProductCount)
+        {
+            var snapshots = new OrderLineSnapshot[lines.Length];
+            totalAvailableProductCount = 0;
+            totalLoadedProductCount = 0;
+            totalRequiredProductCount = 0;
+            for (int index = 0; index < lines.Length; index++)
+            {
+                GameEntity line = lines[index];
+                ProductConfig product = _staticData.GetProduct(line.ProductType);
+                totalAvailableProductCount = checked(
+                    totalAvailableProductCount +
+                    Math.Min(line.AvailableProductCount, line.RequiredProductCount));
+                totalLoadedProductCount = checked(
+                    totalLoadedProductCount + line.LoadedProductCount);
+                totalRequiredProductCount = checked(
+                    totalRequiredProductCount + line.RequiredProductCount);
+                snapshots[index] = new OrderLineSnapshot(
+                    line.LineIndex,
+                    line.ProductType,
+                    product.DisplayName,
+                    product.UnitLabel,
+                    line.AvailableProductCount,
+                    line.LoadedProductCount,
+                    line.RequiredProductCount);
+            }
+
+            return snapshots;
+        }
+
+        private static void ValidateVisit(GameEntity visit)
+        {
+            ValidateSingleLifecycleState(visit);
+            if (!visit.isCustomerVisit || !visit.hasEntityId ||
+                !visit.hasCustomerProjectType || !visit.hasCustomerProjectTitle ||
+                !visit.hasCustomerRequest)
+            {
+                throw new InvalidOperationException(
+                    "The HUD requires a fully configured customer project visit.");
+            }
+        }
+
+        private static void ValidateOrderLines(GameEntity visit, GameEntity[] lines)
+        {
+            if (lines.Length == 0 ||
+                lines.Length > CustomerProjectConfig.MaxLinesPerOffer)
+                throw new InvalidOperationException(
+                    $"Order {visit.EntityId} must expose between one and " +
+                    $"{CustomerProjectConfig.MaxLinesPerOffer} product lines, found " +
+                    $"{lines.Length}.");
+
+            for (int index = 0; index < lines.Length; index++)
+            {
+                GameEntity line = lines[index];
+                if (!line.hasOrderEntityId || !line.hasLineIndex ||
+                    !line.hasProductType || !line.hasRequiredProductCount ||
+                    !line.hasAvailableProductCount || !line.hasLoadedProductCount)
+                {
+                    throw new InvalidOperationException(
+                        $"Order line at position {index} for order {visit.EntityId} is not " +
+                        "fully configured.");
+                }
+                if (line.OrderEntityId != visit.EntityId || line.LineIndex != index ||
+                    line.RequiredProductCount <= 0 || line.AvailableProductCount < 0 ||
+                    line.LoadedProductCount < 0 ||
+                    line.LoadedProductCount > line.RequiredProductCount)
+                {
+                    throw new InvalidOperationException(
+                        $"Order {visit.EntityId} has an invalid line at position {index}.");
+                }
+                for (int previous = 0; previous < index; previous++)
+                {
+                    if (lines[previous].ProductType == line.ProductType)
                         throw new InvalidOperationException(
-                            $"Customer visit {customerVisit.EntityId} has an order that does " +
-                            "not match its lifecycle state.");
-                    }
-                    if (!hasOrder && !customerVisit.hasRequestedProductType)
-                    {
-                        throw new InvalidOperationException(
-                            $"Customer visit {customerVisit.EntityId} has no requested product.");
-                    }
-
-                    requiredProductType = hasOrder
-                        ? customerVisit.RequiredProductType
-                        : customerVisit.RequestedProductType;
-                    requiredProduct = _staticData.GetProduct(requiredProductType);
-                    if (hasOrder)
-                    {
-                        availableProductCount = customerVisit.AvailableProductCount;
-                        loadedProductCount = customerVisit.LoadedProductCount;
-                        requiredProductCount = customerVisit.RequiredProductCount;
-                    }
+                            $"Order {visit.EntityId} contains duplicate product type " +
+                            $"{line.ProductType}.");
                 }
-                else
-                {
-                    orderState = HudOrderState.NoCustomer;
-                }
-
-                string carriedProductDisplayName = string.Empty;
-                if (player.isHandsOccupied)
-                {
-                    GameEntity carriedProduct =
-                        _gameContext.GetEntityWithCarrierEntityId(player.EntityId);
-                    carriedProductDisplayName =
-                        _staticData.GetProduct(carriedProduct.ProductType).DisplayName;
-                }
-
-                _hud.Present(new HudSnapshot(
-                    orderState,
-                    requiredProductType,
-                    requiredProduct.DisplayName,
-                    requiredProduct.UnitLabel,
-                    availableProductCount,
-                    loadedProductCount,
-                    requiredProductCount,
-                    store.Money,
-                    storageZone.StorageProductCount,
-                    hasActiveDelivery,
-                    deliveryProductType,
-                    deliveryProduct.DisplayName,
-                    deliveryProduct.UnitLabel,
-                    deliveryStockedCount,
-                    deliveryProductCount,
-                    carriedProductDisplayName,
-                    player.hasInteractionPrompt ? player.InteractionPrompt : string.Empty,
-                    player.hasFocusedEntityId,
-                    player.isFocusInteractionAvailable,
-                    player.isHandsOccupied,
-                    player.isCursorLocked));
             }
         }
 
         private static HudOrderState ResolveOrderState(GameEntity customerVisit)
         {
-            ValidateSingleLifecycleState(customerVisit);
             if (customerVisit.isCustomerVisitArriving)
                 return HudOrderState.Arriving;
             if (customerVisit.isCustomerVisitConsulting)

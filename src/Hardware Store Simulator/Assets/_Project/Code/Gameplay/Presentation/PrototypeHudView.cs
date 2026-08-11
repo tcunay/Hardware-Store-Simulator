@@ -11,6 +11,7 @@ namespace HardwareStore.Gameplay.Presentation
 
         private HudSnapshot _snapshot;
         private ConsultationSnapshot? _consultation;
+        private ProcurementSnapshot? _procurement;
         private bool _hasSnapshot;
         private string _notification = string.Empty;
         private float _notificationUntil;
@@ -32,6 +33,9 @@ namespace HardwareStore.Gameplay.Presentation
 
         public void PresentConsultation(ConsultationSnapshot? snapshot) =>
             _consultation = snapshot;
+
+        public void PresentProcurement(ProcurementSnapshot? snapshot) =>
+            _procurement = snapshot;
 
         public void Show(string message)
         {
@@ -64,6 +68,13 @@ namespace HardwareStore.Gameplay.Presentation
                 GUI.matrix = previousMatrix;
                 return;
             }
+            if (_procurement.HasValue)
+            {
+                DrawProcurement(_procurement.Value);
+                DrawNotification();
+                GUI.matrix = previousMatrix;
+                return;
+            }
 
             DrawStatusPanel();
             DrawCrosshair();
@@ -79,13 +90,36 @@ namespace HardwareStore.Gameplay.Presentation
 
         private void DrawStatusPanel()
         {
-            Rect panel = new(24f, 24f, 560f, 164f);
+            bool hasOrderLines = _snapshot.OrderLines.Count > 0;
+            float panelHeight = hasOrderLines ? 222f : 164f;
+            Rect panel = new(24f, 24f, 680f, panelHeight);
             DrawPanel(panel, new Color(0.035f, 0.045f, 0.055f, 0.9f));
             GUI.Label(new Rect(42f, 38f, 370f, 32f), "СТРОЙБАЗА • ПРОТОТИП", _titleStyle);
-            GUI.Label(new Rect(42f, 76f, 520f, 28f), ResolveObjective(), _bodyStyle);
-            GUI.Label(new Rect(42f, 108f, 520f, 28f), ResolveStockStatus(), _bodyStyle);
-            GUI.Label(new Rect(42f, 140f, 520f, 28f),
-                $"Баланс: {_snapshot.Money.ToString("N0", RussianCulture)} ₽", _bodyStyle);
+            GUI.Label(new Rect(42f, 74f, 640f, 28f), ResolveObjective(), _bodyStyle);
+            if (hasOrderLines)
+            {
+                for (int index = 0; index < _snapshot.OrderLines.Count; index++)
+                {
+                    OrderLineSnapshot line = _snapshot.OrderLines[index];
+                    GUI.Label(
+                        new Rect(42f, 106f + index * 30f, 640f, 28f),
+                        $"{line.ProductDisplayName}: склад {line.AvailableProductCount} • " +
+                        $"загружено {line.LoadedProductCount} • нужно " +
+                        $"{line.RequiredProductCount} {line.ProductUnitLabel}",
+                        _bodyStyle);
+                }
+
+                GUI.Label(new Rect(42f, panel.yMax - 38f, 640f, 28f),
+                    $"На складе всего: {_snapshot.StockCount} • баланс: " +
+                    $"{_snapshot.Money.ToString("N0", RussianCulture)} ₽",
+                    _bodyStyle);
+            }
+            else
+            {
+                GUI.Label(new Rect(42f, 106f, 640f, 28f), ResolveStockStatus(), _bodyStyle);
+                GUI.Label(new Rect(42f, 138f, 640f, 28f),
+                    $"Баланс: {_snapshot.Money.ToString("N0", RussianCulture)} ₽", _bodyStyle);
+            }
         }
 
         private void DrawCrosshair()
@@ -121,7 +155,7 @@ namespace HardwareStore.Gameplay.Presentation
                 : string.Empty;
             string controls =
                 $"WASD — идти   Shift — бег   E — действие   G — бросить   " +
-                $"←/→ — выбор товара   Esc — курсор{carried}";
+                $"Esc — курсор{carried}";
             Rect rect = new(22f, _canvasHeight - 54f, _canvasWidth - 44f, 34f);
             GUI.Label(rect, controls, _bodyStyle);
         }
@@ -132,8 +166,8 @@ namespace HardwareStore.Gameplay.Presentation
                 new Rect(0f, 0f, _canvasWidth, _canvasHeight),
                 new Color(0.015f, 0.02f, 0.025f, 0.92f));
 
-            float panelWidth = Mathf.Min(1260f, _canvasWidth - 48f);
-            float panelHeight = Mathf.Min(700f, _canvasHeight - 64f);
+            float panelWidth = Mathf.Min(1280f, _canvasWidth - 48f);
+            float panelHeight = Mathf.Min(760f, _canvasHeight - 64f);
             Rect panel = new(
                 (_canvasWidth - panelWidth) * 0.5f,
                 (_canvasHeight - panelHeight) * 0.5f,
@@ -146,19 +180,23 @@ namespace HardwareStore.Gameplay.Presentation
                 "КОНСУЛЬТАЦИЯ КЛИЕНТА",
                 _titleStyle);
             GUI.Label(
-                new Rect(panel.x + 32f, panel.y + 64f, panel.width - 64f, 34f),
+                new Rect(panel.x + 32f, panel.y + 58f, panel.width - 64f, 34f),
                 consultation.ProjectTitle,
                 _centerStyle);
             GUI.Label(
-                new Rect(panel.x + 56f, panel.y + 104f, panel.width - 112f, 54f),
+                new Rect(panel.x + 56f, panel.y + 96f, panel.width - 112f, 48f),
                 consultation.CustomerRequest,
                 _cardBodyStyle);
+            GUI.Label(
+                new Rect(panel.x + 56f, panel.y + 142f, panel.width - 112f, 28f),
+                $"Вместимость машины: {consultation.CargoCapacity} ед.",
+                _promptStyle);
 
             const float cardGap = 18f;
             float cardsLeft = panel.x + 28f;
             float cardsWidth = panel.width - 56f;
             float cardWidth = (cardsWidth - cardGap * 2f) / 3f;
-            float cardTop = panel.y + 174f;
+            float cardTop = panel.y + 178f;
             float cardHeight = panel.height - 254f;
             for (int index = 0; index < consultation.Offers.Count; index++)
             {
@@ -193,16 +231,14 @@ namespace HardwareStore.Gameplay.Presentation
                     offer.Description,
                     _cardBodyStyle);
 
-                string details =
-                    $"Товар: {offer.ProductDisplayName}\n" +
-                    $"Объём: {offer.RequiredProductCount} {offer.ProductUnitLabel}\n" +
-                    $"В наличии: {offer.AvailableProductCount}/" +
-                    $"{offer.RequiredProductCount} {offer.ProductUnitLabel}\n" +
-                    $"Выручка: {offer.Revenue.ToString("N0", RussianCulture)} ₽\n" +
-                    $"Ожидаемая прибыль: " +
-                    $"{offer.ExpectedProfit.ToString("N0", RussianCulture)} ₽";
+                string details = BuildOfferLineDetails(offer) +
+                    $"\nМест в машине: {offer.TotalUnitCount}/" +
+                    $"{consultation.CargoCapacity}\n" +
+                    $"Себестоимость: {offer.ProductCost.ToString("N0", RussianCulture)} ₽\n" +
+                    $"Выручка: {offer.OrderReward.ToString("N0", RussianCulture)} ₽\n" +
+                    $"Прибыль: {offer.ExpectedProfit.ToString("N0", RussianCulture)} ₽";
                 GUI.Label(
-                    new Rect(card.x + 18f, card.y + 144f, card.width - 36f, 152f),
+                    new Rect(card.x + 18f, card.y + 138f, card.width - 36f, 250f),
                     details,
                     _cardMetaStyle);
 
@@ -218,6 +254,112 @@ namespace HardwareStore.Gameplay.Presentation
             GUI.Label(
                 new Rect(panel.x + 28f, panel.yMax - 58f, panel.width - 56f, 34f),
                 "← — предыдущее   → — следующее   Enter — подтвердить   Esc — закрыть",
+                _promptStyle);
+        }
+
+        private void DrawProcurement(ProcurementSnapshot procurement)
+        {
+            DrawPanel(
+                new Rect(0f, 0f, _canvasWidth, _canvasHeight),
+                new Color(0.015f, 0.02f, 0.025f, 0.92f));
+
+            float panelWidth = Mathf.Min(1180f, _canvasWidth - 48f);
+            float panelHeight = Mathf.Min(700f, _canvasHeight - 64f);
+            Rect panel = new(
+                (_canvasWidth - panelWidth) * 0.5f,
+                (_canvasHeight - panelHeight) * 0.5f,
+                panelWidth,
+                panelHeight);
+            DrawPanel(panel, new Color(0.055f, 0.065f, 0.075f, 0.98f));
+
+            GUI.Label(
+                new Rect(panel.x + 32f, panel.y + 24f, panel.width - 64f, 34f),
+                "ЗАКУПКИ",
+                _titleStyle);
+            GUI.Label(
+                new Rect(panel.x + 32f, panel.y + 58f, panel.width - 64f, 34f),
+                $"Заказ клиента • {procurement.ProjectTitle}",
+                _centerStyle);
+            GUI.Label(
+                new Rect(panel.x + 32f, panel.y + 98f, panel.width - 64f, 30f),
+                $"Баланс: {procurement.Money.ToString("N0", RussianCulture)} ₽   •   " +
+                $"Свободных мест на складе: {procurement.FreeStorageSlotCount}",
+                _promptStyle);
+
+            const float cardGap = 24f;
+            float cardsLeft = panel.x + 32f;
+            float cardsWidth = panel.width - 64f;
+            float cardWidth = (cardsWidth - cardGap) * 0.5f;
+            float cardTop = panel.y + 142f;
+            float cardHeight = panel.height - 220f;
+            for (int index = 0; index < procurement.Products.Count; index++)
+            {
+                ProcurementProductSnapshot product = procurement.Products[index];
+                Rect border = new(
+                    cardsLeft + index * (cardWidth + cardGap),
+                    cardTop,
+                    cardWidth,
+                    cardHeight);
+                DrawPanel(
+                    border,
+                    product.Selected
+                        ? new Color(1f, 0.56f, 0.12f, 1f)
+                        : new Color(0.16f, 0.18f, 0.2f, 1f));
+                Rect card = new(
+                    border.x + 3f,
+                    border.y + 3f,
+                    border.width - 6f,
+                    border.height - 6f);
+                DrawPanel(
+                    card,
+                    product.Selected
+                        ? new Color(0.13f, 0.095f, 0.055f, 0.98f)
+                        : new Color(0.075f, 0.085f, 0.095f, 0.98f));
+
+                GUI.Label(
+                    new Rect(card.x + 24f, card.y + 20f, card.width - 48f, 38f),
+                    product.ProductDisplayName.ToUpper(RussianCulture),
+                    _cardTitleStyle);
+
+                string details =
+                    $"Поставка: {product.DeliveryProductCount} " +
+                    $"{product.ProductUnitLabel}\n" +
+                    $"Стоимость: {product.DeliveryCost.ToString("N0", RussianCulture)} ₽\n" +
+                    $"Остаток денег: " +
+                    $"{product.MoneyAfterPurchase.ToString("N0", RussianCulture)} ₽\n\n" +
+                    $"В заказе осталось: {product.RemainingRequiredProductCount} " +
+                    $"{product.ProductUnitLabel}\n" +
+                    $"На складе: {product.AvailableProductCount} " +
+                    $"{product.ProductUnitLabel}\n" +
+                    $"Дефицит по строке: {product.DeficitProductCount} " +
+                    $"{product.ProductUnitLabel}";
+                GUI.Label(
+                    new Rect(card.x + 24f, card.y + 76f, card.width - 48f, 250f),
+                    details,
+                    _cardMetaStyle);
+
+                Color previousColor = GUI.color;
+                GUI.color = product.PurchaseAvailable
+                    ? new Color(1f, 0.7f, 0.25f)
+                    : new Color(0.78f, 0.82f, 0.86f);
+                GUI.Label(
+                    new Rect(card.x + 24f, card.yMax - 90f, card.width - 48f, 54f),
+                    product.PurchaseStatus,
+                    _promptStyle);
+                GUI.color = previousColor;
+
+                if (product.Selected)
+                {
+                    GUI.Label(
+                        new Rect(card.x + 24f, card.yMax - 46f, card.width - 48f, 30f),
+                        "ВЫБРАНО",
+                        _promptStyle);
+                }
+            }
+
+            GUI.Label(
+                new Rect(panel.x + 28f, panel.yMax - 58f, panel.width - 56f, 34f),
+                "← — предыдущее   → — следующее   Enter — купить   Esc — закрыть",
                 _promptStyle);
         }
 
@@ -256,18 +398,15 @@ namespace HardwareStore.Gameplay.Presentation
                 HudOrderState.NoCustomer => "Ожидаем следующего клиента",
                 HudOrderState.Arriving => "Клиент прибывает и направляется к стойке",
                 HudOrderState.Consulting => "Обсудить проект с клиентом у стойки",
-                HudOrderState.Waiting when
-                    _snapshot.AvailableProductCount < _snapshot.RequiredCount =>
-                    $"Пополнить товар • {_snapshot.RequiredProductDisplayName}: " +
-                    $"{_snapshot.AvailableProductCount}/{_snapshot.RequiredCount} " +
-                    $"{_snapshot.RequiredProductUnitLabel}",
+                HudOrderState.Waiting when !AreAllOrderLinesAvailable() =>
+                    $"Подготовить заказ • доступно " +
+                    $"{_snapshot.TotalAvailableProductCount}/" +
+                    $"{_snapshot.TotalRequiredProductCount} ед.",
                 HudOrderState.Waiting =>
-                    $"Принять заказ • {_snapshot.RequiredProductDisplayName}: " +
-                    $"{_snapshot.RequiredCount} {_snapshot.RequiredProductUnitLabel}",
+                    $"Принять заказ • {_snapshot.TotalRequiredProductCount} ед.",
                 HudOrderState.Active =>
-                    $"Отгрузить товар • {_snapshot.RequiredProductDisplayName}: " +
-                    $"{_snapshot.LoadedCount}/{_snapshot.RequiredCount} " +
-                    $"{_snapshot.RequiredProductUnitLabel}",
+                    $"Отгрузить заказ • {_snapshot.TotalLoadedProductCount}/" +
+                    $"{_snapshot.TotalRequiredProductCount} ед.",
                 HudOrderState.Completed => "Заказ выполнен • автомобиль загружен",
                 HudOrderState.Returning => "Клиент возвращается к машине",
                 HudOrderState.Departing => "Машина клиента уезжает",
@@ -281,11 +420,39 @@ namespace HardwareStore.Gameplay.Presentation
                 return $"Товаров на складе: {_snapshot.StockCount}";
 
             if (_snapshot.OrderState is HudOrderState.Arriving or HudOrderState.Consulting)
-                return $"Запрос клиента • {_snapshot.RequiredProductDisplayName}";
+                return $"Проект клиента • {_snapshot.ProjectTitle}";
 
-            return $"Доступно • {_snapshot.RequiredProductDisplayName}: " +
-                   $"{_snapshot.AvailableProductCount} " +
-                   $"{_snapshot.RequiredProductUnitLabel} • всего: {_snapshot.StockCount}";
+            return $"Позиций в заказе: {_snapshot.OrderLines.Count} • " +
+                   $"товаров на складе: {_snapshot.StockCount}";
+        }
+
+        private bool AreAllOrderLinesAvailable()
+        {
+            if (_snapshot.OrderLines.Count == 0)
+                return false;
+
+            for (int index = 0; index < _snapshot.OrderLines.Count; index++)
+            {
+                OrderLineSnapshot line = _snapshot.OrderLines[index];
+                if (line.AvailableProductCount < line.RequiredProductCount)
+                    return false;
+            }
+
+            return true;
+        }
+
+        private static string BuildOfferLineDetails(ConsultationOfferSnapshot offer)
+        {
+            string result = "Материалы:";
+            for (int index = 0; index < offer.Lines.Count; index++)
+            {
+                ConsultationOfferLineSnapshot line = offer.Lines[index];
+                result += $"\n{line.ProductDisplayName}: склад " +
+                          $"{line.AvailableProductCount} / нужно " +
+                          $"{line.RequiredProductCount} {line.ProductUnitLabel}";
+            }
+
+            return result;
         }
 
         private void EnsureStyles()
@@ -307,7 +474,8 @@ namespace HardwareStore.Gameplay.Presentation
             _promptStyle = new GUIStyle(_bodyStyle)
             {
                 alignment = TextAnchor.MiddleCenter,
-                fontStyle = FontStyle.Bold
+                fontStyle = FontStyle.Bold,
+                wordWrap = true
             };
             _centerStyle = new GUIStyle(_promptStyle)
             {
@@ -327,7 +495,7 @@ namespace HardwareStore.Gameplay.Presentation
             };
             _cardMetaStyle = new GUIStyle(_cardBodyStyle)
             {
-                fontSize = 17
+                fontSize = 16
             };
         }
 

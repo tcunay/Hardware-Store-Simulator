@@ -13,7 +13,7 @@ namespace HardwareStore.Gameplay.Features.Player.Systems
         {
             _cursor = cursor;
             _players = gameContext.GetGroup(GameMatcher.AllOf(GameMatcher.Player)
-                .NoneOf(GameMatcher.ConsultationVisitEntityId));
+                .NoneOf(GameMatcher.ModalOpen));
             _inputs = inputContext.GetGroup(InputMatcher.AllOf(
                 InputMatcher.InputState,
                 InputMatcher.ToggleCursorPressed));

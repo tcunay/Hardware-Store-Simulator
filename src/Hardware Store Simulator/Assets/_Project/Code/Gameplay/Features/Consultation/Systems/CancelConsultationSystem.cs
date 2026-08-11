@@ -19,6 +19,7 @@ namespace HardwareStore.Gameplay.Features.Consultation.Systems
             _players = gameContext.GetGroup(GameMatcher.AllOf(
                 GameMatcher.Player,
                 GameMatcher.MoveDirection,
+                GameMatcher.ModalOpen,
                 GameMatcher.ConsultationVisitEntityId));
             _inputs = inputContext.GetGroup(InputMatcher.AllOf(
                 InputMatcher.InputState,
@@ -31,6 +32,7 @@ namespace HardwareStore.Gameplay.Features.Consultation.Systems
             foreach (GameEntity player in _players.GetEntities(_playerBuffer))
             {
                 player.RemoveConsultationVisitEntityId();
+                player.isModalOpen = false;
                 player.ReplaceMoveDirection(Vector3.zero);
                 if (player.hasInteractionPrompt)
                     player.RemoveInteractionPrompt();

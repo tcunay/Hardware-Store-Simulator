@@ -24,7 +24,7 @@ namespace HardwareStore.Gameplay.Features.Products.Systems
                 .NoneOf(
                     GameMatcher.CarrierEntityId,
                     GameMatcher.Loaded,
-                    GameMatcher.CustomerVisitEntityId,
+                    GameMatcher.OrderLineEntityId,
                     GameMatcher.DeliverySlotIndex,
                     GameMatcher.StorageSlotIndex,
                     GameMatcher.LoadingSlotIndex));

@@ -21,6 +21,9 @@ namespace HardwareStore.Gameplay.Configs
         [SerializeField, Min(0f)] private float _firstCustomerDelay = 1f;
         [SerializeField, Min(0f)] private float _nextCustomerDelay = 4f;
 
+        [Header("Cargo")]
+        [SerializeField, Min(1)] private int _cargoCapacity = 3;
+
         public EntityBehaviour ViewPrefab => _viewPrefab;
         public float ArrivalSpeed => _arrivalSpeed;
         public float DepartureSpeed => _departureSpeed;
@@ -29,10 +32,11 @@ namespace HardwareStore.Gameplay.Configs
         public float CompletedDwellDuration => _completedDwellDuration;
         public float FirstCustomerDelay => _firstCustomerDelay;
         public float NextCustomerDelay => _nextCustomerDelay;
+        public int CargoCapacity => _cargoCapacity;
 
         public void Configure(EntityBehaviour viewPrefab, float arrivalSpeed, float departureSpeed,
             float rotationSpeed, float waypointTolerance, float completedDwellDuration,
-            float firstCustomerDelay, float nextCustomerDelay)
+            float firstCustomerDelay, float nextCustomerDelay, int cargoCapacity)
         {
             _viewPrefab = viewPrefab;
             _arrivalSpeed = arrivalSpeed;
@@ -42,6 +46,7 @@ namespace HardwareStore.Gameplay.Configs
             _completedDwellDuration = completedDwellDuration;
             _firstCustomerDelay = firstCustomerDelay;
             _nextCustomerDelay = nextCustomerDelay;
+            _cargoCapacity = cargoCapacity;
 
             Validate();
         }
@@ -69,6 +74,7 @@ namespace HardwareStore.Gameplay.Configs
                 _nextCustomerDelay,
                 owner,
                 nameof(NextCustomerDelay));
+            ConfigValidation.RequirePositive(_cargoCapacity, owner, nameof(CargoCapacity));
         }
     }
 }

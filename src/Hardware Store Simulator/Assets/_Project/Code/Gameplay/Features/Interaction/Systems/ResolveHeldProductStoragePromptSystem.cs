@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using Entitas;
 using HardwareStore.Gameplay.Configs;
 using HardwareStore.Gameplay.Components;
@@ -148,15 +149,36 @@ namespace HardwareStore.Gameplay.Features.Interaction.Systems
                     $"Customer visit {customerVisit.EntityId} has no valid lifecycle state.");
             }
 
-            ProductConfig requiredProduct =
-                _staticData.GetProduct(customerVisit.RequiredProductType);
+            GameEntity[] lines = GetOrderLines(customerVisit);
+            GameEntity matchingLine = lines.FirstOrDefault(line =>
+                line.ProductType == heldProduct.ProductType);
+            bool canLoad = matchingLine != null &&
+                           matchingLine.LoadedProductCount <
+                           matchingLine.RequiredProductCount;
             player.SetInteractionPrompt(
-                heldProduct.ProductType == customerVisit.RequiredProductType
+                canLoad
                     ? $"Отнесите товар в машину клиента • товар: " +
                       $"{heldProductConfig.DisplayName}"
-                    : $"Для заказа нужен товар: {requiredProduct.DisplayName} • " +
-                      $"в руках: {heldProductConfig.DisplayName}",
+                    : matchingLine == null
+                        ? $"Товар не входит в заказ: {heldProductConfig.DisplayName} • " +
+                          "G — бросить"
+                        : $"Позиция уже загружена: {heldProductConfig.DisplayName} • " +
+                          "G — бросить",
                 false);
+        }
+
+        private GameEntity[] GetOrderLines(GameEntity order)
+        {
+            GameEntity[] lines = _gameContext
+                .GetEntitiesWithOrderEntityId(order.EntityId)
+                .Where(line => line.isOrderLine && !line.isDestructed)
+                .OrderBy(line => line.LineIndex)
+                .ToArray();
+            if (lines.Length == 0)
+                throw new InvalidOperationException(
+                    $"Order {order.EntityId} has no active product lines.");
+
+            return lines;
         }
     }
 }

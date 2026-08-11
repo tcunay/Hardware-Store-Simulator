@@ -38,8 +38,15 @@ namespace HardwareStore.Editor
         private const string BoardProductConfigName = "ProductConfig_BoardBundle";
         private const string CementDeliveryConfigName = "DeliveryConfig";
         private const string BoardDeliveryConfigName = "DeliveryConfig_BoardBundle";
-        private const string CementOrderConfigName = "OrderConfig";
-        private const string BoardOrderConfigName = "OrderConfig_BoardBundle";
+        private const string CementProjectConfigName =
+            "CustomerProjectConfig_CementFoundation";
+        private const string LumberProjectConfigName =
+            "CustomerProjectConfig_LumberShelving";
+        private const string WorkbenchProjectConfigName =
+            "CustomerProjectConfig_WorkbenchFoundation";
+        private const string LegacyCementOrderConfigName = "OrderConfig";
+        private const string LegacyBoardOrderConfigName = "OrderConfig_BoardBundle";
+        private const int CustomerVehicleCargoCapacity = 3;
         private const int StorageSlotCapacity = 9;
 
         [MenuItem("Tools/Hardware Store/Build Prototype Yard")]
@@ -72,16 +79,21 @@ namespace HardwareStore.Editor
                 LoadConfig<ProductConfig>(CementProductConfigName);
             ProductConfig boardProductConfig =
                 LoadConfig<ProductConfig>(BoardProductConfigName);
-            OrderConfig cementOrderConfig = LoadConfig<OrderConfig>(CementOrderConfigName);
-            OrderConfig boardOrderConfig = LoadConfig<OrderConfig>(BoardOrderConfigName);
+            CustomerProjectConfig cementProjectConfig =
+                LoadConfig<CustomerProjectConfig>(CementProjectConfigName);
+            CustomerProjectConfig lumberProjectConfig =
+                LoadConfig<CustomerProjectConfig>(LumberProjectConfigName);
+            CustomerProjectConfig workbenchProjectConfig =
+                LoadConfig<CustomerProjectConfig>(WorkbenchProjectConfigName);
             ConfigurePrototypeConfigs(
                 cementDeliveryConfig,
                 boardDeliveryConfig,
                 economyConfig,
                 cementProductConfig,
                 boardProductConfig,
-                cementOrderConfig,
-                boardOrderConfig);
+                cementProjectConfig,
+                lumberProjectConfig,
+                workbenchProjectConfig);
             EnsurePlayerPrefab(playerConfig);
             EnsureProjectContextPrefab();
 
@@ -109,7 +121,6 @@ namespace HardwareStore.Editor
                 timber);
             EnsureCustomerVehiclePrefab(
                 customerVehicleConfig,
-                new[] { cementOrderConfig, boardOrderConfig },
                 truckPaint,
                 darkMetal,
                 glass,
@@ -706,12 +717,8 @@ namespace HardwareStore.Editor
         }
 
         private static void EnsureCustomerVehiclePrefab(CustomerVehicleConfig config,
-            IReadOnlyCollection<OrderConfig> orderConfigs,
             Material truckPaint, Material darkMetal, Material glass, Material loadingGreen)
         {
-            if (orderConfigs == null || orderConfigs.Count == 0)
-                throw new ArgumentException("At least one order config is required.", nameof(orderConfigs));
-
             GameObject vehicle = CreateEmpty("Customer Vehicle");
 
             try
@@ -773,10 +780,7 @@ namespace HardwareStore.Editor
                 interactionCollider.size = new Vector3(3.2f, 3f, 2.6f);
 
                 GameObject slotsRoot = CreateEmpty("Customer Cargo Slots", vehicle.transform);
-                int cargoSlotCapacity = orderConfigs
-                    .SelectMany(orderConfig => orderConfig.Offers)
-                    .Max(offer => offer.RequiredProductCount);
-                Transform[] slots = new Transform[cargoSlotCapacity];
+                Transform[] slots = new Transform[CustomerVehicleCargoCapacity];
                 for (int index = 0; index < slots.Length; index++)
                 {
                     GameObject slot = CreateEmpty($"Cargo Slot {index + 1}", slotsRoot.transform);
@@ -812,7 +816,8 @@ namespace HardwareStore.Editor
                     waypointTolerance: 0.08f,
                     completedDwellDuration: 1.25f,
                     firstCustomerDelay: 1f,
-                    nextCustomerDelay: 4f);
+                    nextCustomerDelay: 4f,
+                    cargoCapacity: CustomerVehicleCargoCapacity);
                 EditorUtility.SetDirty(config);
             }
             finally
@@ -1117,8 +1122,11 @@ namespace HardwareStore.Editor
         {
             EnsureConfigAsset<PlayerConfig>("PlayerConfig");
             EnsureConfigAsset<InteractionConfig>("InteractionConfig");
-            EnsureConfigAsset<OrderConfig>(CementOrderConfigName);
-            EnsureConfigAsset<OrderConfig>(BoardOrderConfigName);
+            DeleteLegacyConfigAsset(LegacyCementOrderConfigName);
+            DeleteLegacyConfigAsset(LegacyBoardOrderConfigName);
+            EnsureConfigAsset<CustomerProjectConfig>(CementProjectConfigName);
+            EnsureConfigAsset<CustomerProjectConfig>(LumberProjectConfigName);
+            EnsureConfigAsset<CustomerProjectConfig>(WorkbenchProjectConfigName);
             EnsureConfigAsset<ProductConfig>(CementProductConfigName);
             EnsureConfigAsset<ProductConfig>(BoardProductConfigName);
             EnsureConfigAsset<DeliveryConfig>(CementDeliveryConfigName);
@@ -1134,8 +1142,9 @@ namespace HardwareStore.Editor
             EconomyConfig economyConfig,
             ProductConfig cementProductConfig,
             ProductConfig boardProductConfig,
-            OrderConfig cementOrderConfig,
-            OrderConfig boardOrderConfig)
+            CustomerProjectConfig cementProjectConfig,
+            CustomerProjectConfig lumberProjectConfig,
+            CustomerProjectConfig workbenchProjectConfig)
         {
             ConfigureDeliveryConfig(
                 cementDeliveryConfig,
@@ -1174,21 +1183,23 @@ namespace HardwareStore.Editor
                 heldRotationEuler: Vector3.zero,
                 dropForwardDistance: 1.35f);
 
-            ConfigureOrderConfig(
-                cementOrderConfig,
+            ConfigureSingleProductProject(
+                cementProjectConfig,
+                CustomerProjectTypeId.CementFoundation,
                 ProductTypeId.CementBag,
-                customerProjectTitle: "Стяжка в мастерской",
-                customerRequest:
+                title: "Стяжка в мастерской",
+                request:
                     "Нужно подготовить материал для небольшой стяжки. " +
-                    "Предложите подходящий запас.",
-                unitPrice: 350);
-            ConfigureOrderConfig(
-                boardOrderConfig,
+                    "Предложите подходящий запас.");
+            ConfigureSingleProductProject(
+                lumberProjectConfig,
+                CustomerProjectTypeId.LumberShelving,
                 ProductTypeId.BoardBundle,
-                customerProjectTitle: "Полки для мастерской",
-                customerRequest:
+                title: "Полки для мастерской",
+                request:
                     "Нужно собрать рабочие полки. Предложите объём с подходящим запасом.",
-                unitPrice: 480);
+                defaultOfferIndex: 1);
+            ConfigureWorkbenchProject(workbenchProjectConfig);
         }
 
         private static void ConfigureDeliveryConfig(DeliveryConfig config, ProductTypeId productType,
@@ -1223,35 +1234,63 @@ namespace HardwareStore.Editor
             EditorUtility.SetDirty(config);
         }
 
-        private static void ConfigureOrderConfig(
-            OrderConfig config,
+        private static void ConfigureSingleProductProject(
+            CustomerProjectConfig config,
+            CustomerProjectTypeId projectType,
             ProductTypeId productType,
-            string customerProjectTitle,
-            string customerRequest,
-            int unitPrice)
+            string title,
+            string request,
+            int defaultOfferIndex = 1)
         {
             config.Configure(
-                productType,
-                customerProjectTitle,
-                customerRequest,
+                projectType,
+                title,
+                request,
+                defaultOfferIndex,
+                offers: new[]
+                {
+                    new CustomerProjectOfferDefinition(
+                        "Эконом",
+                        "Минимальный объём без запаса.",
+                        new CustomerProjectLineDefinition(productType, requiredCount: 1)),
+                    new CustomerProjectOfferDefinition(
+                        "Стандарт",
+                        "Рекомендуемый объём с небольшим запасом.",
+                        new CustomerProjectLineDefinition(productType, requiredCount: 2)),
+                    new CustomerProjectOfferDefinition(
+                        "Профи",
+                        "Максимальный запас на исправление ошибок.",
+                        new CustomerProjectLineDefinition(productType, requiredCount: 3))
+                });
+            EditorUtility.SetDirty(config);
+        }
+
+        private static void ConfigureWorkbenchProject(CustomerProjectConfig config)
+        {
+            config.Configure(
+                CustomerProjectTypeId.WorkbenchFoundation,
+                title: "Основание для верстака",
+                request:
+                    "Нужны цемент для основания и доски для рабочей поверхности. " +
+                    "Предложите баланс скорости, прочности и запаса.",
                 defaultOfferIndex: 1,
                 offers: new[]
                 {
-                    new OrderOfferDefinition(
-                        "Эконом",
-                        "Минимальный объём без запаса.",
-                        requiredProductCount: 1,
-                        reward: unitPrice),
-                    new OrderOfferDefinition(
-                        "Стандарт",
-                        "Рекомендуемый объём с небольшим запасом.",
-                        requiredProductCount: 2,
-                        reward: checked(unitPrice * 2)),
-                    new OrderOfferDefinition(
-                        "Профи",
-                        "Максимальный запас на исправление ошибок.",
-                        requiredProductCount: 3,
-                        reward: checked(unitPrice * 3))
+                    new CustomerProjectOfferDefinition(
+                        "Быстрый старт",
+                        "Минимум материалов и две ходки до машины.",
+                        new CustomerProjectLineDefinition(ProductTypeId.CementBag, requiredCount: 1),
+                        new CustomerProjectLineDefinition(ProductTypeId.BoardBundle, requiredCount: 1)),
+                    new CustomerProjectOfferDefinition(
+                        "Крепкое основание",
+                        "Больше цемента при умеренной себестоимости комплекта.",
+                        new CustomerProjectLineDefinition(ProductTypeId.CementBag, requiredCount: 2),
+                        new CustomerProjectLineDefinition(ProductTypeId.BoardBundle, requiredCount: 1)),
+                    new CustomerProjectOfferDefinition(
+                        "Запас по дереву",
+                        "Больше досок и выше прибыль при максимальной загрузке машины.",
+                        new CustomerProjectLineDefinition(ProductTypeId.CementBag, requiredCount: 1),
+                        new CustomerProjectLineDefinition(ProductTypeId.BoardBundle, requiredCount: 2))
                 });
             EditorUtility.SetDirty(config);
         }
@@ -1278,6 +1317,15 @@ namespace HardwareStore.Editor
             TConfig config = ScriptableObject.CreateInstance<TConfig>();
             config.name = assetName;
             AssetDatabase.CreateAsset(config, path);
+        }
+
+        private static void DeleteLegacyConfigAsset(string assetName)
+        {
+            string path = $"{ConfigFolder}/{assetName}.asset";
+            if (AssetDatabase.LoadMainAssetAtPath(path) == null)
+                return;
+            if (!AssetDatabase.DeleteAsset(path))
+                throw new InvalidOperationException($"Could not delete legacy config asset '{path}'.");
         }
 
         private static TConfig LoadConfig<TConfig>(string assetName) where TConfig : ScriptableObject =>

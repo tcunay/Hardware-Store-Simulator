@@ -23,6 +23,7 @@ namespace HardwareStore.Gameplay.Features.Customers.Systems
                     GameMatcher.Store,
                     GameMatcher.EntityId,
                     GameMatcher.StorageZoneEntityId,
+                    GameMatcher.NextProjectSequenceIndex,
                     GameMatcher.CustomerCooldownRemaining)
                 .NoneOf(GameMatcher.Destructed));
         }

@@ -16,6 +16,7 @@ namespace HardwareStore.Gameplay.Features.Customers
             Add(systems.Create<TickCustomerVehicleDepartureDelaySystem>());
             Add(systems.Create<BeginCustomerReturnSystem>());
             Add(systems.Create<CompleteCustomerReturnSystem>());
+            Add(systems.Create<ReleaseDepartedOrderContentSystem>());
             Add(systems.Create<CompleteCustomerVehicleDepartureSystem>());
         }
     }

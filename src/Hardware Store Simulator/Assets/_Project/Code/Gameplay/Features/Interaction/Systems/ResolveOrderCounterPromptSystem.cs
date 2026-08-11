@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using Entitas;
 using HardwareStore.Gameplay.Configs;
 using HardwareStore.Gameplay.Components;
@@ -74,20 +75,25 @@ namespace HardwareStore.Gameplay.Features.Interaction.Systems
 
                 if (customerVisit.isCustomerVisitWaiting)
                 {
-                    ProductConfig product =
-                        _staticData.GetProduct(customerVisit.RequiredProductType);
-                    bool available =
-                        customerVisit.AvailableProductCount >=
-                        customerVisit.RequiredProductCount;
+                    GameEntity[] lines = GetOrderLines(customerVisit);
+                    GameEntity deficitLine = lines.FirstOrDefault(line =>
+                        line.AvailableProductCount < line.RequiredProductCount);
+                    if (deficitLine == null)
+                    {
+                        int totalUnitCount = lines.Sum(line => line.RequiredProductCount);
+                        player.SetInteractionPrompt(
+                            $"E — принять заказ • {lines.Length} поз. • " +
+                            $"{totalUnitCount} ед.",
+                            true);
+                        continue;
+                    }
+
+                    ProductConfig product = _staticData.GetProduct(deficitLine.ProductType);
                     player.SetInteractionPrompt(
-                        available
-                            ? $"E — принять заказ • товар: {product.DisplayName} • " +
-                              $"количество: {customerVisit.RequiredProductCount} " +
-                              $"{product.UnitLabel}"
-                            : $"Нужен товар: {product.DisplayName} • доступно: " +
-                              $"{customerVisit.AvailableProductCount}/" +
-                              $"{customerVisit.RequiredProductCount} {product.UnitLabel}",
-                        available);
+                        $"Не хватает: {product.DisplayName} • склад " +
+                        $"{deficitLine.AvailableProductCount}/нужно " +
+                        $"{deficitLine.RequiredProductCount} {product.UnitLabel}",
+                        false);
                     continue;
                 }
 
@@ -107,6 +113,20 @@ namespace HardwareStore.Gameplay.Features.Interaction.Systems
                     "Заказ выполнен — клиент готовится уезжать",
                     false);
             }
+        }
+
+        private GameEntity[] GetOrderLines(GameEntity order)
+        {
+            GameEntity[] lines = _gameContext
+                .GetEntitiesWithOrderEntityId(order.EntityId)
+                .Where(line => line.isOrderLine && !line.isDestructed)
+                .OrderBy(line => line.LineIndex)
+                .ToArray();
+            if (lines.Length == 0)
+                throw new InvalidOperationException(
+                    $"Order {order.EntityId} has no active product lines.");
+
+            return lines;
         }
     }
 }

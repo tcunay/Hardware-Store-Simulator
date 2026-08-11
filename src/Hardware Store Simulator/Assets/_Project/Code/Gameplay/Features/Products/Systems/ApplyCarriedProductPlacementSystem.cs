@@ -23,7 +23,7 @@ namespace HardwareStore.Gameplay.Features.Products.Systems
                 .NoneOf(
                     GameMatcher.LooseProduct,
                     GameMatcher.Loaded,
-                    GameMatcher.CustomerVisitEntityId,
+                    GameMatcher.OrderLineEntityId,
                     GameMatcher.DeliverySlotIndex,
                     GameMatcher.StorageSlotIndex,
                     GameMatcher.LoadingSlotIndex,

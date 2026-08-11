@@ -19,9 +19,8 @@ namespace HardwareStore.Gameplay.Components
     [Game] public class CustomerWaitingAtCounter : IComponent { }
     [Game] public class CustomerReturningToVehicle : IComponent { }
     [Game] public class CustomerVisitStoreEntityId : IComponent { [PrimaryEntityIndex] public int Value; }
-    [Game] public class CustomerVisitEntityId : IComponent { [EntityIndex] public int Value; }
     [Game] public class CustomerActorVisitEntityId : IComponent { [PrimaryEntityIndex] public int Value; }
-    [Game] public class RequestedProductType : IComponent { public ProductTypeId Value; }
+    [Game] public class CustomerProjectType : IComponent { public CustomerProjectTypeId Value; }
     [Game] public class CustomerProjectTitle : IComponent { public string Value; }
     [Game] public class CustomerRequest : IComponent { public string Value; }
     [Game] public class CustomerCooldownRemaining : IComponent { public float Value; }

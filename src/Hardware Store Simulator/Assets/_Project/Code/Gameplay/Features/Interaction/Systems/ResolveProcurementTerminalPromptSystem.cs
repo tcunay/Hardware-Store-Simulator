@@ -1,6 +1,7 @@
+using System;
 using Entitas;
-using HardwareStore.Gameplay.Configs;
 using HardwareStore.Gameplay.Components;
+using HardwareStore.Gameplay.Configs;
 using HardwareStore.Gameplay.StaticData;
 
 namespace HardwareStore.Gameplay.Features.Interaction.Systems
@@ -35,17 +36,19 @@ namespace HardwareStore.Gameplay.Features.Interaction.Systems
                 if (terminal.StoreEntityId != player.StoreEntityId)
                     continue;
                 if (!terminal.hasSelectedProductType)
-                    throw new System.InvalidOperationException(
+                    throw new InvalidOperationException(
                         $"Procurement terminal {terminal.EntityId} has no selected product type.");
+
+                if (player.isHandsOccupied)
+                {
+                    player.SetInteractionPrompt(
+                        "Освободите руки, чтобы открыть каталог закупок",
+                        false);
+                    continue;
+                }
 
                 GameEntity store =
                     _gameContext.GetEntityWithEntityId(terminal.StoreEntityId);
-                GameEntity storageZone =
-                    _gameContext.GetEntityWithEntityId(terminal.StorageZoneEntityId);
-                DeliveryConfig selectedDelivery =
-                    _staticData.GetDelivery(terminal.SelectedProductType);
-                ProductConfig selectedProduct =
-                    _staticData.GetProduct(terminal.SelectedProductType);
 
                 GameEntity delivery =
                     _gameContext.GetEntityWithDeliveryProcurementTerminalEntityId(
@@ -93,42 +96,63 @@ namespace HardwareStore.Gameplay.Features.Interaction.Systems
                     continue;
                 }
 
-                if (terminal.SelectedProductType != customerVisit.RequiredProductType)
+                if (!customerVisit.isOrder || !customerVisit.hasEntityId ||
+                    (!customerVisit.isCustomerVisitWaiting &&
+                     !customerVisit.isCustomerVisitLoading))
                 {
-                    ProductConfig requiredProduct =
-                        _staticData.GetProduct(customerVisit.RequiredProductType);
-                    player.SetInteractionPrompt(
-                        $"←/→ — выбрать товар для заказа: {requiredProduct.DisplayName}",
-                        false);
-                    continue;
+                    throw new InvalidOperationException(
+                        $"Customer visit {customerVisit.EntityId} cannot open procurement.");
                 }
 
-                int freeSlotCount =
-                    storageZone.Slots.Length - storageZone.OccupiedStorageSlotCount;
-                if (freeSlotCount < selectedDelivery.ProductCount)
+                if (!HasOrderDeficit(customerVisit))
                 {
                     player.SetInteractionPrompt(
-                        $"Недостаточно места на складе: свободно {freeSlotCount}/" +
-                        $"{selectedDelivery.ProductCount}",
-                        false);
-                    continue;
-                }
-
-                if (store.Money < selectedDelivery.TotalCost)
-                {
-                    player.SetInteractionPrompt(
-                        $"Недостаточно денег • товар: {selectedProduct.DisplayName} • " +
-                        $"нужно: {selectedDelivery.TotalCost:N0} ₽",
+                        "Запаса для текущего заказа достаточно",
                         false);
                     continue;
                 }
 
                 player.SetInteractionPrompt(
-                    $"←/→ — {selectedProduct.DisplayName} • E — заказать " +
-                    $"{selectedDelivery.ProductCount} {selectedProduct.UnitLabel} за " +
-                    $"{selectedDelivery.TotalCost:N0} ₽",
+                    "E — открыть каталог закупок",
                     true);
             }
+        }
+
+        private bool HasOrderDeficit(GameEntity order)
+        {
+            var lines = _gameContext.GetEntitiesWithOrderEntityId(order.EntityId);
+            int activeLineCount = 0;
+            bool hasDeficit = false;
+            foreach (GameEntity line in lines)
+            {
+                activeLineCount++;
+                if (!line.isOrderLine || line.isDestructed ||
+                    !line.hasEntityId || !line.hasOrderEntityId ||
+                    !line.hasStorageZoneEntityId || !line.hasProductType ||
+                    !line.hasRequiredProductCount ||
+                    !line.hasAvailableProductCount || !line.hasLoadedProductCount ||
+                    line.OrderEntityId != order.EntityId ||
+                    !order.hasStorageZoneEntityId ||
+                    line.StorageZoneEntityId != order.StorageZoneEntityId ||
+                    line.RequiredProductCount <= 0 ||
+                    line.AvailableProductCount < 0 || line.LoadedProductCount < 0 ||
+                    line.LoadedProductCount > line.RequiredProductCount)
+                {
+                    throw new InvalidOperationException(
+                        $"Order {order.EntityId} has an invalid procurement line.");
+                }
+
+                int remainingProductCount =
+                    line.RequiredProductCount - line.LoadedProductCount;
+                if (line.AvailableProductCount < remainingProductCount)
+                    hasDeficit = true;
+            }
+
+            if (activeLineCount == 0)
+                throw new InvalidOperationException(
+                    $"Order {order.EntityId} has no active product lines.");
+
+            return hasDeficit;
         }
     }
 }

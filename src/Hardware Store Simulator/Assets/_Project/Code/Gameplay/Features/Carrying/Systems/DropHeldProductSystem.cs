@@ -24,7 +24,7 @@ namespace HardwareStore.Gameplay.Features.Carrying.Systems
                 GameMatcher.EntityId,
                 GameMatcher.HandsOccupied,
                 GameMatcher.DropOrigin)
-                .NoneOf(GameMatcher.ConsultationVisitEntityId));
+                .NoneOf(GameMatcher.ModalOpen));
             _inputs = inputContext.GetGroup(InputMatcher.AllOf(
                 InputMatcher.InputState,
                 InputMatcher.DropPressed));
@@ -55,7 +55,7 @@ namespace HardwareStore.Gameplay.Features.Carrying.Systems
         private static void ValidatePlacementState(GameEntity product)
         {
             if (product.hasDeliverySlotIndex || product.hasStorageSlotIndex ||
-                product.hasCustomerVisitEntityId || product.hasLoadingSlotIndex)
+                product.hasOrderLineEntityId || product.hasLoadingSlotIndex)
             {
                 throw new InvalidOperationException(
                     $"Carried product {product.EntityId} still contains slot placement state.");

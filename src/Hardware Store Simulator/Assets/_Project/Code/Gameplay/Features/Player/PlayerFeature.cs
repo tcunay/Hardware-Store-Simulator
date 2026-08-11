@@ -8,6 +8,7 @@ namespace HardwareStore.Gameplay.Features.Player
         public PlayerFeature(ISystemFactory systems)
         {
             Add(systems.Create<InitializeCursorSystem>());
+            Add(systems.Create<ValidatePlayerModalStateSystem>());
             Add(systems.Create<ToggleCursorSystem>());
             Add(systems.Create<ApplyLookInputSystem>());
         }

@@ -18,134 +18,143 @@ public static class GameComponentsLookup {
     public const int CharacterController = 7;
     public const int Colliders = 8;
     public const int ConsultationOffer = 9;
-    public const int ConsultationVisitEntityId = 10;
-    public const int CursorLocked = 11;
-    public const int Customer = 12;
-    public const int CustomerActorVisitEntityId = 13;
-    public const int CustomerApproachingCounter = 14;
-    public const int CustomerCooldownRemaining = 15;
-    public const int CustomerDepartureDelayRemaining = 16;
-    public const int CustomerProjectTitle = 17;
-    public const int CustomerRequest = 18;
-    public const int CustomerReturningToVehicle = 19;
-    public const int CustomerReturnRoute = 20;
-    public const int CustomerVehicle = 21;
-    public const int CustomerVisit = 22;
-    public const int CustomerVisitArriving = 23;
-    public const int CustomerVisitCompleted = 24;
-    public const int CustomerVisitConsulting = 25;
-    public const int CustomerVisitDeparting = 26;
-    public const int CustomerVisitEntityId = 27;
-    public const int CustomerVisitLoading = 28;
-    public const int CustomerVisitReturning = 29;
-    public const int CustomerVisitStoreEntityId = 30;
-    public const int CustomerVisitWaiting = 31;
-    public const int CustomerWaitingAtCounter = 32;
-    public const int Delivery = 33;
-    public const int DeliveryActive = 34;
-    public const int DeliveryCompleted = 35;
-    public const int DeliveryCost = 36;
-    public const int DeliveryEntityId = 37;
-    public const int DeliveryProcurementTerminalEntityId = 38;
-    public const int DeliveryProductCount = 39;
-    public const int DeliveryProductsSpawned = 40;
-    public const int DeliverySlotIndex = 41;
-    public const int DeliverySpawnPosition = 42;
-    public const int DeliverySpawnRotation = 43;
-    public const int DepartureRoute = 44;
-    public const int Destructed = 45;
-    public const int DropForwardDistance = 46;
-    public const int DropOrigin = 47;
-    public const int EntityId = 48;
-    public const int ExpectedProfit = 49;
-    public const int FocusedEntityId = 50;
-    public const int FocusedInteractionType = 51;
-    public const int FocusInteractionAvailable = 52;
-    public const int GamepadLookSpeed = 53;
-    public const int Gravity = 54;
-    public const int HandsOccupied = 55;
-    public const int HeldRotationOffset = 56;
-    public const int Highlighted = 57;
-    public const int HorizontalSpeed = 58;
-    public const int InboundProduct = 59;
-    public const int InStock = 60;
-    public const int Interactable = 61;
-    public const int InteractionDistance = 62;
-    public const int InteractionPrompt = 63;
-    public const int InteractionRequest = 64;
-    public const int InteractionView = 65;
-    public const int Loaded = 66;
-    public const int LoadedProductCount = 67;
-    public const int LoadingSlotIndex = 68;
-    public const int LoadingZone = 69;
-    public const int LooseProduct = 70;
-    public const int MaxPitch = 71;
-    public const int Money = 72;
-    public const int MouseSensitivity = 73;
-    public const int MoveDirection = 74;
-    public const int MovementSpeed = 75;
-    public const int NextOrderSequenceIndex = 76;
-    public const int NotificationMessage = 77;
-    public const int OccupiedStorageSlotCount = 78;
-    public const int OfferDescription = 79;
-    public const int OfferIndex = 80;
-    public const int OfferTitle = 81;
-    public const int Order = 82;
-    public const int OrderCounter = 83;
-    public const int OrderCounterEntityId = 84;
-    public const int OrderReward = 85;
-    public const int OrderRewarded = 86;
-    public const int Player = 87;
-    public const int ProcurementTerminal = 88;
-    public const int ProcurementTerminalEntityId = 89;
-    public const int Product = 90;
-    public const int ProductLoaded = 91;
-    public const int ProductMass = 92;
-    public const int ProductMassApplied = 93;
-    public const int ProductPlacementDirty = 94;
-    public const int ProductStocked = 95;
-    public const int ProductType = 96;
-    public const int RequestedProductType = 97;
-    public const int RequiredProductCount = 98;
-    public const int RequiredProductType = 99;
-    public const int RigidbodyCollisionDetectionMode = 100;
-    public const int Rigidbody = 101;
-    public const int RigidbodyInterpolationMode = 102;
-    public const int RotationSpeed = 103;
-    public const int RouteCompleted = 104;
-    public const int Route = 105;
-    public const int RouteMover = 106;
-    public const int RouteWaypointIndex = 107;
-    public const int SceneViewKey = 108;
-    public const int SelectedConsultationOffer = 109;
-    public const int SelectedProductType = 110;
-    public const int Slots = 111;
-    public const int SourceEntityId = 112;
-    public const int SpawnPosition = 113;
-    public const int SpawnRotation = 114;
-    public const int SprintSpeed = 115;
-    public const int StockedProductCount = 116;
-    public const int StorageProductCount = 117;
-    public const int StorageSlotIndex = 118;
-    public const int StorageZone = 119;
-    public const int StorageZoneEntityId = 120;
-    public const int Store = 121;
-    public const int StoreEntityId = 122;
-    public const int StoreSceneBindingsValidated = 123;
-    public const int TargetEntityId = 124;
-    public const int Transform = 125;
-    public const int UnitPrice = 126;
-    public const int VerticalVelocity = 127;
-    public const int View = 128;
-    public const int ViewPitch = 129;
-    public const int ViewPivot = 130;
-    public const int ViewPrefab = 131;
-    public const int WalkSpeed = 132;
-    public const int WaypointTolerance = 133;
-    public const int WorldPosition = 134;
-    public const int WorldRotation = 135;
+    public const int ConsultationOfferEntityId = 10;
+    public const int ConsultationOfferLine = 11;
+    public const int ConsultationOfferVisitEntityId = 12;
+    public const int ConsultationVisitEntityId = 13;
+    public const int CursorLocked = 14;
+    public const int Customer = 15;
+    public const int CustomerActorVisitEntityId = 16;
+    public const int CustomerApproachingCounter = 17;
+    public const int CustomerCooldownRemaining = 18;
+    public const int CustomerDepartureDelayRemaining = 19;
+    public const int CustomerProjectTitle = 20;
+    public const int CustomerProjectType = 21;
+    public const int CustomerRequest = 22;
+    public const int CustomerReturningToVehicle = 23;
+    public const int CustomerReturnRoute = 24;
+    public const int CustomerVehicle = 25;
+    public const int CustomerVisit = 26;
+    public const int CustomerVisitArriving = 27;
+    public const int CustomerVisitCompleted = 28;
+    public const int CustomerVisitConsulting = 29;
+    public const int CustomerVisitDeparting = 30;
+    public const int CustomerVisitLoading = 31;
+    public const int CustomerVisitReturning = 32;
+    public const int CustomerVisitStoreEntityId = 33;
+    public const int CustomerVisitWaiting = 34;
+    public const int CustomerWaitingAtCounter = 35;
+    public const int Delivery = 36;
+    public const int DeliveryActive = 37;
+    public const int DeliveryCompleted = 38;
+    public const int DeliveryCost = 39;
+    public const int DeliveryEntityId = 40;
+    public const int DeliveryProcurementTerminalEntityId = 41;
+    public const int DeliveryProductCount = 42;
+    public const int DeliveryProductsSpawned = 43;
+    public const int DeliverySlotIndex = 44;
+    public const int DeliverySpawnPosition = 45;
+    public const int DeliverySpawnRotation = 46;
+    public const int DepartureRoute = 47;
+    public const int Destructed = 48;
+    public const int DropForwardDistance = 49;
+    public const int DropOrigin = 50;
+    public const int EntityId = 51;
+    public const int ExpectedProfit = 52;
+    public const int FocusedEntityId = 53;
+    public const int FocusedInteractionType = 54;
+    public const int FocusInteractionAvailable = 55;
+    public const int GamepadLookSpeed = 56;
+    public const int Gravity = 57;
+    public const int HandsOccupied = 58;
+    public const int HeldRotationOffset = 59;
+    public const int Highlighted = 60;
+    public const int HorizontalSpeed = 61;
+    public const int InboundProduct = 62;
+    public const int InStock = 63;
+    public const int Interactable = 64;
+    public const int InteractionDistance = 65;
+    public const int InteractionPrompt = 66;
+    public const int InteractionRequest = 67;
+    public const int InteractionView = 68;
+    public const int LineIndex = 69;
+    public const int Loaded = 70;
+    public const int LoadedProductCount = 71;
+    public const int LoadingSlotIndex = 72;
+    public const int LoadingZone = 73;
+    public const int LooseProduct = 74;
+    public const int MaxPitch = 75;
+    public const int ModalOpen = 76;
+    public const int Money = 77;
+    public const int MouseSensitivity = 78;
+    public const int MoveDirection = 79;
+    public const int MovementSpeed = 80;
+    public const int NextProjectSequenceIndex = 81;
+    public const int NotificationMessage = 82;
+    public const int OccupiedStorageSlotCount = 83;
+    public const int OfferDescription = 84;
+    public const int OfferIndex = 85;
+    public const int OfferTitle = 86;
+    public const int Order = 87;
+    public const int OrderContentReleased = 88;
+    public const int OrderCounter = 89;
+    public const int OrderCounterEntityId = 90;
+    public const int OrderEntityId = 91;
+    public const int OrderLine = 92;
+    public const int OrderLineEntityId = 93;
+    public const int OrderReward = 94;
+    public const int OrderRewarded = 95;
+    public const int Player = 96;
+    public const int ProcurementTerminal = 97;
+    public const int ProcurementTerminalEntityId = 98;
+    public const int Product = 99;
+    public const int ProductLoaded = 100;
+    public const int ProductMass = 101;
+    public const int ProductMassApplied = 102;
+    public const int ProductPlacementDirty = 103;
+    public const int ProductStocked = 104;
+    public const int ProductType = 105;
+    public const int PurchaseDeliveryRequest = 106;
+    public const int PurchaseDeliverySucceeded = 107;
+    public const int RequiredProductCount = 108;
+    public const int RigidbodyCollisionDetectionMode = 109;
+    public const int Rigidbody = 110;
+    public const int RigidbodyInterpolationMode = 111;
+    public const int RotationSpeed = 112;
+    public const int RouteCompleted = 113;
+    public const int Route = 114;
+    public const int RouteMover = 115;
+    public const int RouteWaypointIndex = 116;
+    public const int SceneViewKey = 117;
+    public const int SelectedConsultationOffer = 118;
+    public const int SelectedProductType = 119;
+    public const int Slots = 120;
+    public const int SourceEntityId = 121;
+    public const int SpawnPosition = 122;
+    public const int SpawnRotation = 123;
+    public const int SprintSpeed = 124;
+    public const int StockedProductCount = 125;
+    public const int StorageProductCount = 126;
+    public const int StorageSlotIndex = 127;
+    public const int StorageZone = 128;
+    public const int StorageZoneEntityId = 129;
+    public const int Store = 130;
+    public const int StoreEntityId = 131;
+    public const int StoreSceneBindingsValidated = 132;
+    public const int TargetEntityId = 133;
+    public const int Transform = 134;
+    public const int UnitPrice = 135;
+    public const int VerticalVelocity = 136;
+    public const int View = 137;
+    public const int ViewPitch = 138;
+    public const int ViewPivot = 139;
+    public const int ViewPrefab = 140;
+    public const int WalkSpeed = 141;
+    public const int WaypointTolerance = 142;
+    public const int WorldPosition = 143;
+    public const int WorldRotation = 144;
 
-    public const int TotalComponents = 136;
+    public const int TotalComponents = 145;
 
     public static readonly string[] componentNames = {
         "AimAssistRadius",
@@ -158,6 +167,9 @@ public static class GameComponentsLookup {
         "CharacterController",
         "Colliders",
         "ConsultationOffer",
+        "ConsultationOfferEntityId",
+        "ConsultationOfferLine",
+        "ConsultationOfferVisitEntityId",
         "ConsultationVisitEntityId",
         "CursorLocked",
         "Customer",
@@ -166,6 +178,7 @@ public static class GameComponentsLookup {
         "CustomerCooldownRemaining",
         "CustomerDepartureDelayRemaining",
         "CustomerProjectTitle",
+        "CustomerProjectType",
         "CustomerRequest",
         "CustomerReturningToVehicle",
         "CustomerReturnRoute",
@@ -175,7 +188,6 @@ public static class GameComponentsLookup {
         "CustomerVisitCompleted",
         "CustomerVisitConsulting",
         "CustomerVisitDeparting",
-        "CustomerVisitEntityId",
         "CustomerVisitLoading",
         "CustomerVisitReturning",
         "CustomerVisitStoreEntityId",
@@ -214,25 +226,31 @@ public static class GameComponentsLookup {
         "InteractionPrompt",
         "InteractionRequest",
         "InteractionView",
+        "LineIndex",
         "Loaded",
         "LoadedProductCount",
         "LoadingSlotIndex",
         "LoadingZone",
         "LooseProduct",
         "MaxPitch",
+        "ModalOpen",
         "Money",
         "MouseSensitivity",
         "MoveDirection",
         "MovementSpeed",
-        "NextOrderSequenceIndex",
+        "NextProjectSequenceIndex",
         "NotificationMessage",
         "OccupiedStorageSlotCount",
         "OfferDescription",
         "OfferIndex",
         "OfferTitle",
         "Order",
+        "OrderContentReleased",
         "OrderCounter",
         "OrderCounterEntityId",
+        "OrderEntityId",
+        "OrderLine",
+        "OrderLineEntityId",
         "OrderReward",
         "OrderRewarded",
         "Player",
@@ -245,9 +263,9 @@ public static class GameComponentsLookup {
         "ProductPlacementDirty",
         "ProductStocked",
         "ProductType",
-        "RequestedProductType",
+        "PurchaseDeliveryRequest",
+        "PurchaseDeliverySucceeded",
         "RequiredProductCount",
-        "RequiredProductType",
         "RigidbodyCollisionDetectionMode",
         "Rigidbody",
         "RigidbodyInterpolationMode",
@@ -297,6 +315,9 @@ public static class GameComponentsLookup {
         typeof(HardwareStore.Gameplay.Components.CharacterControllerComponent),
         typeof(HardwareStore.Gameplay.Components.CollidersComponent),
         typeof(HardwareStore.Gameplay.Components.ConsultationOffer),
+        typeof(HardwareStore.Gameplay.Components.ConsultationOfferEntityId),
+        typeof(HardwareStore.Gameplay.Components.ConsultationOfferLine),
+        typeof(HardwareStore.Gameplay.Components.ConsultationOfferVisitEntityId),
         typeof(HardwareStore.Gameplay.Components.ConsultationVisitEntityId),
         typeof(HardwareStore.Gameplay.Components.CursorLocked),
         typeof(HardwareStore.Gameplay.Components.Customer),
@@ -305,6 +326,7 @@ public static class GameComponentsLookup {
         typeof(HardwareStore.Gameplay.Components.CustomerCooldownRemaining),
         typeof(HardwareStore.Gameplay.Components.CustomerDepartureDelayRemaining),
         typeof(HardwareStore.Gameplay.Components.CustomerProjectTitle),
+        typeof(HardwareStore.Gameplay.Components.CustomerProjectType),
         typeof(HardwareStore.Gameplay.Components.CustomerRequest),
         typeof(HardwareStore.Gameplay.Components.CustomerReturningToVehicle),
         typeof(HardwareStore.Gameplay.Components.CustomerReturnRoute),
@@ -314,7 +336,6 @@ public static class GameComponentsLookup {
         typeof(HardwareStore.Gameplay.Components.CustomerVisitCompleted),
         typeof(HardwareStore.Gameplay.Components.CustomerVisitConsulting),
         typeof(HardwareStore.Gameplay.Components.CustomerVisitDeparting),
-        typeof(HardwareStore.Gameplay.Components.CustomerVisitEntityId),
         typeof(HardwareStore.Gameplay.Components.CustomerVisitLoading),
         typeof(HardwareStore.Gameplay.Components.CustomerVisitReturning),
         typeof(HardwareStore.Gameplay.Components.CustomerVisitStoreEntityId),
@@ -353,25 +374,31 @@ public static class GameComponentsLookup {
         typeof(HardwareStore.Gameplay.Components.InteractionPrompt),
         typeof(HardwareStore.Gameplay.Components.InteractionRequest),
         typeof(HardwareStore.Gameplay.Components.InteractionViewComponent),
+        typeof(HardwareStore.Gameplay.Components.LineIndex),
         typeof(HardwareStore.Gameplay.Components.Loaded),
         typeof(HardwareStore.Gameplay.Components.LoadedProductCount),
         typeof(HardwareStore.Gameplay.Components.LoadingSlotIndex),
         typeof(HardwareStore.Gameplay.Components.LoadingZone),
         typeof(HardwareStore.Gameplay.Components.LooseProduct),
         typeof(HardwareStore.Gameplay.Components.MaxPitch),
+        typeof(HardwareStore.Gameplay.Components.ModalOpen),
         typeof(HardwareStore.Gameplay.Components.Money),
         typeof(HardwareStore.Gameplay.Components.MouseSensitivity),
         typeof(HardwareStore.Gameplay.Components.MoveDirection),
         typeof(HardwareStore.Gameplay.Components.MovementSpeed),
-        typeof(HardwareStore.Gameplay.Components.NextOrderSequenceIndex),
+        typeof(HardwareStore.Gameplay.Components.NextProjectSequenceIndex),
         typeof(HardwareStore.Gameplay.Components.NotificationMessage),
         typeof(HardwareStore.Gameplay.Components.OccupiedStorageSlotCount),
         typeof(HardwareStore.Gameplay.Components.OfferDescription),
         typeof(HardwareStore.Gameplay.Components.OfferIndex),
         typeof(HardwareStore.Gameplay.Components.OfferTitle),
         typeof(HardwareStore.Gameplay.Components.Order),
+        typeof(HardwareStore.Gameplay.Components.OrderContentReleased),
         typeof(HardwareStore.Gameplay.Components.OrderCounter),
         typeof(HardwareStore.Gameplay.Components.OrderCounterEntityId),
+        typeof(HardwareStore.Gameplay.Components.OrderEntityId),
+        typeof(HardwareStore.Gameplay.Components.OrderLine),
+        typeof(HardwareStore.Gameplay.Components.OrderLineEntityId),
         typeof(HardwareStore.Gameplay.Components.OrderReward),
         typeof(HardwareStore.Gameplay.Components.OrderRewarded),
         typeof(HardwareStore.Gameplay.Components.Player),
@@ -384,9 +411,9 @@ public static class GameComponentsLookup {
         typeof(HardwareStore.Gameplay.Components.ProductPlacementDirty),
         typeof(HardwareStore.Gameplay.Components.ProductStocked),
         typeof(HardwareStore.Gameplay.Components.ProductType),
-        typeof(HardwareStore.Gameplay.Components.RequestedProductType),
+        typeof(HardwareStore.Gameplay.Components.PurchaseDeliveryRequest),
+        typeof(HardwareStore.Gameplay.Components.PurchaseDeliverySucceeded),
         typeof(HardwareStore.Gameplay.Components.RequiredProductCount),
-        typeof(HardwareStore.Gameplay.Components.RequiredProductType),
         typeof(HardwareStore.Gameplay.Components.RigidbodyCollisionDetectionMode),
         typeof(HardwareStore.Gameplay.Components.RigidbodyComponent),
         typeof(HardwareStore.Gameplay.Components.RigidbodyInterpolationMode),

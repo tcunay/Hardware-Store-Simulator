@@ -8,5 +8,5 @@ namespace HardwareStore.Gameplay.Components
     [Game] public class OrderCounterEntityId : IComponent { public int Value; }
     [Game] public class Money : IComponent { public int Value; }
     [Game] public class StorageProductCount : IComponent { public int Value; }
-    [Game] public class NextOrderSequenceIndex : IComponent { public int Value; }
+    [Game] public class NextProjectSequenceIndex : IComponent { public int Value; }
 }

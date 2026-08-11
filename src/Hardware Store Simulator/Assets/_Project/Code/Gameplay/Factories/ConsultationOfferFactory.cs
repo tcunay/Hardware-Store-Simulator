@@ -23,29 +23,57 @@ namespace HardwareStore.Gameplay.Factories
         {
             ValidateCustomerVisit(customerVisit);
 
-            OrderConfig order = _staticData.GetOrder(customerVisit.RequestedProductType);
-            DeliveryConfig delivery = _staticData.GetDelivery(customerVisit.RequestedProductType);
-            for (int index = 0; index < order.Offers.Count; index++)
+            CustomerProjectConfig project =
+                _staticData.GetProject(customerVisit.CustomerProjectType);
+            for (int offerIndex = 0; offerIndex < project.Offers.Count; offerIndex++)
             {
-                OrderOfferDefinition definition = order.Offers[index];
-                int expectedProfit = checked(
-                    definition.Reward -
-                    delivery.PurchaseUnitPrice * definition.RequiredProductCount);
+                CustomerProjectOfferDefinition definition = project.Offers[offerIndex];
+                int reward = 0;
+                int procurementCost = 0;
+                try
+                {
+                    foreach (CustomerProjectLineDefinition line in definition.Lines)
+                    {
+                        ProductConfig product = _staticData.GetProduct(line.ProductType);
+                        DeliveryConfig delivery = _staticData.GetDelivery(line.ProductType);
+                        reward = checked(
+                            reward + checked(product.UnitPrice * line.RequiredCount));
+                        procurementCost = checked(
+                            procurementCost +
+                            checked(delivery.PurchaseUnitPrice * line.RequiredCount));
+                    }
+                }
+                catch (OverflowException exception)
+                {
+                    throw new InvalidOperationException(
+                        $"Customer project {project.ProjectType} offer {offerIndex} totals must " +
+                        "fit a 32-bit signed integer.",
+                        exception);
+                }
 
-                CreateEntity.Empty(_identifiers.Next())
-                    .AddCustomerVisitEntityId(customerVisit.EntityId)
-                    .AddStorageZoneEntityId(customerVisit.StorageZoneEntityId)
-                    .AddOfferIndex(index)
-                    .AddOfferTitle(definition.Title)
+                GameEntity offer = CreateEntity.Empty(_identifiers.Next())
+                    .AddConsultationOfferVisitEntityId(customerVisit.EntityId)
+                    .AddOfferIndex(offerIndex)
+                    .AddOfferTitle(definition.OfferTitle)
                     .AddOfferDescription(definition.Description)
-                    .AddRequiredProductType(order.RequiredProductType)
-                    .AddRequiredProductCount(definition.RequiredProductCount)
-                    .AddAvailableProductCount(0)
-                    .AddOrderReward(definition.Reward)
-                    .AddExpectedProfit(expectedProfit)
+                    .AddOrderReward(reward)
+                    .AddExpectedProfit(checked(reward - procurementCost))
                     .With(x => x.isConsultationOffer = true)
                     .With(x => x.isSelectedConsultationOffer =
-                        index == order.DefaultOfferIndex);
+                        offerIndex == project.DefaultOfferIndex);
+
+                for (int lineIndex = 0; lineIndex < definition.Lines.Count; lineIndex++)
+                {
+                    CustomerProjectLineDefinition line = definition.Lines[lineIndex];
+                    CreateEntity.Empty(_identifiers.Next())
+                        .AddConsultationOfferEntityId(offer.EntityId)
+                        .AddStorageZoneEntityId(customerVisit.StorageZoneEntityId)
+                        .AddLineIndex(lineIndex)
+                        .AddProductType(line.ProductType)
+                        .AddRequiredProductCount(line.RequiredCount)
+                        .AddAvailableProductCount(0)
+                        .With(x => x.isConsultationOfferLine = true);
+                }
             }
         }
 
@@ -54,7 +82,7 @@ namespace HardwareStore.Gameplay.Factories
             if (customerVisit == null)
                 throw new ArgumentNullException(nameof(customerVisit));
             if (!customerVisit.isCustomerVisit || !customerVisit.hasEntityId ||
-                !customerVisit.hasRequestedProductType ||
+                !customerVisit.hasCustomerProjectType ||
                 !customerVisit.hasStorageZoneEntityId || customerVisit.isOrder)
             {
                 throw new InvalidOperationException(

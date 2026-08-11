@@ -27,6 +27,13 @@ namespace HardwareStore.Gameplay.Components
         BoardBundle = 1
     }
 
+    public enum CustomerProjectTypeId
+    {
+        CementFoundation = 0,
+        LumberShelving = 1,
+        WorkbenchFoundation = 2
+    }
+
     public enum InteractionTypeId
     {
         ProcurementTerminal,

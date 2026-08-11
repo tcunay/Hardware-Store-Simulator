@@ -13,8 +13,9 @@ namespace HardwareStore.Gameplay.StaticData
 
         private Dictionary<ProductTypeId, ProductConfig> _products;
         private Dictionary<ProductTypeId, DeliveryConfig> _deliveries;
-        private Dictionary<ProductTypeId, OrderConfig> _orders;
+        private Dictionary<CustomerProjectTypeId, CustomerProjectConfig> _projects;
         private IReadOnlyList<ProductTypeId> _productTypes;
+        private IReadOnlyList<CustomerProjectTypeId> _projectTypes;
 
         public PlayerConfig Player { get; private set; }
         public InteractionConfig Interaction { get; private set; }
@@ -24,6 +25,9 @@ namespace HardwareStore.Gameplay.StaticData
         public IReadOnlyList<ProductTypeId> ProductTypes =>
             _productTypes ?? throw new InvalidOperationException(
                 "Static product data has not been loaded yet.");
+        public IReadOnlyList<CustomerProjectTypeId> ProjectTypes =>
+            _projectTypes ?? throw new InvalidOperationException(
+                "Static customer project data has not been loaded yet.");
 
         public void LoadAll()
         {
@@ -33,14 +37,18 @@ namespace HardwareStore.Gameplay.StaticData
             CustomerConfig customer = Load<CustomerConfig>(nameof(CustomerConfig));
             CustomerVehicleConfig customerVehicle =
                 Load<CustomerVehicleConfig>(nameof(CustomerVehicleConfig));
-            Dictionary<ProductTypeId, ProductConfig> products = LoadCatalog<ProductConfig>(
-                config => config.ProductType);
-            Dictionary<ProductTypeId, DeliveryConfig> deliveries = LoadCatalog<DeliveryConfig>(
-                config => config.ProductType);
-            Dictionary<ProductTypeId, OrderConfig> orders = LoadCatalog<OrderConfig>(
-                config => config.RequiredProductType);
+            Dictionary<ProductTypeId, ProductConfig> products =
+                LoadCatalog<ProductConfig, ProductTypeId>(config => config.ProductType);
+            Dictionary<ProductTypeId, DeliveryConfig> deliveries =
+                LoadCatalog<DeliveryConfig, ProductTypeId>(config => config.ProductType);
+            Dictionary<CustomerProjectTypeId, CustomerProjectConfig> projects =
+                LoadCatalog<CustomerProjectConfig, CustomerProjectTypeId>(
+                    config => config.ProjectType);
             ProductTypeId[] productTypes = products.Keys
                 .OrderBy(productType => (int)productType)
+                .ToArray();
+            CustomerProjectTypeId[] projectTypes = projects.Keys
+                .OrderBy(projectType => (int)projectType)
                 .ToArray();
 
             player.Validate();
@@ -48,9 +56,20 @@ namespace HardwareStore.Gameplay.StaticData
             economy.Validate();
             customer.Validate();
             customerVehicle.Validate();
-            ValidateProductTypeCoverage(products);
-            ValidateExactKeyParity(products, deliveries, orders);
-            ValidateCompatibility(player, economy, productTypes, products, deliveries, orders);
+            ValidateEnumCoverage<ProductTypeId, ProductConfig>(products, "Product");
+            ValidateEnumCoverage<CustomerProjectTypeId, CustomerProjectConfig>(
+                projects,
+                "Customer project");
+            ValidateProductDeliveryParity(products, deliveries);
+            ValidateCompatibility(
+                player,
+                economy,
+                customerVehicle,
+                productTypes,
+                projectTypes,
+                products,
+                deliveries,
+                projects);
 
             Player = player;
             Interaction = interaction;
@@ -59,8 +78,9 @@ namespace HardwareStore.Gameplay.StaticData
             CustomerVehicle = customerVehicle;
             _products = products;
             _deliveries = deliveries;
-            _orders = orders;
+            _projects = projects;
             _productTypes = Array.AsReadOnly(productTypes);
+            _projectTypes = Array.AsReadOnly(projectTypes);
         }
 
         public ProductConfig GetProduct(ProductTypeId productType) =>
@@ -69,30 +89,31 @@ namespace HardwareStore.Gameplay.StaticData
         public DeliveryConfig GetDelivery(ProductTypeId productType) =>
             GetRequired(_deliveries, productType, nameof(DeliveryConfig));
 
-        public OrderConfig GetOrder(ProductTypeId productType) =>
-            GetRequired(_orders, productType, nameof(OrderConfig));
+        public CustomerProjectConfig GetProject(CustomerProjectTypeId projectType) =>
+            GetRequired(_projects, projectType, nameof(CustomerProjectConfig));
 
-        private static void ValidateProductTypeCoverage(
-            IReadOnlyDictionary<ProductTypeId, ProductConfig> products)
+        private static void ValidateEnumCoverage<TKey, TConfig>(
+            IReadOnlyDictionary<TKey, TConfig> configs,
+            string catalogName)
+            where TKey : struct, Enum
         {
-            ProductTypeId[] missingProductTypes = Enum
-                .GetValues(typeof(ProductTypeId))
-                .Cast<ProductTypeId>()
-                .Where(productType => !products.ContainsKey(productType))
-                .OrderBy(productType => (int)productType)
+            TKey[] missingKeys = Enum
+                .GetValues(typeof(TKey))
+                .Cast<TKey>()
+                .Where(key => !configs.ContainsKey(key))
+                .OrderBy(key => Convert.ToInt32(key))
                 .ToArray();
-            if (missingProductTypes.Length == 0)
+            if (missingKeys.Length == 0)
                 return;
 
             throw new InvalidOperationException(
-                $"Product catalog must configure every {nameof(ProductTypeId)} value. " +
-                $"Missing products: {Format(missingProductTypes)}.");
+                $"{catalogName} catalog must configure every {typeof(TKey).Name} value. " +
+                $"Missing values: {Format(missingKeys)}.");
         }
 
-        private static void ValidateExactKeyParity(
+        private static void ValidateProductDeliveryParity(
             IReadOnlyDictionary<ProductTypeId, ProductConfig> products,
-            IReadOnlyDictionary<ProductTypeId, DeliveryConfig> deliveries,
-            IReadOnlyDictionary<ProductTypeId, OrderConfig> orders)
+            IReadOnlyDictionary<ProductTypeId, DeliveryConfig> deliveries)
         {
             ProductTypeId[] missingDeliveries = products.Keys
                 .Where(productType => !deliveries.ContainsKey(productType))
@@ -102,41 +123,29 @@ namespace HardwareStore.Gameplay.StaticData
                 .Where(productType => !products.ContainsKey(productType))
                 .OrderBy(productType => (int)productType)
                 .ToArray();
-            ProductTypeId[] missingOrders = products.Keys
-                .Where(productType => !orders.ContainsKey(productType))
-                .OrderBy(productType => (int)productType)
-                .ToArray();
-            ProductTypeId[] unexpectedOrders = orders.Keys
-                .Where(productType => !products.ContainsKey(productType))
-                .OrderBy(productType => (int)productType)
-                .ToArray();
-
-            if (missingDeliveries.Length == 0 && unexpectedDeliveries.Length == 0 &&
-                missingOrders.Length == 0 && unexpectedOrders.Length == 0)
+            if (missingDeliveries.Length == 0 && unexpectedDeliveries.Length == 0)
                 return;
 
             throw new InvalidOperationException(
-                "Product, delivery and order catalogs must contain exactly the same product types. " +
+                "Product and delivery catalogs must contain exactly the same product types. " +
                 $"Missing deliveries: {Format(missingDeliveries)}. " +
-                $"Unexpected deliveries: {Format(unexpectedDeliveries)}. " +
-                $"Missing orders: {Format(missingOrders)}. " +
-                $"Unexpected orders: {Format(unexpectedOrders)}.");
+                $"Unexpected deliveries: {Format(unexpectedDeliveries)}.");
         }
 
         private static void ValidateCompatibility(
             PlayerConfig player,
             EconomyConfig economy,
+            CustomerVehicleConfig customerVehicle,
             IReadOnlyList<ProductTypeId> productTypes,
+            IReadOnlyList<CustomerProjectTypeId> projectTypes,
             IReadOnlyDictionary<ProductTypeId, ProductConfig> products,
             IReadOnlyDictionary<ProductTypeId, DeliveryConfig> deliveries,
-            IReadOnlyDictionary<ProductTypeId, OrderConfig> orders)
+            IReadOnlyDictionary<CustomerProjectTypeId, CustomerProjectConfig> projects)
         {
             foreach (ProductTypeId productType in productTypes)
             {
                 ProductConfig product = products[productType];
                 DeliveryConfig delivery = deliveries[productType];
-                OrderConfig order = orders[productType];
-
                 if (product.CarryMovementSpeed >= player.WalkSpeed)
                 {
                     throw new InvalidOperationException(
@@ -150,76 +159,133 @@ namespace HardwareStore.Gameplay.StaticData
                         $"Purchase unit price for {productType} must be lower than its retail " +
                         "unit price.");
                 }
-
-                int maximumRequiredProductCount = 0;
-                foreach (OrderOfferDefinition offer in order.Offers)
-                {
-                    int expectedReward;
-                    try
-                    {
-                        expectedReward = checked(product.UnitPrice * offer.RequiredProductCount);
-                    }
-                    catch (OverflowException exception)
-                    {
-                        throw new InvalidOperationException(
-                            $"Retail offer total for {productType} must fit a 32-bit signed " +
-                            "integer.",
-                            exception);
-                    }
-
-                    if (offer.Reward != expectedReward)
-                    {
-                        throw new InvalidOperationException(
-                            $"Offer reward for {productType} must equal retail unit price " +
-                            $"{product.UnitPrice} multiplied by required product count " +
-                            $"{offer.RequiredProductCount} ({expectedReward}).");
-                    }
-
-                    maximumRequiredProductCount = Math.Max(
-                        maximumRequiredProductCount,
-                        offer.RequiredProductCount);
-                }
-
-                if (delivery.ProductCount < maximumRequiredProductCount)
-                {
-                    throw new InvalidOperationException(
-                        $"Delivery for {productType} contains {delivery.ProductCount} products, " +
-                        $"but its largest offer requires {maximumRequiredProductCount}.");
-                }
             }
 
-            int projectedMoney = economy.InitialMoney;
-            foreach (ProductTypeId productType in productTypes)
-            {
-                DeliveryConfig delivery = deliveries[productType];
-                OrderConfig order = orders[productType];
-                if (projectedMoney < delivery.TotalCost)
-                {
-                    throw new InvalidOperationException(
-                        $"Configured customer sequence cannot afford the {productType} " +
-                        $"delivery: available {projectedMoney}, required " +
-                        $"{delivery.TotalCost}.");
-                }
+            foreach (CustomerProjectTypeId projectType in projectTypes)
+                ValidateProject(projects[projectType], customerVehicle, products);
 
+            ValidateDefaultProjectSequenceEconomy(
+                economy.InitialMoney,
+                projectTypes,
+                projects,
+                products,
+                deliveries);
+        }
+
+        private static void ValidateProject(
+            CustomerProjectConfig project,
+            CustomerVehicleConfig customerVehicle,
+            IReadOnlyDictionary<ProductTypeId, ProductConfig> products)
+        {
+            for (int offerIndex = 0; offerIndex < project.Offers.Count; offerIndex++)
+            {
+                CustomerProjectOfferDefinition offer = project.Offers[offerIndex];
+                int totalRequiredCount = 0;
+                int reward = 0;
                 try
                 {
-                    int minimumOfferReward = order.Offers
-                        .Min(offer => offer.Reward);
-                    projectedMoney = checked(
-                        projectedMoney - delivery.TotalCost + minimumOfferReward);
+                    foreach (CustomerProjectLineDefinition line in offer.Lines)
+                    {
+                        if (!products.TryGetValue(line.ProductType, out ProductConfig product))
+                        {
+                            throw new InvalidOperationException(
+                                $"Customer project {project.ProjectType} offer {offerIndex} " +
+                                $"references missing product {line.ProductType}.");
+                        }
+
+                        totalRequiredCount = checked(totalRequiredCount + line.RequiredCount);
+                        reward = checked(
+                            reward + checked(product.UnitPrice * line.RequiredCount));
+                    }
                 }
                 catch (OverflowException exception)
                 {
                     throw new InvalidOperationException(
-                        "Projected money after the configured customer sequence must fit a " +
-                        "32-bit signed integer.",
+                        $"Customer project {project.ProjectType} offer {offerIndex} totals must " +
+                        "fit a 32-bit signed integer.",
+                        exception);
+                }
+
+                if (totalRequiredCount > customerVehicle.CargoCapacity)
+                {
+                    throw new InvalidOperationException(
+                        $"Customer project {project.ProjectType} offer {offerIndex} requires " +
+                        $"{totalRequiredCount} cargo slots, but the customer vehicle capacity " +
+                        $"is {customerVehicle.CargoCapacity}.");
+                }
+
+                if (reward <= 0)
+                    throw new InvalidOperationException(
+                        $"Customer project {project.ProjectType} offer {offerIndex} must have " +
+                        "positive calculated revenue.");
+            }
+        }
+
+        private static void ValidateDefaultProjectSequenceEconomy(
+            int initialMoney,
+            IReadOnlyList<CustomerProjectTypeId> projectTypes,
+            IReadOnlyDictionary<CustomerProjectTypeId, CustomerProjectConfig> projects,
+            IReadOnlyDictionary<ProductTypeId, ProductConfig> products,
+            IReadOnlyDictionary<ProductTypeId, DeliveryConfig> deliveries)
+        {
+            int projectedMoney = initialMoney;
+            var projectedStock = products.Keys.ToDictionary(
+                productType => productType,
+                ignoredProductType => 0);
+
+            foreach (CustomerProjectTypeId projectType in projectTypes)
+            {
+                CustomerProjectConfig project = projects[projectType];
+                CustomerProjectOfferDefinition offer = project.Offers[project.DefaultOfferIndex];
+                int purchaseCost = 0;
+                int reward = 0;
+                try
+                {
+                    foreach (CustomerProjectLineDefinition line in offer.Lines)
+                    {
+                        int availableCount = projectedStock[line.ProductType];
+                        int deficit = Math.Max(0, line.RequiredCount - availableCount);
+                        DeliveryConfig delivery = deliveries[line.ProductType];
+                        int batchCount = deficit == 0
+                            ? 0
+                            : checked((deficit + delivery.ProductCount - 1) /
+                                      delivery.ProductCount);
+                        purchaseCost = checked(
+                            purchaseCost + checked(batchCount * delivery.TotalCost));
+                        projectedStock[line.ProductType] = checked(
+                            availableCount + checked(batchCount * delivery.ProductCount));
+                        reward = checked(
+                            reward + checked(
+                                products[line.ProductType].UnitPrice * line.RequiredCount));
+                    }
+
+                    if (projectedMoney < purchaseCost)
+                    {
+                        throw new InvalidOperationException(
+                            $"Configured customer project sequence cannot afford project " +
+                            $"{projectType}: available {projectedMoney}, required " +
+                            $"{purchaseCost}.");
+                    }
+
+                    projectedMoney = checked(projectedMoney - purchaseCost + reward);
+                    foreach (CustomerProjectLineDefinition line in offer.Lines)
+                    {
+                        projectedStock[line.ProductType] = checked(
+                            projectedStock[line.ProductType] - line.RequiredCount);
+                    }
+                }
+                catch (OverflowException exception)
+                {
+                    throw new InvalidOperationException(
+                        "Configured customer project sequence totals must fit a 32-bit signed " +
+                        "integer.",
                         exception);
                 }
             }
         }
 
-        private static Dictionary<ProductTypeId, TConfig> LoadCatalog<TConfig>(
-            Func<TConfig, ProductTypeId> productTypeSelector)
+        private static Dictionary<TKey, TConfig> LoadCatalog<TConfig, TKey>(
+            Func<TConfig, TKey> keySelector)
             where TConfig : ScriptableObject, IValidatableConfig
         {
             TConfig[] configs = Resources.LoadAll<TConfig>(ConfigRoot);
@@ -229,37 +295,36 @@ namespace HardwareStore.Gameplay.StaticData
                     $"No {typeof(TConfig).Name} assets were found below Resources/{ConfigRoot}.");
             }
 
-            var configsByProductType = new Dictionary<ProductTypeId, TConfig>(configs.Length);
+            var configsByKey = new Dictionary<TKey, TConfig>(configs.Length);
             foreach (TConfig config in configs)
             {
                 config.Validate();
-                ProductTypeId productType = productTypeSelector(config);
-                if (!configsByProductType.TryAdd(productType, config))
+                TKey key = keySelector(config);
+                if (!configsByKey.TryAdd(key, config))
                 {
                     throw new InvalidOperationException(
-                        $"More than one {typeof(TConfig).Name} is configured for {productType}.");
+                        $"More than one {typeof(TConfig).Name} is configured for {key}.");
                 }
             }
 
-            return configsByProductType;
+            return configsByKey;
         }
 
-        private static TConfig GetRequired<TConfig>(
-            IReadOnlyDictionary<ProductTypeId, TConfig> configs,
-            ProductTypeId productType,
+        private static TConfig GetRequired<TKey, TConfig>(
+            IReadOnlyDictionary<TKey, TConfig> configs,
+            TKey key,
             string configName)
         {
             if (configs == null)
-                throw new InvalidOperationException("Static product data has not been loaded yet.");
-            if (configs.TryGetValue(productType, out TConfig config))
+                throw new InvalidOperationException("Static data has not been loaded yet.");
+            if (configs.TryGetValue(key, out TConfig config))
                 return config;
 
-            throw new KeyNotFoundException(
-                $"{configName} for product type {productType} was not found.");
+            throw new KeyNotFoundException($"{configName} for key {key} was not found.");
         }
 
-        private static string Format(IReadOnlyCollection<ProductTypeId> productTypes) =>
-            productTypes.Count == 0 ? "none" : string.Join(", ", productTypes);
+        private static string Format<T>(IReadOnlyCollection<T> values) =>
+            values.Count == 0 ? "none" : string.Join(", ", values);
 
         private static TConfig Load<TConfig>(string assetName)
             where TConfig : ScriptableObject, IValidatableConfig

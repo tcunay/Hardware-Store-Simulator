@@ -1,31 +1,36 @@
 using System;
+using System.Collections.Generic;
 using HardwareStore.Gameplay.Components;
 
 namespace HardwareStore.Gameplay.Presentation
 {
     public readonly struct HudSnapshot
     {
-        public HudSnapshot(HudOrderState orderState,
-            ProductTypeId requiredProductType, string requiredProductDisplayName,
-            string requiredProductUnitLabel, int availableProductCount,
-            int loadedCount, int requiredCount, int money, int stockCount,
-            bool hasActiveDelivery, ProductTypeId deliveryProductType,
-            string deliveryProductDisplayName, string deliveryProductUnitLabel,
-            int deliveryStockedCount, int deliveryProductCount,
-            string carriedProductDisplayName, string prompt,
-            bool hasFocus, bool canInteract, bool hasItem, bool cursorLocked)
+        public HudSnapshot(HudOrderState orderState, string projectTitle,
+            OrderLineSnapshot[] orderLines, int totalAvailableProductCount,
+            int totalLoadedProductCount, int totalRequiredProductCount,
+            int money, int stockCount, bool hasActiveDelivery,
+            ProductTypeId deliveryProductType, string deliveryProductDisplayName,
+            string deliveryProductUnitLabel, int deliveryStockedCount,
+            int deliveryProductCount, string carriedProductDisplayName,
+            string prompt, bool hasFocus, bool canInteract, bool hasItem,
+            bool cursorLocked)
         {
             OrderState = orderState;
-            RequiredProductType = requiredProductType;
-            RequiredProductDisplayName = requiredProductDisplayName ??
-                                         throw new ArgumentNullException(
-                                             nameof(requiredProductDisplayName));
-            RequiredProductUnitLabel = requiredProductUnitLabel ??
-                                       throw new ArgumentNullException(
-                                           nameof(requiredProductUnitLabel));
-            AvailableProductCount = availableProductCount;
-            LoadedCount = loadedCount;
-            RequiredCount = requiredCount;
+            ProjectTitle = projectTitle ?? throw new ArgumentNullException(nameof(projectTitle));
+            if (orderLines == null)
+                throw new ArgumentNullException(nameof(orderLines));
+            if (totalAvailableProductCount < 0)
+                throw new ArgumentOutOfRangeException(nameof(totalAvailableProductCount));
+            if (totalLoadedProductCount < 0)
+                throw new ArgumentOutOfRangeException(nameof(totalLoadedProductCount));
+            if (totalRequiredProductCount < 0)
+                throw new ArgumentOutOfRangeException(nameof(totalRequiredProductCount));
+
+            OrderLines = Array.AsReadOnly((OrderLineSnapshot[])orderLines.Clone());
+            TotalAvailableProductCount = totalAvailableProductCount;
+            TotalLoadedProductCount = totalLoadedProductCount;
+            TotalRequiredProductCount = totalRequiredProductCount;
             Money = money;
             StockCount = stockCount;
             HasActiveDelivery = hasActiveDelivery;
@@ -49,12 +54,11 @@ namespace HardwareStore.Gameplay.Presentation
         }
 
         public HudOrderState OrderState { get; }
-        public ProductTypeId RequiredProductType { get; }
-        public string RequiredProductDisplayName { get; }
-        public string RequiredProductUnitLabel { get; }
-        public int AvailableProductCount { get; }
-        public int LoadedCount { get; }
-        public int RequiredCount { get; }
+        public string ProjectTitle { get; }
+        public IReadOnlyList<OrderLineSnapshot> OrderLines { get; }
+        public int TotalAvailableProductCount { get; }
+        public int TotalLoadedProductCount { get; }
+        public int TotalRequiredProductCount { get; }
         public int Money { get; }
         public int StockCount { get; }
         public bool HasActiveDelivery { get; }

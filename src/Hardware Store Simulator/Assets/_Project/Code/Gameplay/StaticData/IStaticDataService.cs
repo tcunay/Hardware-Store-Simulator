@@ -12,10 +12,11 @@ namespace HardwareStore.Gameplay.StaticData
         CustomerConfig Customer { get; }
         CustomerVehicleConfig CustomerVehicle { get; }
         IReadOnlyList<ProductTypeId> ProductTypes { get; }
+        IReadOnlyList<CustomerProjectTypeId> ProjectTypes { get; }
 
         void LoadAll();
         ProductConfig GetProduct(ProductTypeId productType);
         DeliveryConfig GetDelivery(ProductTypeId productType);
-        OrderConfig GetOrder(ProductTypeId productType);
+        CustomerProjectConfig GetProject(CustomerProjectTypeId projectType);
     }
 }

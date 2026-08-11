@@ -32,7 +32,7 @@ namespace HardwareStore.Gameplay.Features.Consultation.Systems
                 GameEntity player =
                     _gameContext.GetEntityWithEntityId(request.SourceEntityId);
                 if (!player.isPlayer || player.isHandsOccupied ||
-                    player.hasConsultationVisitEntityId)
+                    player.isModalOpen)
                 {
                     continue;
                 }
@@ -47,9 +47,24 @@ namespace HardwareStore.Gameplay.Features.Consultation.Systems
                         orderCounter.StoreEntityId);
                 if (visit == null || !visit.isCustomerVisitConsulting)
                     continue;
+                if (player.hasConsultationVisitEntityId ||
+                    player.hasProcurementTerminalEntityId)
+                {
+                    throw new System.InvalidOperationException(
+                        $"Player {player.EntityId} has a modal relation without ModalOpen.");
+                }
 
                 player.AddConsultationVisitEntityId(visit.EntityId);
+                player.isModalOpen = true;
                 player.ReplaceMoveDirection(Vector3.zero);
+                if (player.hasInteractionPrompt)
+                    player.RemoveInteractionPrompt();
+                player.isFocusInteractionAvailable = false;
+                if (player.hasFocusedInteractionType)
+                    player.RemoveFocusedInteractionType();
+                if (player.hasFocusedEntityId)
+                    player.RemoveFocusedEntityId();
+                orderCounter.isHighlighted = false;
                 player.isCursorLocked = true;
                 _cursor.SetLocked(true);
             }
