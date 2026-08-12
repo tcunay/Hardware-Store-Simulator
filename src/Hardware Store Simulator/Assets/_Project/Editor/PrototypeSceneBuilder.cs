@@ -11,9 +11,11 @@ using HardwareStore.Gameplay.Scene;
 using HardwareStore.Gameplay.Views;
 using HardwareStore.Infrastructure.Installers;
 using HardwareStore.Infrastructure.View;
+using Unity.AI.Navigation;
 using UnityEditor;
 using UnityEditor.SceneManagement;
 using UnityEngine;
+using UnityEngine.AI;
 using UnityEngine.Rendering;
 using UnityEngine.SceneManagement;
 using Zenject;
@@ -35,8 +37,13 @@ namespace HardwareStore.Editor
             "Assets/_Project/Prefabs/Gameplay/CustomerVehicle.prefab";
         private const string CustomerPrefabPath =
             "Assets/_Project/Prefabs/Gameplay/Customer.prefab";
+        private const string WarehouseWorkerPrefabPath =
+            "Assets/_Project/Prefabs/Gameplay/WarehouseWorker.prefab";
         private const string PlatformTrolleyPrefabPath =
             "Assets/_Project/Prefabs/Gameplay/PlatformTrolley.prefab";
+        private const string WarehouseWorkerNavMeshAssetName = "NavMesh-Navigation";
+        private const string WarehouseWorkerNavMeshPath =
+            "Assets/Scenes/Prototype_Yard/" + WarehouseWorkerNavMeshAssetName + ".asset";
         private const string CementProductConfigName = "ProductConfig";
         private const string BoardProductConfigName = "ProductConfig_BoardBundle";
         private const string CementDeliveryConfigName = "DeliveryConfig";
@@ -49,6 +56,7 @@ namespace HardwareStore.Editor
             "CustomerProjectConfig_WorkbenchFoundation";
         private const string ProductRecoveryConfigName = "ProductRecoveryConfig";
         private const string PlatformTrolleyConfigName = "PlatformTrolleyConfig";
+        private const string WarehouseWorkerConfigName = "WarehouseWorkerConfig";
         private const string StoreDayConfigName = "StoreDayConfig";
         private const string LegacyCementOrderConfigName = "OrderConfig";
         private const string LegacyBoardOrderConfigName = "OrderConfig_BoardBundle";
@@ -87,6 +95,8 @@ namespace HardwareStore.Editor
                 LoadConfig<ProductRecoveryConfig>(ProductRecoveryConfigName);
             PlatformTrolleyConfig platformTrolleyConfig =
                 LoadConfig<PlatformTrolleyConfig>(PlatformTrolleyConfigName);
+            WarehouseWorkerConfig warehouseWorkerConfig =
+                LoadConfig<WarehouseWorkerConfig>(WarehouseWorkerConfigName);
             StoreDayConfig storeDayConfig = LoadConfig<StoreDayConfig>(StoreDayConfigName);
             ProductConfig cementProductConfig =
                 LoadConfig<ProductConfig>(CementProductConfigName);
@@ -104,6 +114,7 @@ namespace HardwareStore.Editor
                 economyConfig,
                 productRecoveryConfig,
                 storeDayConfig,
+                warehouseWorkerConfig,
                 cementProductConfig,
                 boardProductConfig,
                 cementProjectConfig,
@@ -141,6 +152,12 @@ namespace HardwareStore.Editor
                 glass,
                 loadingGreen);
             EnsureCustomerPrefab(customerConfig, brandOrange, brandBlue, darkMetal);
+            EnsureWarehouseWorkerPrefab(
+                warehouseWorkerConfig,
+                brandOrange,
+                brandBlue,
+                yellow,
+                darkMetal);
             EnsurePlatformTrolleyPrefab(
                 platformTrolleyConfig,
                 brandOrange,
@@ -151,6 +168,7 @@ namespace HardwareStore.Editor
             ConfigureEnvironment();
 
             GameObject environment = CreateEmpty("Environment");
+            NavMeshSurface navigation = BuildNavigation(environment.transform);
             (Light sun, Light[] indoorLights) = BuildLighting(environment.transform);
             BuildYard(environment.transform, asphalt, concrete, brandBlue, white, yellow);
             (SceneViewMarker orderCounter, SceneViewMarker procurementTerminal) =
@@ -185,6 +203,10 @@ namespace HardwareStore.Editor
                 boardProductConfig);
             SpawnPointMarker deliveryVehicleSpawnPoint =
                 BuildInboundDeliveryBay(environment.transform, asphalt, yellow);
+            (SpawnPointMarker workerIdlePoint,
+                    SpawnPointMarker workerDeliveryAccessPoint,
+                    SpawnPointMarker workerStorageAccessPoint) =
+                BuildWarehouseWorkerAccessPoints(environment.transform);
 
             SpawnPointMarker playerSpawnPoint = BuildPlayerSpawnPoint();
             GameObject systems = CreateEmpty("SceneContext");
@@ -199,7 +221,10 @@ namespace HardwareStore.Editor
                 {
                     playerSpawnPoint,
                     deliveryVehicleSpawnPoint,
-                    platformTrolleySpawnPoint
+                    platformTrolleySpawnPoint,
+                    workerIdlePoint,
+                    workerDeliveryAccessPoint,
+                    workerStorageAccessPoint
                 },
                 customerRoutes,
                 new[]
@@ -217,6 +242,11 @@ namespace HardwareStore.Editor
             installer.Configure(initializer);
             sceneContext.Installers = new MonoInstaller[] { installer };
 
+            BakeAndValidateWarehouseWorkerNavigation(
+                navigation,
+                workerIdlePoint,
+                workerDeliveryAccessPoint,
+                workerStorageAccessPoint);
             EditorSceneManager.MarkSceneDirty(scene);
             if (!EditorSceneManager.SaveScene(scene, ScenePath))
                 throw new InvalidOperationException($"Could not save prototype scene to {ScenePath}.");
@@ -242,6 +272,23 @@ namespace HardwareStore.Editor
             RenderSettings.fogMode = FogMode.Linear;
             RenderSettings.fogStartDistance = 42f;
             RenderSettings.fogEndDistance = 115f;
+        }
+
+        private static NavMeshSurface BuildNavigation(Transform parent)
+        {
+            GameObject navigation = CreateEmpty("Navigation", parent);
+            NavMeshSurface surface = navigation.AddComponent<NavMeshSurface>();
+            surface.agentTypeID = 0;
+            surface.collectObjects = CollectObjects.All;
+            surface.layerMask = ~0;
+            surface.useGeometry = NavMeshCollectGeometry.PhysicsColliders;
+            surface.defaultArea = NavMesh.GetAreaFromName("Walkable");
+            surface.ignoreNavMeshAgent = true;
+            surface.ignoreNavMeshObstacle = true;
+            surface.overrideVoxelSize = true;
+            surface.voxelSize = 0.08f;
+            surface.minRegionArea = 1f;
+            return surface;
         }
 
         private static (Light Sun, Light[] IndoorLights) BuildLighting(Transform parent)
@@ -690,6 +737,46 @@ namespace HardwareStore.Editor
             return marker;
         }
 
+        private static (SpawnPointMarker Idle, SpawnPointMarker DeliveryAccess,
+                SpawnPointMarker StorageAccess)
+            BuildWarehouseWorkerAccessPoints(Transform parent)
+        {
+            GameObject root = CreateEmpty("Warehouse Worker Access Points", parent);
+            SpawnPointMarker idle = CreateSpawnPoint(
+                "Warehouse Worker Idle",
+                root.transform,
+                SpawnPointId.WarehouseWorker,
+                new Vector3(7.75f, 0.02f, 2.45f),
+                Quaternion.Euler(0f, -90f, 0f));
+            SpawnPointMarker deliveryAccess = CreateSpawnPoint(
+                "Warehouse Worker Delivery Access",
+                root.transform,
+                SpawnPointId.WarehouseWorkerDeliveryAccess,
+                new Vector3(9.15f, 0.02f, -9.85f),
+                Quaternion.Euler(0f, 90f, 0f));
+            SpawnPointMarker storageAccess = CreateSpawnPoint(
+                "Warehouse Worker Storage Access",
+                root.transform,
+                SpawnPointId.WarehouseWorkerStorageAccess,
+                new Vector3(5f, 0.02f, 2.45f),
+                Quaternion.identity);
+            return (idle, deliveryAccess, storageAccess);
+        }
+
+        private static SpawnPointMarker CreateSpawnPoint(
+            string name,
+            Transform parent,
+            SpawnPointId id,
+            Vector3 position,
+            Quaternion rotation)
+        {
+            GameObject spawnPoint = CreateEmpty(name, parent);
+            spawnPoint.transform.SetPositionAndRotation(position, rotation);
+            SpawnPointMarker marker = spawnPoint.AddComponent<SpawnPointMarker>();
+            marker.Configure(id);
+            return marker;
+        }
+
         private static SpawnPointMarker BuildPlayerSpawnPoint()
         {
             GameObject spawnPoint = CreateEmpty("Player Spawn Point");
@@ -1077,6 +1164,91 @@ namespace HardwareStore.Editor
             }
         }
 
+        private static void EnsureWarehouseWorkerPrefab(
+            WarehouseWorkerConfig config,
+            Material skin,
+            Material workwear,
+            Material safetyYellow,
+            Material shoes)
+        {
+            GameObject worker = CreateEmpty("Warehouse Worker");
+
+            try
+            {
+                worker.transform.SetLocalPositionAndRotation(Vector3.zero, Quaternion.identity);
+                worker.transform.localScale = Vector3.one;
+                worker.SetActive(true);
+
+                NavMeshAgent agent = worker.AddComponent<NavMeshAgent>();
+                agent.agentTypeID = 0;
+                agent.radius = 0.32f;
+                agent.height = 1.9f;
+                agent.baseOffset = 0f;
+                agent.speed = config.MovementSpeed;
+                agent.acceleration = config.Acceleration;
+                agent.angularSpeed = config.AngularSpeed;
+                agent.stoppingDistance = config.StoppingDistance;
+                agent.autoBraking = true;
+                agent.autoRepath = true;
+                agent.obstacleAvoidanceType = ObstacleAvoidanceType.HighQualityObstacleAvoidance;
+
+                CreateCube("Torso", worker.transform, new Vector3(0f, 1.18f, 0f),
+                    new Vector3(0.62f, 0.78f, 0.34f), workwear, false, true);
+                CreateCube("Safety Vest Front", worker.transform, new Vector3(0f, 1.2f, 0.18f),
+                    new Vector3(0.66f, 0.56f, 0.055f), safetyYellow, false, true);
+                CreateCube("Safety Vest Back", worker.transform, new Vector3(0f, 1.2f, -0.18f),
+                    new Vector3(0.66f, 0.56f, 0.055f), safetyYellow, false, true);
+                CreateCube("Head", worker.transform, new Vector3(0f, 1.82f, 0f),
+                    new Vector3(0.38f, 0.38f, 0.38f), skin, false, true);
+                CreateCube("Hard Hat", worker.transform, new Vector3(0f, 2.06f, 0f),
+                    new Vector3(0.48f, 0.16f, 0.42f), safetyYellow, false, true);
+                CreateCube("Hard Hat Brim", worker.transform, new Vector3(0f, 1.99f, 0.14f),
+                    new Vector3(0.56f, 0.055f, 0.22f), safetyYellow, false, true);
+                CreateCube("Left Arm", worker.transform, new Vector3(-0.42f, 1.18f, 0f),
+                    new Vector3(0.16f, 0.72f, 0.18f), workwear, false, true);
+                CreateCube("Right Arm", worker.transform, new Vector3(0.42f, 1.18f, 0f),
+                    new Vector3(0.16f, 0.72f, 0.18f), workwear, false, true);
+                CreateCube("Left Hand", worker.transform, new Vector3(-0.42f, 0.78f, 0f),
+                    new Vector3(0.17f, 0.18f, 0.19f), skin, false, true);
+                CreateCube("Right Hand", worker.transform, new Vector3(0.42f, 0.78f, 0f),
+                    new Vector3(0.17f, 0.18f, 0.19f), skin, false, true);
+                CreateCube("Left Leg", worker.transform, new Vector3(-0.17f, 0.48f, 0f),
+                    new Vector3(0.22f, 0.72f, 0.24f), workwear, false, true);
+                CreateCube("Right Leg", worker.transform, new Vector3(0.17f, 0.48f, 0f),
+                    new Vector3(0.22f, 0.72f, 0.24f), workwear, false, true);
+                CreateCube("Left Shoe", worker.transform, new Vector3(-0.17f, 0.11f, 0.08f),
+                    new Vector3(0.24f, 0.14f, 0.4f), shoes, false, true);
+                CreateCube("Right Shoe", worker.transform, new Vector3(0.17f, 0.11f, 0.08f),
+                    new Vector3(0.24f, 0.14f, 0.4f), shoes, false, true);
+
+                worker.AddComponent<EntityBehaviour>();
+                worker.AddComponent<TransformRegistrar>();
+                worker.AddComponent<NavMeshAgentRegistrar>();
+                GameObject carryAnchor = CreateEmpty("Carry Anchor", worker.transform);
+                carryAnchor.transform.localPosition = new Vector3(0f, 1.02f, 0.66f);
+                carryAnchor.AddComponent<CarryAnchorRegistrar>();
+
+                GameObject prefab = PrefabUtility.SaveAsPrefabAsset(
+                    worker,
+                    WarehouseWorkerPrefabPath);
+                if (prefab == null)
+                {
+                    throw new InvalidOperationException(
+                        $"Could not create warehouse worker prefab at {WarehouseWorkerPrefabPath}.");
+                }
+
+                EntityBehaviour prefabView = prefab.GetComponent<EntityBehaviour>() ??
+                                             throw new InvalidOperationException(
+                                                 $"Warehouse worker prefab at " +
+                                                 $"{WarehouseWorkerPrefabPath} has no view root.");
+                AssignViewPrefab(config, prefabView);
+            }
+            finally
+            {
+                Object.DestroyImmediate(worker);
+            }
+        }
+
         private static void EnsurePlatformTrolleyPrefab(
             PlatformTrolleyConfig config,
             Material brandOrange,
@@ -1318,6 +1490,85 @@ namespace HardwareStore.Editor
             return marker;
         }
 
+        private static void BakeAndValidateWarehouseWorkerNavigation(
+            NavMeshSurface surface,
+            params SpawnPointMarker[] accessPoints)
+        {
+            if (surface == null)
+                throw new ArgumentNullException(nameof(surface));
+            if (accessPoints == null || accessPoints.Length != 3 || accessPoints.Any(point => point == null))
+            {
+                throw new ArgumentException(
+                    "Warehouse worker navigation requires exactly three access points.",
+                    nameof(accessPoints));
+            }
+
+            NavMeshData persistedData =
+                AssetDatabase.LoadAssetAtPath<NavMeshData>(WarehouseWorkerNavMeshPath);
+            surface.BuildNavMesh();
+            NavMeshData bakedData = surface.navMeshData;
+            if (bakedData == null)
+                throw new InvalidOperationException("Warehouse worker NavMesh bake produced no data.");
+
+            EnsureFolder("Assets/Scenes/Prototype_Yard");
+            if (persistedData == null)
+            {
+                bakedData.name = WarehouseWorkerNavMeshAssetName;
+                AssetDatabase.CreateAsset(bakedData, WarehouseWorkerNavMeshPath);
+            }
+            else
+            {
+                surface.RemoveData();
+                EditorUtility.CopySerialized(bakedData, persistedData);
+                persistedData.name = WarehouseWorkerNavMeshAssetName;
+                EditorUtility.SetDirty(persistedData);
+                Object.DestroyImmediate(bakedData);
+                surface.navMeshData = persistedData;
+                surface.AddData();
+            }
+
+            EditorUtility.SetDirty(surface);
+
+            var sampledPositions = new Vector3[accessPoints.Length];
+            for (int index = 0; index < accessPoints.Length; index++)
+            {
+                Vector3 point = accessPoints[index].transform.position;
+                if (!NavMesh.SamplePosition(point, out NavMeshHit hit, 2f, NavMesh.AllAreas))
+                {
+                    throw new InvalidOperationException(
+                        $"Warehouse worker access point '{accessPoints[index].name}' " +
+                        $"at {point} is not on the baked NavMesh.");
+                }
+
+                sampledPositions[index] = hit.position;
+            }
+
+            for (int originIndex = 0; originIndex < sampledPositions.Length; originIndex++)
+            {
+                for (int destinationIndex = 0;
+                     destinationIndex < sampledPositions.Length;
+                     destinationIndex++)
+                {
+                    if (originIndex == destinationIndex)
+                        continue;
+
+                    var path = new NavMeshPath();
+                    bool pathFound = NavMesh.CalculatePath(
+                        sampledPositions[originIndex],
+                        sampledPositions[destinationIndex],
+                        NavMesh.AllAreas,
+                        path);
+                    if (!pathFound || path.status != NavMeshPathStatus.PathComplete)
+                    {
+                        throw new InvalidOperationException(
+                            $"Warehouse worker NavMesh path is incomplete from " +
+                            $"'{accessPoints[originIndex].name}' to " +
+                            $"'{accessPoints[destinationIndex].name}'.");
+                    }
+                }
+            }
+        }
+
         private static GameObject CreateCube(string name, Transform parent, Vector3 position, Vector3 scale,
             Material material, bool collider = true, bool useLocalSpace = false)
         {
@@ -1461,6 +1712,7 @@ namespace HardwareStore.Editor
             EnsureConfigAsset<EconomyConfig>("EconomyConfig");
             EnsureConfigAsset<ProductRecoveryConfig>(ProductRecoveryConfigName);
             EnsureConfigAsset<PlatformTrolleyConfig>(PlatformTrolleyConfigName);
+            EnsureConfigAsset<WarehouseWorkerConfig>(WarehouseWorkerConfigName);
             EnsureConfigAsset<StoreDayConfig>(StoreDayConfigName);
         }
 
@@ -1470,6 +1722,7 @@ namespace HardwareStore.Editor
             EconomyConfig economyConfig,
             ProductRecoveryConfig productRecoveryConfig,
             StoreDayConfig storeDayConfig,
+            WarehouseWorkerConfig warehouseWorkerConfig,
             ProductConfig cementProductConfig,
             ProductConfig boardProductConfig,
             CustomerProjectConfig cementProjectConfig,
@@ -1503,6 +1756,19 @@ namespace HardwareStore.Editor
             RequireSerializedProperty(storeDay, "_dayDurationSeconds").floatValue = 480f;
             storeDay.ApplyModifiedPropertiesWithoutUndo();
             EditorUtility.SetDirty(storeDayConfig);
+
+            SerializedObject warehouseWorker = new(warehouseWorkerConfig);
+            RequireSerializedProperty(warehouseWorker, "_requiredCompletedOrderCount").intValue = 4;
+            RequireSerializedProperty(warehouseWorker, "_hirePrice").intValue = 400;
+            RequireSerializedProperty(warehouseWorker, "_dailyWage").intValue = 100;
+            RequireSerializedProperty(warehouseWorker, "_movementSpeed").floatValue = 2.8f;
+            RequireSerializedProperty(warehouseWorker, "_acceleration").floatValue = 12f;
+            RequireSerializedProperty(warehouseWorker, "_angularSpeed").floatValue = 720f;
+            RequireSerializedProperty(warehouseWorker, "_stoppingDistance").floatValue = 0.2f;
+            RequireSerializedProperty(warehouseWorker, "_navigationSampleRadius").floatValue = 2f;
+            RequireSerializedProperty(warehouseWorker, "_taskTimeout").floatValue = 20f;
+            warehouseWorker.ApplyModifiedPropertiesWithoutUndo();
+            EditorUtility.SetDirty(warehouseWorkerConfig);
 
             ConfigureProductConfig(
                 cementProductConfig,

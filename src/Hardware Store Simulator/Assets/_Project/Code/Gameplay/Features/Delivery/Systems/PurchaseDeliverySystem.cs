@@ -125,7 +125,8 @@ namespace HardwareStore.Gameplay.Features.Delivery.Systems
                     store.DayProcurementExpenses + evaluation.DeliveryCost);
                 long ledgerBalanceAfterPurchase =
                     (long)store.DayOpeningBalance + store.DayRevenue -
-                    procurementExpensesAfterPurchase - store.DayUpgradeExpenses;
+                    procurementExpensesAfterPurchase - store.DayUpgradeExpenses -
+                    store.DayPayrollExpenses;
                 if (moneyAfterPurchase != evaluation.MoneyAfterPurchase ||
                     ledgerBalanceAfterPurchase != moneyAfterPurchase)
                 {
@@ -168,9 +169,11 @@ namespace HardwareStore.Gameplay.Features.Delivery.Systems
             if (store == null || !store.isStore || !store.hasEntityId ||
                 !store.hasMoney || !store.hasDayOpeningBalance ||
                 !store.hasDayRevenue || !store.hasDayProcurementExpenses ||
-                !store.hasDayUpgradeExpenses || store.Money < 0 ||
+                !store.hasDayUpgradeExpenses || !store.hasDayPayrollExpenses ||
+                store.Money < 0 ||
                 store.DayOpeningBalance < 0 || store.DayRevenue < 0 ||
-                store.DayProcurementExpenses < 0 || store.DayUpgradeExpenses < 0)
+                store.DayProcurementExpenses < 0 || store.DayUpgradeExpenses < 0 ||
+                store.DayPayrollExpenses < 0)
             {
                 throw new InvalidOperationException(
                     $"Procurement terminal {terminal.EntityId} references an invalid " +
@@ -179,7 +182,8 @@ namespace HardwareStore.Gameplay.Features.Delivery.Systems
 
             long expectedMoney =
                 (long)store.DayOpeningBalance + store.DayRevenue -
-                store.DayProcurementExpenses - store.DayUpgradeExpenses;
+                store.DayProcurementExpenses - store.DayUpgradeExpenses -
+                store.DayPayrollExpenses;
             if (expectedMoney != store.Money)
             {
                 throw new InvalidOperationException(

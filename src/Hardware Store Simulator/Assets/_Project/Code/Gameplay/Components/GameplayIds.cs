@@ -4,7 +4,10 @@ namespace HardwareStore.Gameplay.Components
     {
         Player,
         DeliveryVehicle,
-        PlatformTrolley
+        PlatformTrolley,
+        WarehouseWorker,
+        WarehouseWorkerDeliveryAccess,
+        WarehouseWorkerStorageAccess
     }
 
     public enum SceneViewId

@@ -22,6 +22,7 @@ namespace HardwareStore.Gameplay.StaticData
         public EconomyConfig Economy { get; private set; }
         public ProductRecoveryConfig ProductRecovery { get; private set; }
         public PlatformTrolleyConfig PlatformTrolley { get; private set; }
+        public WarehouseWorkerConfig WarehouseWorker { get; private set; }
         public StoreDayConfig StoreDay { get; private set; }
         public CustomerConfig Customer { get; private set; }
         public CustomerVehicleConfig CustomerVehicle { get; private set; }
@@ -41,6 +42,8 @@ namespace HardwareStore.Gameplay.StaticData
                 Load<ProductRecoveryConfig>(nameof(ProductRecoveryConfig));
             PlatformTrolleyConfig platformTrolley =
                 Load<PlatformTrolleyConfig>(nameof(PlatformTrolleyConfig));
+            WarehouseWorkerConfig warehouseWorker =
+                Load<WarehouseWorkerConfig>(nameof(WarehouseWorkerConfig));
             StoreDayConfig storeDay = Load<StoreDayConfig>(nameof(StoreDayConfig));
             CustomerConfig customer = Load<CustomerConfig>(nameof(CustomerConfig));
             CustomerVehicleConfig customerVehicle =
@@ -64,6 +67,7 @@ namespace HardwareStore.Gameplay.StaticData
             economy.Validate();
             productRecovery.Validate();
             platformTrolley.Validate();
+            warehouseWorker.Validate();
             storeDay.Validate();
             customer.Validate();
             customerVehicle.Validate();
@@ -77,6 +81,7 @@ namespace HardwareStore.Gameplay.StaticData
                 economy,
                 customerVehicle,
                 platformTrolley,
+                warehouseWorker,
                 productTypes,
                 projectTypes,
                 products,
@@ -88,6 +93,7 @@ namespace HardwareStore.Gameplay.StaticData
             Economy = economy;
             ProductRecovery = productRecovery;
             PlatformTrolley = platformTrolley;
+            WarehouseWorker = warehouseWorker;
             StoreDay = storeDay;
             Customer = customer;
             CustomerVehicle = customerVehicle;
@@ -152,6 +158,7 @@ namespace HardwareStore.Gameplay.StaticData
             EconomyConfig economy,
             CustomerVehicleConfig customerVehicle,
             PlatformTrolleyConfig platformTrolley,
+            WarehouseWorkerConfig warehouseWorker,
             IReadOnlyList<ProductTypeId> productTypes,
             IReadOnlyList<CustomerProjectTypeId> projectTypes,
             IReadOnlyDictionary<ProductTypeId, ProductConfig> products,
@@ -191,6 +198,12 @@ namespace HardwareStore.Gameplay.StaticData
                 throw new InvalidOperationException(
                     $"{nameof(PlatformTrolleyConfig)}.{nameof(PlatformTrolleyConfig.Capacity)} " +
                     "must fit a complete customer-vehicle order.");
+            }
+            if (warehouseWorker.MovementSpeed >= player.WalkSpeed)
+            {
+                throw new InvalidOperationException(
+                    $"{nameof(WarehouseWorkerConfig)}.{nameof(WarehouseWorkerConfig.MovementSpeed)} " +
+                    "must be slower than player walking speed.");
             }
 
             foreach (CustomerProjectTypeId projectType in projectTypes)

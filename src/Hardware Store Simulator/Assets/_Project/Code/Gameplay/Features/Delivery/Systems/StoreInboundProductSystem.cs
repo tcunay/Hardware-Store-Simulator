@@ -14,6 +14,7 @@ namespace HardwareStore.Gameplay.Features.Delivery.Systems
         private readonly IGroup<GameEntity> _requests;
         private readonly IGroup<GameEntity> _stockedProducts;
         private readonly IGroup<GameEntity> _reservedStockProducts;
+        private readonly IGroup<GameEntity> _warehouseTasks;
 
         public StoreInboundProductSystem(GameContext gameContext, IGameEventFactory events)
         {
@@ -35,6 +36,14 @@ namespace HardwareStore.Gameplay.Features.Delivery.Systems
                 GameMatcher.InStock,
                 GameMatcher.StorageZoneEntityId,
                 GameMatcher.ReservedStorageSlotIndex));
+            _warehouseTasks = gameContext.GetGroup(GameMatcher.AllOf(
+                    GameMatcher.WarehouseTask,
+                    GameMatcher.InboundToStorageTask,
+                    GameMatcher.EntityId,
+                    GameMatcher.WarehouseTaskStorageZoneEntityId,
+                    GameMatcher.WarehouseTaskProductEntityId,
+                    GameMatcher.WarehouseTaskReservedStorageSlotIndex)
+                .NoneOf(GameMatcher.Destructed));
         }
 
         public void Execute()
@@ -219,6 +228,14 @@ namespace HardwareStore.Gameplay.Features.Delivery.Systems
                     product,
                     product.ReservedStorageSlotIndex);
             }
+            foreach (GameEntity task in _warehouseTasks)
+            {
+                AddOccupiedSlot(
+                    occupiedSlotsByZone,
+                    task.WarehouseTaskStorageZoneEntityId,
+                    task.WarehouseTaskReservedStorageSlotIndex,
+                    task.WarehouseTaskProductEntityId);
+            }
 
             return occupiedSlotsByZone;
         }
@@ -227,14 +244,25 @@ namespace HardwareStore.Gameplay.Features.Delivery.Systems
             Dictionary<int, Dictionary<int, int>> occupiedSlotsByZone,
             GameEntity product,
             int slotIndex)
+            => AddOccupiedSlot(
+                occupiedSlotsByZone,
+                product.StorageZoneEntityId,
+                slotIndex,
+                product.EntityId);
+
+        private static void AddOccupiedSlot(
+            Dictionary<int, Dictionary<int, int>> occupiedSlotsByZone,
+            int storageZoneEntityId,
+            int slotIndex,
+            int ownerEntityId)
         {
             Dictionary<int, int> occupied = GetOrCreateOccupiedSlots(
                 occupiedSlotsByZone,
-                product.StorageZoneEntityId);
-            if (!occupied.TryAdd(slotIndex, product.EntityId))
+                storageZoneEntityId);
+            if (!occupied.TryAdd(slotIndex, ownerEntityId))
                 throw new InvalidOperationException(
                     $"Storage slot {slotIndex} in zone " +
-                    $"{product.StorageZoneEntityId} is occupied more than once.");
+                    $"{storageZoneEntityId} is occupied more than once.");
         }
 
         private static Dictionary<int, int> GetOrCreateOccupiedSlots(

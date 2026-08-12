@@ -28,6 +28,8 @@ namespace HardwareStore.Gameplay.Features.Carrying.Systems
                 GameEntity product = _gameContext.GetEntityWithEntityId(request.TargetEntityId);
                 if (!product.isProduct)
                     continue;
+                if (!product.isInteractable)
+                    continue;
 
                 GameEntity player = _gameContext.GetEntityWithEntityId(request.SourceEntityId);
                 if (player.isHandsOccupied)

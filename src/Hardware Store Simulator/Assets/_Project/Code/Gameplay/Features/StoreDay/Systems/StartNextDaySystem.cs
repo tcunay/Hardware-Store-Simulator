@@ -51,6 +51,7 @@ namespace HardwareStore.Gameplay.Features.StoreDay.Systems
                 !store.hasDayNumber || !store.hasCurrentDayMinute || !store.hasMoney ||
                 !store.hasDayOpeningBalance || !store.hasDayRevenue ||
                 !store.hasDayProcurementExpenses || !store.hasDayUpgradeExpenses ||
+                !store.hasDayPayrollExpenses ||
                 !store.hasDayCompletedOrderCount ||
                 !player.hasStoreEntityId || player.StoreEntityId != store.EntityId ||
                 player.isHandsOccupied || player.hasConsultationVisitEntityId ||
@@ -68,10 +69,12 @@ namespace HardwareStore.Gameplay.Features.StoreDay.Systems
             }
             long expectedMoney =
                 (long)store.DayOpeningBalance + store.DayRevenue -
-                store.DayProcurementExpenses - store.DayUpgradeExpenses;
+                store.DayProcurementExpenses - store.DayUpgradeExpenses -
+                store.DayPayrollExpenses;
             if (store.DayNumber <= 0 || store.Money < 0 ||
                 store.DayOpeningBalance < 0 || store.DayRevenue < 0 ||
                 store.DayProcurementExpenses < 0 || store.DayUpgradeExpenses < 0 ||
+                store.DayPayrollExpenses < 0 ||
                 store.DayCompletedOrderCount < 0 || expectedMoney != store.Money)
             {
                 throw new InvalidOperationException(
@@ -87,6 +90,7 @@ namespace HardwareStore.Gameplay.Features.StoreDay.Systems
             store.ReplaceDayRevenue(0);
             store.ReplaceDayProcurementExpenses(0);
             store.ReplaceDayUpgradeExpenses(0);
+            store.ReplaceDayPayrollExpenses(0);
             store.ReplaceDayCompletedOrderCount(0);
             store.isDayReportOpen = false;
             store.isStorePreparing = true;

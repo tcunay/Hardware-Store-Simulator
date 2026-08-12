@@ -1,5 +1,6 @@
 using System;
 using HardwareStore.Gameplay.Common.Economy;
+using HardwareStore.Gameplay.Components;
 using HardwareStore.Gameplay.Localization;
 using UnityEngine;
 using Zenject;
@@ -166,7 +167,8 @@ namespace HardwareStore.Gameplay.Presentation
         private void DrawStatusPanel()
         {
             bool hasOrderLines = _snapshot.OrderLines.Count > 0;
-            float panelHeight = hasOrderLines ? 222f : 164f;
+            float workerRowHeight = _snapshot.WarehouseWorkerStatus.HasValue ? 30f : 0f;
+            float panelHeight = (hasOrderLines ? 222f : 164f) + workerRowHeight;
             Rect panel = new(24f, 24f, 680f, panelHeight);
             DrawPanel(panel, new Color(0.035f, 0.045f, 0.055f, 0.9f));
             GUI.Label(new Rect(42f, 38f, 370f, 32f),
@@ -197,8 +199,25 @@ namespace HardwareStore.Gameplay.Presentation
             else
             {
                 GUI.Label(new Rect(42f, 106f, 640f, 28f), ResolveStockStatus(), _bodyStyle);
-                GUI.Label(new Rect(42f, 138f, 640f, 28f),
+                GUI.Label(new Rect(
+                        42f,
+                        _snapshot.WarehouseWorkerStatus.HasValue ? 168f : 138f,
+                        640f,
+                        28f),
                     Resolve(LocalizationKey.HudBalance, _snapshot.Money), _bodyStyle);
+            }
+
+            if (_snapshot.WarehouseWorkerStatus.HasValue)
+            {
+                GUI.Label(
+                    new Rect(
+                        42f,
+                        hasOrderLines ? panel.yMax - 68f : 138f,
+                        640f,
+                        28f),
+                    ResolveWarehouseWorkerStatus(
+                        _snapshot.WarehouseWorkerStatus.Value),
+                    _bodyStyle);
             }
         }
 
@@ -314,16 +333,22 @@ namespace HardwareStore.Gameplay.Presentation
                     LocalizationKey.HudDayReportUpgradeExpenses,
                     report.UpgradeExpenses),
                 _bodyStyle);
+            GUI.Label(
+                new Rect(panel.x + 52f, panel.y + 264f, panel.width - 104f, 32f),
+                Resolve(
+                    LocalizationKey.HudDayReportPayrollExpenses,
+                    report.PayrollExpenses),
+                _bodyStyle);
 
             DrawPanel(
-                new Rect(panel.x + 48f, panel.y + 278f, panel.width - 96f, 2f),
+                new Rect(panel.x + 48f, panel.y + 318f, panel.width - 96f, 2f),
                 new Color(0.28f, 0.31f, 0.34f, 1f));
             Color previous = GUI.color;
             GUI.color = report.NetCashFlow >= 0
                 ? new Color(1f, 0.7f, 0.25f)
                 : new Color(1f, 0.35f, 0.28f);
             GUI.Label(
-                new Rect(panel.x + 52f, panel.y + 302f, panel.width - 104f, 38f),
+                new Rect(panel.x + 52f, panel.y + 342f, panel.width - 104f, 38f),
                 Resolve(
                     LocalizationKey.HudDayReportNetCashFlow,
                     report.NetCashFlow),
@@ -331,14 +356,14 @@ namespace HardwareStore.Gameplay.Presentation
             GUI.color = previous;
 
             GUI.Label(
-                new Rect(panel.x + 52f, panel.y + 364f, panel.width - 104f, 32f),
+                new Rect(panel.x + 52f, panel.y + 404f, panel.width - 104f, 32f),
                 Resolve(
                     LocalizationKey.HudDayReportBalance,
                     report.OpeningBalance,
                     report.ClosingBalance),
                 _bodyStyle);
             GUI.Label(
-                new Rect(panel.x + 52f, panel.y + 404f, panel.width - 104f, 32f),
+                new Rect(panel.x + 52f, panel.y + 444f, panel.width - 104f, 32f),
                 Resolve(
                     LocalizationKey.HudDayReportStock,
                     report.StorageProductCount),
@@ -687,6 +712,27 @@ namespace HardwareStore.Gameplay.Presentation
             return Resolve(LocalizationKey.HudStockOrder,
                 _snapshot.OrderLines.Count, _snapshot.StockCount);
         }
+
+        private string ResolveWarehouseWorkerStatus(
+            WarehouseWorkerStatusSnapshot snapshot) =>
+            snapshot.Status switch
+            {
+                WarehouseWorkerStatusId.OffShift =>
+                    Resolve(LocalizationKey.HudWarehouseWorkerOffShift),
+                WarehouseWorkerStatusId.Idle =>
+                    Resolve(LocalizationKey.HudWarehouseWorkerIdle),
+                WarehouseWorkerStatusId.StorageFull =>
+                    Resolve(LocalizationKey.HudWarehouseWorkerStorageFull),
+                WarehouseWorkerStatusId.MovingToPickup => Resolve(
+                    LocalizationKey.HudWarehouseWorkerMovingToPickup,
+                    LocalizedTexts.ProductName(snapshot.ProductType.Value)),
+                WarehouseWorkerStatusId.MovingToStorage => Resolve(
+                    LocalizationKey.HudWarehouseWorkerMovingToStorage,
+                    LocalizedTexts.ProductName(snapshot.ProductType.Value)),
+                WarehouseWorkerStatusId.Blocked =>
+                    Resolve(LocalizationKey.HudWarehouseWorkerBlocked),
+                _ => throw new ArgumentOutOfRangeException()
+            };
 
         private string BuildOfferLineDetails(ConsultationOfferSnapshot offer)
         {

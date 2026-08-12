@@ -15,7 +15,8 @@ namespace HardwareStore.Gameplay.Presentation
             ProductTypeId deliveryProductType, int deliveryStockedCount,
             int deliveryProductCount, ProductTypeId? carriedProductType,
             LocalizedText prompt, bool hasFocus, bool canInteract, bool hasItem,
-            bool isPushingTrolley, bool cursorLocked)
+            bool isPushingTrolley, bool cursorLocked,
+            WarehouseWorkerStatusSnapshot? warehouseWorkerStatus)
         {
             DayClock = dayClock;
             OrderState = orderState;
@@ -46,6 +47,7 @@ namespace HardwareStore.Gameplay.Presentation
             HasItem = hasItem;
             IsPushingTrolley = isPushingTrolley;
             CursorLocked = cursorLocked;
+            WarehouseWorkerStatus = warehouseWorkerStatus;
         }
 
         public DayClockSnapshot DayClock { get; }
@@ -68,5 +70,6 @@ namespace HardwareStore.Gameplay.Presentation
         public bool HasItem { get; }
         public bool IsPushingTrolley { get; }
         public bool CursorLocked { get; }
+        public WarehouseWorkerStatusSnapshot? WarehouseWorkerStatus { get; }
     }
 }

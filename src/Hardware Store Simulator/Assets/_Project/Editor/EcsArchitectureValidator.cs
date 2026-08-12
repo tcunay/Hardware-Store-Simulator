@@ -7,6 +7,7 @@ using System.Text.RegularExpressions;
 using Entitas;
 using HardwareStore.Gameplay.Common.Economy;
 using HardwareStore.Gameplay.Common.Input;
+using HardwareStore.Gameplay.Common.Navigation;
 using HardwareStore.Gameplay.Common.Registrars;
 using HardwareStore.Gameplay.Common.Physics;
 using HardwareStore.Gameplay.Components;
@@ -24,10 +25,12 @@ using HardwareStore.Infrastructure.View;
 using HardwareStore.Infrastructure.View.Factory;
 using HardwareStore.Infrastructure.View.Registrars;
 using HardwareStore.Infrastructure.View.Systems;
+using Unity.AI.Navigation;
 using UnityEditor;
 using UnityEditor.SceneManagement;
 using UnityEngine;
 using UnityEngine.InputSystem;
+using UnityEngine.AI;
 using UnityEngine.SceneManagement;
 using Zenject;
 
@@ -58,6 +61,8 @@ namespace HardwareStore.Editor
             "Assets/Resources/Configs/ProductRecoveryConfig.asset";
         private const string PlatformTrolleyConfigPath =
             "Assets/Resources/Configs/PlatformTrolleyConfig.asset";
+        private const string WarehouseWorkerConfigPath =
+            "Assets/Resources/Configs/WarehouseWorkerConfig.asset";
         private const string StoreDayConfigPath =
             "Assets/Resources/Configs/StoreDayConfig.asset";
         private const string CementProjectConfigPath =
@@ -79,6 +84,10 @@ namespace HardwareStore.Editor
             "Assets/_Project/Prefabs/Gameplay/Customer.prefab";
         private const string PlatformTrolleyPrefabPath =
             "Assets/_Project/Prefabs/Gameplay/PlatformTrolley.prefab";
+        private const string WarehouseWorkerPrefabPath =
+            "Assets/_Project/Prefabs/Gameplay/WarehouseWorker.prefab";
+        private const string WarehouseWorkerNavMeshPath =
+            "Assets/Scenes/Prototype_Yard/NavMesh-Navigation.asset";
         private const int RequiredStorageSlotCapacity = 9;
 
         private static readonly ProductTypeId[] ExpectedProductTypes =
@@ -183,6 +192,7 @@ namespace HardwareStore.Editor
             typeof(ProductConfig),
             typeof(ProductRecoveryConfig),
             typeof(PlatformTrolleyConfig),
+            typeof(WarehouseWorkerConfig),
             typeof(StoreDayConfig)
         };
 
@@ -195,6 +205,7 @@ namespace HardwareStore.Editor
             (typeof(CustomerConfig), CustomerConfigPath),
             (typeof(ProductRecoveryConfig), ProductRecoveryConfigPath),
             (typeof(PlatformTrolleyConfig), PlatformTrolleyConfigPath),
+            (typeof(WarehouseWorkerConfig), WarehouseWorkerConfigPath),
             (typeof(StoreDayConfig), StoreDayConfigPath)
         };
 
@@ -231,6 +242,7 @@ namespace HardwareStore.Editor
             ValidateProductRecoveryArchitecture(runtimeTypes, componentTypes);
             ValidateCollisionSafeProductDrop(runtimeTypes, componentTypes);
             ValidateTrolleyArchitecture(runtimeTypes, componentTypes);
+            ValidateWarehouseWorkerArchitecture(runtimeTypes, componentTypes);
             ValidateLocalizationArchitecture(runtimeTypes, componentTypes);
             ValidateConsultationArchitecture(runtimeTypes, componentTypes);
             ValidateProcurementArchitecture(runtimeTypes, componentTypes);
@@ -529,6 +541,7 @@ namespace HardwareStore.Editor
                 typeof(DayRevenue),
                 typeof(DayProcurementExpenses),
                 typeof(DayUpgradeExpenses),
+                typeof(DayPayrollExpenses),
                 typeof(DayCompletedOrderCount),
                 typeof(StoreControlTerminalEntityId),
                 typeof(DayReportStoreEntityId)
@@ -545,9 +558,8 @@ namespace HardwareStore.Editor
                 runtimeTypes,
                 "GetEntityWithDayReportStoreEntityId",
                 typeof(GameEntity));
-            Require(GameComponentsLookup.componentTypes.Length == 176,
-                "The day-cycle slice must add exactly fourteen components to the 162-component " +
-                "baseline.");
+            Require(GameComponentsLookup.componentTypes.Length == 198,
+                "The worker slice must expose the exact 198-component generated Game registry.");
 
             Type featureType = runtimeTypes.SingleOrDefault(type =>
                 type.Name == "StoreDayFeature");
@@ -559,8 +571,7 @@ namespace HardwareStore.Editor
                 "ReachStoreClosingTimeSystem",
                 "OpenStoreSystem",
                 "StartNextDaySystem",
-                "OpenDayReportSystem",
-                "ValidateStoreDayStateSystem"
+                "OpenDayReportSystem"
             };
             foreach (string systemName in systemNames)
             {
@@ -568,6 +579,16 @@ namespace HardwareStore.Editor
                 Require(systemType != null && typeof(IExecuteSystem).IsAssignableFrom(systemType),
                     $"{systemName} must remain an executable Entitas system.");
             }
+            Type reconcileMoneyOverrideSystemType = runtimeTypes.SingleOrDefault(type =>
+                type.Name == "ReconcileEditorMoneyOverrideSystem");
+            Type validateStoreDayStateSystemType = runtimeTypes.SingleOrDefault(type =>
+                type.Name == "ValidateStoreDayStateSystem");
+            Require(reconcileMoneyOverrideSystemType != null &&
+                    typeof(IExecuteSystem).IsAssignableFrom(reconcileMoneyOverrideSystemType),
+                "Editor Play Mode money overrides require an executable reconciliation system.");
+            Require(validateStoreDayStateSystemType != null &&
+                    typeof(IExecuteSystem).IsAssignableFrom(validateStoreDayStateSystemType),
+                "The final store-day ledger validator must remain executable.");
 
             string configSource = ReadRuntimeSource(
                 "Gameplay", "Configs", nameof(StoreDayConfig) + ".cs");
@@ -598,6 +619,7 @@ namespace HardwareStore.Editor
                 "AddDayRevenue(0)",
                 "AddDayProcurementExpenses(0)",
                 "AddDayUpgradeExpenses(0)",
+                "AddDayPayrollExpenses(0)",
                 "AddDayCompletedOrderCount(0)",
                 "isStorePreparing = true",
                 "CreateStoreControlTerminal(store.EntityId)",
@@ -619,15 +641,31 @@ namespace HardwareStore.Editor
             string storeFeatureSource = ReadRuntimeSource("Gameplay", "StoreFeature.cs");
             int interactionIndex = storeFeatureSource.IndexOf(
                 "Create<InteractionFeature>()", StringComparison.Ordinal);
+            int reconcileMoneyIndex = storeFeatureSource.IndexOf(
+                "Create<ReconcileEditorMoneyOverrideSystem>()", StringComparison.Ordinal);
             int dayIndex = storeFeatureSource.IndexOf(
                 "Create<StoreDayFeature>()", StringComparison.Ordinal);
             int procurementIndex = storeFeatureSource.IndexOf(
                 "Create<ProcurementFeature>()", StringComparison.Ordinal);
-            Require(interactionIndex >= 0 && dayIndex > interactionIndex &&
-                    procurementIndex > dayIndex &&
+            int interactionPromptIndex = storeFeatureSource.IndexOf(
+                "Create<InteractionPromptFeature>()", StringComparison.Ordinal);
+            int validationIndex = storeFeatureSource.IndexOf(
+                "Create<ValidateStoreDayStateSystem>()", StringComparison.Ordinal);
+            int presentationIndex = storeFeatureSource.IndexOf(
+                "Create<PresentationFeature>()", StringComparison.Ordinal);
+            Require(reconcileMoneyIndex >= 0 && interactionIndex > reconcileMoneyIndex &&
+                    dayIndex > interactionIndex && procurementIndex > dayIndex &&
+                    interactionPromptIndex > procurementIndex &&
+                    validationIndex > interactionPromptIndex &&
+                    presentationIndex > validationIndex &&
+                    CountOccurrences(storeFeatureSource,
+                        "Create<ReconcileEditorMoneyOverrideSystem>()") == 1 &&
+                    CountOccurrences(storeFeatureSource,
+                        "Create<ValidateStoreDayStateSystem>()") == 1 &&
                     CountOccurrences(storeFeatureSource, "Create<StoreDayFeature>()") == 1,
-                "StoreFeature must resolve store-day interactions once after world interaction " +
-                "and before procurement.");
+                "StoreFeature must reconcile external Editor money overrides before world " +
+                "interactions, then strictly validate the final gameplay ledger before " +
+                "presentation.");
 
             string tickSource = ReadRuntimeSource(
                 "Gameplay", "Features", "StoreDay", "Systems",
@@ -679,6 +717,9 @@ namespace HardwareStore.Editor
             RequireSourceContains(openReportSource,
                 "store.isStoreClosing",
                 "GetEntityWithCustomerVisitStoreEntityId(store.EntityId)",
+                "WarehouseTaskStepId.Blocked",
+                "task.hasAssignedWorkerEntityId",
+                "task.hasWarehouseTaskReservedStorageSlotIndex",
                 "player.isModalOpen || player.isHandsOccupied",
                 "store.isDayReportOpen = true",
                 "player.AddDayReportStoreEntityId(store.EntityId)",
@@ -694,6 +735,7 @@ namespace HardwareStore.Editor
                 "store.ReplaceDayRevenue(0)",
                 "store.ReplaceDayProcurementExpenses(0)",
                 "store.ReplaceDayUpgradeExpenses(0)",
+                "store.ReplaceDayPayrollExpenses(0)",
                 "store.ReplaceDayCompletedOrderCount(0)",
                 "store.isStorePreparing = true",
                 "player.RemoveDayReportStoreEntityId()");
@@ -712,17 +754,50 @@ namespace HardwareStore.Editor
                 "phaseCount != 1",
                 "store.DayOpeningBalance + store.DayRevenue",
                 "store.DayProcurementExpenses - store.DayUpgradeExpenses",
+                "store.DayPayrollExpenses",
                 "store.isStorePreparing",
                 "store.isStoreOpen",
                 "store.isStoreClosing",
                 "store.isDayReportOpen",
                 "player.isModalOpen || player.isHandsOccupied");
+            RequireSourceContains(validationSource,
+                "if (expectedMoney != store.Money)",
+                "throw new InvalidOperationException(",
+                "violates its day ledger");
+            Require(!validationSource.Contains(
+                    "ReplaceDayOpeningBalance", StringComparison.Ordinal) &&
+                    !validationSource.Contains(
+                    "Debug.Log", StringComparison.Ordinal),
+                "The final store-day validator must remain strict and must not repair or " +
+                "silence gameplay ledger bugs.");
+            string reconcileMoneySource = ReadRuntimeSource(
+                "Gameplay", "Features", "StoreDay", "Systems",
+                "ReconcileEditorMoneyOverrideSystem.cs");
+            RequireSourceContains(reconcileMoneySource,
+                "#if UNITY_EDITOR",
+                "GameMatcher.Money",
+                "GameMatcher.DayOpeningBalance",
+                "GameMatcher.DayRevenue",
+                "GameMatcher.DayProcurementExpenses",
+                "GameMatcher.DayUpgradeExpenses",
+                "GameMatcher.DayPayrollExpenses",
+                "long balanceDelta = (long)store.Money - expectedMoney",
+                "adjustedOpeningBalance < 0",
+                "adjustedOpeningBalance > int.MaxValue",
+                "store.ReplaceDayOpeningBalance((int)adjustedOpeningBalance)",
+                "Debug.LogWarning(",
+                "Player builds remain strictly validated");
+            RequireSourceOrder(reconcileMoneySource,
+                "if (expectedMoney == store.Money)",
+                "store.ReplaceDayOpeningBalance((int)adjustedOpeningBalance)",
+                "A balanced store must not be mutated by Editor reconciliation.");
 
             string purchaseDeliverySource = ReadRuntimeSource(
                 "Gameplay", "Features", "Delivery", "Systems",
                 "PurchaseDeliverySystem.cs");
             RequireSourceContains(purchaseDeliverySource,
                 "store.DayProcurementExpenses + evaluation.DeliveryCost",
+                "store.DayPayrollExpenses",
                 "ledgerBalanceAfterPurchase != moneyAfterPurchase",
                 "store.ReplaceMoney(moneyAfterPurchase)",
                 "store.ReplaceDayProcurementExpenses(procurementExpensesAfterPurchase)",
@@ -738,6 +813,7 @@ namespace HardwareStore.Editor
             RequireSourceContains(rewardSource,
                 "GameMatcher.OrderRewarded",
                 "store.DayRevenue + visit.OrderReward",
+                "store.DayPayrollExpenses",
                 "store.DayCompletedOrderCount + 1",
                 "store.ReplaceDayRevenue(revenueAfterReward)",
                 "store.ReplaceDayCompletedOrderCount(completedOrdersAfterReward)",
@@ -747,6 +823,7 @@ namespace HardwareStore.Editor
                 "PurchasePlatformTrolleySystem.cs");
             RequireSourceContains(trolleyPurchaseSource,
                 "store.DayUpgradeExpenses + _config.PurchasePrice",
+                "store.DayPayrollExpenses",
                 "ledgerBalanceAfterPurchase != moneyAfterPurchase",
                 "store.ReplaceMoney(moneyAfterPurchase)",
                 "store.ReplaceDayUpgradeExpenses(upgradeExpensesAfterPurchase)");
@@ -774,6 +851,7 @@ namespace HardwareStore.Editor
                 (nameof(DayReportSnapshot.Revenue), typeof(int)),
                 (nameof(DayReportSnapshot.ProcurementExpenses), typeof(int)),
                 (nameof(DayReportSnapshot.UpgradeExpenses), typeof(int)),
+                (nameof(DayReportSnapshot.PayrollExpenses), typeof(int)),
                 (nameof(DayReportSnapshot.NetCashFlow), typeof(int)),
                 (nameof(DayReportSnapshot.ClosingBalance), typeof(int)),
                 (nameof(DayReportSnapshot.CompletedOrderCount), typeof(int)),
@@ -784,7 +862,7 @@ namespace HardwareStore.Editor
                     }) != null &&
                     typeof(DayNightSnapshot).GetConstructor(new[] { typeof(float) }) != null &&
                     typeof(DayReportSnapshot).GetConstructor(Enumerable.Repeat(
-                        typeof(int), 8).ToArray()) != null,
+                        typeof(int), 9).ToArray()) != null,
                 "Store day presentation snapshots must expose their exact immutable constructors.");
             Require(typeof(HudSnapshot).GetProperty(nameof(HudSnapshot.DayClock))
                         ?.PropertyType == typeof(DayClockSnapshot),
@@ -827,7 +905,6 @@ namespace HardwareStore.Editor
             RequireSourceContains(promptSource,
                 "InteractionTypeId.StoreControlTerminal",
                 "LocalizationKey.PromptOpenStore",
-                "LocalizationKey.PromptStoreOpenUntil",
                 "LocalizationKey.PromptCloseStoreCustomerActive",
                 "LocalizationKey.PromptCloseStoreHandsOccupied",
                 "LocalizationKey.PromptCloseStoreForReport",
@@ -2503,6 +2580,433 @@ namespace HardwareStore.Editor
             }
         }
 
+        private static void ValidateWarehouseWorkerArchitecture(
+            Type[] runtimeTypes,
+            IEnumerable<Type> componentTypes)
+        {
+            var discoveredComponents = new HashSet<Type>(componentTypes);
+            Type[] requiredComponents =
+            {
+                typeof(WarehouseWorker),
+                typeof(WorkerShiftActive),
+                typeof(WarehouseWorkerHiringUnlocked),
+                typeof(WorkerPaidDayNumber),
+                typeof(WarehouseWorkerStoreEntityId),
+                typeof(WarehouseWorkerStatus),
+                typeof(WarehouseWorkerPickupPosition),
+                typeof(WarehouseWorkerPickupRotation),
+                typeof(WarehouseWorkerStoragePosition),
+                typeof(WarehouseWorkerStorageRotation),
+                typeof(NavigationAgentComponent),
+                typeof(WarehouseTask),
+                typeof(InboundToStorageTask),
+                typeof(WarehouseTaskStoreEntityId),
+                typeof(WarehouseTaskStorageZoneEntityId),
+                typeof(WarehouseTaskProductEntityId),
+                typeof(AssignedWorkerEntityId),
+                typeof(WarehouseTaskReservedStorageSlotIndex),
+                typeof(WarehouseTaskStep),
+                typeof(WarehouseTaskBlockReason),
+                typeof(WarehouseTaskTimeoutRemaining),
+                typeof(DayPayrollExpenses)
+            };
+            foreach (Type component in requiredComponents)
+            {
+                Require(discoveredComponents.Contains(component),
+                    $"Warehouse-worker gameplay requires the {component.Name} Game component.");
+            }
+
+            RequireComponentIndexAttribute(
+                typeof(WarehouseWorkerStoreEntityId),
+                "Entitas.CodeGeneration.Attributes.PrimaryEntityIndexAttribute");
+            RequireComponentIndexAttribute(
+                typeof(WarehouseTaskProductEntityId),
+                "Entitas.CodeGeneration.Attributes.PrimaryEntityIndexAttribute");
+            RequireComponentIndexAttribute(
+                typeof(AssignedWorkerEntityId),
+                "Entitas.CodeGeneration.Attributes.PrimaryEntityIndexAttribute");
+            RequireGeneratedIndexApi(
+                runtimeTypes,
+                "GetEntityWithWarehouseWorkerStoreEntityId",
+                typeof(GameEntity));
+            RequireGeneratedIndexApi(
+                runtimeTypes,
+                "GetEntityWithWarehouseTaskProductEntityId",
+                typeof(GameEntity));
+            RequireGeneratedIndexApi(
+                runtimeTypes,
+                "GetEntityWithAssignedWorkerEntityId",
+                typeof(GameEntity));
+
+            Type employeeFeature = runtimeTypes.SingleOrDefault(type =>
+                type.Name == "EmployeeFeature");
+            Type workerFeature = runtimeTypes.SingleOrDefault(type =>
+                type.Name == "WarehouseWorkerFeature");
+            Require(employeeFeature != null && typeof(Feature).IsAssignableFrom(employeeFeature) &&
+                    workerFeature != null && typeof(Feature).IsAssignableFrom(workerFeature),
+                "EmployeeFeature and WarehouseWorkerFeature must remain explicit Entitas features.");
+
+            string[] employeeSystems =
+            {
+                "UnlockWarehouseWorkerHiringSystem",
+                "SyncWarehouseWorkerShiftSystem",
+                "PayWarehouseWorkerShiftSystem",
+                "HireWarehouseWorkerSystem",
+                "WarehouseWorkerFeature"
+            };
+            string[] workerSystems =
+            {
+                "ConfigureWarehouseWorkerNavigationSystem",
+                "CleanupBlockedWarehouseTaskSystem",
+                "GenerateInboundStorageTaskSystem",
+                "ExecuteWarehouseWorkerTaskSystem",
+                "DetectOrphanedWarehouseTaskSystem",
+                "RecoverBlockedWarehouseTaskSystem",
+                "ValidateWarehouseWorkerStateSystem"
+            };
+            foreach (string systemName in employeeSystems.Take(employeeSystems.Length - 1)
+                         .Concat(workerSystems))
+            {
+                Type system = runtimeTypes.SingleOrDefault(type => type.Name == systemName);
+                Require(system != null && typeof(IExecuteSystem).IsAssignableFrom(system),
+                    $"{systemName} must remain an executable Entitas system.");
+            }
+
+            string employeeFeatureSource = ReadRuntimeSource(
+                "Gameplay", "Features", "Employees", "EmployeeFeature.cs");
+            RequireExactFeatureOrder(employeeFeatureSource, employeeSystems, "EmployeeFeature");
+            string workerFeatureSource = ReadRuntimeSource(
+                "Gameplay", "Features", "Employees", "WarehouseWorkerFeature.cs");
+            RequireExactFeatureOrder(workerFeatureSource, workerSystems, "WarehouseWorkerFeature");
+
+            string storeFeatureSource = ReadRuntimeSource("Gameplay", "StoreFeature.cs");
+            RequireSourceOrder(
+                storeFeatureSource,
+                "Create<InteractionFeature>()",
+                "Create<EmployeeFeature>()",
+                "Employee hiring must consume world interaction after interaction emission.");
+            RequireSourceOrder(
+                storeFeatureSource,
+                "Create<EmployeeFeature>()",
+                "Create<StoreDayFeature>()",
+                "Employee hiring and task state must settle before the day can close.");
+            Require(CountOccurrences(storeFeatureSource, "Create<EmployeeFeature>()") == 1,
+                "StoreFeature must execute EmployeeFeature exactly once.");
+
+            string configSource = ReadRuntimeSource(
+                "Gameplay", "Configs", nameof(WarehouseWorkerConfig) + ".cs");
+            RequireSourceContains(configSource,
+                "private int _requiredCompletedOrderCount = 4",
+                "private int _hirePrice = 400",
+                "private int _dailyWage = 100",
+                "private float _movementSpeed = 2.8f",
+                "private float _acceleration = 12f",
+                "private float _angularSpeed = 720f",
+                "private float _stoppingDistance = 0.2f",
+                "private float _navigationSampleRadius = 2f",
+                "private float _taskTimeout = 20f",
+                "public EntityBehaviour ViewPrefab => _viewPrefab",
+                "ConfigValidation.RequireReference",
+                "ConfigValidation.RequirePositive");
+            string staticDataSource = ReadRuntimeSource(
+                "Gameplay", "StaticData", nameof(StaticDataService) + ".cs");
+            RequireSourceContains(staticDataSource,
+                "Load<WarehouseWorkerConfig>(nameof(WarehouseWorkerConfig))",
+                "warehouseWorker.Validate()",
+                "WarehouseWorker = warehouseWorker");
+
+            Require(typeof(IWarehouseWorkerFactory).IsAssignableFrom(
+                    typeof(WarehouseWorkerFactory)),
+                $"{nameof(WarehouseWorkerFactory)} must implement " +
+                $"{nameof(IWarehouseWorkerFactory)}.");
+            Require(typeof(IWarehouseTaskFactory).IsAssignableFrom(
+                    typeof(WarehouseTaskFactory)),
+                $"{nameof(WarehouseTaskFactory)} must implement " +
+                $"{nameof(IWarehouseTaskFactory)}.");
+            RequireMethod(
+                typeof(IWarehouseWorkerFactory),
+                nameof(IWarehouseWorkerFactory.Create),
+                typeof(GameEntity),
+                typeof(int),
+                typeof(Pose),
+                typeof(Pose),
+                typeof(Pose));
+            RequireMethod(
+                typeof(IWarehouseTaskFactory),
+                nameof(IWarehouseTaskFactory.CreateInboundToStorage),
+                typeof(GameEntity),
+                typeof(int),
+                typeof(int),
+                typeof(int),
+                typeof(int));
+            string workerFactorySource = ReadRuntimeSource(
+                "Gameplay", "Factories", nameof(WarehouseWorkerFactory) + ".cs");
+            RequireSourceContains(workerFactorySource,
+                "CreateEntity.Empty(_identifiers.Next())",
+                "AddViewPrefab(config.ViewPrefab)",
+                "AddWarehouseWorkerStoreEntityId(storeEntityId)",
+                "AddWarehouseWorkerStatus(WarehouseWorkerStatusId.Idle)",
+                "AddWarehouseWorkerPickupPosition(pickupPose.position)",
+                "AddWarehouseWorkerStoragePosition(storagePose.position)",
+                "isWarehouseWorker = true");
+            string taskFactorySource = ReadRuntimeSource(
+                "Gameplay", "Factories", nameof(WarehouseTaskFactory) + ".cs");
+            RequireSourceContains(taskFactorySource,
+                "CreateEntity.Empty(_identifiers.Next())",
+                "AddWarehouseTaskStoreEntityId(storeEntityId)",
+                "AddWarehouseTaskProductEntityId(productEntityId)",
+                "AddWarehouseTaskStorageZoneEntityId(storageZoneEntityId)",
+                "AddWarehouseTaskReservedStorageSlotIndex(reservedStorageSlotIndex)",
+                "AddWarehouseTaskStep(WarehouseTaskStepId.Available)",
+                "AddWarehouseTaskTimeoutRemaining(",
+                "isInboundToStorageTask = true");
+            Require(!workerFactorySource.Contains("SetEntity", StringComparison.Ordinal) &&
+                    !workerFactorySource.Contains("CreateView", StringComparison.Ordinal) &&
+                    !taskFactorySource.Contains("SetEntity", StringComparison.Ordinal),
+                "Warehouse-worker factories must remain entity-first.");
+
+            string bootstrapSource = ReadRuntimeSource(
+                "Infrastructure", "Installers", nameof(BootstrapInstaller) + ".cs");
+            RequireSourceContains(bootstrapSource,
+                "Bind<IWorkerNavigationService>().To<NavMeshWorkerNavigationService>().AsSingle()",
+                "Bind<IWarehouseWorkerFactory>().To<WarehouseWorkerFactory>().AsSingle()",
+                "Bind<IWarehouseTaskFactory>().To<WarehouseTaskFactory>().AsSingle()");
+            Require(typeof(IWorkerNavigationService).IsAssignableFrom(
+                    typeof(NavMeshWorkerNavigationService)),
+                $"{nameof(NavMeshWorkerNavigationService)} must implement " +
+                $"{nameof(IWorkerNavigationService)}.");
+            RequireMethod(
+                typeof(IWorkerNavigationService),
+                nameof(IWorkerNavigationService.TryEnsurePlacedOnNavMesh),
+                typeof(bool),
+                typeof(NavMeshAgent),
+                typeof(Vector3),
+                typeof(float));
+            RequireMethod(
+                typeof(IWorkerNavigationService),
+                nameof(IWorkerNavigationService.TrySetDestination),
+                typeof(bool),
+                typeof(NavMeshAgent),
+                typeof(Vector3),
+                typeof(float));
+            RequireMethod(
+                typeof(IWorkerNavigationService),
+                nameof(IWorkerNavigationService.HasReachedDestination),
+                typeof(bool),
+                typeof(NavMeshAgent),
+                typeof(Vector3),
+                typeof(Vector3),
+                typeof(float));
+            string navigationSource = ReadRuntimeSource(
+                "Gameplay", "Common", "Navigation",
+                nameof(NavMeshWorkerNavigationService) + ".cs");
+            RequireSourceContains(navigationSource,
+                "if (agent.isOnNavMesh)",
+                "NavMesh.SamplePosition(",
+                "agent.CalculatePath(hit.position, _path)",
+                "_path.status != NavMeshPathStatus.PathComplete",
+                "agent.SetPath(_path)",
+                "GetState(agent) != WorkerNavigationStateId.Reached",
+                "currentPosition - destination",
+                "agent.ResetPath()");
+            string configureNavigationSource = ReadRuntimeSource(
+                "Gameplay", "Features", "Employees", "Systems",
+                "ConfigureWarehouseWorkerNavigationSystem.cs");
+            RequireSourceContains(configureNavigationSource,
+                "_navigation.TryEnsurePlacedOnNavMesh(",
+                "_config.NavigationSampleRadius");
+            string executeNavigationSource = ReadRuntimeSource(
+                "Gameplay", "Features", "Employees", "Systems",
+                "ExecuteWarehouseWorkerTaskSystem.cs");
+            RequireSourceContains(executeNavigationSource,
+                "_navigation.HasReachedDestination(",
+                "_navigation.TrySetDestination(",
+                "_navigation.GetState(");
+            Require(!configureNavigationSource.Contains(".isOnNavMesh",
+                        StringComparison.Ordinal) &&
+                    !executeNavigationSource.Contains(".isOnNavMesh",
+                        StringComparison.Ordinal) &&
+                    !executeNavigationSource.Contains(".hasPath",
+                        StringComparison.Ordinal),
+                "Warehouse-worker systems must keep NavMesh state behind the navigation " +
+                "service boundary.");
+            string registrarSource = ReadRuntimeSource(
+                "Gameplay", "Registrars", nameof(NavMeshAgentRegistrar) + ".cs");
+            RequireSourceContains(registrarSource,
+                "RequireComponent(typeof(NavMeshAgent))",
+                "Entity.AddNavigationAgent(GetComponent<NavMeshAgent>())",
+                "Entity.RemoveNavigationAgent()");
+
+            string unlockSource = ReadRuntimeSource(
+                "Gameplay", "Features", "Employees", "Systems",
+                "UnlockWarehouseWorkerHiringSystem.cs");
+            RequireSourceContains(unlockSource,
+                "store.CompletedOrderCount < _config.RequiredCompletedOrderCount",
+                "store.isWarehouseWorkerHiringUnlocked = true",
+                "LocalizationKey.NotificationWarehouseWorkerUnlocked");
+            string hireSource = ReadRuntimeSource(
+                "Gameplay", "Features", "Employees", "Systems",
+                "HireWarehouseWorkerSystem.cs");
+            RequireSourceContains(hireSource,
+                "GetEntityWithWarehouseWorkerStoreEntityId(",
+                "_solvency.EvaluateDebit(",
+                "_workers.Create(",
+                "GetSpawnPoint(SpawnPointId.WarehouseWorker)",
+                "GetSpawnPoint(SpawnPointId.WarehouseWorkerDeliveryAccess)",
+                "GetSpawnPoint(SpawnPointId.WarehouseWorkerStorageAccess)",
+                "store.ReplaceDayUpgradeExpenses(upgradeExpensesAfterHire)",
+                "worker.isWorkerShiftActive = true");
+            RequireSourceOrder(
+                hireSource,
+                "GetEntityWithWarehouseWorkerStoreEntityId(",
+                "_workers.Create(",
+                "Repeated hire must be rejected before creating another worker.");
+            string paySource = ReadRuntimeSource(
+                "Gameplay", "Features", "Employees", "Systems",
+                "PayWarehouseWorkerShiftSystem.cs");
+            RequireSourceContains(paySource,
+                "_solvency.EvaluateDebit(",
+                "store.DayPayrollExpenses + _config.DailyWage",
+                "store.ReplaceDayPayrollExpenses(payrollExpensesAfterPayment)",
+                "worker.ReplaceWorkerPaidDayNumber(store.DayNumber)",
+                "worker.isWorkerShiftActive = true");
+            RequireSourceOrder(
+                paySource,
+                "if (!debit.CanDebit)",
+                "store.ReplaceDayPayrollExpenses(payrollExpensesAfterPayment)",
+                "Rejected wage payment must leave payroll and money untouched.");
+
+            string promptSource = ReadRuntimeSource(
+                "Gameplay", "Features", "Interaction", "Systems",
+                "ResolveStoreControlTerminalPromptSystem.cs");
+            RequireSourceContains(promptSource,
+                "LocalizationKey.PromptWarehouseWorkerLocked",
+                "LocalizationKey.PromptHireWarehouseWorker",
+                "LocalizationKey.PromptWarehouseWorkerActive",
+                "LocalizationKey.PromptPayWarehouseWorkerShift",
+                "LocalizationKey.PromptCloseStoreWarehouseWorkerBusy",
+                "_solvency.EvaluateDebit(");
+            string reportSource = ReadRuntimeSource(
+                "Gameplay", "Features", "StoreDay", "Systems",
+                "OpenDayReportSystem.cs");
+            RequireSourceContains(reportSource,
+                "GameMatcher.WarehouseTask",
+                "WarehouseTaskStepId.Blocked",
+                "task.hasAssignedWorkerEntityId",
+                "task.hasWarehouseTaskReservedStorageSlotIndex");
+
+            string generateTaskSource = ReadRuntimeSource(
+                "Gameplay", "Features", "Employees", "Systems",
+                "GenerateInboundStorageTaskSystem.cs");
+            RequireSourceContains(generateTaskSource,
+                "product.DeliverySlotIndex < result.DeliverySlotIndex",
+                "product.EntityId < result.EntityId",
+                "task.WarehouseTaskReservedStorageSlotIndex",
+                "WarehouseWorkerStatusId.StorageFull",
+                "_tasksFactory.CreateInboundToStorage(",
+                "product.isInteractable = false");
+            string executeTaskSource = ReadRuntimeSource(
+                "Gameplay", "Features", "Employees", "Systems",
+                "ExecuteWarehouseWorkerTaskSystem.cs");
+            RequireSourceContains(executeTaskSource,
+                "task.WarehouseTaskTimeoutRemaining - _time.DeltaTime",
+                "WarehouseTaskBlockReasonId.TimedOut",
+                "selected.AddAssignedWorkerEntityId(worker.EntityId)",
+                "product.RemoveDeliverySlotIndex()",
+                "product.AddReservedDeliverySlotIndex(deliverySlotIndex)",
+                "product.AddCarrierEntityId(worker.EntityId)",
+                "product.RemoveCarrierEntityId()",
+                "product.isInboundProduct = false",
+                "product.isInStock = true",
+                "product.AddStorageSlotIndex(slotIndex)",
+                "product.isProductStocked = true",
+                "task.isDestructed = true");
+            string recoverTaskSource = ReadRuntimeSource(
+                "Gameplay", "Features", "Employees", "Systems",
+                "RecoverBlockedWarehouseTaskSystem.cs");
+            RequireSourceContains(recoverTaskSource,
+                "task.WarehouseTaskStep != WarehouseTaskStepId.Blocked",
+                "int slotIndex = product.ReservedDeliverySlotIndex",
+                "product.RemoveCarrierEntityId()",
+                "product.RemoveReservedDeliverySlotIndex()",
+                "product.AddDeliverySlotIndex(slotIndex)",
+                "product.isInteractable = true",
+                "task.RemoveAssignedWorkerEntityId()",
+                "task.RemoveWarehouseTaskReservedStorageSlotIndex()",
+                "LocalizationKey.NotificationWarehouseWorkerTaskBlocked");
+            string validateWorkerSource = ReadRuntimeSource(
+                "Gameplay", "Features", "Employees", "Systems",
+                "ValidateWarehouseWorkerStateSystem.cs");
+            RequireSourceContains(validateWorkerSource,
+                "moving != (task != null)",
+                "worker.isHandsOccupied != worker.isCarryingProduct",
+                "worker.isCarryingProduct != (carried != null)",
+                "case WarehouseTaskStepId.Blocked:",
+                "task.hasWarehouseTaskReservedStorageSlotIndex");
+            string storeInboundSource = ReadRuntimeSource(
+                "Gameplay", "Features", "Delivery", "Systems",
+                "StoreInboundProductSystem.cs");
+            RequireSourceContains(storeInboundSource,
+                "GameMatcher.WarehouseTaskReservedStorageSlotIndex",
+                "task.WarehouseTaskStorageZoneEntityId",
+                "task.WarehouseTaskReservedStorageSlotIndex",
+                "task.WarehouseTaskProductEntityId");
+            string pickupSource = ReadRuntimeSource(
+                "Gameplay", "Features", "Carrying", "Systems",
+                "PickUpProductSystem.cs");
+            RequireSourceOrder(
+                pickupSource,
+                "if (!product.isInteractable)",
+                "CanPickUpInbound(product, player)",
+                "A player request must reject worker-reserved inbound cargo before pickup " +
+                "eligibility is evaluated.");
+            string lateCarryingSource = ReadRuntimeSource(
+                "Gameplay", "Features", "Carrying", "LateCarryingFeature.cs");
+            RequireSourceOrder(
+                lateCarryingSource,
+                "Create<FollowHeldProductSystem>()",
+                "Create<FollowWorkerCarriedProductSystem>()",
+                "Player and worker carried-product views must have separate ordered adapters.");
+            RequireSourceOrder(
+                lateCarryingSource,
+                "Create<FollowWorkerCarriedProductSystem>()",
+                "Create<SyncLooseProductPoseSystem>()",
+                "Worker carry following must settle before loose-product pose synchronization.");
+
+            var workerLocalizationArities = new Dictionary<LocalizationKey, int>
+            {
+                { LocalizationKey.HudDayReportPayrollExpenses, 1 },
+                { LocalizationKey.HudWarehouseWorkerIdle, 0 },
+                { LocalizationKey.HudWarehouseWorkerStorageFull, 0 },
+                { LocalizationKey.HudWarehouseWorkerMovingToPickup, 1 },
+                { LocalizationKey.HudWarehouseWorkerMovingToStorage, 1 },
+                { LocalizationKey.HudWarehouseWorkerBlocked, 0 },
+                { LocalizationKey.HudWarehouseWorkerOffShift, 0 },
+                { LocalizationKey.PromptWarehouseWorkerLocked, 2 },
+                { LocalizationKey.PromptHireWarehouseWorker, 2 },
+                { LocalizationKey.PromptWarehouseWorkerHireInsufficientMoney, 1 },
+                { LocalizationKey.PromptWarehouseWorkerHireWouldBlockProjects, 0 },
+                { LocalizationKey.PromptWarehouseWorkerActive, 1 },
+                { LocalizationKey.PromptPayWarehouseWorkerShift, 1 },
+                { LocalizationKey.PromptWarehouseWorkerWageInsufficientMoney, 1 },
+                { LocalizationKey.PromptWarehouseWorkerWageWouldBlockProjects, 0 },
+                { LocalizationKey.PromptCloseStoreWarehouseWorkerBusy, 0 },
+                { LocalizationKey.NotificationWarehouseWorkerUnlocked, 2 },
+                { LocalizationKey.NotificationWarehouseWorkerHired, 2 },
+                { LocalizationKey.NotificationWarehouseWorkerShiftPaid, 1 },
+                { LocalizationKey.NotificationWarehouseWorkerTaskBlocked, 1 }
+            };
+            Dictionary<LocalizationKey, LocalizationEntry> localizationEntries =
+                new RussianLocalizationCatalog().Entries.ToDictionary(entry => entry.Key);
+            foreach ((LocalizationKey key, int argumentCount) in workerLocalizationArities)
+            {
+                Require(localizationEntries.TryGetValue(key, out LocalizationEntry entry) &&
+                        entry.ArgumentCount == argumentCount,
+                    $"Russian warehouse-worker localization {key} must exist with arity " +
+                    $"{argumentCount}.");
+            }
+        }
+
         private static void ValidateLocalizationArchitecture(Type[] runtimeTypes,
             Type[] componentTypes)
         {
@@ -2790,6 +3294,12 @@ namespace HardwareStore.Editor
             Require(platformTrolleyProperty?.PropertyType == typeof(PlatformTrolleyConfig),
                 $"{nameof(IStaticDataService)} must expose the validated " +
                 $"{nameof(PlatformTrolleyConfig)}.");
+            PropertyInfo warehouseWorkerProperty = staticDataType.GetProperty(
+                nameof(IStaticDataService.WarehouseWorker),
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.DeclaredOnly);
+            Require(warehouseWorkerProperty?.PropertyType == typeof(WarehouseWorkerConfig),
+                $"{nameof(IStaticDataService)} must expose the validated " +
+                $"{nameof(WarehouseWorkerConfig)}.");
 
             foreach (Type configType in ExpectedGameplayConfigTypes)
             {
@@ -2963,7 +3473,8 @@ namespace HardwareStore.Editor
                 "ProjectTypes",
                 "CustomerConfig Customer",
                 "ProductRecoveryConfig ProductRecovery",
-                "PlatformTrolleyConfig PlatformTrolley");
+                "PlatformTrolleyConfig PlatformTrolley",
+                "WarehouseWorkerConfig WarehouseWorker");
         }
 
         private static void ValidateConsultationArchitecture(
@@ -3214,7 +3725,8 @@ namespace HardwareStore.Editor
                         typeof(bool),
                         typeof(bool),
                         typeof(bool),
-                        typeof(bool)
+                        typeof(bool),
+                        typeof(WarehouseWorkerStatusSnapshot?)
                     }) != null,
                 $"{nameof(HudSnapshot)} must expose semantic project/product identity, immutable " +
                 "order lines, derived totals and localized interaction text.");
@@ -4197,6 +4709,8 @@ namespace HardwareStore.Editor
                 RequireAsset<ProductRecoveryConfig>(ProductRecoveryConfigPath);
             PlatformTrolleyConfig platformTrolleyConfig =
                 RequireAsset<PlatformTrolleyConfig>(PlatformTrolleyConfigPath);
+            WarehouseWorkerConfig warehouseWorkerConfig =
+                RequireAsset<WarehouseWorkerConfig>(WarehouseWorkerConfigPath);
             PlayerConfig playerConfig = RequireAsset<PlayerConfig>(PlayerConfigPath);
             CustomerProjectConfig cementProjectConfig =
                 RequireAsset<CustomerProjectConfig>(CementProjectConfigPath);
@@ -4286,6 +4800,17 @@ namespace HardwareStore.Editor
                     platformTrolleyConfig.MovementSpeed < playerConfig.WalkSpeed,
                 "The trolley must fit a complete order and move faster than carried products " +
                 "but slower than the unburdened player.");
+            Require(warehouseWorkerConfig.RequiredCompletedOrderCount == 4 &&
+                    warehouseWorkerConfig.HirePrice == 400 &&
+                    warehouseWorkerConfig.DailyWage == 100 &&
+                    Mathf.Approximately(warehouseWorkerConfig.MovementSpeed, 2.8f) &&
+                    Mathf.Approximately(warehouseWorkerConfig.Acceleration, 12f) &&
+                    Mathf.Approximately(warehouseWorkerConfig.AngularSpeed, 720f) &&
+                    Mathf.Approximately(warehouseWorkerConfig.StoppingDistance, 0.2f) &&
+                    Mathf.Approximately(warehouseWorkerConfig.NavigationSampleRadius, 2f) &&
+                    Mathf.Approximately(warehouseWorkerConfig.TaskTimeout, 20f),
+                $"{WarehouseWorkerConfigPath} must author the frozen worker progression, " +
+                "economy, navigation and recovery values.");
             Require(deliveryConfigs.All(config => economyConfig.InitialMoney >= config.TotalCost),
                 "Initial money must cover either configured inbound delivery.");
             Require(!Mathf.Approximately(cementProductConfig.Mass, boardProductConfig.Mass) &&
@@ -4533,6 +5058,91 @@ namespace HardwareStore.Editor
             Require(customerConfig.ViewPrefab == customerActorViews[0],
                 $"{CustomerConfigPath} must reference the EntityBehaviour root from " +
                 $"{CustomerPrefabPath}.");
+
+            GameObject workerPrefab = RequireAsset<GameObject>(WarehouseWorkerPrefabPath);
+            ValidatePrefabRoot(workerPrefab, WarehouseWorkerPrefabPath, requireUnitScale: true);
+            EntityBehaviour[] workerViews =
+                RequireExactlyOneInPrefab<EntityBehaviour>(
+                    workerPrefab,
+                    WarehouseWorkerPrefabPath);
+            TransformRegistrar[] workerTransforms =
+                RequireExactlyOneInPrefab<TransformRegistrar>(
+                    workerPrefab,
+                    WarehouseWorkerPrefabPath);
+            NavMeshAgentRegistrar[] workerNavigationRegistrars =
+                RequireExactlyOneInPrefab<NavMeshAgentRegistrar>(
+                    workerPrefab,
+                    WarehouseWorkerPrefabPath);
+            CarryAnchorRegistrar[] workerCarryAnchors =
+                RequireExactlyOneInPrefab<CarryAnchorRegistrar>(
+                    workerPrefab,
+                    WarehouseWorkerPrefabPath);
+            NavMeshAgent[] workerAgents =
+                RequireExactlyOneInPrefab<NavMeshAgent>(
+                    workerPrefab,
+                    WarehouseWorkerPrefabPath);
+            EntityComponentRegistrar[] workerRegistrars =
+                workerPrefab.GetComponentsInChildren<EntityComponentRegistrar>(true);
+            Collider[] workerColliders =
+                workerPrefab.GetComponentsInChildren<Collider>(true);
+            Renderer[] workerRenderers =
+                workerPrefab.GetComponentsInChildren<Renderer>(true);
+
+            var expectedWorkerRegistrarTypes = new HashSet<Type>
+            {
+                typeof(TransformRegistrar),
+                typeof(NavMeshAgentRegistrar),
+                typeof(CarryAnchorRegistrar)
+            };
+            Require(workerViews[0].gameObject == workerPrefab &&
+                    workerTransforms[0].gameObject == workerPrefab &&
+                    workerNavigationRegistrars[0].gameObject == workerPrefab &&
+                    workerAgents[0].gameObject == workerPrefab &&
+                    workerCarryAnchors[0].transform.IsChildOf(workerPrefab.transform),
+                $"{WarehouseWorkerPrefabPath} must expose one generic view root and a child " +
+                "carry anchor.");
+            Require(workerRegistrars.Length == expectedWorkerRegistrarTypes.Count &&
+                    new HashSet<Type>(workerRegistrars.Select(registrar => registrar.GetType()))
+                        .SetEquals(expectedWorkerRegistrarTypes),
+                $"{WarehouseWorkerPrefabPath} must contain exactly Transform, NavMeshAgent and " +
+                "CarryAnchor registrars.");
+            Require(workerColliders.Length == 0 &&
+                    workerPrefab.GetComponentsInChildren<InteractionView>(true).Length == 0 &&
+                    workerPrefab.GetComponentsInChildren<CollidersRegistrar>(true).Length == 0,
+                $"{WarehouseWorkerPrefabPath} must not expose interaction or collision targets.");
+            Require(workerRenderers.Length >= 14,
+                $"{WarehouseWorkerPrefabPath} must contain a visible blue/yellow worker silhouette.");
+            string[] blueWorkwearParts =
+            {
+                "Torso", "Left Arm", "Right Arm", "Left Leg", "Right Leg"
+            };
+            string[] yellowSafetyParts =
+            {
+                "Safety Vest Front", "Safety Vest Back", "Hard Hat", "Hard Hat Brim"
+            };
+            Require(blueWorkwearParts.All(part =>
+                        workerRenderers.Single(renderer => renderer.name == part)
+                            .sharedMaterial.name == "BrandBlue") &&
+                    yellowSafetyParts.All(part =>
+                        workerRenderers.Single(renderer => renderer.name == part)
+                            .sharedMaterial.name == "SafetyYellow") &&
+                    workerRenderers.Where(renderer =>
+                            renderer.name is "Left Shoe" or "Right Shoe")
+                        .All(renderer => renderer.sharedMaterial.name == "DarkMetal"),
+                $"{WarehouseWorkerPrefabPath} must visibly use blue workwear, yellow safety " +
+                "vest/helmet and dark shoes.");
+            NavMeshAgent workerAgent = workerAgents[0];
+            Require(workerAgent.agentTypeID == 0 &&
+                    Mathf.Approximately(workerAgent.speed, warehouseWorkerConfig.MovementSpeed) &&
+                    Mathf.Approximately(workerAgent.acceleration, warehouseWorkerConfig.Acceleration) &&
+                    Mathf.Approximately(workerAgent.angularSpeed, warehouseWorkerConfig.AngularSpeed) &&
+                    Mathf.Approximately(workerAgent.stoppingDistance,
+                        warehouseWorkerConfig.StoppingDistance) &&
+                    workerAgent.autoBraking && workerAgent.autoRepath,
+                $"{WarehouseWorkerPrefabPath} NavMeshAgent must mirror its config and repath.");
+            Require(warehouseWorkerConfig.ViewPrefab == workerViews[0],
+                $"{WarehouseWorkerConfigPath} must reference the EntityBehaviour root from " +
+                $"{WarehouseWorkerPrefabPath}.");
 
             GameObject trolleyPrefab = RequireAsset<GameObject>(PlatformTrolleyPrefabPath);
             ValidatePrefabRoot(trolleyPrefab, PlatformTrolleyPrefabPath, requireUnitScale: true);
@@ -5052,6 +5662,8 @@ namespace HardwareStore.Editor
                 Light[] sceneLights = FindComponentsInScene<Light>(scene);
                 LocalizedTextMeshView[] localizedWorldLabels =
                     FindComponentsInScene<LocalizedTextMeshView>(scene);
+                NavMeshSurface[] navigationSurfaces =
+                    FindComponentsInScene<NavMeshSurface>(scene);
 
                 Require(contexts.Length == 1,
                     $"{PrototypeScenePath} must contain exactly one SceneContext, found {contexts.Length}.");
@@ -5135,12 +5747,91 @@ namespace HardwareStore.Editor
                 {
                     SpawnPointId.Player,
                     SpawnPointId.DeliveryVehicle,
-                    SpawnPointId.PlatformTrolley
+                    SpawnPointId.PlatformTrolley,
+                    SpawnPointId.WarehouseWorker,
+                    SpawnPointId.WarehouseWorkerDeliveryAccess,
+                    SpawnPointId.WarehouseWorkerStorageAccess
                 };
                 var actualSpawnIds = new HashSet<SpawnPointId>(spawnPoints.Select(marker => marker.Id));
                 Require(spawnPoints.Length == expectedSpawnIds.Count && actualSpawnIds.SetEquals(expectedSpawnIds),
-                    $"{PrototypeScenePath} must contain one spawn point for Player, " +
-                    "DeliveryVehicle and PlatformTrolley.");
+                    $"{PrototypeScenePath} must contain one marker for every player, vehicle, " +
+                    "trolley and warehouse-worker access point.");
+
+                Require(navigationSurfaces.Length == 1,
+                    $"{PrototypeScenePath} must contain exactly one NavMeshSurface.");
+                NavMeshSurface navigation = navigationSurfaces[0];
+                Require(navigation.name == "Navigation" &&
+                        navigation.transform.parent != null &&
+                        navigation.transform.parent.name == "Environment" &&
+                        navigation.agentTypeID == 0 &&
+                        navigation.collectObjects == CollectObjects.All &&
+                        navigation.useGeometry == NavMeshCollectGeometry.PhysicsColliders &&
+                        navigation.ignoreNavMeshAgent && navigation.ignoreNavMeshObstacle &&
+                        navigation.overrideVoxelSize &&
+                        Mathf.Approximately(navigation.voxelSize, 0.08f) &&
+                        navigation.navMeshData != null &&
+                        AssetDatabase.GetAssetPath(navigation.navMeshData) ==
+                        WarehouseWorkerNavMeshPath,
+                    "Environment/Navigation must own the exact baked warehouse-worker " +
+                    "NavMeshSurface asset.");
+                SpawnPointMarker[] workerAccessPoints =
+                {
+                    spawnPoints.Single(marker => marker.Id == SpawnPointId.WarehouseWorker),
+                    spawnPoints.Single(marker =>
+                        marker.Id == SpawnPointId.WarehouseWorkerDeliveryAccess),
+                    spawnPoints.Single(marker =>
+                        marker.Id == SpawnPointId.WarehouseWorkerStorageAccess)
+                };
+                Vector3[] expectedWorkerPositions =
+                {
+                    new(7.75f, 0.02f, 2.45f),
+                    new(9.15f, 0.02f, -9.85f),
+                    new(5f, 0.02f, 2.45f)
+                };
+                Require(workerAccessPoints
+                        .Select((marker, index) => Vector3.Distance(
+                            marker.transform.position,
+                            expectedWorkerPositions[index]))
+                        .All(distance => distance < 0.001f) &&
+                        workerAccessPoints.All(marker =>
+                            marker.transform.parent != null &&
+                            marker.transform.parent.name ==
+                            "Warehouse Worker Access Points"),
+                    "Warehouse-worker idle, inbound and storage access markers must preserve " +
+                    "their exact safe yard-level poses.");
+                var sampledWorkerPoints = new Vector3[workerAccessPoints.Length];
+                for (int index = 0; index < workerAccessPoints.Length; index++)
+                {
+                    Require(NavMesh.SamplePosition(
+                            workerAccessPoints[index].transform.position,
+                            out NavMeshHit hit,
+                            2f,
+                            NavMesh.AllAreas),
+                        $"Worker access point {workerAccessPoints[index].Id} must sample onto " +
+                        "the authored NavMesh.");
+                    sampledWorkerPoints[index] = hit.position;
+                }
+                for (int origin = 0; origin < sampledWorkerPoints.Length; origin++)
+                {
+                    for (int destination = 0;
+                         destination < sampledWorkerPoints.Length;
+                         destination++)
+                    {
+                        if (origin == destination)
+                            continue;
+
+                        var workerPath = new NavMeshPath();
+                        bool foundPath = NavMesh.CalculatePath(
+                            sampledWorkerPoints[origin],
+                            sampledWorkerPoints[destination],
+                            NavMesh.AllAreas,
+                            workerPath);
+                        Require(foundPath &&
+                                workerPath.status == NavMeshPathStatus.PathComplete,
+                            $"Worker path from {workerAccessPoints[origin].Id} to " +
+                            $"{workerAccessPoints[destination].Id} must be complete.");
+                    }
+                }
 
                 var expectedRouteIds = new HashSet<SceneRouteId>
                 {
@@ -5448,6 +6139,10 @@ namespace HardwareStore.Editor
                 GameObject trolleyPrefab = RequireAsset<GameObject>(PlatformTrolleyPrefabPath);
                 Require(!ContainsPrefabInstance(scene, trolleyPrefab),
                     $"{PrototypeScenePath} must spawn the platform trolley at runtime, not " +
+                    "contain a prefab instance.");
+                GameObject workerPrefab = RequireAsset<GameObject>(WarehouseWorkerPrefabPath);
+                Require(!ContainsPrefabInstance(scene, workerPrefab),
+                    $"{PrototypeScenePath} must spawn the warehouse worker at runtime, not " +
                     "contain a prefab instance.");
             }
             finally
@@ -5780,6 +6475,23 @@ namespace HardwareStore.Editor
             int firstIndex = source.IndexOf(first, StringComparison.Ordinal);
             int secondIndex = source.IndexOf(second, StringComparison.Ordinal);
             Require(firstIndex >= 0 && secondIndex > firstIndex, message);
+        }
+
+        private static void RequireExactFeatureOrder(
+            string source,
+            IReadOnlyList<string> systemNames,
+            string featureName)
+        {
+            int previousIndex = -1;
+            foreach (string systemName in systemNames)
+            {
+                string token = $"Create<{systemName}>()";
+                int index = source.IndexOf(token, StringComparison.Ordinal);
+                Require(index > previousIndex && CountOccurrences(source, token) == 1,
+                    $"{featureName} must execute {string.Join(" -> ", systemNames)} " +
+                    "exactly once.");
+                previousIndex = index;
+            }
         }
 
         private static void ValidatePrefabRoot(GameObject prefab, string path, bool requireUnitScale)

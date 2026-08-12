@@ -13,6 +13,8 @@ using HardwareStore.Gameplay.Features.Consultation;
 using HardwareStore.Gameplay.Features.Consultation.Systems;
 using HardwareStore.Gameplay.Features.Customers.Systems;
 using HardwareStore.Gameplay.Features.Delivery.Systems;
+using HardwareStore.Gameplay.Features.Employees;
+using HardwareStore.Gameplay.Features.Employees.Systems;
 using HardwareStore.Gameplay.Features.Interaction;
 using HardwareStore.Gameplay.Features.Interaction.Systems;
 using HardwareStore.Gameplay.Features.Movement.Systems;
@@ -81,9 +83,15 @@ namespace HardwareStore.Editor
             scenario.Store.ReplaceDayRevenue(900);
             scenario.Store.ReplaceDayProcurementExpenses(600);
             scenario.Store.ReplaceDayUpgradeExpenses(200);
+            scenario.Store.ReplaceDayPayrollExpenses(200);
             scenario.Store.ReplaceDayCompletedOrderCount(2);
-            Require(scenario.Store.Money == 1100,
-                "Representative report values require the prototype opening balance.");
+            scenario.Store.ReplaceMoney(900);
+            Require(scenario.Store.Money ==
+                    scenario.Store.DayOpeningBalance + scenario.Store.DayRevenue -
+                    scenario.Store.DayProcurementExpenses -
+                    scenario.Store.DayUpgradeExpenses -
+                    scenario.Store.DayPayrollExpenses,
+                "Representative report values must satisfy the complete day ledger.");
 
             RequestInteraction(scenario.Player, scenario.StoreControlTerminal);
             runtime.Systems.Create<OpenDayReportSystem>().Execute();
@@ -212,12 +220,99 @@ namespace HardwareStore.Editor
                 $"{trolley.TrolleyMovementSpeed:0.##}.");
         }
 
+        [MenuItem("Tools/Hardware Store/Prepare Warehouse Worker Visual Check")]
+        public static void PrepareWarehouseWorkerVisualCheck()
+        {
+            Runtime runtime = ResolveRuntime();
+            Scenario scenario = ResolveFreshScenario(runtime);
+            OpenStoreForSmoke(runtime, scenario);
+            UnlockWarehouseWorkerHiring(runtime, scenario);
+            GameEntity worker = HireWarehouseWorker(runtime, scenario);
+            DeliveryArrival arrival = PurchaseAndPrepareArrival(
+                runtime,
+                scenario,
+                ProductTypeId.CementBag);
+
+            runtime.Systems.Create<WarehouseWorkerFeature>().Execute();
+            GameEntity task = RequireSingle(runtime.Game.GetGroup(GameMatcher.AllOf(
+                GameMatcher.WarehouseTask,
+                GameMatcher.WarehouseTaskProductEntityId,
+                GameMatcher.AssignedWorkerEntityId)), "assigned warehouse task");
+            Selection.activeGameObject = worker.View.gameObject;
+            Debug.Log(
+                $"[Hardware Store] Warehouse worker visual check prepared: worker " +
+                $"{worker.EntityId}, task {task.EntityId}, delivery " +
+                $"{arrival.Delivery.EntityId}. The worker is walking to the inbound bay.");
+        }
+
+        [MenuItem("Tools/Hardware Store/Run Warehouse Worker Smoke Test")]
+        public static void RunWarehouseWorkerSmokeTest()
+        {
+            Runtime runtime = ResolveRuntime();
+            Scenario scenario = ResolveFreshScenario(runtime);
+            WarehouseWorkerConfig config = runtime.StaticData.WarehouseWorker;
+            OpenStoreForSmoke(runtime, scenario);
+            UnlockWarehouseWorkerHiring(runtime, scenario);
+            int moneyBeforeHire = scenario.Store.Money;
+            GameEntity worker = HireWarehouseWorker(runtime, scenario);
+            int workerEntityId = worker.EntityId;
+            int expectedMoneyAfterHire = moneyBeforeHire - config.HirePrice;
+            Require(scenario.Store.Money == expectedMoneyAfterHire &&
+                    scenario.Store.DayUpgradeExpenses == config.HirePrice,
+                "Warehouse worker hire did not debit its one-time cost exactly once.");
+
+            DeliveryArrival arrival = PurchaseAndPrepareArrival(
+                runtime,
+                scenario,
+                ProductTypeId.CementBag);
+            int expectedMoneyAfterDelivery = expectedMoneyAfterHire -
+                                             runtime.StaticData.GetDelivery(
+                                                 ProductTypeId.CementBag).TotalCost;
+            Require(scenario.Store.Money == expectedMoneyAfterDelivery,
+                "Warehouse worker smoke delivery was not charged exactly once.");
+
+            ValidateWarehouseWorkerStorageFull(runtime, scenario, worker);
+            ValidateWarehouseWorkerTimeoutRecovery(
+                runtime,
+                scenario,
+                worker,
+                arrival);
+            StoreDeliveryWithWarehouseWorker(
+                runtime,
+                scenario,
+                worker,
+                arrival);
+            CleanupCompletedDelivery(runtime, scenario, arrival);
+            ValidateWarehouseWorkerDayTwoWage(
+                runtime,
+                scenario,
+                worker,
+                expectedMoneyAfterDelivery);
+
+            Require(worker.EntityId == workerEntityId &&
+                    ReferenceEquals(
+                        runtime.Game.GetEntityWithWarehouseWorkerStoreEntityId(
+                            scenario.Store.EntityId),
+                        worker) &&
+                    CountStockProducts(
+                        runtime.Game,
+                        scenario.StorageZone.EntityId,
+                        ProductTypeId.CementBag) == arrival.Products.Length,
+                "Worker smoke lost its employee identity or the automatically stocked batch.");
+            Debug.Log(
+                $"[Hardware Store] Warehouse worker smoke passed: unlock 4, single hire, " +
+                $"blocked-reservation intake, full-storage wait, exact-slot timeout recovery, " +
+                $"active-task report guard, blocked diagnostic report release, automatic " +
+                $"three-product stocking and Day 2 wage {config.DailyWage:N0} ₽.");
+        }
+
         [MenuItem("Tools/Hardware Store/Run Gameplay Smoke Test")]
         public static void Run()
         {
             Runtime runtime = ResolveRuntime();
             Scenario scenario = ResolveFreshScenario(runtime);
             int initialMoney = scenario.Store.Money;
+            ValidateEditorMoneyOverride(runtime, scenario);
             ProductTypeId cement = ProductTypeId.CementBag;
             ProductTypeId boards = ProductTypeId.BoardBundle;
             DeliveryConfig cementDelivery = runtime.StaticData.GetDelivery(cement);
@@ -276,6 +371,28 @@ namespace HardwareStore.Editor
                         1.7f),
                 "The trolley smoke requires price 200, two-order unlock, capacity 3, " +
                 "movement speed 3.8 and follow distance 1.7.");
+            Require(runtime.StaticData.WarehouseWorker.RequiredCompletedOrderCount == 4 &&
+                    runtime.StaticData.WarehouseWorker.HirePrice == 400 &&
+                    runtime.StaticData.WarehouseWorker.DailyWage == 100 &&
+                    Mathf.Approximately(
+                        runtime.StaticData.WarehouseWorker.MovementSpeed,
+                        2.8f) &&
+                    Mathf.Approximately(
+                        runtime.StaticData.WarehouseWorker.Acceleration,
+                        12f) &&
+                    Mathf.Approximately(
+                        runtime.StaticData.WarehouseWorker.AngularSpeed,
+                        720f) &&
+                    Mathf.Approximately(
+                        runtime.StaticData.WarehouseWorker.StoppingDistance,
+                        0.2f) &&
+                    Mathf.Approximately(
+                        runtime.StaticData.WarehouseWorker.NavigationSampleRadius,
+                        2f) &&
+                    Mathf.Approximately(
+                        runtime.StaticData.WarehouseWorker.TaskTimeout,
+                        20f),
+                "The worker smoke requires the frozen unlock, economy and navigation values.");
             Require(runtime.StaticData.StoreDay.StartMinute == 8 * 60 &&
                     runtime.StaticData.StoreDay.ClosingMinute == 20 * 60 &&
                     Mathf.Approximately(
@@ -713,6 +830,674 @@ namespace HardwareStore.Editor
                 $"{expectedFinalMoney - cementDelivery.TotalCost:N0} ₽.");
         }
 
+        private static void ValidateEditorMoneyOverride(Runtime runtime,
+            Scenario scenario)
+        {
+            const int testGrant = 500;
+            GameEntity store = scenario.Store;
+            int originalMoney = store.Money;
+            int originalOpeningBalance = store.DayOpeningBalance;
+            int originalRevenue = store.DayRevenue;
+            int originalProcurementExpenses = store.DayProcurementExpenses;
+            int originalUpgradeExpenses = store.DayUpgradeExpenses;
+            int originalPayrollExpenses = store.DayPayrollExpenses;
+
+            store.money.Value = checked(originalMoney + testGrant);
+            runtime.Systems.Create<ReconcileEditorMoneyOverrideSystem>().Execute();
+
+            Require(store.Money == originalMoney + testGrant &&
+                    store.DayOpeningBalance == originalOpeningBalance + testGrant &&
+                    store.DayRevenue == originalRevenue &&
+                    store.DayProcurementExpenses == originalProcurementExpenses &&
+                    store.DayUpgradeExpenses == originalUpgradeExpenses &&
+                    store.DayPayrollExpenses == originalPayrollExpenses,
+                "An Editor Money component override was not reconciled through the opening " +
+                "balance without polluting real day income or expenses.");
+            runtime.Systems.Create<ValidateStoreDayStateSystem>().Execute();
+
+            store.money.Value = originalMoney;
+            store.dayOpeningBalance.Value = originalOpeningBalance;
+            runtime.Systems.Create<ValidateStoreDayStateSystem>().Execute();
+        }
+
+        private static void UnlockWarehouseWorkerHiring(
+            Runtime runtime,
+            Scenario scenario)
+        {
+            WarehouseWorkerConfig config = runtime.StaticData.WarehouseWorker;
+            Require(!scenario.Store.isWarehouseWorkerHiringUnlocked &&
+                    runtime.Game.GetEntityWithWarehouseWorkerStoreEntityId(
+                        scenario.Store.EntityId) == null,
+                "Warehouse worker unlock smoke requires a fresh employee state.");
+
+            scenario.Player.ReplaceFocusedEntityId(
+                scenario.StoreControlTerminal.EntityId);
+            scenario.Store.ReplaceCompletedOrderCount(
+                config.RequiredCompletedOrderCount - 1);
+            ExecuteInteractionPrompts(runtime);
+            Require(PromptMatches(
+                        runtime,
+                        scenario.Player,
+                        LocalizedTexts.Text(
+                            LocalizationKey.PromptWarehouseWorkerLocked,
+                            config.RequiredCompletedOrderCount,
+                            config.RequiredCompletedOrderCount - 1)) &&
+                    !scenario.Player.isFocusInteractionAvailable,
+                "Worker hire unlocked before its exact completed-order threshold.");
+            runtime.Systems.Create<UnlockWarehouseWorkerHiringSystem>().Execute();
+            Require(!scenario.Store.isWarehouseWorkerHiringUnlocked &&
+                    runtime.Game.GetGroup(GameMatcher.NotificationMessage).count == 0,
+                "Worker hire unlocked or notified one order too early.");
+
+            scenario.Store.ReplaceCompletedOrderCount(
+                config.RequiredCompletedOrderCount);
+            runtime.Systems.Create<UnlockWarehouseWorkerHiringSystem>().Execute();
+            Require(scenario.Store.isWarehouseWorkerHiringUnlocked,
+                "Worker hire did not unlock at its exact completed-order threshold.");
+            RequireNotificationKey(
+                runtime,
+                LocalizationKey.NotificationWarehouseWorkerUnlocked);
+            runtime.Systems.Create<UnlockWarehouseWorkerHiringSystem>().Execute();
+            Require(runtime.Game.GetGroup(GameMatcher.NotificationMessage).count == 1,
+                "Worker hire unlock was not idempotent.");
+            CleanupEvents(runtime);
+
+            ExecuteInteractionPrompts(runtime);
+            EconomyDebitEvaluation unsafeHire = runtime.EconomySolvency.EvaluateDebit(
+                scenario.Store.EntityId,
+                config.HirePrice);
+            Require(unsafeHire.Availability ==
+                    EconomyDebitAvailability.DemandWouldBecomeInsolvent &&
+                    PromptMatches(
+                        runtime,
+                        scenario.Player,
+                        LocalizedTexts.Text(
+                            LocalizationKey.PromptWarehouseWorkerHireWouldBlockProjects)) &&
+                    !scenario.Player.isFocusInteractionAvailable,
+                "Fresh post-unlock finances did not expose the unsafe hire rejection.");
+            int moneyBeforeRejectedHire = scenario.Store.Money;
+            int expensesBeforeRejectedHire = scenario.Store.DayUpgradeExpenses;
+            RequestInteraction(scenario.Player, scenario.StoreControlTerminal);
+            runtime.Systems.Create<HireWarehouseWorkerSystem>().Execute();
+            Require(runtime.Game.GetEntityWithWarehouseWorkerStoreEntityId(
+                        scenario.Store.EntityId) == null &&
+                    scenario.Store.Money == moneyBeforeRejectedHire &&
+                    scenario.Store.DayUpgradeExpenses == expensesBeforeRejectedHire &&
+                    runtime.Game.GetGroup(GameMatcher.WarehouseWorker).count == 0 &&
+                    runtime.Game.GetGroup(GameMatcher.NotificationMessage).count == 0,
+                "Unsafe warehouse-worker hire mutated money, ledger, employee or events.");
+            CleanupEvents(runtime);
+
+            const int representativeCompletedOrderRevenue = 2000;
+            scenario.Store.ReplaceDayRevenue(checked(
+                scenario.Store.DayRevenue + representativeCompletedOrderRevenue));
+            scenario.Store.ReplaceMoney(checked(
+                scenario.Store.Money + representativeCompletedOrderRevenue));
+            Require(runtime.EconomySolvency.EvaluateDebit(
+                        scenario.Store.EntityId,
+                        config.HirePrice).CanDebit,
+                "Representative four-order proceeds did not make worker hire solvent.");
+            ExecuteInteractionPrompts(runtime);
+            Require(PromptMatches(
+                        runtime,
+                        scenario.Player,
+                        LocalizedTexts.Text(
+                            LocalizationKey.PromptHireWarehouseWorker,
+                            config.HirePrice,
+                            config.DailyWage)) &&
+                    scenario.Player.isFocusInteractionAvailable,
+                "Unlocked store-control terminal did not offer worker hire.");
+        }
+
+        private static GameEntity HireWarehouseWorker(
+            Runtime runtime,
+            Scenario scenario)
+        {
+            WarehouseWorkerConfig config = runtime.StaticData.WarehouseWorker;
+            int moneyBefore = scenario.Store.Money;
+            int upgradeExpensesBefore = scenario.Store.DayUpgradeExpenses;
+            RequestInteraction(scenario.Player, scenario.StoreControlTerminal);
+            runtime.Systems.Create<HireWarehouseWorkerSystem>().Execute();
+            GameEntity worker = runtime.Game.GetEntityWithWarehouseWorkerStoreEntityId(
+                scenario.Store.EntityId);
+            Require(worker != null &&
+                    runtime.Game.GetGroup(GameMatcher.WarehouseWorker).count == 1 &&
+                    scenario.Store.Money == moneyBefore - config.HirePrice &&
+                    scenario.Store.DayUpgradeExpenses == checked(
+                        upgradeExpensesBefore + config.HirePrice) &&
+                    worker.isWorkerShiftActive &&
+                    worker.WorkerPaidDayNumber == scenario.Store.DayNumber &&
+                    worker.WarehouseWorkerStatus == WarehouseWorkerStatusId.Idle,
+                "Worker hire did not create one paid Day 1 employee and debit once.");
+            RequireNotificationKey(runtime, LocalizationKey.NotificationWarehouseWorkerHired);
+            CleanupEvents(runtime);
+
+            runtime.Systems.Create<BindEntityViewFromPrefabSystem>().Execute();
+            runtime.Systems.Create<ConfigureWarehouseWorkerNavigationSystem>().Execute();
+            EntityBehaviour view = RequireRuntimeView(
+                worker,
+                config.ViewPrefab,
+                "warehouse worker");
+            Require(worker.hasTransform && worker.Transform == view.transform &&
+                    worker.hasNavigationAgent &&
+                    worker.NavigationAgent.gameObject == view.gameObject &&
+                    worker.NavigationAgent.isOnNavMesh &&
+                    worker.hasCarryAnchor &&
+                    worker.CarryAnchor.IsChildOf(view.transform) &&
+                    Mathf.Approximately(worker.NavigationAgent.speed,
+                        config.MovementSpeed) &&
+                    Mathf.Approximately(worker.NavigationAgent.acceleration,
+                        config.Acceleration) &&
+                    Mathf.Approximately(worker.NavigationAgent.angularSpeed,
+                        config.AngularSpeed) &&
+                    Mathf.Approximately(worker.NavigationAgent.stoppingDistance,
+                        config.StoppingDistance),
+                "Hired worker view did not bind its authored NavMesh and carry adapters.");
+
+            int moneyAfterHire = scenario.Store.Money;
+            int expensesAfterHire = scenario.Store.DayUpgradeExpenses;
+            RequestInteraction(scenario.Player, scenario.StoreControlTerminal);
+            runtime.Systems.Create<HireWarehouseWorkerSystem>().Execute();
+            Require(ReferenceEquals(
+                        runtime.Game.GetEntityWithWarehouseWorkerStoreEntityId(
+                            scenario.Store.EntityId),
+                        worker) &&
+                    runtime.Game.GetGroup(GameMatcher.WarehouseWorker).count == 1 &&
+                    scenario.Store.Money == moneyAfterHire &&
+                    scenario.Store.DayUpgradeExpenses == expensesAfterHire,
+                "Repeated hire created a second worker or debited twice.");
+            CleanupEvents(runtime);
+            ExecuteInteractionPrompts(runtime);
+            Require(PromptMatches(
+                        runtime,
+                        scenario.Player,
+                        LocalizedTexts.Text(
+                            LocalizationKey.PromptWarehouseWorkerActive,
+                            config.DailyWage)) &&
+                    !scenario.Player.isFocusInteractionAvailable,
+                "Hired worker terminal remained actionable.");
+            scenario.Player.RemoveFocusedEntityId();
+            ExecuteInteractionPrompts(runtime);
+            return worker;
+        }
+
+        private static void ValidateWarehouseWorkerStorageFull(
+            Runtime runtime,
+            Scenario scenario,
+            GameEntity worker)
+        {
+            Require(scenario.StorageZone.Slots.Length == 9 &&
+                    scenario.StorageZone.StorageProductCount == 0 &&
+                    scenario.StorageZone.OccupiedStorageSlotCount == 0,
+                "Warehouse worker storage-full smoke requires nine empty authored slots.");
+            int firstSentinelId = runtime.Game
+                .GetGroup(GameMatcher.EntityId)
+                .GetEntities()
+                .Min(entity => entity.EntityId) - 9;
+            GameEntity[] occupyingProducts = Enumerable.Range(0, 9)
+                .Select(slotIndex => CreateEntity.Empty(firstSentinelId + slotIndex)
+                    .AddProductType(ProductTypeId.CementBag)
+                    .AddStorageZoneEntityId(scenario.StorageZone.EntityId)
+                    .AddStorageSlotIndex(slotIndex))
+                .ToArray();
+            foreach (GameEntity product in occupyingProducts)
+            {
+                product.isProduct = true;
+                product.isInStock = true;
+                product.isInteractable = true;
+            }
+
+            ExecuteStorageState(runtime);
+            try
+            {
+                Require(scenario.StorageZone.StorageProductCount == 9 &&
+                        scenario.StorageZone.OccupiedStorageSlotCount == 9,
+                    "Nine real stocked products did not occupy all authored storage slots.");
+                runtime.Systems.Create<GenerateInboundStorageTaskSystem>().Execute();
+                Require(worker.WarehouseWorkerStatus ==
+                        WarehouseWorkerStatusId.StorageFull &&
+                        FindLiveWarehouseTasks(runtime.Game).Length == 0,
+                    "Worker did not enter a non-destructive StorageFull wait state.");
+            }
+            finally
+            {
+                foreach (GameEntity product in occupyingProducts)
+                    product.isDestructed = true;
+                runtime.Systems.Create<CleanupDestructedEntitiesSystem>().Cleanup();
+                ExecuteStorageState(runtime);
+            }
+
+            Require(scenario.StorageZone.StorageProductCount == 0 &&
+                    scenario.StorageZone.OccupiedStorageSlotCount == 0,
+                "Storage-full smoke did not release its nine occupied slots.");
+            runtime.Systems.Create<GenerateInboundStorageTaskSystem>().Execute();
+            GameEntity task = RequireSingle(runtime.Game.GetGroup(GameMatcher.AllOf(
+                    GameMatcher.WarehouseTask,
+                    GameMatcher.InboundToStorageTask,
+                    GameMatcher.WarehouseTaskProductEntityId,
+                    GameMatcher.WarehouseTaskReservedStorageSlotIndex)
+                .NoneOf(GameMatcher.Destructed)), "available warehouse task");
+            Require(worker.WarehouseWorkerStatus == WarehouseWorkerStatusId.Idle &&
+                    task.WarehouseTaskStep == WarehouseTaskStepId.Available &&
+                    task.WarehouseTaskReservedStorageSlotIndex == 0,
+                "Restoring storage did not create one deterministic first-slot worker task.");
+        }
+
+        private static void ValidateWarehouseWorkerTimeoutRecovery(
+            Runtime runtime,
+            Scenario scenario,
+            GameEntity worker,
+            DeliveryArrival arrival)
+        {
+            GameEntity task = FindLiveWarehouseTasks(runtime.Game).Single();
+            GameEntity reservedProduct = runtime.Game.GetEntityWithEntityId(
+                task.WarehouseTaskProductEntityId);
+            int reservedDeliverySlot = reservedProduct.DeliverySlotIndex;
+            Require(task.WarehouseTaskReservedStorageSlotIndex == 0 &&
+                    !reservedProduct.isInteractable,
+                "Worker task did not reserve its product and first storage slot.");
+
+            RequestInteraction(scenario.Player, reservedProduct);
+            runtime.Systems.Create<PickUpProductSystem>().Execute();
+            Require(!scenario.Player.isHandsOccupied &&
+                    !reservedProduct.hasCarrierEntityId &&
+                    reservedProduct.hasDeliverySlotIndex &&
+                    reservedProduct.DeliverySlotIndex == reservedDeliverySlot,
+                "Player took worker-reserved inbound cargo through a direct interaction request.");
+            CleanupEvents(runtime);
+
+            GameEntity otherProduct = arrival.Products.First(product =>
+                product != reservedProduct && product.isInteractable);
+            int otherDeliverySlot = otherProduct.DeliverySlotIndex;
+            PickUpProduct(runtime, scenario, otherProduct);
+            RequestInteraction(scenario.Player, scenario.StorageZone);
+            runtime.Systems.Create<StoreInboundProductSystem>().Execute();
+            Require(otherProduct.isInStock && otherProduct.hasStorageSlotIndex &&
+                    otherProduct.StorageSlotIndex !=
+                    task.WarehouseTaskReservedStorageSlotIndex,
+                "Player storage intake consumed the worker task's reserved storage slot.");
+            RestoreSmokeProductToDeliverySlot(
+                otherProduct,
+                otherDeliverySlot,
+                arrival.Delivery);
+            ExecuteProductPlacement(runtime);
+            CleanupEvents(runtime);
+
+            runtime.Systems.Create<ExecuteWarehouseWorkerTaskSystem>().Execute();
+            Require(task.hasAssignedWorkerEntityId &&
+                    task.AssignedWorkerEntityId == worker.EntityId &&
+                    task.WarehouseTaskStep == WarehouseTaskStepId.MovingToPickup &&
+                    worker.WarehouseWorkerStatus == WarehouseWorkerStatusId.MovingToPickup,
+                "Worker did not take the oldest available inbound task.");
+
+            WarpWarehouseWorker(worker, worker.WarehouseWorkerPickupPosition);
+            runtime.Systems.Create<ExecuteWarehouseWorkerTaskSystem>().Execute();
+            ExecuteProductPlacement(runtime);
+            runtime.Systems.Create<FollowWorkerCarriedProductSystem>().Execute();
+            Require(task.WarehouseTaskStep == WarehouseTaskStepId.MovingToStorage &&
+                    task.hasAssignedWorkerEntityId &&
+                    task.AssignedWorkerEntityId == worker.EntityId &&
+                    task.hasWarehouseTaskReservedStorageSlotIndex &&
+                    worker.WarehouseWorkerStatus == WarehouseWorkerStatusId.MovingToStorage &&
+                    worker.isHandsOccupied && worker.isCarryingProduct &&
+                    reservedProduct.hasCarrierEntityId &&
+                    reservedProduct.CarrierEntityId == worker.EntityId &&
+                    reservedProduct.hasReservedDeliverySlotIndex &&
+                    reservedProduct.ReservedDeliverySlotIndex == reservedDeliverySlot &&
+                    !reservedProduct.hasDeliverySlotIndex &&
+                    !reservedProduct.isInteractable,
+                "Timeout smoke did not reach the real carried-product reservation state.");
+            ValidateWarehouseWorkerActiveTaskBlocksReport(
+                runtime,
+                scenario,
+                task);
+
+            task.ReplaceWarehouseTaskTimeoutRemaining(0f);
+            runtime.Systems.Create<ExecuteWarehouseWorkerTaskSystem>().Execute();
+            runtime.Systems.Create<RecoverBlockedWarehouseTaskSystem>().Execute();
+            runtime.Systems.Create<ValidateWarehouseWorkerStateSystem>().Execute();
+            Require(task.WarehouseTaskStep == WarehouseTaskStepId.Blocked &&
+                    task.WarehouseTaskBlockReason == WarehouseTaskBlockReasonId.TimedOut &&
+                    !task.hasAssignedWorkerEntityId &&
+                    !task.hasWarehouseTaskReservedStorageSlotIndex &&
+                    worker.WarehouseWorkerStatus == WarehouseWorkerStatusId.Blocked &&
+                    !worker.isHandsOccupied && !worker.isCarryingProduct &&
+                    reservedProduct.isInteractable &&
+                    reservedProduct.hasDeliverySlotIndex &&
+                    reservedProduct.DeliverySlotIndex == reservedDeliverySlot &&
+                    !reservedProduct.hasReservedDeliverySlotIndex &&
+                    !reservedProduct.hasCarrierEntityId,
+                "Timed-out worker task did not restore its exact delivery slot and release state.");
+            RequireNotificationKey(
+                runtime,
+                LocalizationKey.NotificationWarehouseWorkerTaskBlocked);
+            CleanupEvents(runtime);
+            ValidateBlockedWarehouseDiagnosticAllowsReport(runtime, scenario);
+
+            PickUpProduct(runtime, scenario, reservedProduct);
+            runtime.Systems.Create<CleanupBlockedWarehouseTaskSystem>().Execute();
+            Require(task.isDestructed &&
+                    worker.WarehouseWorkerStatus == WarehouseWorkerStatusId.Idle,
+                "Player recovery did not release the blocked diagnostic or worker.");
+            runtime.Systems.Create<CleanupDestructedEntitiesSystem>().Cleanup();
+            DropHeldProduct(runtime, scenario);
+            MoveLooseProductBelowRecoveryBoundary(runtime, reservedProduct);
+            RecoverLostProducts(runtime);
+            RequireNotificationKey(runtime, LocalizationKey.NotificationProductsRecovered);
+            ExecuteProductPlacement(runtime);
+            CleanupEvents(runtime);
+            Require(reservedProduct.isInboundProduct &&
+                    reservedProduct.isInteractable &&
+                    reservedProduct.hasDeliverySlotIndex &&
+                    reservedProduct.DeliverySlotIndex == reservedDeliverySlot &&
+                    runtime.Game.GetEntityWithWarehouseTaskProductEntityId(
+                        reservedProduct.EntityId) == null,
+                "Timeout recovery left the inbound product locked after exact-slot restoration.");
+        }
+
+        private static void StoreDeliveryWithWarehouseWorker(
+            Runtime runtime,
+            Scenario scenario,
+            GameEntity worker,
+            DeliveryArrival arrival)
+        {
+            int initialStock = scenario.StorageZone.StorageProductCount;
+            WarpWarehouseWorker(worker, worker.WarehouseWorkerStoragePosition);
+            Require((worker.Transform.position -
+                     worker.WarehouseWorkerPickupPosition).sqrMagnitude >
+                    runtime.StaticData.WarehouseWorker.StoppingDistance *
+                    runtime.StaticData.WarehouseWorker.StoppingDistance,
+                "Automatic stocking smoke requires the worker away from the pickup point.");
+            for (int productIndex = 0;
+                 productIndex < arrival.Products.Length;
+                 productIndex++)
+            {
+                runtime.Systems.Create<WarehouseWorkerFeature>().Execute();
+                GameEntity task = FindLiveWarehouseTasks(runtime.Game).Single();
+                GameEntity product = runtime.Game.GetEntityWithEntityId(
+                    task.WarehouseTaskProductEntityId);
+                int expectedDeliverySlot = arrival.Products
+                    .Where(candidate => candidate.isInboundProduct &&
+                                        candidate.hasDeliverySlotIndex)
+                    .Min(candidate => candidate.DeliverySlotIndex);
+                Require(task.hasAssignedWorkerEntityId &&
+                        task.AssignedWorkerEntityId == worker.EntityId &&
+                        task.WarehouseTaskStep == WarehouseTaskStepId.MovingToPickup &&
+                        product.DeliverySlotIndex == expectedDeliverySlot &&
+                        !product.isInteractable,
+                    "Worker did not reserve exactly one lowest-slot inbound product.");
+
+                WarpWarehouseWorker(worker, worker.WarehouseWorkerPickupPosition);
+                runtime.Systems.Create<WarehouseWorkerFeature>().Execute();
+                ExecuteProductPlacement(runtime);
+                runtime.Systems.Create<FollowWorkerCarriedProductSystem>().Execute();
+                Require(task.WarehouseTaskStep == WarehouseTaskStepId.MovingToStorage &&
+                        worker.WarehouseWorkerStatus == WarehouseWorkerStatusId.MovingToStorage &&
+                        worker.isHandsOccupied && worker.isCarryingProduct &&
+                        product.hasCarrierEntityId &&
+                        product.CarrierEntityId == worker.EntityId &&
+                        product.hasReservedDeliverySlotIndex &&
+                        product.ReservedDeliverySlotIndex == expectedDeliverySlot,
+                    "Worker did not pick and carry its exact inbound product.");
+
+                WarpWarehouseWorker(worker, worker.WarehouseWorkerStoragePosition);
+                runtime.Systems.Create<WarehouseWorkerFeature>().Execute();
+                Require(task.isDestructed && product.isProductStocked &&
+                        product.isInStock && !product.isInboundProduct &&
+                        product.isInteractable &&
+                        product.hasStorageZoneEntityId &&
+                        product.StorageZoneEntityId == scenario.StorageZone.EntityId &&
+                        product.hasStorageSlotIndex &&
+                        !product.hasCarrierEntityId &&
+                        !worker.isHandsOccupied && !worker.isCarryingProduct &&
+                        worker.WarehouseWorkerStatus == WarehouseWorkerStatusId.Idle,
+                    "Worker did not complete one inbound-to-storage task cleanly.");
+
+                runtime.Systems.Create<CleanupDestructedEntitiesSystem>().Cleanup();
+                runtime.Systems.Create<RegisterStockedProductSystem>().Execute();
+                runtime.Systems.Create<CompleteDeliverySystem>().Execute();
+                ExecuteProductPlacement(runtime);
+                ExecuteStorageState(runtime);
+                CleanupEvents(runtime);
+                Require(scenario.StorageZone.StorageProductCount ==
+                        initialStock + productIndex + 1 &&
+                        scenario.StorageZone.OccupiedStorageSlotCount ==
+                        initialStock + productIndex + 1,
+                    "Worker-stocked product did not update derived storage state exactly once.");
+            }
+
+            Require(arrival.Delivery.isDeliveryCompleted &&
+                    arrival.Delivery.isDestructed &&
+                    !arrival.Delivery.hasDeliveryProcurementTerminalEntityId &&
+                    FindLiveWarehouseTasks(runtime.Game).Length == 0 &&
+                    arrival.Products.All(product => product.isInStock) &&
+                    arrival.Products.Select(product => product.StorageSlotIndex)
+                        .Distinct().Count() == arrival.Products.Length,
+                "Worker did not complete and uniquely store the full three-product delivery.");
+        }
+
+        private static void ValidateWarehouseWorkerActiveTaskBlocksReport(
+            Runtime runtime,
+            Scenario scenario,
+            GameEntity task)
+        {
+            EnterWarehouseWorkerReportSmokeClosing(scenario);
+            RequestInteraction(scenario.Player, scenario.StoreControlTerminal);
+            runtime.Systems.Create<OpenDayReportSystem>().Execute();
+            Require(scenario.Store.isStoreClosing &&
+                    !scenario.Store.isDayReportOpen &&
+                    !scenario.Player.isModalOpen &&
+                    task.hasAssignedWorkerEntityId &&
+                    task.hasWarehouseTaskReservedStorageSlotIndex,
+                "Day report opened while the worker owned active task state.");
+            CleanupEvents(runtime);
+            ExitWarehouseWorkerReportSmokeClosing(scenario);
+        }
+
+        private static void ValidateBlockedWarehouseDiagnosticAllowsReport(
+            Runtime runtime,
+            Scenario scenario)
+        {
+            EnterWarehouseWorkerReportSmokeClosing(scenario);
+            RequestInteraction(scenario.Player, scenario.StoreControlTerminal);
+            runtime.Systems.Create<OpenDayReportSystem>().Execute();
+            Require(scenario.Store.isDayReportOpen &&
+                    !scenario.Store.isStoreClosing &&
+                    scenario.Player.isModalOpen &&
+                    scenario.Player.DayReportStoreEntityId == scenario.Store.EntityId,
+                "Released blocked-task diagnostic prevented the mandatory report.");
+            CleanupEvents(runtime);
+
+            scenario.Store.isDayReportOpen = false;
+            scenario.Store.isStoreOpen = true;
+            scenario.Store.ReplaceCurrentDayMinute(runtime.StaticData.StoreDay.StartMinute);
+            scenario.Store.AddCustomerCooldownRemaining(
+                runtime.StaticData.CustomerVehicle.FirstCustomerDelay);
+            scenario.Player.isModalOpen = false;
+            scenario.Player.RemoveDayReportStoreEntityId();
+            scenario.Player.isCursorLocked = true;
+            runtime.Systems.Create<ValidateStoreDayStateSystem>().Execute();
+        }
+
+        private static void EnterWarehouseWorkerReportSmokeClosing(Scenario scenario)
+        {
+            Require(scenario.Store.isStoreOpen &&
+                    scenario.Store.hasCustomerCooldownRemaining &&
+                    !scenario.Player.isModalOpen,
+                "Worker report smoke requires an open scheduled-customer phase.");
+            scenario.Store.isStoreOpen = false;
+            scenario.Store.isStoreClosing = true;
+            scenario.Store.ReplaceCurrentDayMinute(20 * 60);
+            scenario.Store.RemoveCustomerCooldownRemaining();
+        }
+
+        private static void ExitWarehouseWorkerReportSmokeClosing(Scenario scenario)
+        {
+            scenario.Store.isStoreClosing = false;
+            scenario.Store.isStoreOpen = true;
+            scenario.Store.ReplaceCurrentDayMinute(8 * 60);
+            scenario.Store.AddCustomerCooldownRemaining(1f);
+        }
+
+        private static void RestoreSmokeProductToDeliverySlot(
+            GameEntity product,
+            int deliverySlotIndex,
+            GameEntity delivery)
+        {
+            Require(product.isInStock && product.isProductStocked &&
+                    product.hasStorageZoneEntityId && product.hasStorageSlotIndex &&
+                    product.hasDeliveryEntityId &&
+                    product.DeliveryEntityId == delivery.EntityId &&
+                    !product.hasReservedDeliverySlotIndex &&
+                    !product.hasCarrierEntityId,
+                "Smoke product cannot be restored from its temporary storage intake state.");
+            product.isProductStocked = false;
+            product.isInStock = false;
+            product.isInboundProduct = true;
+            product.RemoveStorageZoneEntityId();
+            product.RemoveStorageSlotIndex();
+            product.AddDeliverySlotIndex(deliverySlotIndex);
+            product.isInteractable = true;
+            product.isProductPlacementDirty = true;
+        }
+
+        private static void WarpWarehouseWorker(GameEntity worker, Vector3 position)
+        {
+            Require(worker.hasNavigationAgent && worker.NavigationAgent.isOnNavMesh,
+                "Warehouse worker must be on NavMesh before smoke warping.");
+            worker.NavigationAgent.ResetPath();
+            Require(worker.NavigationAgent.Warp(position),
+                $"Warehouse worker could not warp to authored access point {position}.");
+            Physics.SyncTransforms();
+        }
+
+        private static GameEntity[] FindLiveWarehouseTasks(GameContext context) =>
+            context.GetGroup(GameMatcher.AllOf(
+                    GameMatcher.WarehouseTask,
+                    GameMatcher.InboundToStorageTask,
+                    GameMatcher.EntityId,
+                    GameMatcher.WarehouseTaskProductEntityId,
+                    GameMatcher.WarehouseTaskStep)
+                .NoneOf(GameMatcher.Destructed))
+                .GetEntities()
+                .OrderBy(task => task.EntityId)
+                .ToArray();
+
+        private static void ValidateWarehouseWorkerDayTwoWage(
+            Runtime runtime,
+            Scenario scenario,
+            GameEntity worker,
+            int expectedDayOneClosingMoney)
+        {
+            EnterWarehouseWorkerReportSmokeClosing(scenario);
+            RequestInteraction(scenario.Player, scenario.StoreControlTerminal);
+            runtime.Systems.Create<OpenDayReportSystem>().Execute();
+            Require(scenario.Store.isDayReportOpen && scenario.Player.isModalOpen,
+                "Idle worker prevented the Day 1 report.");
+            CleanupEvents(runtime);
+
+            scenario.Input.isConfirmPressed = true;
+            runtime.Systems.Create<StoreDayFeature>().Execute();
+            runtime.Systems.Create<CleanupInputRequestsSystem>().Cleanup();
+            runtime.Systems.Create<SyncWarehouseWorkerShiftSystem>().Execute();
+            Require(scenario.Store.DayNumber == 2 && scenario.Store.isStorePreparing &&
+                    scenario.Store.Money == expectedDayOneClosingMoney &&
+                    scenario.Store.DayOpeningBalance == expectedDayOneClosingMoney &&
+                    scenario.Store.DayPayrollExpenses == 0 &&
+                    !worker.isWorkerShiftActive &&
+                    worker.WarehouseWorkerStatus == WarehouseWorkerStatusId.OffShift &&
+                    worker.WorkerPaidDayNumber == 1,
+                "Starting Day 2 did not retain the employee off shift with a reset payroll ledger.");
+
+            RequestInteraction(scenario.Player, scenario.StoreControlTerminal);
+            runtime.Systems.Create<OpenStoreSystem>().Execute();
+            CleanupEvents(runtime);
+            scenario.Player.ReplaceFocusedEntityId(
+                scenario.StoreControlTerminal.EntityId);
+
+            int solventMoney = scenario.Store.Money;
+            int solventOpeningBalance = scenario.Store.DayOpeningBalance;
+            int solventProjectSequence = scenario.Store.NextProjectSequenceIndex;
+            int unsafeProjectSequence = runtime.StaticData.ProjectTypes
+                .Select((projectType, index) => (projectType, index))
+                .Single(pair =>
+                    pair.projectType == CustomerProjectTypeId.LumberShelving)
+                .index;
+            int dailyWage = runtime.StaticData.WarehouseWorker.DailyWage;
+            scenario.Store.ReplaceNextProjectSequenceIndex(unsafeProjectSequence);
+            scenario.Store.ReplaceMoney(dailyWage);
+            scenario.Store.ReplaceDayOpeningBalance(dailyWage);
+            EconomyDebitEvaluation unsafeWage = runtime.EconomySolvency.EvaluateDebit(
+                scenario.Store.EntityId,
+                dailyWage);
+            ExecuteInteractionPrompts(runtime);
+            Require(unsafeWage.Availability ==
+                    EconomyDebitAvailability.DemandWouldBecomeInsolvent &&
+                    PromptMatches(
+                        runtime,
+                        scenario.Player,
+                        LocalizedTexts.Text(
+                            LocalizationKey.PromptWarehouseWorkerWageWouldBlockProjects)) &&
+                    !scenario.Player.isFocusInteractionAvailable,
+                "Underfunded Day 2 did not expose the unsafe wage rejection.");
+            RequestInteraction(scenario.Player, scenario.StoreControlTerminal);
+            runtime.Systems.Create<PayWarehouseWorkerShiftSystem>().Execute();
+            Require(scenario.Store.Money == dailyWage &&
+                    scenario.Store.DayOpeningBalance == dailyWage &&
+                    scenario.Store.DayPayrollExpenses == 0 &&
+                    !worker.isWorkerShiftActive &&
+                    worker.WorkerPaidDayNumber == 1 &&
+                    worker.WarehouseWorkerStatus == WarehouseWorkerStatusId.OffShift &&
+                    runtime.Game.GetGroup(GameMatcher.NotificationMessage).count == 0,
+                "Unsafe Day 2 wage mutated money, payroll, shift or events.");
+            CleanupEvents(runtime);
+
+            scenario.Store.ReplaceNextProjectSequenceIndex(solventProjectSequence);
+            scenario.Store.ReplaceMoney(solventMoney);
+            scenario.Store.ReplaceDayOpeningBalance(solventOpeningBalance);
+            Require(runtime.EconomySolvency.EvaluateDebit(
+                        scenario.Store.EntityId,
+                        dailyWage).CanDebit,
+                "Restored Day 2 finances did not make the employee shift solvent.");
+            ExecuteInteractionPrompts(runtime);
+            Require(PromptMatches(
+                        runtime,
+                        scenario.Player,
+                        LocalizedTexts.Text(
+                            LocalizationKey.PromptPayWarehouseWorkerShift,
+                            dailyWage)) &&
+                    scenario.Player.isFocusInteractionAvailable,
+                "Day 2 terminal did not offer the unpaid worker shift.");
+
+            int moneyBeforeWage = scenario.Store.Money;
+            RequestInteraction(scenario.Player, scenario.StoreControlTerminal);
+            runtime.Systems.Create<PayWarehouseWorkerShiftSystem>().Execute();
+            Require(worker.isWorkerShiftActive &&
+                    worker.WorkerPaidDayNumber == scenario.Store.DayNumber &&
+                    worker.WarehouseWorkerStatus == WarehouseWorkerStatusId.Idle &&
+                    scenario.Store.Money == moneyBeforeWage -
+                    dailyWage &&
+                    scenario.Store.DayPayrollExpenses ==
+                    dailyWage,
+                "Day 2 wage did not activate one paid shift and update payroll once.");
+            RequireNotificationKey(
+                runtime,
+                LocalizationKey.NotificationWarehouseWorkerShiftPaid);
+            CleanupEvents(runtime);
+
+            int moneyAfterWage = scenario.Store.Money;
+            RequestInteraction(scenario.Player, scenario.StoreControlTerminal);
+            runtime.Systems.Create<PayWarehouseWorkerShiftSystem>().Execute();
+            Require(scenario.Store.Money == moneyAfterWage &&
+                    scenario.Store.DayPayrollExpenses ==
+                    dailyWage &&
+                    worker.WorkerPaidDayNumber == scenario.Store.DayNumber,
+                "Repeated Day 2 wage request debited the same shift twice.");
+            CleanupEvents(runtime);
+            runtime.Systems.Create<ValidateStoreDayStateSystem>().Execute();
+            runtime.Systems.Create<ValidateWarehouseWorkerStateSystem>().Execute();
+        }
+
         private static Scenario ResolveFreshScenario(Runtime runtime)
         {
             Require(runtime.StateMachine.ActiveStateType == typeof(StoreLoopState),
@@ -753,6 +1538,7 @@ namespace HardwareStore.Editor
                 GameMatcher.DayRevenue,
                 GameMatcher.DayProcurementExpenses,
                 GameMatcher.DayUpgradeExpenses,
+                GameMatcher.DayPayrollExpenses,
                 GameMatcher.DayCompletedOrderCount,
                 GameMatcher.StorePreparing,
                 GameMatcher.StoreSceneBindingsValidated)), "store");
@@ -839,6 +1625,7 @@ namespace HardwareStore.Editor
                     store.DayRevenue == 0 &&
                     store.DayProcurementExpenses == 0 &&
                     store.DayUpgradeExpenses == 0 &&
+                    store.DayPayrollExpenses == 0 &&
                     store.DayCompletedOrderCount == 0,
                 "The smoke test must start on Day 1 in the 08:00 preparation phase " +
                 "with a zeroed ledger and no customer schedule.");
@@ -4758,14 +5545,17 @@ namespace HardwareStore.Editor
                 expectedMoneyBeforeOvernightDelivery - overnightConfig.TotalCost);
             int expectedClosingProcurementExpenses = checked(
                 expectedProcurementExpenses + overnightConfig.TotalCost);
+            int expectedPayrollExpenses = scenario.Store.DayPayrollExpenses;
             Require(scenario.Store.Money == expectedClosingMoney &&
                     scenario.Store.DayOpeningBalance + expectedRevenue -
-                    expectedClosingProcurementExpenses - expectedUpgradeExpenses ==
+                    expectedClosingProcurementExpenses - expectedUpgradeExpenses -
+                    expectedPayrollExpenses ==
                     expectedClosingMoney &&
                     scenario.Store.DayRevenue == expectedRevenue &&
                     scenario.Store.DayProcurementExpenses ==
                     expectedClosingProcurementExpenses &&
                     scenario.Store.DayUpgradeExpenses == expectedUpgradeExpenses &&
+                    scenario.Store.DayPayrollExpenses == expectedPayrollExpenses &&
                     scenario.Store.DayCompletedOrderCount == expectedCompletedOrders,
                 "The final daily ledger does not reconcile successful rewards and purchases.");
 
@@ -4848,8 +5638,10 @@ namespace HardwareStore.Editor
                     report.ProcurementExpenses ==
                     expectedClosingProcurementExpenses &&
                     report.UpgradeExpenses == expectedUpgradeExpenses &&
+                    report.PayrollExpenses == expectedPayrollExpenses &&
                     report.NetCashFlow == expectedRevenue -
-                    expectedClosingProcurementExpenses - expectedUpgradeExpenses &&
+                    expectedClosingProcurementExpenses - expectedUpgradeExpenses -
+                    expectedPayrollExpenses &&
                     report.ClosingBalance == expectedClosingMoney &&
                     report.OpeningBalance + report.NetCashFlow ==
                     report.ClosingBalance &&
@@ -4899,6 +5691,7 @@ namespace HardwareStore.Editor
                     scenario.Store.DayRevenue == 0 &&
                     scenario.Store.DayProcurementExpenses == 0 &&
                     scenario.Store.DayUpgradeExpenses == 0 &&
+                    scenario.Store.DayPayrollExpenses == 0 &&
                     scenario.Store.DayCompletedOrderCount == 0 &&
                     !scenario.Store.hasCustomerCooldownRemaining &&
                     !scenario.Player.isModalOpen &&

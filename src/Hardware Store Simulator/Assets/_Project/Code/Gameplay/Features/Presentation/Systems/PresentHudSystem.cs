@@ -112,6 +112,9 @@ namespace HardwareStore.Gameplay.Features.Presentation.Systems
                     $"Player {player.EntityId} has invalid trolley handling state.");
             }
 
+            WarehouseWorkerStatusSnapshot? warehouseWorkerStatus =
+                CreateWarehouseWorkerStatusSnapshot(store);
+
             _hud.Present(new HudSnapshot(
                 CreateDayClockSnapshot(store),
                 orderState,
@@ -132,7 +135,62 @@ namespace HardwareStore.Gameplay.Features.Presentation.Systems
                 player.isFocusInteractionAvailable,
                 player.isCarryingProduct,
                 player.isPushingTrolley,
-                player.isCursorLocked));
+                player.isCursorLocked,
+                warehouseWorkerStatus));
+        }
+
+        private WarehouseWorkerStatusSnapshot? CreateWarehouseWorkerStatusSnapshot(
+            GameEntity store)
+        {
+            GameEntity worker =
+                _gameContext.GetEntityWithWarehouseWorkerStoreEntityId(store.EntityId);
+            if (worker == null)
+                return null;
+            if (!worker.isWarehouseWorker || worker.isDestructed || !worker.hasEntityId ||
+                !worker.hasWarehouseWorkerStoreEntityId ||
+                worker.WarehouseWorkerStoreEntityId != store.EntityId ||
+                !worker.hasWarehouseWorkerStatus)
+            {
+                throw new InvalidOperationException(
+                    $"Store {store.EntityId} has an invalid warehouse worker.");
+            }
+
+            WarehouseWorkerStatusId status = worker.WarehouseWorkerStatus;
+            GameEntity task =
+                _gameContext.GetEntityWithAssignedWorkerEntityId(worker.EntityId);
+            bool requiresTaskProduct = status is WarehouseWorkerStatusId.MovingToPickup or
+                WarehouseWorkerStatusId.MovingToStorage;
+            if (!requiresTaskProduct)
+            {
+                if (task != null)
+                {
+                    throw new InvalidOperationException(
+                        $"Warehouse worker {worker.EntityId} has an unexpected task while " +
+                        $"presenting status {status}.");
+                }
+
+                return new WarehouseWorkerStatusSnapshot(status, null);
+            }
+
+            if (task == null || !task.isWarehouseTask || task.isDestructed ||
+                !task.hasWarehouseTaskProductEntityId ||
+                !task.hasAssignedWorkerEntityId ||
+                task.AssignedWorkerEntityId != worker.EntityId)
+            {
+                throw new InvalidOperationException(
+                    $"Moving warehouse worker {worker.EntityId} has no valid assigned task.");
+            }
+
+            GameEntity product = _gameContext.GetEntityWithEntityId(
+                task.WarehouseTaskProductEntityId);
+            if (product == null || product.isDestructed || !product.isProduct ||
+                !product.hasProductType)
+            {
+                throw new InvalidOperationException(
+                    $"Warehouse task {task.EntityId} references an invalid product.");
+            }
+
+            return new WarehouseWorkerStatusSnapshot(status, product.ProductType);
         }
 
         private static DayClockSnapshot CreateDayClockSnapshot(GameEntity store)

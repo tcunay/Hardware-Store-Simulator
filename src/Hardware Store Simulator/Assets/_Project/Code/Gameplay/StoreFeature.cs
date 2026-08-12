@@ -3,6 +3,7 @@ using HardwareStore.Gameplay.Features.Cleanup;
 using HardwareStore.Gameplay.Features.Consultation;
 using HardwareStore.Gameplay.Features.Customers;
 using HardwareStore.Gameplay.Features.Delivery;
+using HardwareStore.Gameplay.Features.Employees;
 using HardwareStore.Gameplay.Features.Input;
 using HardwareStore.Gameplay.Features.Interaction;
 using HardwareStore.Gameplay.Features.Movement;
@@ -13,6 +14,7 @@ using HardwareStore.Gameplay.Features.Procurement;
 using HardwareStore.Gameplay.Features.Products;
 using HardwareStore.Gameplay.Features.StorageState;
 using HardwareStore.Gameplay.Features.StoreDay;
+using HardwareStore.Gameplay.Features.StoreDay.Systems;
 using HardwareStore.Gameplay.Features.StoreSceneBindings;
 using HardwareStore.Gameplay.Features.Trolley;
 using HardwareStore.Infrastructure.Systems;
@@ -29,7 +31,11 @@ namespace HardwareStore.Gameplay
             Add(systems.Create<InputFeature>());
             Add(systems.Create<PlayerFeature>());
             Add(systems.Create<ProductRecoveryFeature>());
+#if UNITY_EDITOR
+            Add(systems.Create<ReconcileEditorMoneyOverrideSystem>());
+#endif
             Add(systems.Create<InteractionFeature>());
+            Add(systems.Create<EmployeeFeature>());
             Add(systems.Create<StoreDayFeature>());
             Add(systems.Create<ProcurementFeature>());
             Add(systems.Create<ConsultationFeature>());
@@ -43,6 +49,7 @@ namespace HardwareStore.Gameplay
             Add(systems.Create<MovementFeature>());
             Add(systems.Create<TrolleyMovementFeature>());
             Add(systems.Create<InteractionPromptFeature>());
+            Add(systems.Create<ValidateStoreDayStateSystem>());
             Add(systems.Create<PresentationFeature>());
             Add(systems.Create<CleanupFeature>());
         }

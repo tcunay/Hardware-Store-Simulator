@@ -5,8 +5,8 @@ namespace HardwareStore.Gameplay.Presentation
     public readonly struct DayReportSnapshot
     {
         public DayReportSnapshot(int dayNumber, int openingBalance, int revenue,
-            int procurementExpenses, int upgradeExpenses, int closingBalance,
-            int completedOrderCount, int storageProductCount)
+            int procurementExpenses, int upgradeExpenses, int payrollExpenses,
+            int closingBalance, int completedOrderCount, int storageProductCount)
         {
             if (dayNumber <= 0)
                 throw new ArgumentOutOfRangeException(nameof(dayNumber));
@@ -18,6 +18,8 @@ namespace HardwareStore.Gameplay.Presentation
                 throw new ArgumentOutOfRangeException(nameof(procurementExpenses));
             if (upgradeExpenses < 0)
                 throw new ArgumentOutOfRangeException(nameof(upgradeExpenses));
+            if (payrollExpenses < 0)
+                throw new ArgumentOutOfRangeException(nameof(payrollExpenses));
             if (closingBalance < 0)
                 throw new ArgumentOutOfRangeException(nameof(closingBalance));
             if (completedOrderCount < 0)
@@ -25,7 +27,8 @@ namespace HardwareStore.Gameplay.Presentation
             if (storageProductCount < 0)
                 throw new ArgumentOutOfRangeException(nameof(storageProductCount));
 
-            long netCashFlow = (long)revenue - procurementExpenses - upgradeExpenses;
+            long netCashFlow =
+                (long)revenue - procurementExpenses - upgradeExpenses - payrollExpenses;
             if (netCashFlow < int.MinValue || netCashFlow > int.MaxValue)
                 throw new ArgumentOutOfRangeException(nameof(revenue));
             if ((long)openingBalance + netCashFlow != closingBalance)
@@ -40,6 +43,7 @@ namespace HardwareStore.Gameplay.Presentation
             Revenue = revenue;
             ProcurementExpenses = procurementExpenses;
             UpgradeExpenses = upgradeExpenses;
+            PayrollExpenses = payrollExpenses;
             NetCashFlow = (int)netCashFlow;
             ClosingBalance = closingBalance;
             CompletedOrderCount = completedOrderCount;
@@ -51,6 +55,7 @@ namespace HardwareStore.Gameplay.Presentation
         public int Revenue { get; }
         public int ProcurementExpenses { get; }
         public int UpgradeExpenses { get; }
+        public int PayrollExpenses { get; }
         public int NetCashFlow { get; }
         public int ClosingBalance { get; }
         public int CompletedOrderCount { get; }

@@ -110,7 +110,8 @@ namespace HardwareStore.Gameplay.Features.Trolley.Systems
                     store.DayUpgradeExpenses + _config.PurchasePrice);
                 long ledgerBalanceAfterPurchase =
                     (long)store.DayOpeningBalance + store.DayRevenue -
-                    store.DayProcurementExpenses - upgradeExpensesAfterPurchase;
+                    store.DayProcurementExpenses - upgradeExpensesAfterPurchase -
+                    store.DayPayrollExpenses;
                 if (moneyAfterPurchase != debit.MoneyAfterDebit ||
                     ledgerBalanceAfterPurchase != moneyAfterPurchase)
                 {
@@ -158,6 +159,7 @@ namespace HardwareStore.Gameplay.Features.Trolley.Systems
                 !store.hasMoney || !store.hasCompletedOrderCount ||
                 !store.hasDayOpeningBalance || !store.hasDayRevenue ||
                 !store.hasDayProcurementExpenses || !store.hasDayUpgradeExpenses ||
+                !store.hasDayPayrollExpenses ||
                 !store.hasTrolleyUpgradeTerminalEntityId ||
                 store.TrolleyUpgradeTerminalEntityId != terminal.EntityId)
             {
@@ -166,9 +168,10 @@ namespace HardwareStore.Gameplay.Features.Trolley.Systems
             }
             if (store.Money < 0 || store.DayOpeningBalance < 0 ||
                 store.DayRevenue < 0 || store.DayProcurementExpenses < 0 ||
-                store.DayUpgradeExpenses < 0 ||
+                store.DayUpgradeExpenses < 0 || store.DayPayrollExpenses < 0 ||
                 (long)store.DayOpeningBalance + store.DayRevenue -
-                store.DayProcurementExpenses - store.DayUpgradeExpenses != store.Money)
+                store.DayProcurementExpenses - store.DayUpgradeExpenses -
+                store.DayPayrollExpenses != store.Money)
             {
                 throw new InvalidOperationException(
                     $"Store {store.EntityId} day ledger is inconsistent before trolley purchase.");

@@ -38,6 +38,7 @@ namespace HardwareStore.Gameplay.Factories
                 .AddDayRevenue(0)
                 .AddDayProcurementExpenses(0)
                 .AddDayUpgradeExpenses(0)
+                .AddDayPayrollExpenses(0)
                 .AddDayCompletedOrderCount(0)
                 .With(x => x.isStorePreparing = true)
                 .With(x => x.isStore = true);

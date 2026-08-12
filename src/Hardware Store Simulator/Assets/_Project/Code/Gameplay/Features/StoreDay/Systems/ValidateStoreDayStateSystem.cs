@@ -28,6 +28,7 @@ namespace HardwareStore.Gameplay.Features.StoreDay.Systems
                     GameMatcher.DayRevenue,
                     GameMatcher.DayProcurementExpenses,
                     GameMatcher.DayUpgradeExpenses,
+                    GameMatcher.DayPayrollExpenses,
                     GameMatcher.DayCompletedOrderCount,
                     GameMatcher.StoreControlTerminalEntityId)
                 .NoneOf(GameMatcher.Destructed));
@@ -63,6 +64,7 @@ namespace HardwareStore.Gameplay.Features.StoreDay.Systems
             if (store.DayNumber <= 0 || store.Money < 0 ||
                 store.DayOpeningBalance < 0 || store.DayRevenue < 0 ||
                 store.DayProcurementExpenses < 0 || store.DayUpgradeExpenses < 0 ||
+                store.DayPayrollExpenses < 0 ||
                 store.DayCompletedOrderCount < 0)
             {
                 throw new InvalidOperationException(
@@ -71,7 +73,8 @@ namespace HardwareStore.Gameplay.Features.StoreDay.Systems
 
             long expectedMoney =
                 (long)store.DayOpeningBalance + store.DayRevenue -
-                store.DayProcurementExpenses - store.DayUpgradeExpenses;
+                store.DayProcurementExpenses - store.DayUpgradeExpenses -
+                store.DayPayrollExpenses;
             if (expectedMoney != store.Money)
             {
                 throw new InvalidOperationException(

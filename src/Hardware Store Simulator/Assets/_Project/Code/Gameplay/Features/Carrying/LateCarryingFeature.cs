@@ -9,6 +9,7 @@ namespace HardwareStore.Gameplay.Features.Carrying
         public LateCarryingFeature(ISystemFactory systems)
         {
             Add(systems.Create<FollowHeldProductSystem>());
+            Add(systems.Create<FollowWorkerCarriedProductSystem>());
             Add(systems.Create<SyncLooseProductPoseSystem>());
         }
     }

@@ -62,6 +62,7 @@ namespace HardwareStore.Gameplay.Features.Presentation.Systems
             if (!playerStore.hasDayNumber || !playerStore.hasDayOpeningBalance ||
                 !playerStore.hasDayRevenue || !playerStore.hasDayProcurementExpenses ||
                 !playerStore.hasDayUpgradeExpenses ||
+                !playerStore.hasDayPayrollExpenses ||
                 !playerStore.hasDayCompletedOrderCount || !playerStore.hasMoney ||
                 !playerStore.hasStorageZoneEntityId)
             {
@@ -84,6 +85,7 @@ namespace HardwareStore.Gameplay.Features.Presentation.Systems
                 playerStore.DayRevenue,
                 playerStore.DayProcurementExpenses,
                 playerStore.DayUpgradeExpenses,
+                playerStore.DayPayrollExpenses,
                 playerStore.Money,
                 playerStore.DayCompletedOrderCount,
                 storage.StorageProductCount));

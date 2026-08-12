@@ -12,7 +12,6 @@ namespace HardwareStore.Gameplay.Features.StoreDay
             Add(systems.Create<OpenStoreSystem>());
             Add(systems.Create<StartNextDaySystem>());
             Add(systems.Create<OpenDayReportSystem>());
-            Add(systems.Create<ValidateStoreDayStateSystem>());
         }
     }
 }

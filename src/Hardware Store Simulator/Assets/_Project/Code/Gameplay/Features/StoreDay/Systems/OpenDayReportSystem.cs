@@ -1,6 +1,7 @@
 using System;
 using Entitas;
 using HardwareStore.Gameplay.Common.Cursor;
+using HardwareStore.Gameplay.Components;
 using UnityEngine;
 
 namespace HardwareStore.Gameplay.Features.StoreDay.Systems
@@ -10,6 +11,7 @@ namespace HardwareStore.Gameplay.Features.StoreDay.Systems
         private readonly GameContext _gameContext;
         private readonly ICursorService _cursor;
         private readonly IGroup<GameEntity> _requests;
+        private readonly IGroup<GameEntity> _warehouseTasks;
 
         public OpenDayReportSystem(GameContext gameContext, ICursorService cursor)
         {
@@ -19,6 +21,11 @@ namespace HardwareStore.Gameplay.Features.StoreDay.Systems
                 GameMatcher.InteractionRequest,
                 GameMatcher.SourceEntityId,
                 GameMatcher.TargetEntityId));
+            _warehouseTasks = gameContext.GetGroup(GameMatcher.AllOf(
+                    GameMatcher.WarehouseTask,
+                    GameMatcher.WarehouseTaskStoreEntityId,
+                    GameMatcher.WarehouseTaskStep)
+                .NoneOf(GameMatcher.Destructed));
         }
 
         public void Execute()
@@ -66,6 +73,8 @@ namespace HardwareStore.Gameplay.Features.StoreDay.Systems
                 }
                 if (_gameContext.GetEntityWithCustomerVisitStoreEntityId(store.EntityId) != null)
                     continue;
+                if (HasActiveWarehouseWork(store))
+                    continue;
 
                 GameEntity player =
                     _gameContext.GetEntityWithEntityId(request.SourceEntityId);
@@ -102,6 +111,35 @@ namespace HardwareStore.Gameplay.Features.StoreDay.Systems
                 player.isCursorLocked = true;
                 _cursor.SetLocked(true);
             }
+        }
+
+        private bool HasActiveWarehouseWork(GameEntity store)
+        {
+            foreach (GameEntity task in _warehouseTasks)
+            {
+                if (task.WarehouseTaskStoreEntityId == store.EntityId &&
+                    task.WarehouseTaskStep != WarehouseTaskStepId.Blocked &&
+                    (task.hasAssignedWorkerEntityId ||
+                     task.hasWarehouseTaskReservedStorageSlotIndex))
+                {
+                    return true;
+                }
+            }
+
+            GameEntity worker =
+                _gameContext.GetEntityWithWarehouseWorkerStoreEntityId(store.EntityId);
+            if (worker == null)
+                return false;
+            if (worker.isDestructed || !worker.isWarehouseWorker ||
+                !worker.hasEntityId || !worker.hasWarehouseWorkerStoreEntityId ||
+                worker.WarehouseWorkerStoreEntityId != store.EntityId)
+            {
+                throw new InvalidOperationException(
+                    $"Store {store.EntityId} references an invalid warehouse worker.");
+            }
+
+            return worker.isHandsOccupied || worker.isCarryingProduct ||
+                   _gameContext.GetEntityWithCarrierEntityId(worker.EntityId) != null;
         }
     }
 }

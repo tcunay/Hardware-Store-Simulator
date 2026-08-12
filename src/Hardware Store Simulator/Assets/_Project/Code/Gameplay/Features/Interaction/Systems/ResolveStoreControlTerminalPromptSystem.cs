@@ -1,6 +1,8 @@
 using System;
 using Entitas;
+using HardwareStore.Gameplay.Common.Economy;
 using HardwareStore.Gameplay.Components;
+using HardwareStore.Gameplay.Configs;
 using HardwareStore.Gameplay.Localization;
 using HardwareStore.Gameplay.StaticData;
 
@@ -9,17 +11,18 @@ namespace HardwareStore.Gameplay.Features.Interaction.Systems
     public sealed class ResolveStoreControlTerminalPromptSystem : IExecuteSystem
     {
         private readonly GameContext _gameContext;
-        private readonly int _closingHour;
-        private readonly int _closingMinute;
+        private readonly WarehouseWorkerConfig _workerConfig;
+        private readonly IEconomySolvencyService _solvency;
         private readonly IGroup<GameEntity> _players;
 
-        public ResolveStoreControlTerminalPromptSystem(GameContext gameContext,
-            IStaticDataService staticData)
+        public ResolveStoreControlTerminalPromptSystem(
+            GameContext gameContext,
+            IStaticDataService staticData,
+            IEconomySolvencyService solvency)
         {
             _gameContext = gameContext;
-            int closingMinute = staticData.StoreDay.ClosingMinute;
-            _closingHour = closingMinute / 60;
-            _closingMinute = closingMinute % 60;
+            _workerConfig = staticData.WarehouseWorker;
+            _solvency = solvency;
             _players = gameContext.GetGroup(GameMatcher.AllOf(
                 GameMatcher.Player,
                 GameMatcher.EntityId,
@@ -51,6 +54,8 @@ namespace HardwareStore.Gameplay.Features.Interaction.Systems
                 !terminal.isStoreControlTerminal || !terminal.hasStoreEntityId ||
                 terminal.StoreEntityId != player.StoreEntityId || store == null ||
                 store.isDestructed || !store.isStore ||
+                !store.hasDayNumber || !store.hasMoney ||
+                !store.hasCompletedOrderCount ||
                 !store.hasStoreControlTerminalEntityId ||
                 store.StoreControlTerminalEntityId != terminal.EntityId)
             {
@@ -79,12 +84,7 @@ namespace HardwareStore.Gameplay.Features.Interaction.Systems
 
             if (store.isStoreOpen)
             {
-                player.SetInteractionPrompt(
-                    LocalizedTexts.Text(
-                        LocalizationKey.PromptStoreOpenUntil,
-                        _closingHour,
-                        _closingMinute),
-                    false);
+                ResolveOpenStorePrompt(player, store);
                 return;
             }
 
@@ -104,6 +104,24 @@ namespace HardwareStore.Gameplay.Features.Interaction.Systems
                 return;
             }
 
+            GameEntity worker =
+                _gameContext.GetEntityWithWarehouseWorkerStoreEntityId(store.EntityId);
+            if (worker != null)
+            {
+                ValidateWorker(worker, store);
+                GameEntity workerTask =
+                    _gameContext.GetEntityWithAssignedWorkerEntityId(worker.EntityId);
+                if (workerTask != null || worker.isHandsOccupied ||
+                    worker.isCarryingProduct)
+                {
+                    player.SetInteractionPrompt(
+                        LocalizedTexts.Text(
+                            LocalizationKey.PromptCloseStoreWarehouseWorkerBusy),
+                        false);
+                    return;
+                }
+            }
+
             if (player.isHandsOccupied)
             {
                 player.SetInteractionPrompt(
@@ -116,6 +134,115 @@ namespace HardwareStore.Gameplay.Features.Interaction.Systems
             player.SetInteractionPrompt(
                 LocalizedTexts.Text(LocalizationKey.PromptCloseStoreForReport),
                 true);
+        }
+
+        private void ResolveOpenStorePrompt(GameEntity player, GameEntity store)
+        {
+            GameEntity worker =
+                _gameContext.GetEntityWithWarehouseWorkerStoreEntityId(store.EntityId);
+            if (worker == null)
+            {
+                if (!store.isWarehouseWorkerHiringUnlocked)
+                {
+                    player.SetInteractionPrompt(
+                        LocalizedTexts.Text(
+                            LocalizationKey.PromptWarehouseWorkerLocked,
+                            _workerConfig.RequiredCompletedOrderCount,
+                            store.CompletedOrderCount),
+                        false);
+                    return;
+                }
+
+                ResolveDebitPrompt(
+                    player,
+                    store,
+                    _workerConfig.HirePrice,
+                    LocalizationKey.PromptHireWarehouseWorker,
+                    LocalizationKey.PromptWarehouseWorkerHireInsufficientMoney,
+                    LocalizationKey.PromptWarehouseWorkerHireWouldBlockProjects,
+                    _workerConfig.HirePrice,
+                    _workerConfig.DailyWage);
+                return;
+            }
+
+            ValidateWorker(worker, store);
+            if (worker.isWorkerShiftActive)
+            {
+                if (worker.WorkerPaidDayNumber != store.DayNumber)
+                {
+                    throw new InvalidOperationException(
+                        $"Warehouse worker {worker.EntityId} has an active unpaid shift.");
+                }
+
+                player.SetInteractionPrompt(
+                    LocalizedTexts.Text(
+                        LocalizationKey.PromptWarehouseWorkerActive,
+                        _workerConfig.DailyWage),
+                    false);
+                return;
+            }
+
+            if (worker.WorkerPaidDayNumber >= store.DayNumber)
+            {
+                throw new InvalidOperationException(
+                    $"Warehouse worker {worker.EntityId} has a paid inactive shift for day " +
+                    $"{store.DayNumber}.");
+            }
+
+            ResolveDebitPrompt(
+                player,
+                store,
+                _workerConfig.DailyWage,
+                LocalizationKey.PromptPayWarehouseWorkerShift,
+                LocalizationKey.PromptWarehouseWorkerWageInsufficientMoney,
+                LocalizationKey.PromptWarehouseWorkerWageWouldBlockProjects,
+                _workerConfig.DailyWage);
+        }
+
+        private void ResolveDebitPrompt(
+            GameEntity player,
+            GameEntity store,
+            int amount,
+            LocalizationKey availableKey,
+            LocalizationKey insufficientMoneyKey,
+            LocalizationKey unsafeKey,
+            params LocalizationArgument[] availableArguments)
+        {
+            EconomyDebitEvaluation debit = _solvency.EvaluateDebit(
+                store.EntityId,
+                amount);
+            switch (debit.Availability)
+            {
+                case EconomyDebitAvailability.Available:
+                    player.SetInteractionPrompt(
+                        LocalizedTexts.Text(availableKey, availableArguments),
+                        true);
+                    break;
+                case EconomyDebitAvailability.InsufficientMoney:
+                    player.SetInteractionPrompt(
+                        LocalizedTexts.Text(insufficientMoneyKey, amount),
+                        false);
+                    break;
+                case EconomyDebitAvailability.DemandWouldBecomeInsolvent:
+                    player.SetInteractionPrompt(
+                        LocalizedTexts.Text(unsafeKey),
+                        false);
+                    break;
+                default:
+                    throw new ArgumentOutOfRangeException();
+            }
+        }
+
+        private static void ValidateWorker(GameEntity worker, GameEntity store)
+        {
+            if (worker.isDestructed || !worker.isWarehouseWorker || !worker.hasEntityId ||
+                !worker.hasWarehouseWorkerStoreEntityId ||
+                worker.WarehouseWorkerStoreEntityId != store.EntityId ||
+                !worker.hasWorkerPaidDayNumber || !worker.hasWarehouseWorkerStatus)
+            {
+                throw new InvalidOperationException(
+                    $"Store {store.EntityId} references an invalid warehouse worker.");
+            }
         }
     }
 }

@@ -42,7 +42,8 @@ namespace HardwareStore.Gameplay.Features.Orders.Systems
                     checked(store.DayCompletedOrderCount + 1);
                 long ledgerBalanceAfterReward =
                     (long)store.DayOpeningBalance + revenueAfterReward -
-                    store.DayProcurementExpenses - store.DayUpgradeExpenses;
+                    store.DayProcurementExpenses - store.DayUpgradeExpenses -
+                    store.DayPayrollExpenses;
                 if (ledgerBalanceAfterReward != moneyAfterReward)
                 {
                     throw new InvalidOperationException(
@@ -63,10 +64,12 @@ namespace HardwareStore.Gameplay.Features.Orders.Systems
             if (store == null || !store.isStore || !store.hasEntityId ||
                 !store.hasMoney || !store.hasDayOpeningBalance ||
                 !store.hasDayRevenue || !store.hasDayProcurementExpenses ||
-                !store.hasDayUpgradeExpenses || !store.hasDayCompletedOrderCount ||
+                !store.hasDayUpgradeExpenses || !store.hasDayPayrollExpenses ||
+                !store.hasDayCompletedOrderCount ||
                 store.Money < 0 || store.DayOpeningBalance < 0 ||
                 store.DayRevenue < 0 || store.DayProcurementExpenses < 0 ||
-                store.DayUpgradeExpenses < 0 || store.DayCompletedOrderCount < 0)
+                store.DayUpgradeExpenses < 0 || store.DayPayrollExpenses < 0 ||
+                store.DayCompletedOrderCount < 0)
             {
                 throw new InvalidOperationException(
                     $"Completed visit {visit.EntityId} references an invalid store ledger.");
@@ -74,7 +77,8 @@ namespace HardwareStore.Gameplay.Features.Orders.Systems
 
             long expectedMoney =
                 (long)store.DayOpeningBalance + store.DayRevenue -
-                store.DayProcurementExpenses - store.DayUpgradeExpenses;
+                store.DayProcurementExpenses - store.DayUpgradeExpenses -
+                store.DayPayrollExpenses;
             if (expectedMoney != store.Money)
             {
                 throw new InvalidOperationException(

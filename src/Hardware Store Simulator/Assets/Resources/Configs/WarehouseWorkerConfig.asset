@@ -1,0 +1,24 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: f36fb55d5b842402b90d26cf25109573, type: 3}
+  m_Name: WarehouseWorkerConfig
+  m_EditorClassIdentifier: Assembly-CSharp::HardwareStore.Gameplay.Configs.WarehouseWorkerConfig
+  _viewPrefab: {fileID: 3186660101609175016, guid: 9060f1b5cab474a0f9611b6dfd0c43ec, type: 3}
+  _requiredCompletedOrderCount: 4
+  _hirePrice: 400
+  _dailyWage: 100
+  _movementSpeed: 2.8
+  _acceleration: 12
+  _angularSpeed: 720
+  _stoppingDistance: 0.2
+  _navigationSampleRadius: 2
+  _taskTimeout: 20
