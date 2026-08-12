@@ -12,7 +12,8 @@ namespace HardwareStore.Gameplay.Components
         CustomerOrderCounter,
         ProcurementTerminal,
         StorageZone,
-        TrolleyUpgradeTerminal
+        TrolleyUpgradeTerminal,
+        StoreControlTerminal
     }
 
     public enum SceneRouteId
@@ -44,7 +45,8 @@ namespace HardwareStore.Gameplay.Components
         Product,
         LoadingZone,
         TrolleyUpgradeTerminal,
-        PlatformTrolley
+        PlatformTrolley,
+        StoreControlTerminal
     }
 
     public enum AudioCueId

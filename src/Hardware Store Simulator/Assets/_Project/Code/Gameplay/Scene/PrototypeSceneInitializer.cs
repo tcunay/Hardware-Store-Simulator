@@ -12,6 +12,7 @@ namespace HardwareStore.Gameplay.Scene
         [SerializeField] private SceneViewMarker[] _sceneViews;
         [SerializeField] private PrototypeHudView _hudView;
         [SerializeField] private PrototypeAudioView _audioView;
+        [SerializeField] private PrototypeDayNightView _dayNightView;
 
         private IStoreSceneData _sceneData;
 
@@ -20,8 +21,8 @@ namespace HardwareStore.Gameplay.Scene
             _sceneData = sceneData;
 
         public void Configure(SpawnPointMarker[] spawnPoints, SceneRouteMarker[] routes,
-            SceneViewMarker[] sceneViews,
-            PrototypeHudView hudView, PrototypeAudioView audioView)
+            SceneViewMarker[] sceneViews, PrototypeHudView hudView,
+            PrototypeAudioView audioView, PrototypeDayNightView dayNightView)
         {
             _spawnPoints = spawnPoints != null
                 ? spawnPoints
@@ -34,6 +35,9 @@ namespace HardwareStore.Gameplay.Scene
                 : throw new ArgumentNullException(nameof(sceneViews));
             _hudView = hudView != null ? hudView : throw new ArgumentNullException(nameof(hudView));
             _audioView = audioView != null ? audioView : throw new ArgumentNullException(nameof(audioView));
+            _dayNightView = dayNightView != null
+                ? dayNightView
+                : throw new ArgumentNullException(nameof(dayNightView));
         }
 
         public void Initialize() =>
@@ -42,7 +46,8 @@ namespace HardwareStore.Gameplay.Scene
                 _routes,
                 _sceneViews,
                 _hudView,
-                _audioView);
+                _audioView,
+                _dayNightView);
 
         public void Dispose() =>
             _sceneData.Unregister();

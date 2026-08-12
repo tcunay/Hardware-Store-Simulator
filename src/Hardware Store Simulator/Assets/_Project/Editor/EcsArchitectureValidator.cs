@@ -58,6 +58,8 @@ namespace HardwareStore.Editor
             "Assets/Resources/Configs/ProductRecoveryConfig.asset";
         private const string PlatformTrolleyConfigPath =
             "Assets/Resources/Configs/PlatformTrolleyConfig.asset";
+        private const string StoreDayConfigPath =
+            "Assets/Resources/Configs/StoreDayConfig.asset";
         private const string CementProjectConfigPath =
             "Assets/Resources/Configs/CustomerProjectConfig_CementFoundation.asset";
         private const string LumberProjectConfigPath =
@@ -180,7 +182,8 @@ namespace HardwareStore.Editor
             typeof(CustomerProjectConfig),
             typeof(ProductConfig),
             typeof(ProductRecoveryConfig),
-            typeof(PlatformTrolleyConfig)
+            typeof(PlatformTrolleyConfig),
+            typeof(StoreDayConfig)
         };
 
         private static readonly (Type Type, string AssetPath)[] ExpectedSingletonGameplayConfigs =
@@ -191,7 +194,8 @@ namespace HardwareStore.Editor
             (typeof(CustomerVehicleConfig), CustomerVehicleConfigPath),
             (typeof(CustomerConfig), CustomerConfigPath),
             (typeof(ProductRecoveryConfig), ProductRecoveryConfigPath),
-            (typeof(PlatformTrolleyConfig), PlatformTrolleyConfigPath)
+            (typeof(PlatformTrolleyConfig), PlatformTrolleyConfigPath),
+            (typeof(StoreDayConfig), StoreDayConfigPath)
         };
 
         [MenuItem(MenuPath, priority = 120)]
@@ -220,6 +224,7 @@ namespace HardwareStore.Editor
             ValidateInputContract();
             ValidateLegacyTypesAreAbsent(runtimeTypes);
             ValidateStoreArchitecture(componentTypes);
+            ValidateStoreDayArchitecture(runtimeTypes, componentTypes);
             ValidateEntityViewBindingBoundary(runtimeTypes, componentTypes);
             ValidateEntityIndices(runtimeTypes, componentTypes);
             ValidateContextAwareInteractionFocus();
@@ -486,6 +491,9 @@ namespace HardwareStore.Editor
             Require(discoveredComponents.Contains(typeof(CustomerDepartureDelayRemaining)),
                 $"{nameof(CustomerDepartureDelayRemaining)} must be declared as a single-value " +
                 "Game component.");
+            Require(discoveredComponents.Contains(typeof(StoreControlTerminal)) &&
+                    discoveredComponents.Contains(typeof(StoreControlTerminalEntityId)),
+                "The store must own one authored control terminal through an explicit relation.");
             Require(typeof(IStoreFactory).IsAssignableFrom(typeof(StoreFactory)),
                 $"{nameof(StoreFactory)} must implement {nameof(IStoreFactory)}.");
 
@@ -495,6 +503,490 @@ namespace HardwareStore.Editor
             Require(createMethod != null && createMethod.ReturnType == typeof(GameEntity),
                 $"{nameof(IStoreFactory)} must create and return a Store GameEntity from " +
                 $"{nameof(IStoreSceneData)}.");
+
+            RequireMethod(
+                typeof(IInteractionTargetFactory),
+                nameof(IInteractionTargetFactory.CreateStoreControlTerminal),
+                typeof(GameEntity),
+                typeof(int));
+        }
+
+        private static void ValidateStoreDayArchitecture(
+            Type[] runtimeTypes,
+            IEnumerable<Type> componentTypes)
+        {
+            var discoveredComponents = new HashSet<Type>(componentTypes);
+            Type[] dayComponents =
+            {
+                typeof(StorePreparing),
+                typeof(StoreOpen),
+                typeof(StoreClosing),
+                typeof(DayReportOpen),
+                typeof(StoreControlTerminal),
+                typeof(DayNumber),
+                typeof(CurrentDayMinute),
+                typeof(DayOpeningBalance),
+                typeof(DayRevenue),
+                typeof(DayProcurementExpenses),
+                typeof(DayUpgradeExpenses),
+                typeof(DayCompletedOrderCount),
+                typeof(StoreControlTerminalEntityId),
+                typeof(DayReportStoreEntityId)
+            };
+            foreach (Type component in dayComponents)
+            {
+                Require(discoveredComponents.Contains(component),
+                    $"Store day gameplay requires the {component.Name} Game component.");
+            }
+            RequireComponentIndexAttribute(
+                typeof(DayReportStoreEntityId),
+                "Entitas.CodeGeneration.Attributes.PrimaryEntityIndexAttribute");
+            RequireGeneratedIndexApi(
+                runtimeTypes,
+                "GetEntityWithDayReportStoreEntityId",
+                typeof(GameEntity));
+            Require(GameComponentsLookup.componentTypes.Length == 176,
+                "The day-cycle slice must add exactly fourteen components to the 162-component " +
+                "baseline.");
+
+            Type featureType = runtimeTypes.SingleOrDefault(type =>
+                type.Name == "StoreDayFeature");
+            Require(featureType != null && typeof(Feature).IsAssignableFrom(featureType),
+                "StoreDayFeature must remain an explicit Entitas feature.");
+            string[] systemNames =
+            {
+                "TickStoreDayClockSystem",
+                "ReachStoreClosingTimeSystem",
+                "OpenStoreSystem",
+                "StartNextDaySystem",
+                "OpenDayReportSystem",
+                "ValidateStoreDayStateSystem"
+            };
+            foreach (string systemName in systemNames)
+            {
+                Type systemType = runtimeTypes.SingleOrDefault(type => type.Name == systemName);
+                Require(systemType != null && typeof(IExecuteSystem).IsAssignableFrom(systemType),
+                    $"{systemName} must remain an executable Entitas system.");
+            }
+
+            string configSource = ReadRuntimeSource(
+                "Gameplay", "Configs", nameof(StoreDayConfig) + ".cs");
+            RequireSourceContains(configSource,
+                "private int _startMinute = 480",
+                "private int _closingMinute = 1200",
+                "private float _dayDurationSeconds = 480f",
+                "public int StartMinute => _startMinute",
+                "public int ClosingMinute => _closingMinute",
+                "public float DayDurationSeconds => _dayDurationSeconds");
+            StoreDayConfig config = RequireAsset<StoreDayConfig>(StoreDayConfigPath);
+            Require(config.StartMinute == 8 * 60 && config.ClosingMinute == 20 * 60 &&
+                    Mathf.Approximately(config.DayDurationSeconds, 480f),
+                $"{StoreDayConfigPath} must author an 08:00-20:00 day lasting 480 real seconds.");
+
+            string staticDataSource = ReadRuntimeSource(
+                "Gameplay", "StaticData", nameof(StaticDataService) + ".cs");
+            RequireSourceContains(staticDataSource,
+                "Load<StoreDayConfig>(nameof(StoreDayConfig))",
+                "storeDay.Validate()",
+                "StoreDay = storeDay");
+            string factorySource = ReadRuntimeSource(
+                "Gameplay", "Factories", nameof(StoreFactory) + ".cs");
+            RequireSourceContains(factorySource,
+                "AddDayNumber(1)",
+                "AddCurrentDayMinute(_staticData.StoreDay.StartMinute)",
+                "AddDayOpeningBalance(initialMoney)",
+                "AddDayRevenue(0)",
+                "AddDayProcurementExpenses(0)",
+                "AddDayUpgradeExpenses(0)",
+                "AddDayCompletedOrderCount(0)",
+                "isStorePreparing = true",
+                "CreateStoreControlTerminal(store.EntityId)",
+                "AddStoreControlTerminalEntityId(storeControlTerminal.EntityId)");
+
+            string featureSource = ReadRuntimeSource(
+                "Gameplay", "Features", "StoreDay", "StoreDayFeature.cs");
+            int previousSystemIndex = -1;
+            foreach (string systemName in systemNames)
+            {
+                string token = $"Create<{systemName}>()";
+                int systemIndex = featureSource.IndexOf(token, StringComparison.Ordinal);
+                Require(systemIndex > previousSystemIndex &&
+                        CountOccurrences(featureSource, token) == 1,
+                    $"StoreDayFeature must execute {string.Join(" -> ", systemNames)} exactly once.");
+                previousSystemIndex = systemIndex;
+            }
+
+            string storeFeatureSource = ReadRuntimeSource("Gameplay", "StoreFeature.cs");
+            int interactionIndex = storeFeatureSource.IndexOf(
+                "Create<InteractionFeature>()", StringComparison.Ordinal);
+            int dayIndex = storeFeatureSource.IndexOf(
+                "Create<StoreDayFeature>()", StringComparison.Ordinal);
+            int procurementIndex = storeFeatureSource.IndexOf(
+                "Create<ProcurementFeature>()", StringComparison.Ordinal);
+            Require(interactionIndex >= 0 && dayIndex > interactionIndex &&
+                    procurementIndex > dayIndex &&
+                    CountOccurrences(storeFeatureSource, "Create<StoreDayFeature>()") == 1,
+                "StoreFeature must resolve store-day interactions once after world interaction " +
+                "and before procurement.");
+
+            string tickSource = ReadRuntimeSource(
+                "Gameplay", "Features", "StoreDay", "Systems",
+                "TickStoreDayClockSystem.cs");
+            RequireSourceContains(tickSource,
+                "GameMatcher.StoreOpen",
+                "GameMatcher.CurrentDayMinute",
+                ".NoneOf(GameMatcher.Destructed)",
+                "(config.ClosingMinute - config.StartMinute) / config.DayDurationSeconds",
+                "_time.DeltaTime * _minutesPerSecond");
+            string reachClosingSource = ReadRuntimeSource(
+                "Gameplay", "Features", "StoreDay", "Systems",
+                "ReachStoreClosingTimeSystem.cs");
+            RequireSourceContains(reachClosingSource,
+                "GameMatcher.StoreOpen",
+                "store.ReplaceCurrentDayMinute(_closingMinute)",
+                "store.isStoreOpen = false",
+                "store.isStoreClosing = true",
+                "store.RemoveCustomerCooldownRemaining()",
+                "LocalizationKey.NotificationStoreClosingTime");
+
+            string spawnCustomerSource = ReadRuntimeSource(
+                "Gameplay", "Features", "Customers", "Systems",
+                "SpawnCustomerVisitSystem.cs");
+            string tickCooldownSource = ReadRuntimeSource(
+                "Gameplay", "Features", "Customers", "Systems",
+                "TickCustomerCooldownSystem.cs");
+            string completeDepartureSource = ReadRuntimeSource(
+                "Gameplay", "Features", "Customers", "Systems",
+                "CompleteCustomerVehicleDepartureSystem.cs");
+            RequireSourceContains(spawnCustomerSource, "GameMatcher.StoreOpen");
+            RequireSourceContains(tickCooldownSource, "GameMatcher.StoreOpen");
+            RequireSourceContains(completeDepartureSource,
+                "!store.isStoreOpen && !store.isStoreClosing",
+                "if (store.isStoreOpen)",
+                "store.AddCustomerCooldownRemaining(_config.NextCustomerDelay)");
+
+            string openStoreSource = ReadRuntimeSource(
+                "Gameplay", "Features", "StoreDay", "Systems", "OpenStoreSystem.cs");
+            RequireSourceContains(openStoreSource,
+                "GameMatcher.InteractionRequest",
+                "terminal.isStoreControlTerminal",
+                "store.isStorePreparing",
+                "store.isStoreOpen = true",
+                "store.AddCustomerCooldownRemaining(_firstCustomerDelay)",
+                "LocalizationKey.NotificationStoreOpened");
+            string openReportSource = ReadRuntimeSource(
+                "Gameplay", "Features", "StoreDay", "Systems", "OpenDayReportSystem.cs");
+            RequireSourceContains(openReportSource,
+                "store.isStoreClosing",
+                "GetEntityWithCustomerVisitStoreEntityId(store.EntityId)",
+                "player.isModalOpen || player.isHandsOccupied",
+                "store.isDayReportOpen = true",
+                "player.AddDayReportStoreEntityId(store.EntityId)",
+                "player.isModalOpen = true");
+            string startNextDaySource = ReadRuntimeSource(
+                "Gameplay", "Features", "StoreDay", "Systems", "StartNextDaySystem.cs");
+            RequireSourceContains(startNextDaySource,
+                "InputMatcher.ConfirmPressed",
+                "GameMatcher.DayReportStoreEntityId",
+                "store.ReplaceDayNumber(nextDayNumber)",
+                "store.ReplaceCurrentDayMinute(_startMinute)",
+                "store.ReplaceDayOpeningBalance(openingBalance)",
+                "store.ReplaceDayRevenue(0)",
+                "store.ReplaceDayProcurementExpenses(0)",
+                "store.ReplaceDayUpgradeExpenses(0)",
+                "store.ReplaceDayCompletedOrderCount(0)",
+                "store.isStorePreparing = true",
+                "player.RemoveDayReportStoreEntityId()");
+            Require(!startNextDaySource.Contains("ReplaceMoney", StringComparison.Ordinal) &&
+                    !startNextDaySource.Contains("NextProjectSequenceIndex", StringComparison.Ordinal) &&
+                    !startNextDaySource.Contains("ReplaceCompletedOrderCount(", StringComparison.Ordinal) &&
+                    !startNextDaySource.Contains("StorageProductCount", StringComparison.Ordinal) &&
+                    !startNextDaySource.Contains("Delivery", StringComparison.Ordinal) &&
+                    !startNextDaySource.Contains("Trolley", StringComparison.Ordinal),
+                "Starting the next day must reset only the daily clock/ledger/modal and preserve " +
+                "money, stock, delivery, trolley, progression and project sequence state.");
+            string validationSource = ReadRuntimeSource(
+                "Gameplay", "Features", "StoreDay", "Systems",
+                "ValidateStoreDayStateSystem.cs");
+            RequireSourceContains(validationSource,
+                "phaseCount != 1",
+                "store.DayOpeningBalance + store.DayRevenue",
+                "store.DayProcurementExpenses - store.DayUpgradeExpenses",
+                "store.isStorePreparing",
+                "store.isStoreOpen",
+                "store.isStoreClosing",
+                "store.isDayReportOpen",
+                "player.isModalOpen || player.isHandsOccupied");
+
+            string purchaseDeliverySource = ReadRuntimeSource(
+                "Gameplay", "Features", "Delivery", "Systems",
+                "PurchaseDeliverySystem.cs");
+            RequireSourceContains(purchaseDeliverySource,
+                "store.DayProcurementExpenses + evaluation.DeliveryCost",
+                "ledgerBalanceAfterPurchase != moneyAfterPurchase",
+                "store.ReplaceMoney(moneyAfterPurchase)",
+                "store.ReplaceDayProcurementExpenses(procurementExpensesAfterPurchase)",
+                "request.isPurchaseDeliverySucceeded = true");
+            RequireSourceOrder(
+                purchaseDeliverySource,
+                "if (!evaluation.CanPurchase)",
+                "store.ReplaceDayProcurementExpenses(procurementExpensesAfterPurchase)",
+                "A rejected procurement request must leave the day ledger untouched.");
+            string rewardSource = ReadRuntimeSource(
+                "Gameplay", "Features", "Orders", "Systems",
+                "RewardCompletedOrderSystem.cs");
+            RequireSourceContains(rewardSource,
+                "GameMatcher.OrderRewarded",
+                "store.DayRevenue + visit.OrderReward",
+                "store.DayCompletedOrderCount + 1",
+                "store.ReplaceDayRevenue(revenueAfterReward)",
+                "store.ReplaceDayCompletedOrderCount(completedOrdersAfterReward)",
+                "visit.isOrderRewarded = true");
+            string trolleyPurchaseSource = ReadRuntimeSource(
+                "Gameplay", "Features", "Trolley", "Systems",
+                "PurchasePlatformTrolleySystem.cs");
+            RequireSourceContains(trolleyPurchaseSource,
+                "store.DayUpgradeExpenses + _config.PurchasePrice",
+                "ledgerBalanceAfterPurchase != moneyAfterPurchase",
+                "store.ReplaceMoney(moneyAfterPurchase)",
+                "store.ReplaceDayUpgradeExpenses(upgradeExpensesAfterPurchase)");
+            RequireSourceOrder(
+                trolleyPurchaseSource,
+                "if (!debit.CanDebit)",
+                "store.ReplaceDayUpgradeExpenses(upgradeExpensesAfterPurchase)",
+                "A rejected trolley debit must leave the day ledger untouched.");
+
+            ValidateImmutableSnapshotType(typeof(DayClockSnapshot));
+            ValidateImmutableSnapshotType(typeof(DayNightSnapshot));
+            ValidateImmutableSnapshotType(typeof(DayReportSnapshot));
+            ValidateSnapshotProperties(
+                typeof(DayClockSnapshot),
+                (nameof(DayClockSnapshot.DayNumber), typeof(int)),
+                (nameof(DayClockSnapshot.CurrentDayMinute), typeof(int)),
+                (nameof(DayClockSnapshot.Phase), typeof(StoreDayPhase)));
+            ValidateSnapshotProperties(
+                typeof(DayNightSnapshot),
+                (nameof(DayNightSnapshot.NormalizedTime), typeof(float)));
+            ValidateSnapshotProperties(
+                typeof(DayReportSnapshot),
+                (nameof(DayReportSnapshot.DayNumber), typeof(int)),
+                (nameof(DayReportSnapshot.OpeningBalance), typeof(int)),
+                (nameof(DayReportSnapshot.Revenue), typeof(int)),
+                (nameof(DayReportSnapshot.ProcurementExpenses), typeof(int)),
+                (nameof(DayReportSnapshot.UpgradeExpenses), typeof(int)),
+                (nameof(DayReportSnapshot.NetCashFlow), typeof(int)),
+                (nameof(DayReportSnapshot.ClosingBalance), typeof(int)),
+                (nameof(DayReportSnapshot.CompletedOrderCount), typeof(int)),
+                (nameof(DayReportSnapshot.StorageProductCount), typeof(int)));
+            Require(typeof(DayClockSnapshot).GetConstructor(new[]
+                    {
+                        typeof(int), typeof(int), typeof(StoreDayPhase)
+                    }) != null &&
+                    typeof(DayNightSnapshot).GetConstructor(new[] { typeof(float) }) != null &&
+                    typeof(DayReportSnapshot).GetConstructor(Enumerable.Repeat(
+                        typeof(int), 8).ToArray()) != null,
+                "Store day presentation snapshots must expose their exact immutable constructors.");
+            Require(typeof(HudSnapshot).GetProperty(nameof(HudSnapshot.DayClock))
+                        ?.PropertyType == typeof(DayClockSnapshot),
+                $"{nameof(HudSnapshot)} must expose its semantic {nameof(DayClockSnapshot)}.");
+            Require(Enum.GetValues(typeof(StoreDayPhase)).Cast<StoreDayPhase>()
+                    .SequenceEqual(new[]
+                    {
+                        StoreDayPhase.Preparing,
+                        StoreDayPhase.Open,
+                        StoreDayPhase.Closing,
+                        StoreDayPhase.Report
+                    }),
+                $"{nameof(StoreDayPhase)} must expose exactly Preparing, Open, Closing and Report.");
+
+            Type promptSystem = runtimeTypes.SingleOrDefault(type =>
+                type.Name == "ResolveStoreControlTerminalPromptSystem");
+            Type dayNightSystem = runtimeTypes.SingleOrDefault(type =>
+                type.Name == "PresentDayNightSystem");
+            Type dayReportSystem = runtimeTypes.SingleOrDefault(type =>
+                type.Name == "PresentDayReportSystem");
+            Require(promptSystem != null && typeof(IExecuteSystem).IsAssignableFrom(promptSystem) &&
+                    dayNightSystem != null && typeof(IExecuteSystem).IsAssignableFrom(dayNightSystem) &&
+                    dayReportSystem != null && typeof(IExecuteSystem).IsAssignableFrom(dayReportSystem),
+                "Store control prompts and day/night/report presentation must remain explicit " +
+                "execute systems.");
+            string promptFeatureSource = ReadRuntimeSource(
+                "Gameplay", "Features", "Interaction", "InteractionPromptFeature.cs");
+            string promptToken = "Create<ResolveStoreControlTerminalPromptSystem>()";
+            Require(promptFeatureSource.TrimEnd().LastIndexOf(
+                        promptToken, StringComparison.Ordinal) >= 0 &&
+                    CountOccurrences(promptFeatureSource, promptToken) == 1 &&
+                    promptFeatureSource.IndexOf(promptToken, StringComparison.Ordinal) >
+                    promptFeatureSource.IndexOf(
+                        "Create<ResolvePlatformTrolleyPromptSystem>()",
+                        StringComparison.Ordinal),
+                "The store control prompt must resolve once after the existing specialized prompts.");
+            string promptSource = ReadRuntimeSource(
+                "Gameplay", "Features", "Interaction", "Systems",
+                "ResolveStoreControlTerminalPromptSystem.cs");
+            RequireSourceContains(promptSource,
+                "InteractionTypeId.StoreControlTerminal",
+                "LocalizationKey.PromptOpenStore",
+                "LocalizationKey.PromptStoreOpenUntil",
+                "LocalizationKey.PromptCloseStoreCustomerActive",
+                "LocalizationKey.PromptCloseStoreHandsOccupied",
+                "LocalizationKey.PromptCloseStoreForReport",
+                "GetEntityWithCustomerVisitStoreEntityId(store.EntityId)",
+                "player.isHandsOccupied");
+            string orderCounterPromptSource = ReadRuntimeSource(
+                "Gameplay", "Features", "Interaction", "Systems",
+                "ResolveOrderCounterPromptSystem.cs");
+            RequireSourceContains(orderCounterPromptSource,
+                "ResolveNoCustomerPrompt(",
+                "orderCounter.StoreEntityId",
+                "store.isStorePreparing",
+                "LocalizationKey.PromptCounterOpenStoreAtControlTerminal",
+                "store.isStoreOpen",
+                "LocalizationKey.PromptCounterWaitCustomer",
+                "store.isStoreClosing",
+                "LocalizationKey.PromptCounterFinishDayAtControlTerminal",
+                "store.isDayReportOpen");
+            RequireSourceOrder(
+                orderCounterPromptSource,
+                "if (customerVisit == null)",
+                "ResolveNoCustomerPrompt(",
+                "A missing visit must resolve its prompt from the store day phase.");
+            RequireSourceOrder(
+                orderCounterPromptSource,
+                "if (store.isStorePreparing)",
+                "if (store.isStoreOpen)",
+                "The order counter must distinguish preparation from an open cooldown.");
+            RequireSourceOrder(
+                orderCounterPromptSource,
+                "if (store.isStoreOpen)",
+                "if (store.isStoreClosing)",
+                "The order counter must distinguish an open cooldown from closing.");
+
+            string presentationFeatureSource = ReadRuntimeSource(
+                "Gameplay", "Features", "Presentation", "PresentationFeature.cs");
+            RequireSourceOrder(
+                presentationFeatureSource,
+                "Create<PresentHudSystem>()",
+                "Create<PresentDayNightSystem>()",
+                "Day/night presentation must run after the semantic HUD snapshot.");
+            RequireSourceOrder(
+                presentationFeatureSource,
+                "Create<PresentDayNightSystem>()",
+                "Create<PresentDayReportSystem>()",
+                "The environment must update before the mandatory report modal.");
+            RequireSourceOrder(
+                presentationFeatureSource,
+                "Create<PresentDayReportSystem>()",
+                "Create<PresentProcurementSystem>()",
+                "The day report must precede optional gameplay modal presenters.");
+            Require(typeof(IDayNightPresentationService).IsAssignableFrom(
+                        typeof(PrototypeDayNightView)) &&
+                    typeof(IDayNightPresentationService).IsAssignableFrom(
+                        typeof(StoreSceneData)),
+                "The scene data and prototype view must share one day/night presentation boundary.");
+            RequireMethod(
+                typeof(IDayNightPresentationService),
+                nameof(IDayNightPresentationService.Present),
+                typeof(void),
+                typeof(DayNightSnapshot));
+            RequireMethod(
+                typeof(IHudService),
+                nameof(IHudService.PresentDayReport),
+                typeof(void),
+                typeof(DayReportSnapshot?));
+            RequireMethod(
+                typeof(PrototypeDayNightView),
+                nameof(PrototypeDayNightView.Configure),
+                typeof(void),
+                typeof(Light),
+                typeof(Light[]));
+            RequireMethod(
+                typeof(PrototypeSceneInitializer),
+                nameof(PrototypeSceneInitializer.Configure),
+                typeof(void),
+                typeof(SpawnPointMarker[]),
+                typeof(SceneRouteMarker[]),
+                typeof(SceneViewMarker[]),
+                typeof(PrototypeHudView),
+                typeof(PrototypeAudioView),
+                typeof(PrototypeDayNightView));
+            string dayNightViewSource = ReadRuntimeSource(
+                "Gameplay", "Presentation", nameof(PrototypeDayNightView) + ".cs");
+            RequireSourceContains(dayNightViewSource,
+                "RequiredIndoorLightCount = 2",
+                "new Material(_originalSkybox)",
+                "HideFlags.DontSave",
+                "RenderSettings.skybox = _runtimeSkybox",
+                "_indoorNightIntensities[index] = indoorLight.intensity",
+                "ReleaseRuntimeState()");
+            string hudViewSource = ReadRuntimeSource(
+                "Gameplay", "Presentation", nameof(PrototypeHudView) + ".cs");
+            RequireSourceContains(hudViewSource,
+                "public const float NewDayFadeHoldSeconds = 0.2f",
+                "public const float NewDayFadeOutSeconds = 0.8f",
+                "Mathf.Max(0.65f",
+                "Screen.width / 1600f",
+                "Screen.height / 900f",
+                "if (_dayReport.HasValue)",
+                "float panelWidth = Mathf.Min(420f, _canvasWidth - 48f)",
+                "const float phaseTopOffset = 44f",
+                "const float horizontalPadding = 16f",
+                "_promptStyle.CalcHeight(",
+                "float panelHeight = phaseTopOffset + phaseHeight + 10f",
+                "float panelWidth = Mathf.Min(780f, _canvasWidth - 48f)",
+                "float panelHeight = Mathf.Min(650f, _canvasHeight - 64f)",
+                "ShouldStartNewDayFade(_snapshot.DayClock, snapshot.DayClock)",
+                "_newDayFadeStartedAt = Time.unscaledTime",
+                "previous.Phase == StoreDayPhase.Report",
+                "current.Phase == StoreDayPhase.Preparing",
+                "current.DayNumber == previous.DayNumber + 1",
+                "public static float EvaluateNewDayFadeAlpha(float elapsedSeconds)",
+                "elapsedSeconds <= NewDayFadeHoldSeconds",
+                "Mathf.SmoothStep(0f, 1f, fadeProgress)",
+                "new Rect(0f, 0f, _canvasWidth, _canvasHeight)");
+            Require(CountOccurrences(hudViewSource, "DrawNewDayFade();") == 4 &&
+                    hudViewSource.LastIndexOf(
+                        "DrawNewDayFade();", StringComparison.Ordinal) >
+                    hudViewSource.IndexOf("DrawCursorHint();", StringComparison.Ordinal),
+                "The new-day fade must remain the final overlay for the HUD and every modal.");
+            Require(!hudViewSource.Contains("InputContext", StringComparison.Ordinal) &&
+                    !hudViewSource.Contains("ModalOpen", StringComparison.Ordinal),
+                "The presentation-only new-day fade must not capture gameplay input or modal state.");
+            RequireSourceOrder(
+                hudViewSource,
+                "if (_dayReport.HasValue)",
+                "if (_consultation.HasValue)",
+                "The mandatory day report must remain the highest-priority modal at " +
+                "1280x720 and larger viewports.");
+            RequireSourceContains(
+                ReadRuntimeSource(
+                    "Gameplay", "Features", "Presentation", "Systems",
+                    "PresentDayNightSystem.cs"),
+                "GameMatcher.CurrentDayMinute",
+                "(currentMinute - _startMinute) /",
+                "new DayNightSnapshot(normalizedTime)");
+            RequireSourceContains(
+                ReadRuntimeSource(
+                    "Gameplay", "Features", "Presentation", "Systems",
+                    "PresentDayReportSystem.cs"),
+                "GameMatcher.StoreEntityId",
+                "player.hasDayReportStoreEntityId",
+                "playerStore.isDayReportOpen",
+                "new DayReportSnapshot(",
+                "_hud.PresentDayReport(null)");
+
+            Require((int)LocalizationKey.HudDayClock == 1039 &&
+                    (int)LocalizationKey.HudDayReportContinue == 1052 &&
+                    (int)LocalizationKey.HudObjectivePreparing == 1053 &&
+                    (int)LocalizationKey.HudObjectiveClosing == 1054 &&
+                    (int)LocalizationKey.PromptOpenStore == 2081 &&
+                    (int)LocalizationKey.PromptCloseStoreForReport == 2085 &&
+                    (int)LocalizationKey.PromptCounterOpenStoreAtControlTerminal == 2086 &&
+                    (int)LocalizationKey.PromptCounterFinishDayAtControlTerminal == 2087 &&
+                    (int)LocalizationKey.NotificationStoreOpened == 3035 &&
+                    (int)LocalizationKey.NotificationStoreClosingTime == 3036 &&
+                    (int)LocalizationKey.WorldStoreControlTerminal == 4009,
+                "Store-day localization keys must preserve their assigned stable ranges and values.");
         }
 
         private static void ValidateEntityViewBindingBoundary(Type[] runtimeTypes,
@@ -1791,7 +2283,7 @@ namespace HardwareStore.Editor
                 "EconomyDebitAvailability.DemandWouldBecomeInsolvent",
                 "LocalizationKey.NotificationTrolleyPurchaseWouldBlockProjects",
                 "_trolleys.Create(spawnPose, store.EntityId)",
-                "store.ReplaceMoney(debit.MoneyAfterDebit)");
+                "store.ReplaceMoney(moneyAfterPurchase)");
             RequireSourceOrder(
                 purchaseSource,
                 "GetEntityWithTrolleyStoreEntityId(store.EntityId)",
@@ -1805,7 +2297,7 @@ namespace HardwareStore.Editor
             RequireSourceOrder(
                 purchaseSource,
                 "_trolleys.Create(spawnPose, store.EntityId)",
-                "store.ReplaceMoney(debit.MoneyAfterDebit)",
+                "store.ReplaceMoney(moneyAfterPurchase)",
                 "Purchase must create one trolley and then commit its single debit.");
 
             string trolleyPromptSource = ReadRuntimeSource(
@@ -1885,20 +2377,23 @@ namespace HardwareStore.Editor
             RequireSourceContains(followSource,
                 "ITrolleyMotionService motion",
                 "playerTransform.forward * trolley.TrolleyFollowDistance",
-                "_motion.CanMoveTo(",
+                "_motion.TryResolveMove(",
                 "trolley.Colliders",
                 "player.CharacterController",
-                "trolley.Rigidbody.position = position",
-                "trolley.Transform.SetPositionAndRotation(position, rotation)");
+                "out Pose resolvedPose",
+                "trolley.Rigidbody.position = resolvedPose.position",
+                "trolley.Rigidbody.rotation = resolvedPose.rotation",
+                "resolvedPose.position",
+                "resolvedPose.rotation");
             RequireSourceOrder(
                 followSource,
-                "_motion.CanMoveTo(",
-                "trolley.Rigidbody.position = position",
+                "_motion.TryResolveMove(",
+                "trolley.Rigidbody.position = resolvedPose.position",
                 "Trolley movement must pass its collision query before mutating Rigidbody pose.");
             RequireSourceOrder(
                 followSource,
-                "_motion.CanMoveTo(",
-                "trolley.Transform.SetPositionAndRotation(position, rotation)",
+                "_motion.TryResolveMove(",
+                "trolley.Transform.SetPositionAndRotation(",
                 "Trolley movement must pass its collision query before mutating Transform pose.");
             Require(typeof(ITrolleyMotionService).IsAssignableFrom(
                     typeof(TrolleyMotionService)),
@@ -1906,23 +2401,56 @@ namespace HardwareStore.Editor
                 $"{nameof(ITrolleyMotionService)}.");
             RequireMethod(
                 typeof(ITrolleyMotionService),
-                nameof(ITrolleyMotionService.CanMoveTo),
+                nameof(ITrolleyMotionService.TryResolveMove),
                 typeof(bool),
                 typeof(Rigidbody),
                 typeof(Collider[]),
                 typeof(CharacterController),
                 typeof(Vector3),
-                typeof(Quaternion));
+                typeof(Quaternion),
+                typeof(Pose).MakeByRefType());
             string trolleyMotionSource = ReadRuntimeSource(
                 "Gameplay", "Common", "Physics", "TrolleyMotionService.cs");
             RequireSourceContains(trolleyMotionSource,
+                "private const int MaxQueryHits = 64",
+                "new RaycastHit[MaxQueryHits]",
+                "new Collider[MaxQueryHits]",
+                "public bool TryResolveMove(",
+                "out Pose resolvedPose",
+                "ValidateStepOffset(sourceController)",
+                "float stepHeight = sourceController.stepOffset",
+                "Mathf.Abs(rise) > stepHeight + PoseTolerance",
+                "Pose raisedPose = new(",
+                "Pose raisedTargetPose = new(",
+                "resolvedPose = targetPose",
                 "BoxCastNonAlloc(",
                 "OverlapBoxNonAlloc(",
+                "UnityEngine.Physics.ComputePenetration(",
+                "float contactProbeDistance = ContactProbeDistance()",
+                "if (hitDistance > PoseTolerance)",
+                "UnityEngine.Physics.defaultContactOffset",
+                "return contactOffset + PoseTolerance",
+                "hitDistance + contactProbeDistance",
+                "PenetrationTolerance",
                 "UnityEngine.Physics.AllLayers",
                 "QueryTriggerInteraction.Ignore",
                 "enabledSolidColliderCount != 1",
                 "candidate == sourceController",
                 "EnsureBufferWasNotSaturated(");
+            RequireSourceOrder(
+                trolleyMotionSource,
+                "if (hitDistance > PoseTolerance)",
+                "hitDistance + contactProbeDistance",
+                "A positive-distance trolley sweep hit must block before the near-contact " +
+                "recovery probe.");
+            Require(CountOccurrences(trolleyMotionSource, "!IsPathClear(") == 3,
+                "The trolley curb fallback must validate exactly three bounded path segments: " +
+                "rise, traverse and settle.");
+            Require(!trolleyMotionSource.Contains(
+                        "UnityEngine.Physics.BoxCast(", StringComparison.Ordinal) &&
+                    !trolleyMotionSource.Contains(
+                        "UnityEngine.Physics.OverlapBox(", StringComparison.Ordinal),
+                "Trolley motion must keep its sweep and overlap queries non-allocating.");
             RequireSourceContains(bootstrapSource,
                 "Bind<ITrolleyMotionService>().To<TrolleyMotionService>().AsSingle()");
             string emitInteractionSource = ReadRuntimeSource(
@@ -2667,6 +3195,7 @@ namespace HardwareStore.Editor
                 "derived capacity, cost, revenue and profit.");
             Require(typeof(HudSnapshot).GetConstructor(new[]
                     {
+                        typeof(DayClockSnapshot),
                         typeof(HudOrderState),
                         typeof(CustomerProjectTypeId?),
                         typeof(OrderLineSnapshot[]),
@@ -2918,7 +3447,7 @@ namespace HardwareStore.Editor
                 "LocalizationKey.NotificationPurchaseWouldBlockOrder",
                 "LocalizationKey.NotificationPurchaseWouldBlockForecast",
                 "_deliveryFactory.Create",
-                "store.ReplaceMoney(evaluation.MoneyAfterPurchase)",
+                "store.ReplaceMoney(moneyAfterPurchase)",
                 "request.isPurchaseDeliverySucceeded = true");
             Require(!purchaseSource.Contains("GameMatcher.InteractionRequest", StringComparison.Ordinal),
                 "Purchasing must consume only the dedicated purchase request.");
@@ -3615,6 +4144,9 @@ namespace HardwareStore.Editor
                 $"The only TransformRegistrar in {PlayerPrefabPath} must be on the prefab root.");
             Require(characterRegistrars[0].gameObject == prefab && controllers[0].gameObject == prefab,
                 $"CharacterController and its registrar in {PlayerPrefabPath} must be on the prefab root.");
+            Require(Mathf.Approximately(controllers[0].stepOffset, 0.32f),
+                $"{PlayerPrefabPath} must author a 0.32 metre step offset shared by player and " +
+                "trolley threshold traversal.");
             Require(cameraRegistrars[0].gameObject == cameras[0].gameObject &&
                     listeners[0].gameObject == cameras[0].gameObject,
                 $"Camera, CameraRegistrar and AudioListener in {PlayerPrefabPath} must share one object.");
@@ -4496,6 +5028,10 @@ namespace HardwareStore.Editor
 
             try
             {
+                // The builder leaves the freshly-authored scene loaded. With automatic
+                // transform syncing disabled, Collider.bounds can otherwise still describe
+                // the primitive's pre-authoring unit pose instead of its saved transform.
+                Physics.SyncTransforms();
                 SceneContext[] contexts = FindComponentsInScene<SceneContext>(scene);
                 SceneInitializationInstaller[] installers =
                     FindComponentsInScene<SceneInitializationInstaller>(scene);
@@ -4511,6 +5047,9 @@ namespace HardwareStore.Editor
                 SlotsRegistrar[] slotRegistrars = FindComponentsInScene<SlotsRegistrar>(scene);
                 PrototypeHudView[] hudViews = FindComponentsInScene<PrototypeHudView>(scene);
                 PrototypeAudioView[] audioViews = FindComponentsInScene<PrototypeAudioView>(scene);
+                PrototypeDayNightView[] dayNightViews =
+                    FindComponentsInScene<PrototypeDayNightView>(scene);
+                Light[] sceneLights = FindComponentsInScene<Light>(scene);
                 LocalizedTextMeshView[] localizedWorldLabels =
                     FindComponentsInScene<LocalizedTextMeshView>(scene);
 
@@ -4550,11 +5089,35 @@ namespace HardwareStore.Editor
                 Require(new HashSet<SceneViewMarker>(configuredSceneViews).SetEquals(sceneViews) &&
                         configuredSceneViews.Length == sceneViews.Length,
                     $"{nameof(PrototypeSceneInitializer)} does not reference the static scene view set.");
-                Require(hudViews.Length == 1 && audioViews.Length == 1,
-                    $"{PrototypeScenePath} must contain exactly one HUD and one audio view.");
+                Require(hudViews.Length == 1 && audioViews.Length == 1 &&
+                        dayNightViews.Length == 1,
+                    $"{PrototypeScenePath} must contain exactly one HUD, audio and day/night view.");
                 Require(serializedInitializer.FindProperty("_hudView")?.objectReferenceValue == hudViews[0] &&
-                        serializedInitializer.FindProperty("_audioView")?.objectReferenceValue == audioViews[0],
-                    $"{nameof(PrototypeSceneInitializer)} must reference the scene HUD and audio views.");
+                        serializedInitializer.FindProperty("_audioView")?.objectReferenceValue == audioViews[0] &&
+                        serializedInitializer.FindProperty("_dayNightView")?.objectReferenceValue ==
+                        dayNightViews[0],
+                    $"{nameof(PrototypeSceneInitializer)} must reference the scene HUD, audio and " +
+                    "day/night views.");
+                SerializedObject serializedDayNight = new(dayNightViews[0]);
+                Light configuredSun = serializedDayNight.FindProperty("_sun")?.objectReferenceValue as Light;
+                Light[] configuredIndoorLights = ReadObjectArray<Light>(
+                    serializedDayNight,
+                    "_indoorLights",
+                    nameof(PrototypeDayNightView));
+                Require(sceneLights.Length == 3 &&
+                        configuredSun != null && configuredSun.gameObject.scene == scene &&
+                        configuredSun.name == "Sun" &&
+                        configuredSun.type == LightType.Directional &&
+                        configuredIndoorLights.Length == 2 &&
+                        configuredIndoorLights.All(light =>
+                            light != null && light.gameObject.scene == scene &&
+                            light.type == LightType.Point && light.intensity > 0f) &&
+                        configuredIndoorLights.Select(light => light.name).SequenceEqual(
+                            new[] { "Shop Light", "Warehouse Light" }) &&
+                        new HashSet<Light>(configuredIndoorLights.Append(configuredSun))
+                            .SetEquals(sceneLights),
+                    $"{nameof(PrototypeDayNightView)} must reference the scene's one directional " +
+                    "Sun and exactly the Shop/Warehouse point lights with authored night intensity.");
                 Require(characterRegistrars.Length == 0,
                     $"{PrototypeScenePath} must not contain CharacterControllerRegistrar; " +
                     "the player view is instantiated from its prefab at runtime.");
@@ -4656,7 +5219,8 @@ namespace HardwareStore.Editor
                     SceneViewId.CustomerOrderCounter,
                     SceneViewId.ProcurementTerminal,
                     SceneViewId.StorageZone,
-                    SceneViewId.TrolleyUpgradeTerminal
+                    SceneViewId.TrolleyUpgradeTerminal,
+                    SceneViewId.StoreControlTerminal
                 };
                 var actualSceneViewIds = new HashSet<SceneViewId>(sceneViews.Select(marker => marker.Id));
                 Require(sceneViews.Length == expectedSceneViewIds.Count &&
@@ -4666,7 +5230,7 @@ namespace HardwareStore.Editor
                     "Every static scene view marker must reference an InteractionView on the same object.");
                 Require(entityViews.Length == sceneViews.Length &&
                         new HashSet<EntityBehaviour>(sceneViews.Select(marker => marker.View)).SetEquals(entityViews),
-                    $"{PrototypeScenePath} must contain only the four marked static entity views.");
+                    $"{PrototypeScenePath} must contain only the five marked static entity views.");
                 Require(slotRegistrars.Length == 1,
                     $"{PrototypeScenePath} must contain scene slots only for storage.");
 
@@ -4723,6 +5287,19 @@ namespace HardwareStore.Editor
                     candidate.parent.name == "Materials Storage");
                 Require(storagePad != null && storagePad.GetComponent<Renderer>() != null,
                     "Materials Storage must retain one visible storage pad.");
+                BoxCollider storageThreshold = storagePad.GetComponent<BoxCollider>();
+                Require(storagePad.position == new Vector3(5f, 0.1f, 6.5f) &&
+                        storagePad.rotation == Quaternion.identity &&
+                        storagePad.lossyScale == new Vector3(7.5f, 0.2f, 6.5f) &&
+                        storageThreshold != null && storageThreshold.enabled &&
+                        !storageThreshold.isTrigger &&
+                        storageThreshold.gameObject.layer == LayerMask.NameToLayer("Default") &&
+                        storageThreshold.center == Vector3.zero &&
+                        storageThreshold.size == Vector3.one &&
+                        Mathf.Approximately(storageThreshold.bounds.min.y, 0f) &&
+                        Mathf.Approximately(storageThreshold.bounds.max.y, 0.2f),
+                    "The authored Storage Pad must remain a solid 0.20 metre warehouse " +
+                    "threshold below the player's validated 0.32 metre step limit.");
                 InteractionHighlight storagePadHighlight =
                     storagePad.GetComponent<InteractionHighlight>();
                 SerializedProperty storageHighlightProperty =
@@ -4802,6 +5379,37 @@ namespace HardwareStore.Editor
                     "on yard level, and its station pad must remain decorative so it cannot " +
                     "block the trolley's first collision-safe movement.");
 
+                SceneViewMarker storeControlTerminal = sceneViews.Single(
+                    marker => marker.Id == SceneViewId.StoreControlTerminal);
+                Require(storeControlTerminal.name == "Store Control Terminal" &&
+                        storeControlTerminal.transform.parent != null &&
+                        storeControlTerminal.transform.parent.name == "Store Control Station" &&
+                        storeControlTerminal.transform.position == new Vector3(-5f, 1.22f, 0f) &&
+                        storeControlTerminal.transform.rotation == Quaternion.identity &&
+                        storeControlTerminal.transform.lossyScale ==
+                        new Vector3(1.65f, 0.72f, 0.18f),
+                    "The store control terminal must remain a distinct station beside the kiosk " +
+                    "entrance, away from the customer and procurement counter controls.");
+                Require(storeControlTerminal.GetComponent<InteractionViewRegistrar>() != null &&
+                        storeControlTerminal.GetComponent<SlotsRegistrar>() == null,
+                    "The store control terminal must use only the generic interaction registrar.");
+                Collider[] storeControlColliders =
+                    storeControlTerminal.GetComponents<Collider>();
+                Require(storeControlColliders.Length == 1 &&
+                        storeControlColliders[0] is BoxCollider controlTrigger &&
+                        controlTrigger.enabled && controlTrigger.isTrigger &&
+                        controlTrigger.gameObject.layer == LayerMask.NameToLayer("Default") &&
+                        controlTrigger.center == new Vector3(0f, 0f, -2f) &&
+                        controlTrigger.size == new Vector3(1.35f, 2.8f, 5f),
+                    "The store control terminal must expose one authored interaction trigger.");
+                Require(Vector3.Distance(
+                            storeControlTerminal.transform.position,
+                            customerOrderTerminal.position) > 2.5f &&
+                        storeControlTerminal.transform.position.z <
+                        customerCounterBounds.min.z - 0.2f,
+                    "The store control station must stay near the accessible kiosk entrance " +
+                    "without crowding either customer-facing counter action.");
+
                 Transform lumberDisplay = allSceneTransforms.SingleOrDefault(
                     candidate => candidate.name == "Lumber Display");
                 Require(lumberDisplay != null,
@@ -4822,7 +5430,8 @@ namespace HardwareStore.Editor
                         LocalizationKey.WorldCustomerLoadingBay,
                         LocalizationKey.WorldDeliveryIntake,
                         LocalizationKey.WorldBoardProductLabel,
-                        LocalizationKey.WorldTrolleyUpgrade
+                        LocalizationKey.WorldTrolleyUpgrade,
+                        LocalizationKey.WorldStoreControlTerminal
                     },
                     PrototypeScenePath);
                 LocalizedTextMeshView trolleyUpgradeLabel = localizedWorldLabels.Single(

@@ -11,6 +11,7 @@ namespace HardwareStore.Gameplay.StaticData
         EconomyConfig Economy { get; }
         ProductRecoveryConfig ProductRecovery { get; }
         PlatformTrolleyConfig PlatformTrolley { get; }
+        StoreDayConfig StoreDay { get; }
         CustomerConfig Customer { get; }
         CustomerVehicleConfig CustomerVehicle { get; }
         IReadOnlyList<ProductTypeId> ProductTypes { get; }

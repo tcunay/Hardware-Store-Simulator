@@ -18,7 +18,8 @@ namespace HardwareStore.Gameplay.Features.Player.Systems
             {
                 int modalRelationCount =
                     (player.hasConsultationVisitEntityId ? 1 : 0) +
-                    (player.hasProcurementTerminalEntityId ? 1 : 0);
+                    (player.hasProcurementTerminalEntityId ? 1 : 0) +
+                    (player.hasDayReportStoreEntityId ? 1 : 0);
                 int expectedRelationCount = player.isModalOpen ? 1 : 0;
                 if (modalRelationCount != expectedRelationCount)
                 {

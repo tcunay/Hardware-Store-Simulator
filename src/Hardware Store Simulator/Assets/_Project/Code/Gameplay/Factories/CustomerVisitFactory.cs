@@ -75,7 +75,8 @@ namespace HardwareStore.Gameplay.Factories
         {
             if (store == null)
                 throw new ArgumentNullException(nameof(store));
-            if (!store.isStore || !store.hasEntityId || !store.hasStorageZoneEntityId ||
+            if (!store.isStore || !store.isStoreOpen || !store.hasEntityId ||
+                !store.hasStorageZoneEntityId ||
                 !store.hasNextProjectSequenceIndex)
                 throw new InvalidOperationException("A customer visit requires a configured store.");
             if (!store.hasCustomerCooldownRemaining)

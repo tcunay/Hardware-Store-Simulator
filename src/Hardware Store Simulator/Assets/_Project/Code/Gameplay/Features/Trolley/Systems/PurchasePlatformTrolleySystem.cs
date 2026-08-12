@@ -105,11 +105,25 @@ namespace HardwareStore.Gameplay.Features.Trolley.Systems
                         "with the validated money balance.");
                 }
 
+                int moneyAfterPurchase = checked(store.Money - _config.PurchasePrice);
+                int upgradeExpensesAfterPurchase = checked(
+                    store.DayUpgradeExpenses + _config.PurchasePrice);
+                long ledgerBalanceAfterPurchase =
+                    (long)store.DayOpeningBalance + store.DayRevenue -
+                    store.DayProcurementExpenses - upgradeExpensesAfterPurchase;
+                if (moneyAfterPurchase != debit.MoneyAfterDebit ||
+                    ledgerBalanceAfterPurchase != moneyAfterPurchase)
+                {
+                    throw new InvalidOperationException(
+                        $"Trolley purchase would invalidate store {store.EntityId} day ledger.");
+                }
+
                 var spawnPose = new Pose(
                     terminal.TrolleySpawnPosition,
                     terminal.TrolleySpawnRotation);
                 _trolleys.Create(spawnPose, store.EntityId);
-                store.ReplaceMoney(debit.MoneyAfterDebit);
+                store.ReplaceMoney(moneyAfterPurchase);
+                store.ReplaceDayUpgradeExpenses(upgradeExpensesAfterPurchase);
                 _events.EmitNotification(LocalizedTexts.Text(
                     LocalizationKey.NotificationTrolleyPurchased,
                     _config.PurchasePrice));
@@ -142,11 +156,22 @@ namespace HardwareStore.Gameplay.Features.Trolley.Systems
         {
             if (store == null || !store.isStore || !store.hasEntityId ||
                 !store.hasMoney || !store.hasCompletedOrderCount ||
+                !store.hasDayOpeningBalance || !store.hasDayRevenue ||
+                !store.hasDayProcurementExpenses || !store.hasDayUpgradeExpenses ||
                 !store.hasTrolleyUpgradeTerminalEntityId ||
                 store.TrolleyUpgradeTerminalEntityId != terminal.EntityId)
             {
                 throw new InvalidOperationException(
                     $"Trolley terminal {terminal.EntityId} has an invalid store relation.");
+            }
+            if (store.Money < 0 || store.DayOpeningBalance < 0 ||
+                store.DayRevenue < 0 || store.DayProcurementExpenses < 0 ||
+                store.DayUpgradeExpenses < 0 ||
+                (long)store.DayOpeningBalance + store.DayRevenue -
+                store.DayProcurementExpenses - store.DayUpgradeExpenses != store.Money)
+            {
+                throw new InvalidOperationException(
+                    $"Store {store.EntityId} day ledger is inconsistent before trolley purchase.");
             }
         }
     }

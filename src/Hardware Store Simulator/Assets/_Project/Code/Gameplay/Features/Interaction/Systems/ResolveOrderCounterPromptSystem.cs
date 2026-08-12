@@ -38,7 +38,8 @@ namespace HardwareStore.Gameplay.Features.Interaction.Systems
                 if (customerVisit == null)
                 {
                     player.SetInteractionPrompt(
-                        LocalizedTexts.Text(LocalizationKey.PromptCounterWaitCustomer),
+                        LocalizedTexts.Text(ResolveNoCustomerPrompt(
+                            orderCounter.StoreEntityId)),
                         false);
                     continue;
                 }
@@ -101,6 +102,32 @@ namespace HardwareStore.Gameplay.Features.Interaction.Systems
                         LocalizationKey.PromptOrderCompletedCustomerLeaving),
                     false);
             }
+        }
+
+        private LocalizationKey ResolveNoCustomerPrompt(int storeEntityId)
+        {
+            GameEntity store = _gameContext.GetEntityWithEntityId(storeEntityId);
+            if (store == null || store.isDestructed || !store.isStore)
+            {
+                throw new InvalidOperationException(
+                    $"Order counter references invalid store {storeEntityId}.");
+            }
+
+            if (store.isStorePreparing)
+                return LocalizationKey.PromptCounterOpenStoreAtControlTerminal;
+            if (store.isStoreOpen)
+                return LocalizationKey.PromptCounterWaitCustomer;
+            if (store.isStoreClosing)
+                return LocalizationKey.PromptCounterFinishDayAtControlTerminal;
+            if (store.isDayReportOpen)
+            {
+                throw new InvalidOperationException(
+                    $"Store {store.EntityId} cannot expose an order-counter prompt while its " +
+                    "mandatory day report is open.");
+            }
+
+            throw new InvalidOperationException(
+                $"Store {store.EntityId} has no valid day phase.");
         }
 
     }

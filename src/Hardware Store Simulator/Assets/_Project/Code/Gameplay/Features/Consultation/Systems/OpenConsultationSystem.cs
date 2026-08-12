@@ -48,7 +48,8 @@ namespace HardwareStore.Gameplay.Features.Consultation.Systems
                 if (visit == null || !visit.isCustomerVisitConsulting)
                     continue;
                 if (player.hasConsultationVisitEntityId ||
-                    player.hasProcurementTerminalEntityId)
+                    player.hasProcurementTerminalEntityId ||
+                    player.hasDayReportStoreEntityId)
                 {
                     throw new System.InvalidOperationException(
                         $"Player {player.EntityId} has a modal relation without ModalOpen.");

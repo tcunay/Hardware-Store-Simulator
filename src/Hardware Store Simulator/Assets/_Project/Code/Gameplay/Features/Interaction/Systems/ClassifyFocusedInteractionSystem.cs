@@ -56,6 +56,8 @@ namespace HardwareStore.Gameplay.Features.Interaction.Systems
                 return InteractionTypeId.TrolleyUpgradeTerminal;
             if (target.isPlatformTrolley)
                 return InteractionTypeId.PlatformTrolley;
+            if (target.isStoreControlTerminal)
+                return InteractionTypeId.StoreControlTerminal;
 
             throw new InvalidOperationException(
                 $"Entity {target.EntityId} is interactable without a supported role.");

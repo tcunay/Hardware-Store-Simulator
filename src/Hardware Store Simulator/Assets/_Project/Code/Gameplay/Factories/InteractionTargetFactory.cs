@@ -63,5 +63,14 @@ namespace HardwareStore.Gameplay.Factories
                 .With(x => x.isTrolleyUpgradeTerminal = true)
                 .With(x => x.isInteractable = true);
         }
+
+        public GameEntity CreateStoreControlTerminal(int storeEntityId)
+        {
+            return CreateEntity.Empty(_identifiers.Next())
+                .AddStoreEntityId(storeEntityId)
+                .AddSceneViewKey(SceneViewId.StoreControlTerminal)
+                .With(x => x.isStoreControlTerminal = true)
+                .With(x => x.isInteractable = true);
+        }
     }
 }

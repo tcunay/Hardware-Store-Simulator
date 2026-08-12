@@ -22,6 +22,7 @@ namespace HardwareStore.Gameplay.StaticData
         public EconomyConfig Economy { get; private set; }
         public ProductRecoveryConfig ProductRecovery { get; private set; }
         public PlatformTrolleyConfig PlatformTrolley { get; private set; }
+        public StoreDayConfig StoreDay { get; private set; }
         public CustomerConfig Customer { get; private set; }
         public CustomerVehicleConfig CustomerVehicle { get; private set; }
         public IReadOnlyList<ProductTypeId> ProductTypes =>
@@ -40,6 +41,7 @@ namespace HardwareStore.Gameplay.StaticData
                 Load<ProductRecoveryConfig>(nameof(ProductRecoveryConfig));
             PlatformTrolleyConfig platformTrolley =
                 Load<PlatformTrolleyConfig>(nameof(PlatformTrolleyConfig));
+            StoreDayConfig storeDay = Load<StoreDayConfig>(nameof(StoreDayConfig));
             CustomerConfig customer = Load<CustomerConfig>(nameof(CustomerConfig));
             CustomerVehicleConfig customerVehicle =
                 Load<CustomerVehicleConfig>(nameof(CustomerVehicleConfig));
@@ -62,6 +64,7 @@ namespace HardwareStore.Gameplay.StaticData
             economy.Validate();
             productRecovery.Validate();
             platformTrolley.Validate();
+            storeDay.Validate();
             customer.Validate();
             customerVehicle.Validate();
             ValidateEnumCoverage<ProductTypeId, ProductConfig>(products, "Product");
@@ -85,6 +88,7 @@ namespace HardwareStore.Gameplay.StaticData
             Economy = economy;
             ProductRecovery = productRecovery;
             PlatformTrolley = platformTrolley;
+            StoreDay = storeDay;
             Customer = customer;
             CustomerVehicle = customerVehicle;
             _products = products;

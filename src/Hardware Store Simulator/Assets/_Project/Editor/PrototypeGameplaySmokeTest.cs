@@ -4,6 +4,7 @@ using Entitas;
 using HardwareStore.Common.Entity;
 using HardwareStore.Gameplay.Common.Economy;
 using HardwareStore.Gameplay.Common.Physics;
+using HardwareStore.Gameplay.Common.Time;
 using HardwareStore.Gameplay.Components;
 using HardwareStore.Gameplay.Configs;
 using HardwareStore.Gameplay.Features.Carrying.Systems;
@@ -22,6 +23,8 @@ using HardwareStore.Gameplay.Features.Procurement;
 using HardwareStore.Gameplay.Features.Procurement.Systems;
 using HardwareStore.Gameplay.Features.Products;
 using HardwareStore.Gameplay.Features.StorageState;
+using HardwareStore.Gameplay.Features.StoreDay;
+using HardwareStore.Gameplay.Features.StoreDay.Systems;
 using HardwareStore.Gameplay.Features.StoreSceneBindings.Systems;
 using HardwareStore.Gameplay.Features.Trolley.Systems;
 using HardwareStore.Gameplay.Localization;
@@ -41,11 +44,93 @@ namespace HardwareStore.Editor
 {
     public static class PrototypeGameplaySmokeTest
     {
+        [MenuItem("Tools/Hardware Store/Prepare Store Day Morning Visual Check")]
+        public static void PrepareStoreDayMorningVisualCheck()
+        {
+            Runtime runtime = ResolveRuntime();
+            Scenario scenario = ResolveFreshScenario(runtime);
+            runtime.Systems.Create<PresentHudSystem>().Execute();
+            runtime.Systems.Create<PresentDayNightSystem>().Execute();
+
+            Debug.Log(
+                $"[Hardware Store] Morning visual check prepared: day " +
+                $"{scenario.Store.DayNumber}, minute {scenario.Store.CurrentDayMinute:0}.");
+        }
+
+        [MenuItem("Tools/Hardware Store/Prepare Store Day Night Visual Check")]
+        public static void PrepareStoreDayNightVisualCheck()
+        {
+            Runtime runtime = ResolveRuntime();
+            Scenario scenario = ResolveFreshScenario(runtime);
+            PrepareClosingVisualState(runtime, scenario);
+            runtime.Systems.Create<PresentHudSystem>().Execute();
+            runtime.Systems.Create<PresentDayNightSystem>().Execute();
+
+            Debug.Log(
+                $"[Hardware Store] Night visual check prepared: day " +
+                $"{scenario.Store.DayNumber}, minute {scenario.Store.CurrentDayMinute:0}.");
+        }
+
+        [MenuItem("Tools/Hardware Store/Prepare Store Day Report Visual Check")]
+        public static void PrepareStoreDayReportVisualCheck()
+        {
+            Runtime runtime = ResolveRuntime();
+            Scenario scenario = ResolveFreshScenario(runtime);
+            PrepareClosingVisualState(runtime, scenario);
+            scenario.Store.ReplaceDayOpeningBalance(1000);
+            scenario.Store.ReplaceDayRevenue(900);
+            scenario.Store.ReplaceDayProcurementExpenses(600);
+            scenario.Store.ReplaceDayUpgradeExpenses(200);
+            scenario.Store.ReplaceDayCompletedOrderCount(2);
+            Require(scenario.Store.Money == 1100,
+                "Representative report values require the prototype opening balance.");
+
+            RequestInteraction(scenario.Player, scenario.StoreControlTerminal);
+            runtime.Systems.Create<OpenDayReportSystem>().Execute();
+            runtime.Systems.Create<PresentHudSystem>().Execute();
+            runtime.Systems.Create<PresentDayNightSystem>().Execute();
+            runtime.Systems.Create<PresentDayReportSystem>().Execute();
+            CleanupEvents(runtime);
+
+            Debug.Log(
+                "[Hardware Store] Store day report visual check prepared with representative " +
+                "revenue, expenses, balance, order and stock rows.");
+        }
+
+        [MenuItem("Tools/Hardware Store/Prepare Store Day Fade Visual Check")]
+        public static void PrepareStoreDayFadeVisualCheck()
+        {
+            Runtime runtime = ResolveRuntime();
+            Scenario scenario = ResolveFreshScenario(runtime);
+            PrepareClosingVisualState(runtime, scenario);
+            RequestInteraction(scenario.Player, scenario.StoreControlTerminal);
+            runtime.Systems.Create<OpenDayReportSystem>().Execute();
+            runtime.Systems.Create<PresentHudSystem>().Execute();
+            runtime.Systems.Create<PresentDayReportSystem>().Execute();
+            CleanupEvents(runtime);
+
+            scenario.Input.isConfirmPressed = true;
+            runtime.Systems.Create<StoreDayFeature>().Execute();
+            runtime.Systems.Create<PresentHudSystem>().Execute();
+            runtime.Systems.Create<PresentDayNightSystem>().Execute();
+            runtime.Systems.Create<PresentDayReportSystem>().Execute();
+            CleanupEvents(runtime);
+
+            Require(scenario.Store.DayNumber == 2 &&
+                    scenario.Store.isStorePreparing &&
+                    !scenario.Player.isModalOpen,
+                "The fade visual check did not enter Day 2 preparation.");
+            Debug.Log(
+                "[Hardware Store] Next-day fade visual check prepared. The HUD now holds black " +
+                "for 0.2 seconds and fades back to Day 2 over 0.8 seconds.");
+        }
+
         [MenuItem("Tools/Hardware Store/Prepare Consultation Visual Check")]
         public static void PrepareSupplyChainVisualCheck()
         {
             Runtime runtime = ResolveRuntime();
             Scenario scenario = ResolveFreshScenario(runtime);
+            OpenStoreForSmoke(runtime, scenario);
             CustomerVisit visit = SpawnAndParkCustomer(runtime, scenario);
             OpenConsultation(runtime, scenario, visit.Entity);
             runtime.Systems.Create<PresentConsultationSystem>().Execute();
@@ -62,6 +147,7 @@ namespace HardwareStore.Editor
         {
             Runtime runtime = ResolveRuntime();
             Scenario scenario = ResolveFreshScenario(runtime);
+            OpenStoreForSmoke(runtime, scenario);
             int mixedProjectIndex = runtime.StaticData.ProjectTypes
                 .Select((projectType, index) => (projectType, index))
                 .Single(item =>
@@ -88,6 +174,7 @@ namespace HardwareStore.Editor
         {
             Runtime runtime = ResolveRuntime();
             Scenario scenario = ResolveFreshScenario(runtime);
+            OpenStoreForSmoke(runtime, scenario);
             CustomerVisit visit = SpawnAndParkCustomer(runtime, scenario);
             CustomerProjectConfig project = runtime.StaticData.GetProject(
                 visit.Entity.CustomerProjectType);
@@ -189,8 +276,16 @@ namespace HardwareStore.Editor
                         1.7f),
                 "The trolley smoke requires price 200, two-order unlock, capacity 3, " +
                 "movement speed 3.8 and follow distance 1.7.");
+            Require(runtime.StaticData.StoreDay.StartMinute == 8 * 60 &&
+                    runtime.StaticData.StoreDay.ClosingMinute == 20 * 60 &&
+                    Mathf.Approximately(
+                        runtime.StaticData.StoreDay.DayDurationSeconds,
+                        480f),
+                "The store day smoke requires 08:00-20:00 mapped to 480 real seconds.");
+            ValidateDayClockLayoutAt1280x720(runtime);
+            ValidateNewDayFadeContract();
             ValidateTrolleyLockedAtProgress(runtime, scenario, expectedCompletedOrders: 0);
-            ValidateCooldownPresentation(runtime, scenario);
+            ValidatePreparingPresentationAndFrozenClock(runtime, scenario);
             ValidateRejectedDeliveryPurchase(
                 runtime,
                 scenario,
@@ -216,6 +311,8 @@ namespace HardwareStore.Editor
                     cementDelivery.ProductCount,
                 "The no-customer pre-purchase did not enter storage.");
             ValidateTrolleyPurchaseSafetyReserve(runtime, scenario, cement);
+            OpenStoreForSmoke(runtime, scenario);
+            ValidateCooldownPresentation(runtime, scenario);
 
             CustomerVisit firstVisit = SpawnAndParkCustomer(runtime, scenario);
             int firstCustomerActorId = firstVisit.Actor.EntityId;
@@ -419,6 +516,10 @@ namespace HardwareStore.Editor
             ValidateNoCustomerTrolleyControls(runtime, scenario, trolley);
 
             CustomerVisit thirdVisit = SpawnAndParkCustomer(runtime, scenario);
+            ReachClosingTimeWithActiveCustomer(
+                runtime,
+                scenario,
+                thirdVisit.Entity);
             Require(thirdVisit.Entity.CustomerProjectType ==
                     CustomerProjectTypeId.WorkbenchFoundation &&
                     scenario.Store.NextProjectSequenceIndex == 0,
@@ -529,7 +630,7 @@ namespace HardwareStore.Editor
             int thirdVisitId = thirdVisit.Entity.EntityId;
             DepartAndCleanupCustomer(
                 runtime, scenario, thirdVisit, thirdOrderLines, thirdOutboundProducts);
-            ValidateCooldownSafety(runtime, scenario);
+            ValidateClosingPreventsCustomerSpawn(runtime, scenario);
 
             Require(runtime.Game.GetEntityWithEntityId(firstVisitId) == null &&
                     runtime.Game.GetEntityWithEntityId(secondVisitId) == null &&
@@ -581,6 +682,19 @@ namespace HardwareStore.Editor
                     runtime.Game.GetEntityWithCarrierEntityId(scenario.Player.EntityId) == null,
                 "The player retained a carrier relation after both cycles.");
 
+            ValidateDayReportAndStartNextDay(
+                runtime,
+                scenario,
+                trolley,
+                expectedFinalMoney,
+                expectedFinalStock,
+                expectedRevenue: cementReward + boardReward + mixedReward,
+                expectedProcurementExpenses:
+                    cementDelivery.TotalCost * 2 + boardDelivery.TotalCost * 2,
+                expectedUpgradeExpenses:
+                    runtime.StaticData.PlatformTrolley.PurchasePrice,
+                expectedCompletedOrders: 3);
+
             Debug.Log(
                 $"[Hardware Store] Gameplay smoke passed: consultation and procurement modals, " +
                 $"free forecast prebuy, safety-reserve rejection, arrow wrap, Enter/Esc and " +
@@ -594,7 +708,9 @@ namespace HardwareStore.Editor
                 $"two-order trolley unlock, no-customer F attach/detach, E/F cargo routing, " +
                 $"single purchase, three-slot C2+B1 trolley flow, " +
                 $"collision-safe trolley stop/resume, " +
-                $"stock {expectedFinalStock}, balance {expectedFinalMoney:N0} ₽.");
+                $"08:00-20:00 day, mandatory report, fade and Day 2 persistence, " +
+                $"stock {expectedFinalStock}, balance " +
+                $"{expectedFinalMoney - cementDelivery.TotalCost:N0} ₽.");
         }
 
         private static Scenario ResolveFreshScenario(Runtime runtime)
@@ -629,7 +745,16 @@ namespace HardwareStore.Editor
                 GameMatcher.ProcurementTerminalEntityId,
                 GameMatcher.StorageZoneEntityId,
                 GameMatcher.TrolleyUpgradeTerminalEntityId,
+                GameMatcher.StoreControlTerminalEntityId,
                 GameMatcher.NextProjectSequenceIndex,
+                GameMatcher.DayNumber,
+                GameMatcher.CurrentDayMinute,
+                GameMatcher.DayOpeningBalance,
+                GameMatcher.DayRevenue,
+                GameMatcher.DayProcurementExpenses,
+                GameMatcher.DayUpgradeExpenses,
+                GameMatcher.DayCompletedOrderCount,
+                GameMatcher.StorePreparing,
                 GameMatcher.StoreSceneBindingsValidated)), "store");
             GameEntity orderCounter = RequireSingle(runtime.Game.GetGroup(GameMatcher.AllOf(
                 GameMatcher.EntityId,
@@ -664,11 +789,17 @@ namespace HardwareStore.Editor
                     GameMatcher.TrolleySpawnRotation,
                     GameMatcher.View,
                     GameMatcher.InteractionView)), "trolley upgrade terminal");
+            GameEntity storeControlTerminal = RequireSingle(runtime.Game.GetGroup(
+                GameMatcher.AllOf(
+                    GameMatcher.EntityId,
+                    GameMatcher.StoreControlTerminal,
+                    GameMatcher.StoreEntityId,
+                    GameMatcher.View,
+                    GameMatcher.InteractionView)), "store control terminal");
             InputEntity input = RequireSingle(
                 runtime.Input.GetGroup(InputMatcher.InputState),
                 "input state");
 
-            NormalizeFreshCustomerCooldown(runtime, store);
             ExecuteStorageState(runtime);
 
             Require(player.StoreEntityId == store.EntityId,
@@ -686,15 +817,31 @@ namespace HardwareStore.Editor
                     trolleyUpgradeTerminal.EntityId &&
                     trolleyUpgradeTerminal.StoreEntityId == store.EntityId,
                 "The store and trolley upgrade terminal relations are inconsistent.");
+            Require(store.StoreControlTerminalEntityId ==
+                    storeControlTerminal.EntityId &&
+                    storeControlTerminal.StoreEntityId == store.EntityId,
+                "The store and control terminal relations are inconsistent.");
             Require(!orderCounter.hasSceneViewKey &&
                     !procurementTerminal.hasSceneViewKey &&
                     !storageZone.hasSceneViewKey &&
-                    !trolleyUpgradeTerminal.hasSceneViewKey,
+                    !trolleyUpgradeTerminal.hasSceneViewKey &&
+                    !storeControlTerminal.hasSceneViewKey,
                 "SceneViewKey binder did not consume all static scene-view requests.");
             Require(runtime.Game.GetEntityWithCustomerVisitStoreEntityId(store.EntityId) == null &&
-                    store.hasCustomerCooldownRemaining &&
-                    store.CustomerCooldownRemaining > 0f,
-                "The smoke test did not start in customer cooldown.");
+                    !store.hasCustomerCooldownRemaining &&
+                    store.isStorePreparing && !store.isStoreOpen &&
+                    !store.isStoreClosing && !store.isDayReportOpen &&
+                    store.DayNumber == 1 &&
+                    Mathf.Approximately(
+                        store.CurrentDayMinute,
+                        runtime.StaticData.StoreDay.StartMinute) &&
+                    store.DayOpeningBalance == store.Money &&
+                    store.DayRevenue == 0 &&
+                    store.DayProcurementExpenses == 0 &&
+                    store.DayUpgradeExpenses == 0 &&
+                    store.DayCompletedOrderCount == 0,
+                "The smoke test must start on Day 1 in the 08:00 preparation phase " +
+                "with a zeroed ledger and no customer schedule.");
             Require(runtime.Game.GetEntityWithDeliveryProcurementTerminalEntityId(
                         procurementTerminal.EntityId) == null &&
                     runtime.Game.GetGroup(GameMatcher.Delivery).count == 0,
@@ -727,93 +874,302 @@ namespace HardwareStore.Editor
                 procurementTerminal,
                 storageZone,
                 trolleyUpgradeTerminal,
+                storeControlTerminal,
                 input);
         }
 
-        private static void NormalizeFreshCustomerCooldown(Runtime runtime, GameEntity store)
+        private static void PrepareClosingVisualState(Runtime runtime, Scenario scenario)
         {
-            GameEntity visit = runtime.Game.GetEntityWithCustomerVisitStoreEntityId(store.EntityId);
-            if (visit == null)
+            Require(scenario.Store.isStorePreparing &&
+                    !scenario.Store.hasCustomerCooldownRemaining &&
+                    runtime.Game.GetEntityWithCustomerVisitStoreEntityId(
+                        scenario.Store.EntityId) == null,
+                "Closing visual preparation requires a fresh preparing store.");
+            scenario.Store.isStorePreparing = false;
+            scenario.Store.isStoreClosing = true;
+            scenario.Store.ReplaceCurrentDayMinute(
+                runtime.StaticData.StoreDay.ClosingMinute);
+            runtime.Systems.Create<ValidateStoreDayStateSystem>().Execute();
+        }
+
+        private static void ValidateDayClockLayoutAt1280x720(Runtime runtime)
+        {
+            const float viewportWidth = 1280f;
+            const float viewportHeight = 720f;
+            float scale = Mathf.Max(
+                0.65f,
+                Mathf.Min(viewportWidth / 1600f, viewportHeight / 900f));
+            float canvasWidth = viewportWidth / scale;
+            float canvasHeight = viewportHeight / scale;
+            float panelWidth = Mathf.Min(420f, canvasWidth - 48f);
+            const float panelY = 24f;
+            const float phaseTopOffset = 44f;
+            const float horizontalPadding = 16f;
+            string phaseText = runtime.Localization.Resolve(
+                LocalizedTexts.StoreDayPhase(StoreDayPhase.Closing));
+            var promptStyle = new GUIStyle(EditorStyles.label)
             {
-                Require(store.hasCustomerCooldownRemaining,
-                    "The fresh store has neither a customer visit nor a cooldown.");
-                if (store.CustomerCooldownRemaining <= 0f)
-                {
-                    store.ReplaceCustomerCooldownRemaining(
-                        runtime.StaticData.CustomerVehicle.FirstCustomerDelay);
-                }
+                fontSize = 18,
+                fontStyle = FontStyle.Bold,
+                wordWrap = true,
+                alignment = TextAnchor.MiddleCenter
+            };
+            float phaseHeight = Mathf.Max(
+                28f,
+                promptStyle.CalcHeight(
+                    new GUIContent(phaseText),
+                    panelWidth - horizontalPadding * 2f));
+            float panelHeight = phaseTopOffset + phaseHeight + 10f;
+            Rect panel = new(
+                canvasWidth - panelWidth - 24f,
+                panelY,
+                panelWidth,
+                panelHeight);
+            Rect phase = new(
+                panel.x + horizontalPadding,
+                panel.y + phaseTopOffset,
+                panel.width - horizontalPadding * 2f,
+                phaseHeight);
 
-                return;
-            }
+            Require(Mathf.Approximately(scale, 0.8f) &&
+                    Mathf.Approximately(canvasWidth, 1600f) &&
+                    Mathf.Approximately(canvasHeight, 900f) &&
+                    phaseText == "НОВЫЕ КЛИЕНТЫ БОЛЬШЕ НЕ ПРИЕДУТ" &&
+                    phaseHeight >= 28f &&
+                    panel.x >= 0f && panel.y >= 0f &&
+                    panel.xMax <= canvasWidth - 24f &&
+                    panel.yMax <= canvasHeight &&
+                    phase.x >= panel.x && phase.y >= panel.y &&
+                    phase.xMax <= panel.xMax && phase.yMax <= panel.yMax,
+                "The long closing phase does not fit completely inside the top-right " +
+                "day-clock panel at 1280x720.");
+        }
 
-            Require(!store.hasCustomerCooldownRemaining &&
-                    FindProducts(runtime.Game).Length == 0 &&
-                    runtime.Game.GetGroup(GameMatcher.Delivery).count == 0 &&
-                    !visit.isOrder &&
-                    visit.hasCustomerProjectType &&
-                    !visit.isOrderRewarded &&
-                    runtime.Game.GetEntitiesWithOrderEntityId(visit.EntityId).Count == 0 &&
-                    (visit.isCustomerVisitArriving || visit.isCustomerVisitConsulting) &&
-                    runtime.Game.GetGroup(GameMatcher.ConsultationVisitEntityId).count == 0,
-                "The smoke test can only reset an untouched auto-spawned customer visit.");
+        private static void ValidateNewDayFadeContract()
+        {
+            DayClockSnapshot report = new(1, 20 * 60, StoreDayPhase.Report);
+            DayClockSnapshot nextPreparation = new(2, 8 * 60, StoreDayPhase.Preparing);
+            Require(PrototypeHudView.ShouldStartNewDayFade(report, nextPreparation) &&
+                    !PrototypeHudView.ShouldStartNewDayFade(
+                        new DayClockSnapshot(1, 20 * 60, StoreDayPhase.Closing),
+                        nextPreparation) &&
+                    !PrototypeHudView.ShouldStartNewDayFade(
+                        report,
+                        new DayClockSnapshot(1, 8 * 60, StoreDayPhase.Preparing)) &&
+                    !PrototypeHudView.ShouldStartNewDayFade(
+                        report,
+                        new DayClockSnapshot(3, 8 * 60, StoreDayPhase.Preparing)) &&
+                    !PrototypeHudView.ShouldStartNewDayFade(
+                        nextPreparation,
+                        nextPreparation),
+                "The new-day fade must start only for Report N -> Preparing N+1.");
 
-            int visitId = visit.EntityId;
-            GameEntity actor =
-                runtime.Game.GetEntityWithCustomerActorVisitEntityId(visit.EntityId);
-            EntityBehaviour view = visit.hasView
-                ? visit.View as EntityBehaviour ?? throw new InvalidOperationException(
-                    "The auto-spawned customer view is not an EntityBehaviour.")
-                : null;
-            EntityBehaviour actorView = actor != null && actor.hasView
-                ? actor.View as EntityBehaviour ?? throw new InvalidOperationException(
-                    "The auto-spawned customer actor view is not an EntityBehaviour.")
-                : null;
+            Require(Mathf.Approximately(
+                        PrototypeHudView.EvaluateNewDayFadeAlpha(0f), 1f) &&
+                    Mathf.Approximately(
+                        PrototypeHudView.EvaluateNewDayFadeAlpha(
+                            PrototypeHudView.NewDayFadeHoldSeconds), 1f) &&
+                    Mathf.Approximately(
+                        PrototypeHudView.EvaluateNewDayFadeAlpha(0.6f), 0.5f) &&
+                    Mathf.Approximately(
+                        PrototypeHudView.EvaluateNewDayFadeAlpha(
+                            PrototypeHudView.NewDayFadeHoldSeconds +
+                            PrototypeHudView.NewDayFadeOutSeconds), 0f) &&
+                    Mathf.Approximately(
+                        PrototypeHudView.EvaluateNewDayFadeAlpha(10f), 0f),
+                "The new-day fade must hold black for 0.2 seconds and fade to clear by 1.0.");
+            RequireThrows<ArgumentOutOfRangeException>(
+                () => PrototypeHudView.EvaluateNewDayFadeAlpha(-0.001f),
+                "The fade accepted negative elapsed time.");
+            RequireThrows<ArgumentOutOfRangeException>(
+                () => PrototypeHudView.EvaluateNewDayFadeAlpha(float.NaN),
+                "The fade accepted NaN elapsed time.");
+            RequireThrows<ArgumentOutOfRangeException>(
+                () => PrototypeHudView.EvaluateNewDayFadeAlpha(float.PositiveInfinity),
+                "The fade accepted infinite elapsed time.");
+        }
 
-            int resetSequenceIndex = Array.IndexOf(
-                runtime.StaticData.ProjectTypes.ToArray(),
-                visit.CustomerProjectType);
-            Require(resetSequenceIndex >= 0,
-                "The auto-spawned customer project is outside static data.");
-            store.ReplaceNextProjectSequenceIndex(resetSequenceIndex);
-            store.AddCustomerCooldownRemaining(
-                runtime.StaticData.CustomerVehicle.FirstCustomerDelay);
-            GameEntity[] offers = GetConsultationOffers(runtime.Game, visit);
-            int[] offerIds = offers.Select(offer => offer.EntityId).ToArray();
-            GameEntity[] offerLines = offers
-                .SelectMany(offer => GetConsultationOfferLines(runtime.Game, offer))
-                .ToArray();
-            int[] offerLineIds = offerLines.Select(line => line.EntityId).ToArray();
-            foreach (GameEntity line in offerLines)
-            {
-                line.RemoveConsultationOfferEntityId();
-                line.isDestructed = true;
-            }
-            foreach (GameEntity offer in offers)
-            {
-                offer.RemoveConsultationOfferVisitEntityId();
-                offer.isDestructed = true;
-            }
-            if (actor != null)
-            {
-                actor.RemoveCustomerActorVisitEntityId();
-                actor.isDestructed = true;
-            }
-            visit.RemoveCustomerVisitStoreEntityId();
-            visit.isDestructed = true;
-            runtime.Systems.Create<CleanupDestructedViewsSystem>().Cleanup();
-            runtime.Systems.Create<CleanupDestructedEntitiesSystem>().Cleanup();
+        private static void ValidatePreparingPresentationAndFrozenClock(
+            Runtime runtime,
+            Scenario scenario)
+        {
+            var capture = new CaptureHudService();
+            new PresentHudSystem(runtime.Game, runtime.StaticData, capture).Execute();
+            Require(capture.Hud.HasValue &&
+                    capture.Hud.Value.DayClock.DayNumber == 1 &&
+                    capture.Hud.Value.DayClock.CurrentDayMinute ==
+                    runtime.StaticData.StoreDay.StartMinute &&
+                    capture.Hud.Value.DayClock.Phase == StoreDayPhase.Preparing,
+                "The morning HUD did not present Day 1, 08:00 and preparation state.");
 
-            Require(runtime.Game.GetEntityWithCustomerVisitStoreEntityId(store.EntityId) == null &&
-                    !visit.hasCustomerVisitStoreEntityId &&
-                    runtime.Game.GetEntityWithEntityId(visitId) == null &&
-                    offerIds.All(id => runtime.Game.GetEntityWithEntityId(id) == null) &&
-                    offerLineIds.All(id => runtime.Game.GetEntityWithEntityId(id) == null) &&
-                    runtime.Game.GetGroup(GameMatcher.ConsultationOfferVisitEntityId).count == 0 &&
-                    runtime.Game.GetGroup(GameMatcher.ConsultationOfferEntityId).count == 0 &&
-                    runtime.Game.GetGroup(GameMatcher.Customer).count == 0 &&
-                    (view == null || !view.HasEntity) &&
-                    (actorView == null || !actorView.HasEntity),
-                "The untouched auto-spawned customer did not reset to cooldown.");
+            scenario.Player.ReplaceFocusedEntityId(
+                scenario.StoreControlTerminal.EntityId);
+            ExecuteInteractionPrompts(runtime);
+            Require(PromptMatches(
+                        runtime,
+                        scenario.Player,
+                        LocalizedTexts.Text(LocalizationKey.PromptOpenStore)) &&
+                    scenario.Player.isFocusInteractionAvailable,
+                "The store control terminal did not offer E to open the preparing store.");
+
+            scenario.Player.ReplaceFocusedEntityId(scenario.OrderCounter.EntityId);
+            ExecuteInteractionPrompts(runtime);
+            Require(PromptMatches(
+                        runtime,
+                        scenario.Player,
+                        LocalizedTexts.Text(
+                            LocalizationKey.PromptCounterOpenStoreAtControlTerminal)) &&
+                    !scenario.Player.isFocusInteractionAvailable,
+                "The preparing order counter did not direct the player to the control terminal.");
+
+            new TickStoreDayClockSystem(
+                runtime.Game,
+                runtime.StaticData,
+                new FixedTimeService(480f)).Execute();
+            runtime.Systems.Create<TickCustomerCooldownSystem>().Execute();
+            runtime.Systems.Create<SpawnCustomerVisitSystem>().Execute();
+            Require(Mathf.Approximately(
+                        scenario.Store.CurrentDayMinute,
+                        runtime.StaticData.StoreDay.StartMinute) &&
+                    !scenario.Store.hasCustomerCooldownRemaining &&
+                    runtime.Game.GetEntityWithCustomerVisitStoreEntityId(
+                        scenario.Store.EntityId) == null &&
+                    runtime.Game.GetGroup(GameMatcher.CustomerVisit).count == 0 &&
+                    runtime.Game.GetGroup(GameMatcher.Customer).count == 0,
+                "The store clock advanced or a customer spawned before opening.");
+            runtime.Systems.Create<ValidateStoreDayStateSystem>().Execute();
+            scenario.Player.RemoveFocusedEntityId();
+            ExecuteInteractionPrompts(runtime);
+        }
+
+        private static void OpenStoreForSmoke(Runtime runtime, Scenario scenario)
+        {
+            Require(scenario.Store.isStorePreparing &&
+                    !scenario.Store.hasCustomerCooldownRemaining &&
+                    runtime.Game.GetEntityWithCustomerVisitStoreEntityId(
+                        scenario.Store.EntityId) == null,
+                "Only a fresh preparing store can be opened by the smoke test.");
+
+            scenario.Player.ReplaceFocusedEntityId(
+                scenario.StoreControlTerminal.EntityId);
+            ExecuteInteractionPrompts(runtime);
+            Require(PromptMatches(
+                        runtime,
+                        scenario.Player,
+                        LocalizedTexts.Text(LocalizationKey.PromptOpenStore)) &&
+                    scenario.Player.isFocusInteractionAvailable,
+                "The preparing store control terminal is not actionable.");
+
+            scenario.Input.isInteractPressed = true;
+            runtime.Systems.Create<EmitInteractionRequestSystem>().Execute();
+            Require(runtime.Game.GetGroup(GameMatcher.InteractionRequest).count == 1,
+                "E did not emit one store-opening request.");
+            runtime.Systems.Create<OpenStoreSystem>().Execute();
+            RequireNotificationKey(runtime, LocalizationKey.NotificationStoreOpened);
+            float firstDelay = runtime.StaticData.CustomerVehicle.FirstCustomerDelay;
+            Require(scenario.Store.isStoreOpen &&
+                    !scenario.Store.isStorePreparing &&
+                    !scenario.Store.isStoreClosing &&
+                    !scenario.Store.isDayReportOpen &&
+                    scenario.Store.hasCustomerCooldownRemaining &&
+                    Mathf.Approximately(
+                        scenario.Store.CustomerCooldownRemaining,
+                        firstDelay) &&
+                    Mathf.Approximately(
+                        scenario.Store.CurrentDayMinute,
+                        runtime.StaticData.StoreDay.StartMinute),
+                "E did not open the store with exactly the configured first-customer delay.");
+
+            runtime.Systems.Create<OpenStoreSystem>().Execute();
+            Require(Mathf.Approximately(
+                        scenario.Store.CustomerCooldownRemaining,
+                        firstDelay) &&
+                    runtime.Game.GetGroup(GameMatcher.NotificationMessage).count == 1,
+                "One store-opening request scheduled or notified more than once.");
+            runtime.Systems.Create<ValidateStoreDayStateSystem>().Execute();
+            CleanupEvents(runtime);
+            if (scenario.Player.hasFocusedEntityId)
+                scenario.Player.RemoveFocusedEntityId();
+            ExecuteInteractionPrompts(runtime);
+        }
+
+        private static void ReachClosingTimeWithActiveCustomer(
+            Runtime runtime,
+            Scenario scenario,
+            GameEntity activeVisit)
+        {
+            Require(scenario.Store.isStoreOpen &&
+                    !scenario.Store.isStoreClosing &&
+                    ReferenceEquals(
+                        runtime.Game.GetEntityWithCustomerVisitStoreEntityId(
+                            scenario.Store.EntityId),
+                        activeVisit),
+                "Closing-time smoke requires one active customer in an open store.");
+
+            new TickStoreDayClockSystem(
+                runtime.Game,
+                runtime.StaticData,
+                new FixedTimeService(
+                    runtime.StaticData.StoreDay.DayDurationSeconds)).Execute();
+            runtime.Systems.Create<ReachStoreClosingTimeSystem>().Execute();
+            RequireNotificationKey(
+                runtime,
+                LocalizationKey.NotificationStoreClosingTime);
+            Require(scenario.Store.isStoreClosing &&
+                    !scenario.Store.isStoreOpen &&
+                    !scenario.Store.isStorePreparing &&
+                    !scenario.Store.isDayReportOpen &&
+                    !scenario.Store.hasCustomerCooldownRemaining &&
+                    Mathf.Approximately(
+                        scenario.Store.CurrentDayMinute,
+                        runtime.StaticData.StoreDay.ClosingMinute) &&
+                    ReferenceEquals(
+                        runtime.Game.GetEntityWithCustomerVisitStoreEntityId(
+                            scenario.Store.EntityId),
+                        activeVisit),
+                "The 480-second day did not clamp to 20:00 while preserving its active customer.");
+
+            runtime.Systems.Create<ReachStoreClosingTimeSystem>().Execute();
+            Require(runtime.Game.GetGroup(GameMatcher.NotificationMessage).count == 1,
+                "Closing time emitted more than one notification.");
+            new TickStoreDayClockSystem(
+                runtime.Game,
+                runtime.StaticData,
+                new FixedTimeService(480f)).Execute();
+            Require(Mathf.Approximately(
+                    scenario.Store.CurrentDayMinute,
+                    runtime.StaticData.StoreDay.ClosingMinute),
+                "The day clock advanced after the store entered closing state.");
+
+            scenario.Player.ReplaceFocusedEntityId(
+                scenario.StoreControlTerminal.EntityId);
+            ExecuteInteractionPrompts(runtime);
+            Require(PromptMatches(
+                        runtime,
+                        scenario.Player,
+                        LocalizedTexts.Text(
+                            LocalizationKey.PromptCloseStoreCustomerActive)) &&
+                    !scenario.Player.isFocusInteractionAvailable,
+                "The closing terminal did not explain that the active customer must finish.");
+            RequestInteraction(scenario.Player, scenario.StoreControlTerminal);
+            runtime.Systems.Create<OpenDayReportSystem>().Execute();
+            Require(scenario.Store.isStoreClosing &&
+                    !scenario.Store.isDayReportOpen &&
+                    !scenario.Player.isModalOpen &&
+                    !scenario.Player.hasDayReportStoreEntityId,
+                "The report opened before the active customer completed their visit.");
+            runtime.Systems.Create<SpawnCustomerVisitSystem>().Execute();
+            Require(ReferenceEquals(
+                        runtime.Game.GetEntityWithCustomerVisitStoreEntityId(
+                            scenario.Store.EntityId),
+                        activeVisit) &&
+                    runtime.Game.GetGroup(GameMatcher.CustomerVisit).count == 1,
+                "Closing time spawned another customer while the existing visit continued.");
+            runtime.Systems.Create<ValidateStoreDayStateSystem>().Execute();
+            CleanupEvents(runtime);
+            if (scenario.Player.hasFocusedEntityId)
+                scenario.Player.RemoveFocusedEntityId();
+            ExecuteInteractionPrompts(runtime);
         }
 
         private static void ValidateCooldownPresentation(Runtime runtime, Scenario scenario)
@@ -1363,6 +1719,7 @@ namespace HardwareStore.Editor
             var deliveryConfig = runtime.StaticData.GetDelivery(productType);
             var productConfig = runtime.StaticData.GetProduct(productType);
             int moneyBeforePurchase = scenario.Store.Money;
+            int expensesBeforePurchase = scenario.Store.DayProcurementExpenses;
             scenario.Input.isConfirmPressed = true;
             runtime.Systems.Create<ProcurementFeature>().Execute();
             GameEntity[] purchaseRequests = runtime.Game.GetGroup(GameMatcher.AllOf(
@@ -1390,7 +1747,9 @@ namespace HardwareStore.Editor
                     delivery.ProductType == productType &&
                     delivery.DeliveryProductCount == deliveryConfig.ProductCount &&
                     delivery.DeliveryCost == deliveryConfig.TotalCost &&
-                    scenario.Store.Money == moneyBeforePurchase - deliveryConfig.TotalCost,
+                    scenario.Store.Money == moneyBeforePurchase - deliveryConfig.TotalCost &&
+                    scenario.Store.DayProcurementExpenses == checked(
+                        expensesBeforePurchase + deliveryConfig.TotalCost),
                 "Purchasing did not create an indexed active delivery.");
 
             runtime.Systems.Create<PurchaseDeliverySystem>().Execute();
@@ -1399,7 +1758,9 @@ namespace HardwareStore.Editor
                             scenario.ProcurementTerminal.EntityId),
                         delivery) &&
                     runtime.Game.GetGroup(GameMatcher.Delivery).count == 1 &&
-                    scenario.Store.Money == moneyBeforePurchase - deliveryConfig.TotalCost,
+                    scenario.Store.Money == moneyBeforePurchase - deliveryConfig.TotalCost &&
+                    scenario.Store.DayProcurementExpenses == checked(
+                        expensesBeforePurchase + deliveryConfig.TotalCost),
                 "One Enter confirmation purchased or charged the selected delivery twice.");
             runtime.Systems.Create<CloseProcurementAfterPurchaseSystem>().Execute();
             Require(!scenario.Player.isModalOpen &&
@@ -1529,6 +1890,7 @@ namespace HardwareStore.Editor
             }
 
             int moneyBefore = scenario.Store.Money;
+            int expensesBefore = scenario.Store.DayProcurementExpenses;
             scenario.Input.isConfirmPressed = true;
             runtime.Systems.Create<ProcurementFeature>().Execute();
             GameEntity request = RequireSingle(
@@ -1544,6 +1906,7 @@ namespace HardwareStore.Editor
                         scenario.ProcurementTerminal.EntityId) == null &&
                     runtime.Game.GetGroup(GameMatcher.Delivery).count == 0 &&
                     scenario.Store.Money == moneyBefore &&
+                    scenario.Store.DayProcurementExpenses == expensesBefore &&
                     scenario.Player.isModalOpen &&
                     scenario.Player.hasProcurementTerminalEntityId &&
                     !request.isPurchaseDeliverySucceeded &&
@@ -2645,6 +3008,7 @@ namespace HardwareStore.Editor
                 "The locked trolley terminal did not present exact order progress.");
 
             int moneyBefore = scenario.Store.Money;
+            int upgradeExpensesBefore = scenario.Store.DayUpgradeExpenses;
             RequestInteraction(
                 scenario.Player,
                 scenario.TrolleyUpgradeTerminal);
@@ -2653,6 +3017,7 @@ namespace HardwareStore.Editor
                 runtime,
                 LocalizationKey.NotificationTrolleyUpgradeLocked);
             Require(scenario.Store.Money == moneyBefore &&
+                    scenario.Store.DayUpgradeExpenses == upgradeExpensesBefore &&
                     runtime.Game.GetEntityWithTrolleyStoreEntityId(
                         scenario.Store.EntityId) == null &&
                     runtime.Game.GetGroup(GameMatcher.PlatformTrolley).count == 0,
@@ -2693,6 +3058,7 @@ namespace HardwareStore.Editor
                 "The trolley prompt did not explain its protected project reserve.");
 
             int moneyBefore = scenario.Store.Money;
+            int upgradeExpensesBefore = scenario.Store.DayUpgradeExpenses;
             RequestInteraction(
                 scenario.Player,
                 scenario.TrolleyUpgradeTerminal);
@@ -2701,6 +3067,7 @@ namespace HardwareStore.Editor
                 runtime,
                 LocalizationKey.NotificationTrolleyPurchaseWouldBlockProjects);
             Require(scenario.Store.Money == moneyBefore &&
+                    scenario.Store.DayUpgradeExpenses == upgradeExpensesBefore &&
                     runtime.Game.GetEntityWithTrolleyStoreEntityId(
                         scenario.Store.EntityId) == null &&
                     runtime.Game.GetGroup(GameMatcher.PlatformTrolley).count == 0,
@@ -2772,6 +3139,7 @@ namespace HardwareStore.Editor
                 "The unlocked trolley terminal did not present its purchase action.");
 
             int moneyBefore = scenario.Store.Money;
+            int upgradeExpensesBefore = scenario.Store.DayUpgradeExpenses;
             RequestInteraction(
                 scenario.Player,
                 scenario.TrolleyUpgradeTerminal);
@@ -2780,7 +3148,9 @@ namespace HardwareStore.Editor
                 scenario.Store.EntityId);
             Require(trolley != null &&
                     runtime.Game.GetGroup(GameMatcher.PlatformTrolley).count == 1 &&
-                    scenario.Store.Money == moneyBefore - config.PurchasePrice,
+                    scenario.Store.Money == moneyBefore - config.PurchasePrice &&
+                    scenario.Store.DayUpgradeExpenses == checked(
+                        upgradeExpensesBefore + config.PurchasePrice),
                 "The first trolley purchase did not create one entity and debit once.");
             RequireNotificationKey(runtime, LocalizationKey.NotificationTrolleyPurchased);
 
@@ -2823,6 +3193,8 @@ namespace HardwareStore.Editor
                 runtime,
                 LocalizationKey.NotificationTrolleyAlreadyPurchased);
             Require(scenario.Store.Money == moneyAfterPurchase &&
+                    scenario.Store.DayUpgradeExpenses == checked(
+                        upgradeExpensesBefore + config.PurchasePrice) &&
                     runtime.Game.GetEntityWithTrolleyStoreEntityId(
                         scenario.Store.EntityId) == trolley &&
                     runtime.Game.GetGroup(GameMatcher.PlatformTrolley).count == 1,
@@ -3369,6 +3741,11 @@ namespace HardwareStore.Editor
                         trolleyBody.bounds.max.y <= collider.bounds.min.y + 0.001f),
                 "Trolley follow pose overlaps the player capsule or its reserved cargo.");
 
+            ValidateTrolleyThresholdTraversal(
+                runtime,
+                scenario,
+                trolley,
+                trolleyBody);
             ValidateBlockedTrolleyMotion(runtime, scenario, trolley, trolleyBody);
 
             scenario.Player.ReplaceFocusedEntityId(scenario.OrderCounter.EntityId);
@@ -3419,6 +3796,330 @@ namespace HardwareStore.Editor
                 scenario.Player.RemoveFocusedEntityId();
             scenario.Player.isFocusInteractionAvailable = false;
             ExecuteInteractionPrompts(runtime);
+        }
+
+        private static void ValidateTrolleyThresholdTraversal(
+            Runtime runtime,
+            Scenario scenario,
+            GameEntity trolley,
+            Collider trolleyBody)
+        {
+            BoxCollider bodyBox = trolleyBody as BoxCollider;
+            Require(bodyBox != null && bodyBox.attachedRigidbody == trolley.Rigidbody &&
+                    trolley.Colliders.Count(collider =>
+                        collider.enabled && !collider.isTrigger) == 1,
+                "Threshold traversal requires the single authored trolley BoxCollider hull.");
+            Require(Mathf.Abs(scenario.Player.CharacterController.stepOffset - 0.32f) <
+                    0.0001f,
+                "Threshold traversal requires the authored 0.32m player step offset.");
+
+            BoxCollider[] storagePads = Resources.FindObjectsOfTypeAll<BoxCollider>()
+                .Where(collider =>
+                    collider.gameObject.scene == SceneManager.GetActiveScene() &&
+                    collider.name == "Storage Pad")
+                .ToArray();
+            Require(storagePads.Length == 1,
+                $"Expected one authored Storage Pad collider, found {storagePads.Length}.");
+            BoxCollider storagePad = storagePads[0];
+            Require(storagePad.enabled && !storagePad.isTrigger &&
+                    Mathf.Abs(storagePad.bounds.min.y) < 0.001f &&
+                    Mathf.Abs(storagePad.bounds.max.y - 0.2f) < 0.001f &&
+                    Mathf.Abs(storagePad.bounds.size.x - 7.5f) < 0.001f &&
+                    Mathf.Abs(storagePad.bounds.size.z - 6.5f) < 0.001f,
+                "The authored Storage Pad must be one solid 0.20m warehouse threshold.");
+
+            GameEntity[] cargo = runtime.Game
+                .GetEntitiesWithTrolleyEntityId(trolley.EntityId)
+                .OrderBy(product => product.TrolleySlotIndex)
+                .ToArray();
+            int[] cargoEntityIds = cargo.Select(product => product.EntityId).ToArray();
+            int[] trolleySlots = cargo.Select(product => product.TrolleySlotIndex).ToArray();
+            int[] storageSlots = cargo
+                .Select(product => product.ReservedStorageSlotIndex)
+                .ToArray();
+            int[] orderLines = cargo
+                .Select(product => product.ReservedOrderLineEntityId)
+                .ToArray();
+            Require(cargo.Length == trolley.TrolleyCapacity &&
+                    cargo.All(product =>
+                        product.hasReservedStorageSlotIndex &&
+                        product.hasReservedOrderLineEntityId &&
+                        product.Transform.IsChildOf(trolley.Transform)),
+                "Threshold traversal requires a full trolley with preserved cargo relations.");
+
+            int ignoreRaycastLayer = LayerMask.NameToLayer("Ignore Raycast");
+            Require(ignoreRaycastLayer >= 0,
+                "The built-in Ignore Raycast layer is required for trolley threshold smoke.");
+            const float groundY = 0.01f;
+            float thresholdHeight = storagePad.bounds.size.y;
+            Vector3 south = new(0f, groundY, -11f);
+            Vector3 north = new(0f, groundY, -5f);
+            Require(Vector3.Distance(south, north) >
+                    trolley.TrolleyFollowDistance * 3f,
+                "Threshold smoke must stretch the trolley tether beyond a normal frame move.");
+
+            float hullCenterZOffset = bodyBox.bounds.center.z -
+                                      trolley.Transform.position.z;
+            float hullHalfDepth = bodyBox.bounds.extents.z;
+            float storagePadTangentZ = storagePad.bounds.min.z -
+                                       hullCenterZOffset - hullHalfDepth;
+            ValidateSuccessfulTrolleyMove(
+                runtime,
+                scenario,
+                trolley,
+                new Vector3(3f, groundY, storagePadTangentZ),
+                new Vector3(7f, groundY, storagePadTangentZ),
+                "authored Storage Pad tangent slide");
+            ValidateSuccessfulTrolleyMove(
+                runtime,
+                scenario,
+                trolley,
+                new Vector3(3f, groundY, storagePadTangentZ),
+                new Vector3(3f, groundY, storagePadTangentZ - 2f),
+                "authored Storage Pad zero-distance contact recovery");
+
+            GameObject lowThreshold = CreateTrolleyMotionObstacle(
+                "Smoke Authored 0.20m Warehouse Threshold",
+                new Vector3(0f, thresholdHeight * 0.5f, -8f),
+                new Vector3(4f, thresholdHeight, 0.12f),
+                ignoreRaycastLayer);
+            try
+            {
+                ValidateSuccessfulTrolleyMove(
+                    runtime,
+                    scenario,
+                    trolley,
+                    south,
+                    north + Vector3.up * thresholdHeight,
+                    "asphalt-to-pad 0.20m climb");
+                ValidateSuccessfulTrolleyMove(
+                    runtime,
+                    scenario,
+                    trolley,
+                    north + Vector3.up * thresholdHeight,
+                    south,
+                    "pad-to-asphalt 0.20m descent");
+                ValidateSuccessfulTrolleyMove(
+                    runtime,
+                    scenario,
+                    trolley,
+                    south,
+                    north,
+                    "same-level 0.20m threshold recovery");
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(lowThreshold);
+                Physics.SyncTransforms();
+            }
+
+            GameObject highThreshold = CreateTrolleyMotionObstacle(
+                "Smoke Blocking 0.40m Threshold",
+                new Vector3(0f, 0.2f, -8f),
+                new Vector3(4f, 0.4f, 0.12f),
+                ignoreRaycastLayer);
+            try
+            {
+                ValidateBlockedTrolleyMove(
+                    runtime,
+                    scenario,
+                    trolley,
+                    south,
+                    north,
+                    "0.40m threshold above the authored step limit");
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(highThreshold);
+                Physics.SyncTransforms();
+            }
+
+            GameObject thinWall = CreateTrolleyMotionObstacle(
+                "Smoke Blocking Thin Trolley Wall",
+                new Vector3(0f, 0.6f, -8f),
+                new Vector3(4f, 1.2f, 0.04f),
+                ignoreRaycastLayer);
+            try
+            {
+                ValidateBlockedTrolleyMove(
+                    runtime,
+                    scenario,
+                    trolley,
+                    south,
+                    north,
+                    "thin 1.20m wall with the target fully beyond it");
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(thinWall);
+                Physics.SyncTransforms();
+            }
+
+            GameEntity[] cargoAfter = runtime.Game
+                .GetEntitiesWithTrolleyEntityId(trolley.EntityId)
+                .OrderBy(product => product.TrolleySlotIndex)
+                .ToArray();
+            Require(cargoAfter.Select(product => product.EntityId)
+                        .SequenceEqual(cargoEntityIds) &&
+                    cargoAfter.Select(product => product.TrolleySlotIndex)
+                        .SequenceEqual(trolleySlots) &&
+                    cargoAfter.Select(product => product.ReservedStorageSlotIndex)
+                        .SequenceEqual(storageSlots) &&
+                    cargoAfter.Select(product => product.ReservedOrderLineEntityId)
+                        .SequenceEqual(orderLines) &&
+                    cargoAfter.All(product =>
+                        product.TrolleyEntityId == trolley.EntityId &&
+                        product.Transform.IsChildOf(trolley.Transform)) &&
+                    scenario.Player.isHandsOccupied &&
+                    scenario.Player.isPushingTrolley &&
+                    trolley.TrolleyPusherEntityId == scenario.Player.EntityId,
+                "Threshold traversal changed cargo, reservations or pushing relations.");
+
+            SetTrolleyMotionSmokePose(
+                scenario,
+                trolley,
+                new Vector3(0f, 0.02f, -3.3f),
+                new Vector3(0f, 0.02f, -3.3f),
+                Quaternion.identity);
+        }
+
+        private static void ValidateSuccessfulTrolleyMove(
+            Runtime runtime,
+            Scenario scenario,
+            GameEntity trolley,
+            Vector3 startPosition,
+            Vector3 targetPosition,
+            string operation)
+        {
+            Quaternion rotation = Quaternion.identity;
+            SetTrolleyMotionSmokePose(
+                scenario,
+                trolley,
+                startPosition,
+                targetPosition,
+                rotation);
+            Vector3 transformPositionBefore = trolley.Transform.position;
+            Quaternion transformRotationBefore = trolley.Transform.rotation;
+            Vector3 bodyPositionBefore = trolley.Rigidbody.position;
+            Quaternion bodyRotationBefore = trolley.Rigidbody.rotation;
+
+            bool resolved = runtime.TrolleyMotion.TryResolveMove(
+                trolley.Rigidbody,
+                trolley.Colliders,
+                scenario.Player.CharacterController,
+                targetPosition,
+                rotation,
+                out Pose resolvedPose);
+            Require(resolved &&
+                    Vector3.Distance(resolvedPose.position, targetPosition) < 0.001f &&
+                    Quaternion.Angle(resolvedPose.rotation, rotation) < 0.001f &&
+                    Vector3.Distance(trolley.Transform.position, transformPositionBefore) <
+                    0.001f &&
+                    Quaternion.Angle(trolley.Transform.rotation, transformRotationBefore) <
+                    0.001f &&
+                    Vector3.Distance(trolley.Rigidbody.position, bodyPositionBefore) <
+                    0.001f &&
+                    Quaternion.Angle(trolley.Rigidbody.rotation, bodyRotationBefore) <
+                    0.001f,
+                $"Trolley motion did not resolve the exact {operation} target without mutation.");
+
+            runtime.Systems.Create<FollowPushedTrolleySystem>().Execute();
+            Physics.SyncTransforms();
+            Require(Vector3.Distance(trolley.Transform.position, targetPosition) < 0.001f &&
+                    Quaternion.Angle(trolley.Transform.rotation, rotation) < 0.001f &&
+                    Vector3.Distance(trolley.Rigidbody.position, targetPosition) < 0.001f &&
+                    Quaternion.Angle(trolley.Rigidbody.rotation, rotation) < 0.001f,
+                $"FollowPushedTrolleySystem did not apply the exact {operation} pose.");
+        }
+
+        private static void ValidateBlockedTrolleyMove(
+            Runtime runtime,
+            Scenario scenario,
+            GameEntity trolley,
+            Vector3 startPosition,
+            Vector3 targetPosition,
+            string operation)
+        {
+            Quaternion rotation = Quaternion.identity;
+            SetTrolleyMotionSmokePose(
+                scenario,
+                trolley,
+                startPosition,
+                targetPosition,
+                rotation);
+            Pose startPose = new(trolley.Rigidbody.position, trolley.Rigidbody.rotation);
+
+            bool resolved = runtime.TrolleyMotion.TryResolveMove(
+                trolley.Rigidbody,
+                trolley.Colliders,
+                scenario.Player.CharacterController,
+                targetPosition,
+                rotation,
+                out Pose resolvedPose);
+            Require(!resolved &&
+                    Vector3.Distance(resolvedPose.position, startPose.position) < 0.001f &&
+                    Quaternion.Angle(resolvedPose.rotation, startPose.rotation) < 0.001f &&
+                    Vector3.Distance(trolley.Transform.position, startPose.position) < 0.001f &&
+                    Quaternion.Angle(trolley.Transform.rotation, startPose.rotation) < 0.001f &&
+                    Vector3.Distance(trolley.Rigidbody.position, startPose.position) < 0.001f &&
+                    Quaternion.Angle(trolley.Rigidbody.rotation, startPose.rotation) < 0.001f,
+                $"Trolley motion accepted or partially mutated the blocked {operation}.");
+
+            runtime.Systems.Create<FollowPushedTrolleySystem>().Execute();
+            Physics.SyncTransforms();
+            Require(Vector3.Distance(trolley.Transform.position, startPose.position) < 0.001f &&
+                    Quaternion.Angle(trolley.Transform.rotation, startPose.rotation) < 0.001f &&
+                    Vector3.Distance(trolley.Rigidbody.position, startPose.position) < 0.001f &&
+                    Quaternion.Angle(trolley.Rigidbody.rotation, startPose.rotation) < 0.001f,
+                $"FollowPushedTrolleySystem partially applied the blocked {operation}.");
+        }
+
+        private static void SetTrolleyMotionSmokePose(
+            Scenario scenario,
+            GameEntity trolley,
+            Vector3 trolleyPosition,
+            Vector3 targetPosition,
+            Quaternion targetRotation)
+        {
+            CharacterController controller = scenario.Player.CharacterController;
+            controller.enabled = false;
+            scenario.Player.Transform.SetPositionAndRotation(
+                targetPosition - targetRotation * Vector3.forward *
+                trolley.TrolleyFollowDistance,
+                targetRotation);
+            trolley.Rigidbody.position = trolleyPosition;
+            trolley.Rigidbody.rotation = targetRotation;
+            trolley.Transform.SetPositionAndRotation(trolleyPosition, targetRotation);
+            controller.enabled = true;
+            Physics.SyncTransforms();
+
+            Vector3 followTarget = scenario.Player.Transform.position +
+                                   scenario.Player.Transform.forward *
+                                   trolley.TrolleyFollowDistance;
+            Require(Vector3.Distance(followTarget, targetPosition) < 0.001f &&
+                    Vector3.Distance(trolley.Rigidbody.position, trolleyPosition) <
+                    0.001f &&
+                    Vector3.Distance(trolley.Transform.position, trolleyPosition) <
+                    0.001f,
+                "Trolley threshold smoke could not author its exact start and follow target.");
+        }
+
+        private static GameObject CreateTrolleyMotionObstacle(
+            string name,
+            Vector3 position,
+            Vector3 scale,
+            int layer)
+        {
+            GameObject obstacle = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            obstacle.name = name;
+            obstacle.layer = layer;
+            obstacle.transform.SetPositionAndRotation(position, Quaternion.identity);
+            obstacle.transform.localScale = scale;
+            BoxCollider collider = obstacle.GetComponent<BoxCollider>();
+            Require(collider.enabled && !collider.isTrigger,
+                $"Trolley smoke obstacle '{name}' must be a solid BoxCollider.");
+            Physics.SyncTransforms();
+            return obstacle;
         }
 
         private static void ValidateBlockedTrolleyMotion(
@@ -3712,6 +4413,8 @@ namespace HardwareStore.Editor
             GameEntity[] products)
         {
             int moneyBeforeReward = scenario.Store.Money;
+            int revenueBeforeReward = scenario.Store.DayRevenue;
+            int completedOrdersBeforeReward = scenario.Store.DayCompletedOrderCount;
             Require(visit.isCustomerVisitCompleted &&
                     !visit.isCustomerVisitLoading &&
                     !visit.isOrderRewarded &&
@@ -3725,10 +4428,18 @@ namespace HardwareStore.Editor
 
             runtime.Systems.Create<RewardCompletedOrderSystem>().Execute();
             Require(visit.isOrderRewarded &&
-                    scenario.Store.Money == moneyBeforeReward + visit.OrderReward,
+                    scenario.Store.Money == moneyBeforeReward + visit.OrderReward &&
+                    scenario.Store.DayRevenue == checked(
+                        revenueBeforeReward + visit.OrderReward) &&
+                    scenario.Store.DayCompletedOrderCount == checked(
+                        completedOrdersBeforeReward + 1),
                 "The completed order was not rewarded exactly once.");
             runtime.Systems.Create<RewardCompletedOrderSystem>().Execute();
-            Require(scenario.Store.Money == moneyBeforeReward + visit.OrderReward,
+            Require(scenario.Store.Money == moneyBeforeReward + visit.OrderReward &&
+                    scenario.Store.DayRevenue == checked(
+                        revenueBeforeReward + visit.OrderReward) &&
+                    scenario.Store.DayCompletedOrderCount == checked(
+                        completedOrdersBeforeReward + 1),
                 "The same completed order was rewarded more than once.");
             CleanupEvents(runtime);
 
@@ -3748,6 +4459,9 @@ namespace HardwareStore.Editor
         {
             GameEntity entity = visit.Entity;
             GameEntity actor = visit.Actor;
+            bool shouldScheduleNextCustomer = scenario.Store.isStoreOpen;
+            Require(shouldScheduleNextCustomer || scenario.Store.isStoreClosing,
+                "Customer departure requires an open or closing store.");
             Require(entity.isCustomerVisitCompleted &&
                     entity.isOrderRewarded &&
                     !entity.hasCustomerDepartureDelayRemaining &&
@@ -3845,11 +4559,15 @@ namespace HardwareStore.Editor
             Require(runtime.Game.GetEntityWithCustomerVisitStoreEntityId(
                         scenario.Store.EntityId) == null &&
                     !entity.hasCustomerVisitStoreEntityId &&
-                    scenario.Store.hasCustomerCooldownRemaining &&
-                    Mathf.Approximately(
-                        scenario.Store.CustomerCooldownRemaining,
-                        runtime.StaticData.CustomerVehicle.NextCustomerDelay),
-                "Customer departure did not start the next cooldown.");
+                    (shouldScheduleNextCustomer
+                        ? scenario.Store.hasCustomerCooldownRemaining &&
+                          Mathf.Approximately(
+                              scenario.Store.CustomerCooldownRemaining,
+                              runtime.StaticData.CustomerVehicle.NextCustomerDelay)
+                        : !scenario.Store.hasCustomerCooldownRemaining),
+                shouldScheduleNextCustomer
+                    ? "Customer departure did not start the next cooldown."
+                    : "A closing store scheduled another customer after departure.");
             Require(entity.isDestructed &&
                     loadedProducts.All(product => product.isDestructed),
                 "Customer departure did not destruct the visit and its loaded products.");
@@ -3976,6 +4694,255 @@ namespace HardwareStore.Editor
                 "A customer spawned before cooldown elapsed.");
         }
 
+        private static void ValidateClosingPreventsCustomerSpawn(
+            Runtime runtime,
+            Scenario scenario)
+        {
+            Require(scenario.Store.isStoreClosing &&
+                    !scenario.Store.isStoreOpen &&
+                    !scenario.Store.hasCustomerCooldownRemaining &&
+                    runtime.Game.GetEntityWithCustomerVisitStoreEntityId(
+                        scenario.Store.EntityId) == null,
+                "Closing customer gate requires no active visit or cooldown.");
+
+            runtime.Systems.Create<TickCustomerCooldownSystem>().Execute();
+            runtime.Systems.Create<SpawnCustomerVisitSystem>().Execute();
+            Require(!scenario.Store.hasCustomerCooldownRemaining &&
+                    runtime.Game.GetEntityWithCustomerVisitStoreEntityId(
+                        scenario.Store.EntityId) == null &&
+                    runtime.Game.GetGroup(GameMatcher.CustomerVisit).count == 0 &&
+                    runtime.Game.GetGroup(GameMatcher.Customer).count == 0,
+                "The closing store scheduled or spawned another customer.");
+
+            scenario.Player.ReplaceFocusedEntityId(scenario.OrderCounter.EntityId);
+            ExecuteInteractionPrompts(runtime);
+            Require(PromptMatches(
+                        runtime,
+                        scenario.Player,
+                        LocalizedTexts.Text(
+                            LocalizationKey.PromptCounterFinishDayAtControlTerminal)) &&
+                    !scenario.Player.isFocusInteractionAvailable,
+                "The empty closing order counter did not direct the player to finish the day.");
+            scenario.Player.RemoveFocusedEntityId();
+            ExecuteInteractionPrompts(runtime);
+            runtime.Systems.Create<ValidateStoreDayStateSystem>().Execute();
+        }
+
+        private static void ValidateDayReportAndStartNextDay(
+            Runtime runtime,
+            Scenario scenario,
+            GameEntity trolley,
+            int expectedMoneyBeforeOvernightDelivery,
+            int expectedStock,
+            int expectedRevenue,
+            int expectedProcurementExpenses,
+            int expectedUpgradeExpenses,
+            int expectedCompletedOrders)
+        {
+            Require(scenario.Store.isStoreClosing &&
+                    !scenario.Store.isDayReportOpen &&
+                    !scenario.Player.isModalOpen &&
+                    !scenario.Player.isHandsOccupied &&
+                    !scenario.Store.hasCustomerCooldownRemaining &&
+                    runtime.Game.GetEntityWithCustomerVisitStoreEntityId(
+                        scenario.Store.EntityId) == null,
+                "The day report requires an empty closing store.");
+
+            DeliveryConfig overnightConfig = runtime.StaticData.GetDelivery(
+                ProductTypeId.CementBag);
+            DeliveryArrival overnightDelivery = PurchaseAndPrepareArrival(
+                runtime,
+                scenario,
+                ProductTypeId.CementBag);
+            int expectedClosingMoney = checked(
+                expectedMoneyBeforeOvernightDelivery - overnightConfig.TotalCost);
+            int expectedClosingProcurementExpenses = checked(
+                expectedProcurementExpenses + overnightConfig.TotalCost);
+            Require(scenario.Store.Money == expectedClosingMoney &&
+                    scenario.Store.DayOpeningBalance + expectedRevenue -
+                    expectedClosingProcurementExpenses - expectedUpgradeExpenses ==
+                    expectedClosingMoney &&
+                    scenario.Store.DayRevenue == expectedRevenue &&
+                    scenario.Store.DayProcurementExpenses ==
+                    expectedClosingProcurementExpenses &&
+                    scenario.Store.DayUpgradeExpenses == expectedUpgradeExpenses &&
+                    scenario.Store.DayCompletedOrderCount == expectedCompletedOrders,
+                "The final daily ledger does not reconcile successful rewards and purchases.");
+
+            scenario.Player.ReplaceFocusedEntityId(trolley.EntityId);
+            ExecuteInteractionPrompts(runtime);
+            scenario.Input.isTrolleyPressed = true;
+            runtime.Systems.Create<StartPushingTrolleySystem>().Execute();
+            CleanupEvents(runtime);
+            Require(scenario.Player.isHandsOccupied &&
+                    scenario.Player.isPushingTrolley &&
+                    trolley.TrolleyPusherEntityId == scenario.Player.EntityId,
+                "The report hands guard requires a safely attached trolley.");
+
+            scenario.Player.ReplaceFocusedEntityId(
+                scenario.StoreControlTerminal.EntityId);
+            ExecuteInteractionPrompts(runtime);
+            Require(PromptMatches(
+                        runtime,
+                        scenario.Player,
+                        LocalizedTexts.Text(
+                            LocalizationKey.PromptCloseStoreHandsOccupied)) &&
+                    !scenario.Player.isFocusInteractionAvailable,
+                "The closing terminal did not explain that hands must be free.");
+            RequestInteraction(scenario.Player, scenario.StoreControlTerminal);
+            runtime.Systems.Create<OpenDayReportSystem>().Execute();
+            Require(scenario.Store.isStoreClosing &&
+                    !scenario.Store.isDayReportOpen &&
+                    !scenario.Player.isModalOpen &&
+                    !scenario.Player.hasDayReportStoreEntityId,
+                "The report opened while the player was handling the trolley.");
+            CleanupEvents(runtime);
+
+            scenario.Input.isTrolleyPressed = true;
+            runtime.Systems.Create<DetachPushedTrolleySystem>().Execute();
+            CleanupEvents(runtime);
+            Require(!scenario.Player.isHandsOccupied &&
+                    !scenario.Player.isPushingTrolley &&
+                    !trolley.hasTrolleyPusherEntityId && trolley.isInteractable,
+                "The trolley did not detach before opening the report.");
+
+            scenario.Player.ReplaceFocusedEntityId(
+                scenario.StoreControlTerminal.EntityId);
+            ExecuteInteractionPrompts(runtime);
+            Require(PromptMatches(
+                        runtime,
+                        scenario.Player,
+                        LocalizedTexts.Text(
+                            LocalizationKey.PromptCloseStoreForReport)) &&
+                    scenario.Player.isFocusInteractionAvailable,
+                "The empty closing store did not offer its mandatory report.");
+            RequestInteraction(scenario.Player, scenario.StoreControlTerminal);
+            scenario.Input.isConfirmPressed = true;
+            runtime.Systems.Create<StoreDayFeature>().Execute();
+            Require(scenario.Store.isDayReportOpen &&
+                    !scenario.Store.isStoreClosing &&
+                    scenario.Store.DayNumber == 1 &&
+                    scenario.Player.isModalOpen &&
+                    scenario.Player.hasDayReportStoreEntityId &&
+                    scenario.Player.DayReportStoreEntityId == scenario.Store.EntityId &&
+                    ReferenceEquals(
+                        runtime.Game.GetEntityWithDayReportStoreEntityId(
+                            scenario.Store.EntityId),
+                        scenario.Player),
+                "Simultaneous E and Enter skipped or failed to open the indexed mandatory " +
+                "report modal.");
+            CleanupEvents(runtime);
+
+            var capture = new CaptureHudService();
+            new PresentHudSystem(runtime.Game, runtime.StaticData, capture).Execute();
+            new PresentDayReportSystem(runtime.Game, capture).Execute();
+            Require(capture.Hud.HasValue &&
+                    capture.Hud.Value.DayClock.Phase == StoreDayPhase.Report &&
+                    capture.DayReport.HasValue,
+                "Report phase did not reach HUD presentation.");
+            DayClockSnapshot reportClock = capture.Hud.Value.DayClock;
+            DayReportSnapshot report = capture.DayReport.Value;
+            Require(report.DayNumber == 1 &&
+                    report.OpeningBalance == scenario.Store.DayOpeningBalance &&
+                    report.Revenue == expectedRevenue &&
+                    report.ProcurementExpenses ==
+                    expectedClosingProcurementExpenses &&
+                    report.UpgradeExpenses == expectedUpgradeExpenses &&
+                    report.NetCashFlow == expectedRevenue -
+                    expectedClosingProcurementExpenses - expectedUpgradeExpenses &&
+                    report.ClosingBalance == expectedClosingMoney &&
+                    report.OpeningBalance + report.NetCashFlow ==
+                    report.ClosingBalance &&
+                    report.CompletedOrderCount == expectedCompletedOrders &&
+                    report.StorageProductCount == expectedStock,
+                "The day report does not reconcile orders, revenue, expenses, cash flow, " +
+                "balance and stock.");
+
+            scenario.Input.isToggleCursorPressed = true;
+            runtime.Systems.Create<ToggleCursorSystem>().Execute();
+            runtime.Systems.Create<StoreDayFeature>().Execute();
+            Require(scenario.Store.isDayReportOpen &&
+                    scenario.Store.DayNumber == 1 &&
+                    scenario.Player.isModalOpen &&
+                    scenario.Player.hasDayReportStoreEntityId,
+                "Esc closed or advanced the mandatory day report.");
+            runtime.Systems.Create<CleanupInputRequestsSystem>().Cleanup();
+
+            int storeEntityId = scenario.Store.EntityId;
+            int moneyBeforeNextDay = scenario.Store.Money;
+            int stockBeforeNextDay = scenario.StorageZone.StorageProductCount;
+            int[] stockProductIds = FindStockProducts(
+                    runtime.Game,
+                    scenario.StorageZone.EntityId)
+                .Select(product => product.EntityId)
+                .ToArray();
+            int deliveryEntityId = overnightDelivery.Delivery.EntityId;
+            int[] deliveryProductIds = overnightDelivery.Products
+                .Select(product => product.EntityId)
+                .ToArray();
+            int trolleyEntityId = trolley.EntityId;
+            int progressionBeforeNextDay = scenario.Store.CompletedOrderCount;
+            bool trolleyUnlockedBeforeNextDay = scenario.Store.isTrolleyUpgradeUnlocked;
+            int projectIndexBeforeNextDay = scenario.Store.NextProjectSequenceIndex;
+
+            scenario.Input.isConfirmPressed = true;
+            runtime.Systems.Create<StoreDayFeature>().Execute();
+            Require(scenario.Store.DayNumber == 2 &&
+                    scenario.Store.isStorePreparing &&
+                    !scenario.Store.isStoreOpen &&
+                    !scenario.Store.isStoreClosing &&
+                    !scenario.Store.isDayReportOpen &&
+                    Mathf.Approximately(
+                        scenario.Store.CurrentDayMinute,
+                        runtime.StaticData.StoreDay.StartMinute) &&
+                    scenario.Store.DayOpeningBalance == moneyBeforeNextDay &&
+                    scenario.Store.DayRevenue == 0 &&
+                    scenario.Store.DayProcurementExpenses == 0 &&
+                    scenario.Store.DayUpgradeExpenses == 0 &&
+                    scenario.Store.DayCompletedOrderCount == 0 &&
+                    !scenario.Store.hasCustomerCooldownRemaining &&
+                    !scenario.Player.isModalOpen &&
+                    !scenario.Player.hasDayReportStoreEntityId,
+                "Enter did not start Day 2 in clean 08:00 preparation state.");
+            runtime.Systems.Create<StoreDayFeature>().Execute();
+            Require(scenario.Store.DayNumber == 2,
+                "One Enter advanced more than one store day.");
+            runtime.Systems.Create<CleanupInputRequestsSystem>().Cleanup();
+
+            Require(scenario.Store.EntityId == storeEntityId &&
+                    scenario.Store.Money == moneyBeforeNextDay &&
+                    scenario.StorageZone.StorageProductCount == stockBeforeNextDay &&
+                    FindStockProducts(runtime.Game, scenario.StorageZone.EntityId)
+                        .Select(product => product.EntityId)
+                        .SequenceEqual(stockProductIds) &&
+                    ReferenceEquals(
+                        runtime.Game.GetEntityWithEntityId(deliveryEntityId),
+                        overnightDelivery.Delivery) &&
+                    overnightDelivery.Delivery.isDeliveryActive &&
+                    FindDeliveryProducts(runtime.Game, deliveryEntityId)
+                        .Select(product => product.EntityId)
+                        .SequenceEqual(deliveryProductIds) &&
+                    ReferenceEquals(
+                        runtime.Game.GetEntityWithEntityId(trolleyEntityId),
+                        trolley) &&
+                    scenario.Store.CompletedOrderCount == progressionBeforeNextDay &&
+                    scenario.Store.isTrolleyUpgradeUnlocked ==
+                    trolleyUnlockedBeforeNextDay &&
+                    scenario.Store.NextProjectSequenceIndex == projectIndexBeforeNextDay,
+                "Starting Day 2 changed money, stock, delivery, trolley, progression or project index.");
+            runtime.Systems.Create<ValidateStoreDayStateSystem>().Execute();
+            capture = new CaptureHudService();
+            new PresentHudSystem(runtime.Game, runtime.StaticData, capture).Execute();
+            new PresentDayReportSystem(runtime.Game, capture).Execute();
+            Require(capture.Hud.HasValue &&
+                    PrototypeHudView.ShouldStartNewDayFade(
+                        reportClock,
+                        capture.Hud.Value.DayClock) &&
+                    !capture.DayReport.HasValue,
+                "The real Report Day 1 -> Preparing Day 2 transition did not trigger the " +
+                "semantic fade or left the report visible.");
+        }
+
         private static void PickUpProduct(
             Runtime runtime,
             Scenario scenario,
@@ -4059,6 +5026,28 @@ namespace HardwareStore.Editor
                     "Недостаточно места, чтобы бросить товар",
                 "Russian collision-safe drop localization did not preserve its zero-argument text.");
             Require(localization.Resolve(LocalizedTexts.Text(
+                        LocalizationKey.HudDayClock,
+                        1,
+                        8,
+                        0)) ==
+                    "ДЕНЬ 1 • 08:00" &&
+                    localization.Resolve(LocalizedTexts.Text(
+                        LocalizationKey.PromptStoreOpenUntil,
+                        20,
+                        0)) ==
+                    "Магазин открыт до 20:00" &&
+                    localization.Resolve(LocalizedTexts.Text(
+                        LocalizationKey.WorldStoreControlTerminal)) ==
+                    "УПРАВЛЕНИЕ МАГАЗИНОМ" &&
+                    localization.Resolve(LocalizedTexts.Text(
+                        LocalizationKey.PromptCounterOpenStoreAtControlTerminal)) ==
+                    "Магазин закрыт — откройте его у терминала управления" &&
+                    localization.Resolve(LocalizedTexts.Text(
+                        LocalizationKey.PromptCounterFinishDayAtControlTerminal)) ==
+                    "Новые клиенты не приедут — завершите день у терминала управления",
+                "Russian store-day clock, phase prompt or neutral world label changed " +
+                "arity/content.");
+            Require(localization.Resolve(LocalizedTexts.Text(
                         LocalizationKey.ProcurementStatusPlanWouldBlockForecast)) ==
                     "Не хватит денег или мест на складе для ближайших проектов" &&
                     localization.Resolve(LocalizedTexts.Text(
@@ -4134,6 +5123,7 @@ namespace HardwareStore.Editor
                 container.Resolve<IProcurementSolvencyService>(),
                 container.Resolve<IEconomySolvencyService>(),
                 container.Resolve<IInteractionPhysicsService>(),
+                container.Resolve<ITrolleyMotionService>(),
                 container.Resolve<ILocalizationService>());
         }
 
@@ -4249,6 +5239,21 @@ namespace HardwareStore.Editor
                 throw new InvalidOperationException(message);
         }
 
+        private static void RequireThrows<TException>(Action action, string message)
+            where TException : Exception
+        {
+            try
+            {
+                action();
+            }
+            catch (TException)
+            {
+                return;
+            }
+
+            throw new InvalidOperationException(message);
+        }
+
         private readonly struct Runtime
         {
             public Runtime(
@@ -4260,6 +5265,7 @@ namespace HardwareStore.Editor
                 IProcurementSolvencyService procurementSolvency,
                 IEconomySolvencyService economySolvency,
                 IInteractionPhysicsService interactionPhysics,
+                ITrolleyMotionService trolleyMotion,
                 ILocalizationService localization)
             {
                 Game = game;
@@ -4270,6 +5276,7 @@ namespace HardwareStore.Editor
                 ProcurementSolvency = procurementSolvency;
                 EconomySolvency = economySolvency;
                 InteractionPhysics = interactionPhysics;
+                TrolleyMotion = trolleyMotion;
                 Localization = localization;
             }
 
@@ -4281,16 +5288,21 @@ namespace HardwareStore.Editor
             public IProcurementSolvencyService ProcurementSolvency { get; }
             public IEconomySolvencyService EconomySolvency { get; }
             public IInteractionPhysicsService InteractionPhysics { get; }
+            public ITrolleyMotionService TrolleyMotion { get; }
             public ILocalizationService Localization { get; }
         }
 
         private sealed class CaptureHudService : IHudService
         {
+            public HudSnapshot? Hud { get; private set; }
             public ProcurementSnapshot? Procurement { get; private set; }
+            public DayReportSnapshot? DayReport { get; private set; }
 
-            public void Present(HudSnapshot snapshot)
-            {
-            }
+            public void Present(HudSnapshot snapshot) =>
+                Hud = snapshot;
+
+            public void PresentDayReport(DayReportSnapshot? snapshot) =>
+                DayReport = snapshot;
 
             public void PresentConsultation(ConsultationSnapshot? snapshot)
             {
@@ -4309,6 +5321,7 @@ namespace HardwareStore.Editor
                 GameEntity procurementTerminal,
                 GameEntity storageZone,
                 GameEntity trolleyUpgradeTerminal,
+                GameEntity storeControlTerminal,
                 InputEntity input)
             {
                 Player = player;
@@ -4317,6 +5330,7 @@ namespace HardwareStore.Editor
                 ProcurementTerminal = procurementTerminal;
                 StorageZone = storageZone;
                 TrolleyUpgradeTerminal = trolleyUpgradeTerminal;
+                StoreControlTerminal = storeControlTerminal;
                 Input = input;
             }
 
@@ -4326,7 +5340,25 @@ namespace HardwareStore.Editor
             public GameEntity ProcurementTerminal { get; }
             public GameEntity StorageZone { get; }
             public GameEntity TrolleyUpgradeTerminal { get; }
+            public GameEntity StoreControlTerminal { get; }
             public InputEntity Input { get; }
+        }
+
+        private sealed class FixedTimeService : ITimeService
+        {
+            public FixedTimeService(float deltaTime)
+            {
+                if (float.IsNaN(deltaTime) || float.IsInfinity(deltaTime) ||
+                    deltaTime < 0f)
+                {
+                    throw new ArgumentOutOfRangeException(nameof(deltaTime));
+                }
+
+                DeltaTime = deltaTime;
+            }
+
+            public float DeltaTime { get; }
+            public float UnscaledTime => 0f;
         }
 
         private readonly struct CustomerVisit

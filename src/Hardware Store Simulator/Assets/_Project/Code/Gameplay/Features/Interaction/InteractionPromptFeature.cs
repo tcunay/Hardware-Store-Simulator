@@ -16,6 +16,7 @@ namespace HardwareStore.Gameplay.Features.Interaction
             Add(systems.Create<ResolveLoadingZonePromptSystem>());
             Add(systems.Create<ResolveTrolleyUpgradeTerminalPromptSystem>());
             Add(systems.Create<ResolvePlatformTrolleyPromptSystem>());
+            Add(systems.Create<ResolveStoreControlTerminalPromptSystem>());
         }
     }
 }

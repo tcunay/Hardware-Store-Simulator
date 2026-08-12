@@ -63,6 +63,7 @@ public partial class Contexts {
     public const string ConsultationOfferVisitEntityId = "ConsultationOfferVisitEntityId";
     public const string CustomerActorVisitEntityId = "CustomerActorVisitEntityId";
     public const string CustomerVisitStoreEntityId = "CustomerVisitStoreEntityId";
+    public const string DayReportStoreEntityId = "DayReportStoreEntityId";
     public const string DeliveryEntityId = "DeliveryEntityId";
     public const string DeliveryProcurementTerminalEntityId = "DeliveryProcurementTerminalEntityId";
     public const string EntityId = "EntityId";
@@ -99,6 +100,11 @@ public partial class Contexts {
             CustomerVisitStoreEntityId,
             game.GetGroup(GameMatcher.CustomerVisitStoreEntityId),
             (e, c) => ((HardwareStore.Gameplay.Components.CustomerVisitStoreEntityId)c).Value));
+
+        game.AddEntityIndex(new Entitas.PrimaryEntityIndex<GameEntity, int>(
+            DayReportStoreEntityId,
+            game.GetGroup(GameMatcher.DayReportStoreEntityId),
+            (e, c) => ((HardwareStore.Gameplay.Components.DayReportStoreEntityId)c).Value));
 
         game.AddEntityIndex(new Entitas.EntityIndex<GameEntity, int>(
             DeliveryEntityId,
@@ -167,6 +173,10 @@ public static class ContextsExtensions {
 
     public static GameEntity GetEntityWithCustomerVisitStoreEntityId(this GameContext context, int Value) {
         return ((Entitas.PrimaryEntityIndex<GameEntity, int>)context.GetEntityIndex(Contexts.CustomerVisitStoreEntityId)).GetEntity(Value);
+    }
+
+    public static GameEntity GetEntityWithDayReportStoreEntityId(this GameContext context, int Value) {
+        return ((Entitas.PrimaryEntityIndex<GameEntity, int>)context.GetEntityIndex(Contexts.DayReportStoreEntityId)).GetEntity(Value);
     }
 
     public static System.Collections.Generic.HashSet<GameEntity> GetEntitiesWithDeliveryEntityId(this GameContext context, int Value) {

@@ -81,7 +81,8 @@ namespace HardwareStore.Gameplay.Features.Procurement.Systems
                     $"Player {player.EntityId} cannot use procurement terminal " +
                     $"{terminal.EntityId} of another store.");
             if (player.hasConsultationVisitEntityId ||
-                player.hasProcurementTerminalEntityId)
+                player.hasProcurementTerminalEntityId ||
+                player.hasDayReportStoreEntityId)
             {
                 throw new InvalidOperationException(
                     $"Player {player.EntityId} has a modal relation without ModalOpen.");

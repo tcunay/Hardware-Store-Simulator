@@ -26,12 +26,20 @@ namespace HardwareStore.Gameplay.Factories
         {
             Pose deliveryPose = sceneData.GetSpawnPoint(SpawnPointId.DeliveryVehicle);
             Pose trolleySpawnPose = sceneData.GetSpawnPoint(SpawnPointId.PlatformTrolley);
+            int initialMoney = _staticData.Economy.InitialMoney;
             GameEntity storageZone = _interactionTargetFactory.CreateStorageZone();
             GameEntity store = CreateEntity.Empty(_identifiers.Next())
-                .AddMoney(_staticData.Economy.InitialMoney)
-                .AddCustomerCooldownRemaining(_staticData.CustomerVehicle.FirstCustomerDelay)
+                .AddMoney(initialMoney)
                 .AddNextProjectSequenceIndex(0)
                 .AddCompletedOrderCount(0)
+                .AddDayNumber(1)
+                .AddCurrentDayMinute(_staticData.StoreDay.StartMinute)
+                .AddDayOpeningBalance(initialMoney)
+                .AddDayRevenue(0)
+                .AddDayProcurementExpenses(0)
+                .AddDayUpgradeExpenses(0)
+                .AddDayCompletedOrderCount(0)
+                .With(x => x.isStorePreparing = true)
                 .With(x => x.isStore = true);
 
             GameEntity orderCounter = _interactionTargetFactory.CreateOrderCounter(store.EntityId);
@@ -47,10 +55,14 @@ namespace HardwareStore.Gameplay.Factories
                     store.EntityId,
                     trolleySpawnPose);
 
+            GameEntity storeControlTerminal =
+                _interactionTargetFactory.CreateStoreControlTerminal(store.EntityId);
+
             store.AddOrderCounterEntityId(orderCounter.EntityId);
             store.AddProcurementTerminalEntityId(procurementTerminal.EntityId);
             store.AddStorageZoneEntityId(storageZone.EntityId);
             store.AddTrolleyUpgradeTerminalEntityId(trolleyUpgradeTerminal.EntityId);
+            store.AddStoreControlTerminalEntityId(storeControlTerminal.EntityId);
             return store;
         }
     }

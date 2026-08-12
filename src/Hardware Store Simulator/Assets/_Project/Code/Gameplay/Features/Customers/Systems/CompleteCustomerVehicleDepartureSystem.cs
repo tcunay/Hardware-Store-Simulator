@@ -44,13 +44,16 @@ namespace HardwareStore.Gameplay.Features.Customers.Systems
 
                 GameEntity store = _gameContext.GetEntityWithEntityId(
                     visit.CustomerVisitStoreEntityId);
-                if (store.hasCustomerCooldownRemaining)
+                if (store == null || !store.isStore || !store.hasEntityId ||
+                    (!store.isStoreOpen && !store.isStoreClosing) ||
+                    store.hasCustomerCooldownRemaining)
                     throw new InvalidOperationException(
                         $"Customer visit {visit.EntityId} references an invalid active store.");
 
                 visit.RemoveCustomerVisitStoreEntityId();
                 visit.isDestructed = true;
-                store.AddCustomerCooldownRemaining(_config.NextCustomerDelay);
+                if (store.isStoreOpen)
+                    store.AddCustomerCooldownRemaining(_config.NextCustomerDelay);
             }
         }
     }

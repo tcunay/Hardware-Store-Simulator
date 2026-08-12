@@ -16,6 +16,7 @@ namespace HardwareStore.Gameplay.Features.Customers.Systems
             _time = time;
             _stores = gameContext.GetGroup(GameMatcher.AllOf(
                     GameMatcher.Store,
+                    GameMatcher.StoreOpen,
                     GameMatcher.EntityId,
                     GameMatcher.CustomerCooldownRemaining)
                 .NoneOf(GameMatcher.Destructed));

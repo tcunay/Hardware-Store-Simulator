@@ -7,7 +7,8 @@ namespace HardwareStore.Gameplay.Presentation
 {
     public readonly struct HudSnapshot
     {
-        public HudSnapshot(HudOrderState orderState, CustomerProjectTypeId? projectType,
+        public HudSnapshot(DayClockSnapshot dayClock, HudOrderState orderState,
+            CustomerProjectTypeId? projectType,
             OrderLineSnapshot[] orderLines, int totalAvailableProductCount,
             int totalLoadedProductCount, int totalRequiredProductCount,
             int money, int stockCount, bool hasActiveDelivery,
@@ -16,6 +17,7 @@ namespace HardwareStore.Gameplay.Presentation
             LocalizedText prompt, bool hasFocus, bool canInteract, bool hasItem,
             bool isPushingTrolley, bool cursorLocked)
         {
+            DayClock = dayClock;
             OrderState = orderState;
             ProjectType = projectType;
             if (orderLines == null)
@@ -46,6 +48,7 @@ namespace HardwareStore.Gameplay.Presentation
             CursorLocked = cursorLocked;
         }
 
+        public DayClockSnapshot DayClock { get; }
         public HudOrderState OrderState { get; }
         public CustomerProjectTypeId? ProjectType { get; }
         public IReadOnlyList<OrderLineSnapshot> OrderLines { get; }

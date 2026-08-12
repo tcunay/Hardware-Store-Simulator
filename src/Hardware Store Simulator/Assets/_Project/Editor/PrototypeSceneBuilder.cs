@@ -49,6 +49,7 @@ namespace HardwareStore.Editor
             "CustomerProjectConfig_WorkbenchFoundation";
         private const string ProductRecoveryConfigName = "ProductRecoveryConfig";
         private const string PlatformTrolleyConfigName = "PlatformTrolleyConfig";
+        private const string StoreDayConfigName = "StoreDayConfig";
         private const string LegacyCementOrderConfigName = "OrderConfig";
         private const string LegacyBoardOrderConfigName = "OrderConfig_BoardBundle";
         private const int CustomerVehicleCargoCapacity = 3;
@@ -86,6 +87,7 @@ namespace HardwareStore.Editor
                 LoadConfig<ProductRecoveryConfig>(ProductRecoveryConfigName);
             PlatformTrolleyConfig platformTrolleyConfig =
                 LoadConfig<PlatformTrolleyConfig>(PlatformTrolleyConfigName);
+            StoreDayConfig storeDayConfig = LoadConfig<StoreDayConfig>(StoreDayConfigName);
             ProductConfig cementProductConfig =
                 LoadConfig<ProductConfig>(CementProductConfigName);
             ProductConfig boardProductConfig =
@@ -101,6 +103,7 @@ namespace HardwareStore.Editor
                 boardDeliveryConfig,
                 economyConfig,
                 productRecoveryConfig,
+                storeDayConfig,
                 cementProductConfig,
                 boardProductConfig,
                 cementProjectConfig,
@@ -148,10 +151,15 @@ namespace HardwareStore.Editor
             ConfigureEnvironment();
 
             GameObject environment = CreateEmpty("Environment");
-            BuildLighting(environment.transform);
+            (Light sun, Light[] indoorLights) = BuildLighting(environment.transform);
             BuildYard(environment.transform, asphalt, concrete, brandBlue, white, yellow);
             (SceneViewMarker orderCounter, SceneViewMarker procurementTerminal) =
                 BuildShop(environment.transform, concrete, brandBlue, brandOrange, darkMetal, glass);
+            SceneViewMarker storeControlTerminal = BuildStoreControlTerminal(
+                environment.transform,
+                concrete,
+                brandOrange,
+                darkMetal);
             (SceneViewMarker trolleyUpgradeTerminal, SpawnPointMarker platformTrolleySpawnPoint) =
                 BuildTrolleyUpgradeArea(
                     environment.transform,
@@ -183,6 +191,8 @@ namespace HardwareStore.Editor
             SceneContext sceneContext = systems.AddComponent<SceneContext>();
             PrototypeAudioView audio = systems.AddComponent<PrototypeAudioView>();
             PrototypeHudView hud = systems.AddComponent<PrototypeHudView>();
+            PrototypeDayNightView dayNight = systems.AddComponent<PrototypeDayNightView>();
+            dayNight.Configure(sun, indoorLights);
             PrototypeSceneInitializer initializer = systems.AddComponent<PrototypeSceneInitializer>();
             initializer.Configure(
                 new[]
@@ -197,10 +207,12 @@ namespace HardwareStore.Editor
                     orderCounter,
                     procurementTerminal,
                     storageZone,
-                    trolleyUpgradeTerminal
+                    trolleyUpgradeTerminal,
+                    storeControlTerminal
                 },
                 hud,
-                audio);
+                audio,
+                dayNight);
             SceneInitializationInstaller installer = systems.AddComponent<SceneInitializationInstaller>();
             installer.Configure(initializer);
             sceneContext.Installers = new MonoInstaller[] { installer };
@@ -232,7 +244,7 @@ namespace HardwareStore.Editor
             RenderSettings.fogEndDistance = 115f;
         }
 
-        private static void BuildLighting(Transform parent)
+        private static (Light Sun, Light[] IndoorLights) BuildLighting(Transform parent)
         {
             GameObject sunObject = CreateEmpty("Sun", parent);
             sunObject.transform.rotation = Quaternion.Euler(42f, -32f, 0f);
@@ -242,10 +254,12 @@ namespace HardwareStore.Editor
             sun.intensity = 1.35f;
             sun.shadows = LightShadows.Soft;
 
-            CreatePointLight("Shop Light", parent, new Vector3(-9f, 2.35f, 4.4f),
+            Light shopLight = CreatePointLight("Shop Light", parent, new Vector3(-9f, 2.35f, 4.4f),
                 new Color(1f, 0.61f, 0.32f), 6.5f, 520f);
-            CreatePointLight("Warehouse Light", parent, new Vector3(5f, 3.25f, 6.2f),
+            Light warehouseLight = CreatePointLight("Warehouse Light", parent, new Vector3(5f, 3.25f, 6.2f),
                 new Color(0.68f, 0.82f, 1f), 7.5f, 430f);
+
+            return (sun, new[] { shopLight, warehouseLight });
         }
 
         private static void BuildYard(Transform parent, Material asphalt, Material concrete, Material brandBlue,
@@ -335,6 +349,53 @@ namespace HardwareStore.Editor
             CreateCube("Window", shop.transform, new Vector3(-9f, 2.2f, 8f), new Vector3(3.3f, 1.15f, 0.08f),
                 glass, false);
             return (orderCounter, procurementTerminal);
+        }
+
+        private static SceneViewMarker BuildStoreControlTerminal(
+            Transform parent,
+            Material concrete,
+            Material brandOrange,
+            Material darkMetal)
+        {
+            GameObject station = CreateEmpty("Store Control Station", parent);
+            CreateCube(
+                "Store Control Pad",
+                station.transform,
+                new Vector3(-5f, 0.04f, -0.25f),
+                new Vector3(1.9f, 0.08f, 1.25f),
+                concrete,
+                collider: false);
+            CreateCube(
+                "Store Control Pedestal",
+                station.transform,
+                new Vector3(-5f, 0.55f, 0f),
+                new Vector3(0.55f, 1.1f, 0.55f),
+                darkMetal);
+            GameObject terminalObject = CreateCube(
+                "Store Control Terminal",
+                station.transform,
+                new Vector3(-5f, 1.22f, 0f),
+                new Vector3(1.65f, 0.72f, 0.18f),
+                brandOrange);
+            BoxCollider interactionCollider = terminalObject.GetComponent<BoxCollider>();
+            interactionCollider.isTrigger = true;
+            interactionCollider.center = new Vector3(0f, 0f, -2f);
+            interactionCollider.size = new Vector3(1.35f, 2.8f, 5f);
+            InteractionHighlight highlight = terminalObject.AddComponent<InteractionHighlight>();
+            InteractionView interactionView = terminalObject.AddComponent<InteractionView>();
+            interactionView.Configure(highlight);
+            terminalObject.AddComponent<InteractionViewRegistrar>();
+            SceneViewMarker marker = terminalObject.AddComponent<SceneViewMarker>();
+            marker.Configure(SceneViewId.StoreControlTerminal);
+            CreateWorldLabel(
+                "Store Control Label",
+                terminalObject.transform,
+                LocalizationKey.WorldStoreControlTerminal,
+                new Vector3(0f, 0f, -0.56f),
+                Quaternion.identity,
+                0.022f,
+                Color.white);
+            return marker;
         }
 
         private static (SceneViewMarker Terminal, SpawnPointMarker SpawnPoint)
@@ -1290,7 +1351,7 @@ namespace HardwareStore.Editor
             Object.DestroyImmediate(wheel.GetComponent<Collider>());
         }
 
-        private static void CreatePointLight(string name, Transform parent, Vector3 position, Color color,
+        private static Light CreatePointLight(string name, Transform parent, Vector3 position, Color color,
             float range, float intensity)
         {
             GameObject lightObject = CreateEmpty(name, parent);
@@ -1301,6 +1362,7 @@ namespace HardwareStore.Editor
             light.range = range;
             light.intensity = intensity;
             light.shadows = LightShadows.None;
+            return light;
         }
 
         private static void CreateWorldLabel(string name, Transform parent,
@@ -1399,6 +1461,7 @@ namespace HardwareStore.Editor
             EnsureConfigAsset<EconomyConfig>("EconomyConfig");
             EnsureConfigAsset<ProductRecoveryConfig>(ProductRecoveryConfigName);
             EnsureConfigAsset<PlatformTrolleyConfig>(PlatformTrolleyConfigName);
+            EnsureConfigAsset<StoreDayConfig>(StoreDayConfigName);
         }
 
         private static void ConfigurePrototypeConfigs(
@@ -1406,6 +1469,7 @@ namespace HardwareStore.Editor
             DeliveryConfig boardDeliveryConfig,
             EconomyConfig economyConfig,
             ProductRecoveryConfig productRecoveryConfig,
+            StoreDayConfig storeDayConfig,
             ProductConfig cementProductConfig,
             ProductConfig boardProductConfig,
             CustomerProjectConfig cementProjectConfig,
@@ -1432,6 +1496,13 @@ namespace HardwareStore.Editor
             RequireSerializedProperty(productRecovery, "_minimumWorldY").floatValue = -10f;
             productRecovery.ApplyModifiedPropertiesWithoutUndo();
             EditorUtility.SetDirty(productRecoveryConfig);
+
+            SerializedObject storeDay = new(storeDayConfig);
+            RequireSerializedProperty(storeDay, "_startMinute").intValue = 8 * 60;
+            RequireSerializedProperty(storeDay, "_closingMinute").intValue = 20 * 60;
+            RequireSerializedProperty(storeDay, "_dayDurationSeconds").floatValue = 480f;
+            storeDay.ApplyModifiedPropertiesWithoutUndo();
+            EditorUtility.SetDirty(storeDayConfig);
 
             ConfigureProductConfig(
                 cementProductConfig,

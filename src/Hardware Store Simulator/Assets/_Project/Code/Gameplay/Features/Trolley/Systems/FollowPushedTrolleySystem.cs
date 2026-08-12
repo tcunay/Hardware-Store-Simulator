@@ -46,19 +46,22 @@ namespace HardwareStore.Gameplay.Features.Trolley.Systems
                 Vector3 position = playerTransform.position +
                                    playerTransform.forward * trolley.TrolleyFollowDistance;
                 Quaternion rotation = playerTransform.rotation;
-                if (!_motion.CanMoveTo(
+                if (!_motion.TryResolveMove(
                         trolley.Rigidbody,
                         trolley.Colliders,
                         player.CharacterController,
                         position,
-                        rotation))
+                        rotation,
+                        out Pose resolvedPose))
                 {
                     continue;
                 }
 
-                trolley.Rigidbody.position = position;
-                trolley.Rigidbody.rotation = rotation;
-                trolley.Transform.SetPositionAndRotation(position, rotation);
+                trolley.Rigidbody.position = resolvedPose.position;
+                trolley.Rigidbody.rotation = resolvedPose.rotation;
+                trolley.Transform.SetPositionAndRotation(
+                    resolvedPose.position,
+                    resolvedPose.rotation);
             }
         }
     }

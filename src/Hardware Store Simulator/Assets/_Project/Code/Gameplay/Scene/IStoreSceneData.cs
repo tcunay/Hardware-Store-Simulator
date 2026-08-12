@@ -5,15 +5,17 @@ using UnityEngine;
 
 namespace HardwareStore.Gameplay.Scene
 {
-    public interface IStoreSceneData : IAudioService, INotificationService, IHudService
+    public interface IStoreSceneData : IAudioService, INotificationService, IHudService,
+        IDayNightPresentationService
     {
         bool IsRegistered { get; }
 
         Pose GetSpawnPoint(SpawnPointId id);
         Pose[] GetRoute(SceneRouteId id);
         EntityBehaviour GetSceneView(SceneViewId id);
-        void Register(SpawnPointMarker[] spawnPoints, SceneRouteMarker[] routes, SceneViewMarker[] sceneViews,
-            PrototypeHudView hudView, PrototypeAudioView audioView);
+        void Register(SpawnPointMarker[] spawnPoints, SceneRouteMarker[] routes,
+            SceneViewMarker[] sceneViews, PrototypeHudView hudView,
+            PrototypeAudioView audioView, PrototypeDayNightView dayNightView);
         void Unregister();
     }
 }

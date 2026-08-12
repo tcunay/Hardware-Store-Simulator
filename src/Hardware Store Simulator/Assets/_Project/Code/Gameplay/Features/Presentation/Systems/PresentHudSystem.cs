@@ -113,6 +113,7 @@ namespace HardwareStore.Gameplay.Features.Presentation.Systems
             }
 
             _hud.Present(new HudSnapshot(
+                CreateDayClockSnapshot(store),
                 orderState,
                 projectType,
                 orderLines,
@@ -132,6 +133,46 @@ namespace HardwareStore.Gameplay.Features.Presentation.Systems
                 player.isCarryingProduct,
                 player.isPushingTrolley,
                 player.isCursorLocked));
+        }
+
+        private static DayClockSnapshot CreateDayClockSnapshot(GameEntity store)
+        {
+            if (!store.hasDayNumber || !store.hasCurrentDayMinute)
+            {
+                throw new InvalidOperationException(
+                    $"Store {store.EntityId} has no configured day clock.");
+            }
+
+            int phaseCount =
+                (store.isStorePreparing ? 1 : 0) +
+                (store.isStoreOpen ? 1 : 0) +
+                (store.isStoreClosing ? 1 : 0) +
+                (store.isDayReportOpen ? 1 : 0);
+            if (phaseCount != 1)
+            {
+                throw new InvalidOperationException(
+                    $"Store {store.EntityId} must have exactly one day phase.");
+            }
+
+            float currentMinute = store.CurrentDayMinute;
+            if (float.IsNaN(currentMinute) || float.IsInfinity(currentMinute) ||
+                currentMinute < 0f || currentMinute >= 24f * 60f)
+            {
+                throw new InvalidOperationException(
+                    $"Store {store.EntityId} has invalid day minute {currentMinute}.");
+            }
+
+            StoreDayPhase phase = store.isStorePreparing
+                ? StoreDayPhase.Preparing
+                : store.isStoreOpen
+                    ? StoreDayPhase.Open
+                    : store.isStoreClosing
+                        ? StoreDayPhase.Closing
+                        : StoreDayPhase.Report;
+            return new DayClockSnapshot(
+                store.DayNumber,
+                (int)Math.Floor(currentMinute),
+                phase);
         }
 
         private OrderLineSnapshot[] CreateLineSnapshots(

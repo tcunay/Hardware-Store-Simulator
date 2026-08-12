@@ -9,8 +9,12 @@ namespace HardwareStore.Gameplay.Presentation
     [DisallowMultipleComponent]
     public sealed class PrototypeHudView : MonoBehaviour, IHudService, INotificationService
     {
+        public const float NewDayFadeHoldSeconds = 0.2f;
+        public const float NewDayFadeOutSeconds = 0.8f;
+
         private ILocalizationService _localization;
         private HudSnapshot _snapshot;
+        private DayReportSnapshot? _dayReport;
         private ConsultationSnapshot? _consultation;
         private ProcurementSnapshot? _procurement;
         private bool _hasSnapshot;
@@ -25,6 +29,7 @@ namespace HardwareStore.Gameplay.Presentation
         private GUIStyle _cardMetaStyle;
         private float _canvasWidth;
         private float _canvasHeight;
+        private float _newDayFadeStartedAt = -1f;
 
         [Inject]
         private void Construct(ILocalizationService localization) =>
@@ -38,9 +43,42 @@ namespace HardwareStore.Gameplay.Presentation
 
         public void Present(HudSnapshot snapshot)
         {
+            if (_hasSnapshot &&
+                ShouldStartNewDayFade(_snapshot.DayClock, snapshot.DayClock))
+            {
+                _newDayFadeStartedAt = Time.unscaledTime;
+            }
+
             _snapshot = snapshot;
             _hasSnapshot = true;
         }
+
+        public static bool ShouldStartNewDayFade(
+            DayClockSnapshot previous,
+            DayClockSnapshot current) =>
+            previous.Phase == StoreDayPhase.Report &&
+            current.Phase == StoreDayPhase.Preparing &&
+            previous.DayNumber < int.MaxValue &&
+            current.DayNumber == previous.DayNumber + 1;
+
+        public static float EvaluateNewDayFadeAlpha(float elapsedSeconds)
+        {
+            if (float.IsNaN(elapsedSeconds) || float.IsInfinity(elapsedSeconds) ||
+                elapsedSeconds < 0f)
+            {
+                throw new ArgumentOutOfRangeException(nameof(elapsedSeconds));
+            }
+
+            if (elapsedSeconds <= NewDayFadeHoldSeconds)
+                return 1f;
+
+            float fadeProgress = Mathf.Clamp01(
+                (elapsedSeconds - NewDayFadeHoldSeconds) / NewDayFadeOutSeconds);
+            return 1f - Mathf.SmoothStep(0f, 1f, fadeProgress);
+        }
+
+        public void PresentDayReport(DayReportSnapshot? snapshot) =>
+            _dayReport = snapshot;
 
         public void PresentConsultation(ConsultationSnapshot? snapshot) =>
             _consultation = snapshot;
@@ -73,10 +111,19 @@ namespace HardwareStore.Gameplay.Presentation
             GUI.matrix = Matrix4x4.Scale(new Vector3(scale, scale, 1f));
 
             EnsureStyles();
+            if (_dayReport.HasValue)
+            {
+                DrawDayReport(_dayReport.Value);
+                DrawNotification();
+                DrawNewDayFade();
+                GUI.matrix = previousMatrix;
+                return;
+            }
             if (_consultation.HasValue)
             {
                 DrawConsultation(_consultation.Value);
                 DrawNotification();
+                DrawNewDayFade();
                 GUI.matrix = previousMatrix;
                 return;
             }
@@ -84,11 +131,13 @@ namespace HardwareStore.Gameplay.Presentation
             {
                 DrawProcurement(_procurement.Value);
                 DrawNotification();
+                DrawNewDayFade();
                 GUI.matrix = previousMatrix;
                 return;
             }
 
             DrawStatusPanel();
+            DrawDayClock();
             DrawCrosshair();
             DrawInteractionPrompt();
             DrawControls();
@@ -97,17 +146,21 @@ namespace HardwareStore.Gameplay.Presentation
             if (!_snapshot.CursorLocked)
                 DrawCursorHint();
 
+            DrawNewDayFade();
+
             GUI.matrix = previousMatrix;
         }
 
         private void ResetPresentation()
         {
             _snapshot = default;
+            _dayReport = null;
             _consultation = null;
             _procurement = null;
             _hasSnapshot = false;
             _notification = string.Empty;
             _notificationUntil = 0f;
+            _newDayFadeStartedAt = -1f;
         }
 
         private void DrawStatusPanel()
@@ -147,6 +200,156 @@ namespace HardwareStore.Gameplay.Presentation
                 GUI.Label(new Rect(42f, 138f, 640f, 28f),
                     Resolve(LocalizationKey.HudBalance, _snapshot.Money), _bodyStyle);
             }
+        }
+
+        private void DrawDayClock()
+        {
+            float panelWidth = Mathf.Min(420f, _canvasWidth - 48f);
+            const float panelY = 24f;
+            const float phaseTopOffset = 44f;
+            const float horizontalPadding = 16f;
+            string phaseText = Resolve(
+                LocalizedTexts.StoreDayPhase(_snapshot.DayClock.Phase));
+            float phaseHeight = Mathf.Max(
+                28f,
+                _promptStyle.CalcHeight(
+                    new GUIContent(phaseText),
+                    panelWidth - horizontalPadding * 2f));
+            float panelHeight = phaseTopOffset + phaseHeight + 10f;
+            Rect panel = new(
+                _canvasWidth - panelWidth - 24f,
+                panelY,
+                panelWidth,
+                panelHeight);
+            DrawPanel(panel, new Color(0.035f, 0.045f, 0.055f, 0.9f));
+
+            int hour = _snapshot.DayClock.CurrentDayMinute / 60;
+            int minute = _snapshot.DayClock.CurrentDayMinute % 60;
+            GUI.Label(
+                new Rect(panel.x + 18f, panel.y + 10f, panel.width - 36f, 32f),
+                Resolve(
+                    LocalizationKey.HudDayClock,
+                    _snapshot.DayClock.DayNumber,
+                    hour,
+                    minute),
+                _titleStyle);
+
+            Color previous = GUI.color;
+            GUI.color = _snapshot.DayClock.Phase switch
+            {
+                StoreDayPhase.Preparing => new Color(0.7f, 0.82f, 0.92f),
+                StoreDayPhase.Open => new Color(0.4f, 0.9f, 0.48f),
+                StoreDayPhase.Closing => new Color(1f, 0.58f, 0.18f),
+                StoreDayPhase.Report => new Color(0.78f, 0.82f, 0.86f),
+                _ => throw new ArgumentOutOfRangeException()
+            };
+            GUI.Label(
+                new Rect(
+                    panel.x + horizontalPadding,
+                    panel.y + phaseTopOffset,
+                    panel.width - horizontalPadding * 2f,
+                    phaseHeight),
+                phaseText,
+                _promptStyle);
+            GUI.color = previous;
+        }
+
+        private void DrawNewDayFade()
+        {
+            if (_newDayFadeStartedAt < 0f)
+                return;
+
+            float elapsedSeconds = Time.unscaledTime - _newDayFadeStartedAt;
+            float alpha = EvaluateNewDayFadeAlpha(elapsedSeconds);
+            if (alpha <= 0f)
+            {
+                _newDayFadeStartedAt = -1f;
+                return;
+            }
+
+            DrawPanel(
+                new Rect(0f, 0f, _canvasWidth, _canvasHeight),
+                new Color(0f, 0f, 0f, alpha));
+        }
+
+        private void DrawDayReport(DayReportSnapshot report)
+        {
+            DrawPanel(
+                new Rect(0f, 0f, _canvasWidth, _canvasHeight),
+                new Color(0.012f, 0.018f, 0.03f, 0.95f));
+
+            float panelWidth = Mathf.Min(780f, _canvasWidth - 48f);
+            float panelHeight = Mathf.Min(650f, _canvasHeight - 64f);
+            Rect panel = new(
+                (_canvasWidth - panelWidth) * 0.5f,
+                (_canvasHeight - panelHeight) * 0.5f,
+                panelWidth,
+                panelHeight);
+            DrawPanel(panel, new Color(0.055f, 0.065f, 0.075f, 0.99f));
+
+            GUI.Label(
+                new Rect(panel.x + 36f, panel.y + 28f, panel.width - 72f, 40f),
+                Resolve(LocalizationKey.HudDayReportTitle, report.DayNumber),
+                _centerStyle);
+            GUI.Label(
+                new Rect(panel.x + 52f, panel.y + 92f, panel.width - 104f, 32f),
+                Resolve(
+                    LocalizationKey.HudDayReportOrders,
+                    report.CompletedOrderCount),
+                _bodyStyle);
+
+            GUI.Label(
+                new Rect(panel.x + 52f, panel.y + 144f, panel.width - 104f, 32f),
+                Resolve(LocalizationKey.HudDayReportRevenue, report.Revenue),
+                _bodyStyle);
+            GUI.Label(
+                new Rect(panel.x + 52f, panel.y + 184f, panel.width - 104f, 32f),
+                Resolve(
+                    LocalizationKey.HudDayReportProcurementExpenses,
+                    report.ProcurementExpenses),
+                _bodyStyle);
+            GUI.Label(
+                new Rect(panel.x + 52f, panel.y + 224f, panel.width - 104f, 32f),
+                Resolve(
+                    LocalizationKey.HudDayReportUpgradeExpenses,
+                    report.UpgradeExpenses),
+                _bodyStyle);
+
+            DrawPanel(
+                new Rect(panel.x + 48f, panel.y + 278f, panel.width - 96f, 2f),
+                new Color(0.28f, 0.31f, 0.34f, 1f));
+            Color previous = GUI.color;
+            GUI.color = report.NetCashFlow >= 0
+                ? new Color(1f, 0.7f, 0.25f)
+                : new Color(1f, 0.35f, 0.28f);
+            GUI.Label(
+                new Rect(panel.x + 52f, panel.y + 302f, panel.width - 104f, 38f),
+                Resolve(
+                    LocalizationKey.HudDayReportNetCashFlow,
+                    report.NetCashFlow),
+                _cardTitleStyle);
+            GUI.color = previous;
+
+            GUI.Label(
+                new Rect(panel.x + 52f, panel.y + 364f, panel.width - 104f, 32f),
+                Resolve(
+                    LocalizationKey.HudDayReportBalance,
+                    report.OpeningBalance,
+                    report.ClosingBalance),
+                _bodyStyle);
+            GUI.Label(
+                new Rect(panel.x + 52f, panel.y + 404f, panel.width - 104f, 32f),
+                Resolve(
+                    LocalizationKey.HudDayReportStock,
+                    report.StorageProductCount),
+                _bodyStyle);
+
+            GUI.Label(
+                new Rect(panel.x + 36f, panel.yMax - 82f, panel.width - 72f, 44f),
+                Resolve(
+                    LocalizationKey.HudDayReportContinue,
+                    checked(report.DayNumber + 1)),
+                _promptStyle);
         }
 
         private void DrawCrosshair()
@@ -435,6 +638,15 @@ namespace HardwareStore.Gameplay.Presentation
 
         private string ResolveObjective()
         {
+            if (_snapshot.DayClock.Phase == StoreDayPhase.Preparing)
+                return Resolve(LocalizationKey.HudObjectivePreparing);
+
+            if (_snapshot.DayClock.Phase == StoreDayPhase.Closing &&
+                _snapshot.OrderState == HudOrderState.NoCustomer)
+            {
+                return Resolve(LocalizationKey.HudObjectiveClosing);
+            }
+
             if (_snapshot.HasActiveDelivery &&
                 _snapshot.DeliveryStockedCount < _snapshot.DeliveryProductCount)
             {

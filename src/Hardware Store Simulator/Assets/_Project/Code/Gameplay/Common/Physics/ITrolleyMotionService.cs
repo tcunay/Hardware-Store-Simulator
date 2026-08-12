@@ -4,8 +4,8 @@ namespace HardwareStore.Gameplay.Common.Physics
 {
     public interface ITrolleyMotionService
     {
-        bool CanMoveTo(Rigidbody trolleyBody, Collider[] trolleyColliders,
+        bool TryResolveMove(Rigidbody trolleyBody, Collider[] trolleyColliders,
             CharacterController sourceController, Vector3 targetPosition,
-            Quaternion targetRotation);
+            Quaternion targetRotation, out Pose resolvedPose);
     }
 }

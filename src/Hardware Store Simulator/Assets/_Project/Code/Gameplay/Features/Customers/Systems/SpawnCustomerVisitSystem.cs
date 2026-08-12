@@ -21,6 +21,7 @@ namespace HardwareStore.Gameplay.Features.Customers.Systems
             _customerVisitFactory = customerVisitFactory;
             _stores = gameContext.GetGroup(GameMatcher.AllOf(
                     GameMatcher.Store,
+                    GameMatcher.StoreOpen,
                     GameMatcher.EntityId,
                     GameMatcher.StorageZoneEntityId,
                     GameMatcher.NextProjectSequenceIndex,

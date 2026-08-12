@@ -16,6 +16,7 @@ namespace HardwareStore.Gameplay.Scene
         private IHudService _hud;
         private INotificationService _notifications;
         private IAudioService _audio;
+        private IDayNightPresentationService _dayNight;
 
         public bool IsRegistered { get; private set; }
 
@@ -50,8 +51,8 @@ namespace HardwareStore.Gameplay.Scene
         }
 
         public void Register(SpawnPointMarker[] spawnPoints, SceneRouteMarker[] routes,
-            SceneViewMarker[] sceneViews,
-            PrototypeHudView hudView, PrototypeAudioView audioView)
+            SceneViewMarker[] sceneViews, PrototypeHudView hudView,
+            PrototypeAudioView audioView, PrototypeDayNightView dayNightView)
         {
             if (IsRegistered)
                 throw new InvalidOperationException("Store scene data is already registered.");
@@ -66,6 +67,8 @@ namespace HardwareStore.Gameplay.Scene
                 throw new ArgumentNullException(nameof(hudView));
             if (audioView == null)
                 throw new ArgumentNullException(nameof(audioView));
+            if (dayNightView == null)
+                throw new ArgumentNullException(nameof(dayNightView));
 
             var spawnPointPoses = new Dictionary<SpawnPointId, Pose>(spawnPoints.Length);
             for (int index = 0; index < spawnPoints.Length; index++)
@@ -106,6 +109,7 @@ namespace HardwareStore.Gameplay.Scene
             _hud = hudView;
             _notifications = hudView;
             _audio = audioView;
+            _dayNight = dayNightView;
             IsRegistered = true;
         }
 
@@ -123,6 +127,7 @@ namespace HardwareStore.Gameplay.Scene
             _hud = null;
             _notifications = null;
             _audio = null;
+            _dayNight = null;
         }
 
         public void Play(AudioCueId cue)
@@ -141,6 +146,18 @@ namespace HardwareStore.Gameplay.Scene
         {
             EnsureRegistered();
             _hud.Present(snapshot);
+        }
+
+        public void Present(DayNightSnapshot snapshot)
+        {
+            EnsureRegistered();
+            _dayNight.Present(snapshot);
+        }
+
+        public void PresentDayReport(DayReportSnapshot? snapshot)
+        {
+            EnsureRegistered();
+            _hud.PresentDayReport(snapshot);
         }
 
         public void PresentConsultation(ConsultationSnapshot? snapshot)

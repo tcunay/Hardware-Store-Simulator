@@ -1,5 +1,6 @@
 using System;
 using HardwareStore.Gameplay.Components;
+using StoreDayPhaseId = HardwareStore.Gameplay.Presentation.StoreDayPhase;
 
 namespace HardwareStore.Gameplay.Localization
 {
@@ -60,6 +61,19 @@ namespace HardwareStore.Gameplay.Localization
         public static LocalizedText OfferDescription(CustomerProjectTypeId projectType,
             int offerIndex) =>
             Text(OfferDescriptionKey(projectType, offerIndex));
+
+        public static LocalizedText StoreDayPhase(StoreDayPhaseId phase) =>
+            Text(phase switch
+            {
+                StoreDayPhaseId.Preparing =>
+                    LocalizationKey.HudDayPhasePreparing,
+                StoreDayPhaseId.Open => LocalizationKey.HudDayPhaseOpen,
+                StoreDayPhaseId.Closing =>
+                    LocalizationKey.HudDayPhaseClosing,
+                StoreDayPhaseId.Report => LocalizationKey.HudDayPhaseReport,
+                _ => throw new ArgumentOutOfRangeException(
+                    nameof(phase), phase, "Unsupported store day phase.")
+            });
 
         private static LocalizationKey OfferTitleKey(CustomerProjectTypeId projectType,
             int offerIndex) =>
