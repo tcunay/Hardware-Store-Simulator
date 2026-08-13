@@ -153,19 +153,27 @@ namespace HardwareStore.Gameplay.Features.Procurement.Systems
                 return;
             }
 
-            GameEntity visit = _gameContext.GetEntityWithCustomerVisitStoreEntityId(
-                terminal.StoreEntityId);
-            if (visit == null || !visit.isOrder ||
-                !visit.isCustomerVisitLoading ||
-                !visit.hasStorageZoneEntityId ||
-                visit.StorageZoneEntityId != terminal.StorageZoneEntityId)
-            {
+            if (!evaluation.DemandVisitEntityId.HasValue)
                 throw new InvalidOperationException(
-                    $"Terminal {terminal.EntityId} resolved a missing active order.");
+                    $"Terminal {terminal.EntityId} resolved confirmed demand without a visit.");
+
+            GameEntity visit = _gameContext.GetEntityWithEntityId(
+                evaluation.DemandVisitEntityId.Value);
+            ValidateConfirmedDemand(terminal, evaluation, visit);
+
+            var indexedLines = _gameContext.GetEntitiesWithOrderEntityId(visit.EntityId);
+            foreach (GameEntity line in indexedLines)
+            {
+                if (!line.hasLineIndex)
+                {
+                    throw new InvalidOperationException(
+                        $"Order {visit.EntityId} contains a line without an index.");
+                }
             }
 
-            GameEntity[] lines =
-                _gameContext.GetEntitiesWithOrderEntityId(visit.EntityId).ToArray();
+            GameEntity[] lines = indexedLines
+                .OrderBy(line => line.LineIndex)
+                .ToArray();
             ValidateOrderLines(visit, lines);
             if (HasDeficit(lines, terminal.SelectedProductType))
                 return;
@@ -177,6 +185,46 @@ namespace HardwareStore.Gameplay.Features.Procurement.Systems
 
                 terminal.ReplaceSelectedProductType(productType);
                 return;
+            }
+        }
+
+        private static void ValidateConfirmedDemand(
+            GameEntity terminal,
+            ProcurementPurchaseEvaluation evaluation,
+            GameEntity visit)
+        {
+            if (visit == null || !visit.isCustomerVisit || visit.isDestructed ||
+                !visit.isOrder || visit.isOrderRewarded || !visit.hasEntityId ||
+                !visit.hasCustomerVisitStoreEntityId ||
+                !visit.hasCustomerProjectType || !visit.hasStorageZoneEntityId ||
+                !visit.hasCustomerArrivalSequence ||
+                visit.CustomerVisitStoreEntityId != terminal.StoreEntityId ||
+                visit.CustomerProjectType != evaluation.ProjectType ||
+                visit.StorageZoneEntityId != terminal.StorageZoneEntityId)
+            {
+                throw new InvalidOperationException(
+                    $"Terminal {terminal.EntityId} resolved an invalid confirmed demand visit.");
+            }
+
+            ValidateVisitLifecycle(visit);
+        }
+
+        private static void ValidateVisitLifecycle(GameEntity visit)
+        {
+            int lifecycleCount = 0;
+            if (visit.isCustomerVisitArriving) lifecycleCount++;
+            if (visit.isCustomerVisitQueued) lifecycleCount++;
+            if (visit.isCustomerVisitConsulting) lifecycleCount++;
+            if (visit.isCustomerVisitWaitingForLoadingBay) lifecycleCount++;
+            if (visit.isCustomerVisitMovingToLoadingBay) lifecycleCount++;
+            if (visit.isCustomerVisitLoading) lifecycleCount++;
+            if (visit.isCustomerVisitCompleted) lifecycleCount++;
+            if (visit.isCustomerVisitReturning) lifecycleCount++;
+            if (visit.isCustomerVisitDeparting) lifecycleCount++;
+            if (lifecycleCount != 1)
+            {
+                throw new InvalidOperationException(
+                    $"Customer visit {visit.EntityId} must have exactly one lifecycle marker.");
             }
         }
 
@@ -223,7 +271,7 @@ namespace HardwareStore.Gameplay.Features.Procurement.Systems
                     line.OrderEntityId != visit.EntityId || !line.hasProductType ||
                     !line.hasStorageZoneEntityId ||
                     line.StorageZoneEntityId != visit.StorageZoneEntityId ||
-                    !line.hasLineIndex ||
+                    !line.hasLineIndex || line.LineIndex != index ||
                     !line.hasRequiredProductCount || !line.hasAvailableProductCount ||
                     !line.hasLoadedProductCount || line.RequiredProductCount <= 0 ||
                     line.AvailableProductCount < 0 || line.LoadedProductCount < 0 ||

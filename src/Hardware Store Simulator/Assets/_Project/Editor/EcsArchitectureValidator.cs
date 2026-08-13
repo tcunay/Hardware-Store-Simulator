@@ -6,6 +6,7 @@ using System.Reflection;
 using System.Text.RegularExpressions;
 using Entitas;
 using HardwareStore.Gameplay.Common.Economy;
+using HardwareStore.Gameplay.Common.Customers;
 using HardwareStore.Gameplay.Common.Input;
 using HardwareStore.Gameplay.Common.Navigation;
 using HardwareStore.Gameplay.Common.Registrars;
@@ -56,6 +57,8 @@ namespace HardwareStore.Editor
             "Assets/Resources/Configs/CustomerVehicleConfig.asset";
         private const string CustomerConfigPath =
             "Assets/Resources/Configs/CustomerConfig.asset";
+        private const string CustomerFlowConfigPath =
+            "Assets/Resources/Configs/CustomerFlowConfig.asset";
         private const string EconomyConfigPath = "Assets/Resources/Configs/EconomyConfig.asset";
         private const string ProductRecoveryConfigPath =
             "Assets/Resources/Configs/ProductRecoveryConfig.asset";
@@ -188,6 +191,7 @@ namespace HardwareStore.Editor
             typeof(DeliveryConfig),
             typeof(CustomerVehicleConfig),
             typeof(CustomerConfig),
+            typeof(CustomerFlowConfig),
             typeof(CustomerProjectConfig),
             typeof(ProductConfig),
             typeof(ProductRecoveryConfig),
@@ -203,6 +207,7 @@ namespace HardwareStore.Editor
             (typeof(EconomyConfig), EconomyConfigPath),
             (typeof(CustomerVehicleConfig), CustomerVehicleConfigPath),
             (typeof(CustomerConfig), CustomerConfigPath),
+            (typeof(CustomerFlowConfig), CustomerFlowConfigPath),
             (typeof(ProductRecoveryConfig), ProductRecoveryConfigPath),
             (typeof(PlatformTrolleyConfig), PlatformTrolleyConfigPath),
             (typeof(WarehouseWorkerConfig), WarehouseWorkerConfigPath),
@@ -238,6 +243,7 @@ namespace HardwareStore.Editor
             ValidateStoreDayArchitecture(runtimeTypes, componentTypes);
             ValidateEntityViewBindingBoundary(runtimeTypes, componentTypes);
             ValidateEntityIndices(runtimeTypes, componentTypes);
+            ValidateCustomerQueueArchitecture(runtimeTypes);
             ValidateContextAwareInteractionFocus();
             ValidateProductRecoveryArchitecture(runtimeTypes, componentTypes);
             ValidateCollisionSafeProductDrop(runtimeTypes, componentTypes);
@@ -558,8 +564,9 @@ namespace HardwareStore.Editor
                 runtimeTypes,
                 "GetEntityWithDayReportStoreEntityId",
                 typeof(GameEntity));
-            Require(GameComponentsLookup.componentTypes.Length == 198,
-                "The worker slice must expose the exact 198-component generated Game registry.");
+            Require(GameComponentsLookup.componentTypes.Length == 222,
+                "The customer-queue slice must expose the exact 222-component generated Game " +
+                "registry.");
 
             Type featureType = runtimeTypes.SingleOrDefault(type =>
                 type.Name == "StoreDayFeature");
@@ -693,15 +700,20 @@ namespace HardwareStore.Editor
             string tickCooldownSource = ReadRuntimeSource(
                 "Gameplay", "Features", "Customers", "Systems",
                 "TickCustomerCooldownSystem.cs");
-            string completeDepartureSource = ReadRuntimeSource(
-                "Gameplay", "Features", "Customers", "Systems",
-                "CompleteCustomerVehicleDepartureSystem.cs");
-            RequireSourceContains(spawnCustomerSource, "GameMatcher.StoreOpen");
+            string arrivalScheduleSource = ReadRuntimeSource(
+                "Gameplay", "Common", "Customers", "CustomerArrivalSchedule.cs");
+            RequireSourceContains(spawnCustomerSource,
+                "GameMatcher.StoreOpen",
+                "GetEntitiesWithCustomerParkingSpotStoreEntityId",
+                "GetEntityWithReservedCustomerParkingSpotEntityId",
+                "GetEntityWithReservedCustomerTrafficLaneEntityId",
+                "float nextDelay = _arrivalSchedule.GetDelay(store.CurrentDayMinute)",
+                "store.ReplaceCustomerCooldownRemaining(nextDelay)");
             RequireSourceContains(tickCooldownSource, "GameMatcher.StoreOpen");
-            RequireSourceContains(completeDepartureSource,
-                "!store.isStoreOpen && !store.isStoreClosing",
-                "if (store.isStoreOpen)",
-                "store.AddCustomerCooldownRemaining(_config.NextCustomerDelay)");
+            RequireSourceContains(arrivalScheduleSource,
+                "staticData.CustomerFlow.ArrivalSchedule",
+                "currentDayMinute < first.Minute || currentDayMinute > last.Minute",
+                "left.Delay + (right.Delay - left.Delay) * progress");
 
             string openStoreSource = ReadRuntimeSource(
                 "Gameplay", "Features", "StoreDay", "Systems", "OpenStoreSystem.cs");
@@ -709,6 +721,8 @@ namespace HardwareStore.Editor
                 "GameMatcher.InteractionRequest",
                 "terminal.isStoreControlTerminal",
                 "store.isStorePreparing",
+                "staticData.CustomerFlow.FirstArrivalDelay",
+                "StoreDayCustomerVisitGuard.CountActiveVisits(",
                 "store.isStoreOpen = true",
                 "store.AddCustomerCooldownRemaining(_firstCustomerDelay)",
                 "LocalizationKey.NotificationStoreOpened");
@@ -716,7 +730,7 @@ namespace HardwareStore.Editor
                 "Gameplay", "Features", "StoreDay", "Systems", "OpenDayReportSystem.cs");
             RequireSourceContains(openReportSource,
                 "store.isStoreClosing",
-                "GetEntityWithCustomerVisitStoreEntityId(store.EntityId)",
+                "StoreDayCustomerVisitGuard.CountActiveVisits(",
                 "WarehouseTaskStepId.Blocked",
                 "task.hasAssignedWorkerEntityId",
                 "task.hasWarehouseTaskReservedStorageSlotIndex",
@@ -908,7 +922,7 @@ namespace HardwareStore.Editor
                 "LocalizationKey.PromptCloseStoreCustomerActive",
                 "LocalizationKey.PromptCloseStoreHandsOccupied",
                 "LocalizationKey.PromptCloseStoreForReport",
-                "GetEntityWithCustomerVisitStoreEntityId(store.EntityId)",
+                "CountActiveCustomerVisits(store.EntityId)",
                 "player.isHandsOccupied");
             string orderCounterPromptSource = ReadRuntimeSource(
                 "Gameplay", "Features", "Interaction", "Systems",
@@ -983,10 +997,36 @@ namespace HardwareStore.Editor
                 typeof(void),
                 typeof(SpawnPointMarker[]),
                 typeof(SceneRouteMarker[]),
+                typeof(CustomerFlowLayoutMarker),
                 typeof(SceneViewMarker[]),
                 typeof(PrototypeHudView),
                 typeof(PrototypeAudioView),
                 typeof(PrototypeDayNightView));
+            RequireMethod(
+                typeof(IStoreSceneData),
+                nameof(IStoreSceneData.GetCustomerFlowLayout),
+                typeof(CustomerFlowSceneLayout));
+            Require(typeof(CustomerFlowSceneLayout).GetConstructor(new[]
+                    {
+                        typeof(CustomerParkingSpotSceneLayout[]),
+                        typeof(Pose[]),
+                        typeof(Pose[])
+                    }) != null &&
+                    typeof(CustomerParkingSpotSceneLayout).GetConstructor(new[]
+                    {
+                        typeof(int),
+                        typeof(Pose[]),
+                        typeof(Pose[]),
+                        typeof(Pose[]),
+                        typeof(Pose[])
+                    }) != null,
+                "Customer scene flow must use typed immutable snapshot value objects.");
+            string storeSceneDataSource = ReadRuntimeSource(
+                "Gameplay", "Scene", nameof(StoreSceneData) + ".cs");
+            RequireSourceContains(
+                storeSceneDataSource,
+                "_customerFlowLayout = customerFlowLayout.Layout",
+                "return _customerFlowLayout.Clone()");
             string dayNightViewSource = ReadRuntimeSource(
                 "Gameplay", "Presentation", nameof(PrototypeDayNightView) + ".cs");
             RequireSourceContains(dayNightViewSource,
@@ -1201,7 +1241,10 @@ namespace HardwareStore.Editor
                 typeof(Order),
                 typeof(LoadingZone),
                 typeof(CustomerVisitArriving),
+                typeof(CustomerVisitQueued),
                 typeof(CustomerVisitConsulting),
+                typeof(CustomerVisitWaitingForLoadingBay),
+                typeof(CustomerVisitMovingToLoadingBay),
                 typeof(CustomerVisitLoading),
                 typeof(CustomerVisitCompleted),
                 typeof(CustomerVisitReturning),
@@ -1238,6 +1281,7 @@ namespace HardwareStore.Editor
             Type[] customerActorComponents =
             {
                 typeof(CustomerApproachingCounter),
+                typeof(CustomerWaitingInQueue),
                 typeof(CustomerWaitingAtCounter),
                 typeof(CustomerReturningToVehicle),
                 typeof(CustomerReturnRoute)
@@ -1248,7 +1292,8 @@ namespace HardwareStore.Editor
                     $"Runtime customers require the {actorComponent.Name} Game component.");
             }
             Require(discoveredComponents.Contains(typeof(CustomerVisitStoreEntityId)),
-                $"{nameof(CustomerVisitStoreEntityId)} must uniquely relate the active visit to its store.");
+                $"{nameof(CustomerVisitStoreEntityId)} must relate every queued or active " +
+                "visit to its store.");
             Require(discoveredComponents.Contains(typeof(DeliveryProcurementTerminalEntityId)),
                 $"{nameof(DeliveryProcurementTerminalEntityId)} must uniquely relate the active delivery " +
                 "to its procurement terminal.");
@@ -1259,6 +1304,35 @@ namespace HardwareStore.Editor
                     discoveredComponents.Contains(typeof(ReservedOrderLineEntityId)),
                 "Recoverable products require explicit delivery-slot, storage-slot and " +
                 "order-line reservations.");
+            Type[] customerFlowComponents =
+            {
+                typeof(CustomerParkingSpot),
+                typeof(CustomerQueueSpot),
+                typeof(CustomerLoadingBay),
+                typeof(CustomerTrafficLane),
+                typeof(CustomerParkingSpotStoreEntityId),
+                typeof(CustomerQueueSpotStoreEntityId),
+                typeof(CustomerLoadingBayStoreEntityId),
+                typeof(CustomerTrafficLaneStoreEntityId),
+                typeof(ReservedCustomerParkingSpotEntityId),
+                typeof(ReservedCustomerQueueSpotEntityId),
+                typeof(ReservedCustomerLoadingBayEntityId),
+                typeof(ReservedCustomerTrafficLaneEntityId),
+                typeof(ServingOrderCounterEntityId),
+                typeof(ParkingSpotIndex),
+                typeof(QueueSpotIndex),
+                typeof(CustomerArrivalSequence),
+                typeof(NextCustomerArrivalSequence),
+                typeof(CustomerVehicleArrivalRoute),
+                typeof(CustomerVehicleToLoadingRoute),
+                typeof(CustomerApproachRoute),
+                typeof(CustomerLoadingDepartureRoute)
+            };
+            foreach (Type component in customerFlowComponents)
+            {
+                Require(discoveredComponents.Contains(component),
+                    $"Customer queues require the {component.Name} Game component.");
+            }
             Require(discoveredComponents.Contains(typeof(TrolleyStoreEntityId)) &&
                     discoveredComponents.Contains(typeof(TrolleyPusherEntityId)) &&
                     discoveredComponents.Contains(typeof(TrolleyEntityId)),
@@ -1268,7 +1342,7 @@ namespace HardwareStore.Editor
                 "Entitas.CodeGeneration.Attributes.PrimaryEntityIndexAttribute");
             RequireComponentIndexAttribute(
                 typeof(CustomerVisitStoreEntityId),
-                "Entitas.CodeGeneration.Attributes.PrimaryEntityIndexAttribute");
+                "Entitas.CodeGeneration.Attributes.EntityIndexAttribute");
             RequireComponentIndexAttribute(
                 typeof(DeliveryProcurementTerminalEntityId),
                 "Entitas.CodeGeneration.Attributes.PrimaryEntityIndexAttribute");
@@ -1302,6 +1376,28 @@ namespace HardwareStore.Editor
             RequireComponentIndexAttribute(
                 typeof(ConsultationOfferEntityId),
                 "Entitas.CodeGeneration.Attributes.EntityIndexAttribute");
+            RequireComponentIndexAttribute(
+                typeof(CustomerParkingSpotStoreEntityId),
+                "Entitas.CodeGeneration.Attributes.EntityIndexAttribute");
+            RequireComponentIndexAttribute(
+                typeof(CustomerQueueSpotStoreEntityId),
+                "Entitas.CodeGeneration.Attributes.EntityIndexAttribute");
+            Type[] primaryCustomerFlowRelations =
+            {
+                typeof(CustomerLoadingBayStoreEntityId),
+                typeof(CustomerTrafficLaneStoreEntityId),
+                typeof(ReservedCustomerParkingSpotEntityId),
+                typeof(ReservedCustomerQueueSpotEntityId),
+                typeof(ReservedCustomerLoadingBayEntityId),
+                typeof(ReservedCustomerTrafficLaneEntityId),
+                typeof(ServingOrderCounterEntityId)
+            };
+            foreach (Type relation in primaryCustomerFlowRelations)
+            {
+                RequireComponentIndexAttribute(
+                    relation,
+                    "Entitas.CodeGeneration.Attributes.PrimaryEntityIndexAttribute");
+            }
 
             RequireGeneratedIndexApi(
                 runtimeTypes,
@@ -1309,8 +1405,8 @@ namespace HardwareStore.Editor
                 typeof(GameEntity));
             RequireGeneratedIndexApi(
                 runtimeTypes,
-                "GetEntityWithCustomerVisitStoreEntityId",
-                typeof(GameEntity));
+                "GetEntitiesWithCustomerVisitStoreEntityId",
+                returnType: null);
             RequireGeneratedIndexApi(
                 runtimeTypes,
                 "GetEntityWithDeliveryProcurementTerminalEntityId",
@@ -1346,6 +1442,26 @@ namespace HardwareStore.Editor
                 runtimeTypes,
                 "GetEntitiesWithConsultationOfferEntityId",
                 returnType: null);
+            RequireGeneratedIndexApi(
+                runtimeTypes,
+                "GetEntitiesWithCustomerParkingSpotStoreEntityId",
+                returnType: null);
+            RequireGeneratedIndexApi(
+                runtimeTypes,
+                "GetEntitiesWithCustomerQueueSpotStoreEntityId",
+                returnType: null);
+            string[] primaryCustomerFlowIndexMethods =
+            {
+                "GetEntityWithCustomerLoadingBayStoreEntityId",
+                "GetEntityWithCustomerTrafficLaneStoreEntityId",
+                "GetEntityWithReservedCustomerParkingSpotEntityId",
+                "GetEntityWithReservedCustomerQueueSpotEntityId",
+                "GetEntityWithReservedCustomerLoadingBayEntityId",
+                "GetEntityWithReservedCustomerTrafficLaneEntityId",
+                "GetEntityWithServingOrderCounterEntityId"
+            };
+            foreach (string methodName in primaryCustomerFlowIndexMethods)
+                RequireGeneratedIndexApi(runtimeTypes, methodName, typeof(GameEntity));
 
             string combinedRuntimeSource = string.Join(
                 Environment.NewLine,
@@ -1364,9 +1480,9 @@ namespace HardwareStore.Editor
                 $"Runtime carrying logic must consume the {nameof(CarrierEntityId)} primary index.");
             Require(Regex.IsMatch(
                     combinedRuntimeSource,
-                    @"\.GetEntityWithCustomerVisitStoreEntityId\s*\("),
+                    @"\.GetEntitiesWithCustomerVisitStoreEntityId\s*\("),
                 $"Runtime customer/order logic must consume the {nameof(CustomerVisitStoreEntityId)} " +
-                "primary index.");
+                "entity index.");
             Require(Regex.IsMatch(
                     combinedRuntimeSource,
                     @"\.GetEntityWithDeliveryProcurementTerminalEntityId\s*\("),
@@ -1413,6 +1529,18 @@ namespace HardwareStore.Editor
                     @"\.GetEntitiesWithConsultationOfferEntityId\s*\("),
                 $"Runtime consultation logic must consume the " +
                 $"{nameof(ConsultationOfferEntityId)} entity index.");
+            Require(Regex.IsMatch(
+                    combinedRuntimeSource,
+                    @"\.GetEntitiesWithCustomerParkingSpotStoreEntityId\s*\(") &&
+                    Regex.IsMatch(
+                        combinedRuntimeSource,
+                        @"\.GetEntitiesWithCustomerQueueSpotStoreEntityId\s*\(") &&
+                    primaryCustomerFlowIndexMethods.All(methodName =>
+                        Regex.IsMatch(
+                            combinedRuntimeSource,
+                            $@"\.{methodName}\s*\(")),
+                "Runtime customer-flow logic must consume every generated parking, queue, " +
+                "loading-bay and traffic-lane relation index.");
 
             Require(typeof(ICustomerVisitFactory).IsAssignableFrom(typeof(CustomerVisitFactory)),
                 $"{nameof(CustomerVisitFactory)} must implement {nameof(ICustomerVisitFactory)}.");
@@ -1421,8 +1549,8 @@ namespace HardwareStore.Editor
                 nameof(ICustomerVisitFactory.Create),
                 typeof(GameEntity),
                 typeof(GameEntity),
-                typeof(Pose[]),
-                typeof(Pose[]));
+                typeof(GameEntity),
+                typeof(GameEntity));
             RequireMethod(
                 typeof(IOrderFactory),
                 nameof(IOrderFactory.AddOrderComponents),
@@ -1445,15 +1573,45 @@ namespace HardwareStore.Editor
                 nameof(ICustomerFactory.Create),
                 typeof(GameEntity),
                 typeof(GameEntity),
-                typeof(Pose[]),
-                typeof(Pose[]));
+                typeof(GameEntity),
+                typeof(GameEntity));
+            Require(typeof(ICustomerFlowFactory).IsAssignableFrom(
+                        typeof(CustomerFlowFactory)),
+                $"{nameof(CustomerFlowFactory)} must implement " +
+                $"{nameof(ICustomerFlowFactory)}.");
+            RequireMethod(
+                typeof(ICustomerFlowFactory),
+                nameof(ICustomerFlowFactory.Create),
+                typeof(void),
+                typeof(GameEntity),
+                typeof(CustomerFlowSceneLayout));
             string bootstrapSource = ReadRuntimeSource(
                 "Infrastructure", "Installers", "BootstrapInstaller.cs");
             RequireSourceContains(bootstrapSource,
-                "Bind<ICustomerFactory>().To<CustomerFactory>().AsSingle()");
+                "Bind<ICustomerFactory>().To<CustomerFactory>().AsSingle()",
+                "Bind<ICustomerFlowFactory>().To<CustomerFlowFactory>().AsSingle()");
 
             string customerVisitFactorySource = ReadRuntimeSource(
                 "Gameplay", "Factories", "CustomerVisitFactory.cs");
+            string customerFlowFactorySource = ReadRuntimeSource(
+                "Gameplay", "Factories", "CustomerFlowFactory.cs");
+            RequireSourceContains(
+                customerFlowFactorySource,
+                "GetEntitiesWithCustomerParkingSpotStoreEntityId",
+                "GetEntitiesWithCustomerQueueSpotStoreEntityId",
+                "GetEntityWithCustomerLoadingBayStoreEntityId",
+                "GetEntityWithCustomerTrafficLaneStoreEntityId",
+                "AddParkingSpotIndex",
+                "AddQueueSpotIndex",
+                "AddCustomerVehicleArrivalRoute",
+                "AddCustomerVehicleToLoadingRoute",
+                "AddCustomerApproachRoute",
+                "AddCustomerReturnRoute",
+                "AddCustomerLoadingDepartureRoute",
+                "isCustomerParkingSpot = true",
+                "isCustomerQueueSpot = true",
+                "isCustomerLoadingBay = true",
+                "isCustomerTrafficLane = true");
             RequireSourceContains(customerVisitFactorySource,
                 "isCustomerVisit = true",
                 "isCustomerVehicle = true",
@@ -1461,6 +1619,9 @@ namespace HardwareStore.Editor
                 "isRouteMover = true",
                 "isLoadingZone = true",
                 "AddCustomerVisitStoreEntityId",
+                "AddCustomerArrivalSequence",
+                "AddReservedCustomerParkingSpotEntityId",
+                "AddReservedCustomerTrafficLaneEntityId",
                 "AddCustomerProjectType",
                 "_consultationOffers.CreateOffers");
             Require(!customerVisitFactorySource.Contains(
@@ -1651,6 +1812,283 @@ namespace HardwareStore.Editor
                 "RemoveDeliveryProcurementTerminalEntityId",
                 "isDeliveryActive = false",
                 "isDestructed = true");
+        }
+
+        private static void ValidateCustomerQueueArchitecture(Type[] runtimeTypes)
+        {
+            string[] systemNames =
+            {
+                "TickCustomerCooldownSystem",
+                "BeginCustomerVehicleDepartureDelaySystem",
+                "TickCustomerVehicleDepartureDelaySystem",
+                "ReserveCustomerLoadingBaySystem",
+                "BeginCustomerVehicleDepartureSystem",
+                "BeginCustomerReturnSystem",
+                "AdvanceCustomerQueueSystem",
+                "MoveCustomerVehicleToLoadingBaySystem",
+                "SpawnCustomerVisitSystem",
+                "MoveRouteSystem",
+                "ReleaseDepartedOrderContentSystem",
+                "CompleteCustomerVehicleDepartureSystem",
+                "CompleteCustomerLoadingBayArrivalSystem",
+                "CompleteCustomerVehicleArrivalSystem",
+                "CompleteCustomerReturnSystem",
+                "CompleteCustomerApproachSystem",
+                "PromoteCustomerAtCounterSystem",
+                "ValidateCustomerFlowStateSystem"
+            };
+            foreach (string systemName in systemNames)
+            {
+                Type systemType = runtimeTypes.SingleOrDefault(type =>
+                    type.Name == systemName);
+                Require(systemType != null &&
+                        typeof(IExecuteSystem).IsAssignableFrom(systemType),
+                    $"Customer queue requires executable {systemName}.");
+            }
+
+            Type featureType = runtimeTypes.SingleOrDefault(type =>
+                type.Name == "CustomerFeature");
+            Require(featureType != null && typeof(Feature).IsAssignableFrom(featureType),
+                "CustomerFeature must remain an explicit Entitas feature.");
+            string featureSource = ReadRuntimeSource(
+                "Gameplay", "Features", "Customers", "CustomerFeature.cs");
+            RequireExactFeatureOrder(featureSource, systemNames, "CustomerFeature");
+
+            string spawnSource = ReadRuntimeSource(
+                "Gameplay", "Features", "Customers", "Systems",
+                "SpawnCustomerVisitSystem.cs");
+            RequireSourceContains(spawnSource,
+                "GameMatcher.StoreOpen",
+                "GetEntitiesWithCustomerParkingSpotStoreEntityId",
+                "GetEntityWithReservedCustomerParkingSpotEntityId",
+                "GetEntityWithCustomerTrafficLaneStoreEntityId",
+                "GetEntityWithReservedCustomerTrafficLaneEntityId",
+                "float nextDelay = _arrivalSchedule.GetDelay(store.CurrentDayMinute)",
+                "_customerVisitFactory.Create(store, parkingSpot, trafficLane)",
+                "store.ReplaceCustomerCooldownRemaining(nextDelay)");
+            RequireSourceOrder(
+                spawnSource,
+                "_customerVisitFactory.Create(store, parkingSpot, trafficLane)",
+                "store.ReplaceCustomerCooldownRemaining(nextDelay)",
+                "A due customer attempt must reschedule after either spawning or finding " +
+                "customer infrastructure occupied.");
+
+            string completeParkingArrivalSource = ReadRuntimeSource(
+                "Gameplay", "Features", "Customers", "Systems",
+                "CompleteCustomerVehicleArrivalSystem.cs");
+            RequireSourceContains(completeParkingArrivalSource,
+                "GetEntitiesWithCustomerQueueSpotStoreEntityId",
+                "GetEntityWithReservedCustomerQueueSpotEntityId",
+                "occupiedCount",
+                "isCustomerVisitQueued = true",
+                "_customerFactory.Create(visit, parkingSpot, queueSpot)");
+
+            string advanceQueueSource = ReadRuntimeSource(
+                "Gameplay", "Features", "Customers", "Systems",
+                "AdvanceCustomerQueueSystem.cs");
+            RequireSourceContains(advanceQueueSource,
+                "GetEntitiesWithCustomerVisitStoreEntityId",
+                "CustomerArrivalSequence.CompareTo",
+                "QueueSpotIndex != index",
+                "currentIndex < expectedIndex",
+                "RemoveReservedCustomerQueueSpotEntityId",
+                "AddReservedCustomerQueueSpotEntityId",
+                "BeginMove(actor, targetSpot)");
+
+            string promoteSource = ReadRuntimeSource(
+                "Gameplay", "Features", "Customers", "Systems",
+                "PromoteCustomerAtCounterSystem.cs");
+            RequireSourceContains(promoteSource,
+                "queueSpot.QueueSpotIndex != 0",
+                "GetEntityWithServingOrderCounterEntityId",
+                "isCustomerVisitQueued = false",
+                "isCustomerVisitConsulting = true",
+                "AddServingOrderCounterEntityId",
+                "isCustomerWaitingAtCounter = true");
+
+            string reserveBaySource = ReadRuntimeSource(
+                "Gameplay", "Features", "Customers", "Systems",
+                "ReserveCustomerLoadingBaySystem.cs");
+            RequireSourceContains(reserveBaySource,
+                "GetEntityWithReservedCustomerLoadingBayEntityId",
+                "GetEntitiesWithCustomerVisitStoreEntityId",
+                "isCustomerVisitReturning",
+                "isCustomerVisitWaitingForLoadingBay",
+                "CustomerArrivalSequence.CompareTo",
+                "AddReservedCustomerLoadingBayEntityId");
+
+            string beginReturnSource = ReadRuntimeSource(
+                "Gameplay", "Features", "Customers", "Systems",
+                "BeginCustomerReturnSystem.cs");
+            string completeReturnSource = ReadRuntimeSource(
+                "Gameplay", "Features", "Customers", "Systems",
+                "CompleteCustomerReturnSystem.cs");
+            RequireSourceContains(beginReturnSource,
+                "GameMatcher.CustomerVisitReturning",
+                "customer.hasReservedCustomerQueueSpotEntityId",
+                "CustomerReturnRoute",
+                "customer != null && customer.isCustomerReturningToVehicle",
+                "customer.hasRoute && customer.hasRouteWaypointIndex",
+                "!customer.isRouteCompleted && !customer.hasCustomerReturnRoute",
+                "!customer.hasReservedCustomerQueueSpotEntityId)",
+                "if (customer == null || !customer.isCustomer || !customer.isRouteMover",
+                "!customer.isCustomerWaitingAtCounter",
+                "!customer.hasCustomerReturnRoute",
+                "customer.hasRoute ||",
+                "customer.hasRouteWaypointIndex || customer.isRouteCompleted",
+                "customer.hasReservedCustomerQueueSpotEntityId || customer.isDestructed",
+                "cannot begin its accepted return",
+                "isCustomerReturningToVehicle = true");
+            RequireSourceOrder(
+                beginReturnSource,
+                "customer != null && customer.isCustomerReturningToVehicle",
+                "return;",
+                "An already valid in-progress customer return must be an idempotent no-op.");
+            RequireSourceOrder(
+                beginReturnSource,
+                "return;",
+                "if (customer == null || !customer.isCustomer || !customer.isRouteMover",
+                "Only the exact in-progress return state may bypass strict start validation.");
+            RequireSourceOrder(
+                beginReturnSource,
+                "if (customer == null || !customer.isCustomer || !customer.isRouteMover",
+                "cannot begin its accepted return",
+                "Broken or partially transitioned return states must fall through to the " +
+                "strict fail-fast validation.");
+            RequireSourceOrder(
+                beginReturnSource,
+                "customer.isCustomerWaitingAtCounter = false",
+                "customer.isCustomerReturningToVehicle = true",
+                "A fresh accepted return must leave the counter before entering route motion.");
+            RequireSourceOrder(
+                beginReturnSource,
+                "customer.AddRoute((Pose[])returnRoute.Clone())",
+                "customer.RemoveCustomerReturnRoute()",
+                "A fresh return must publish its cloned active route before consuming the " +
+                "one-shot authored return route.");
+            RequireSourceContains(completeReturnSource,
+                "GameMatcher.CustomerReturningToVehicle",
+                "RemoveCustomerActorVisitEntityId",
+                "isDestructed = true",
+                "isCustomerVisitReturning = false",
+                "isCustomerVisitWaitingForLoadingBay = true");
+
+            string moveToBaySource = ReadRuntimeSource(
+                "Gameplay", "Features", "Customers", "Systems",
+                "MoveCustomerVehicleToLoadingBaySystem.cs");
+            string completeBayArrivalSource = ReadRuntimeSource(
+                "Gameplay", "Features", "Customers", "Systems",
+                "CompleteCustomerLoadingBayArrivalSystem.cs");
+            RequireSourceContains(moveToBaySource,
+                "GameMatcher.CustomerVisitWaitingForLoadingBay",
+                "GameMatcher.ReservedCustomerLoadingBayEntityId",
+                "GetEntityWithReservedCustomerTrafficLaneEntityId",
+                "CustomerVehicleToLoadingRoute",
+                "AddReservedCustomerTrafficLaneEntityId",
+                "isCustomerVisitMovingToLoadingBay = true");
+            RequireSourceContains(completeBayArrivalSource,
+                "GameMatcher.CustomerVisitMovingToLoadingBay",
+                "RemoveReservedCustomerTrafficLaneEntityId",
+                "RemoveReservedCustomerParkingSpotEntityId",
+                "isCustomerVisitLoading = true",
+                "isInteractable = true");
+
+            string beginDepartureSource = ReadRuntimeSource(
+                "Gameplay", "Features", "Customers", "Systems",
+                "BeginCustomerVehicleDepartureSystem.cs");
+            string completeDepartureSource = ReadRuntimeSource(
+                "Gameplay", "Features", "Customers", "Systems",
+                "CompleteCustomerVehicleDepartureSystem.cs");
+            RequireSourceContains(beginDepartureSource,
+                "GameMatcher.CustomerVisitCompleted",
+                "GameMatcher.CustomerDepartureDelayRemaining",
+                "GetEntityWithReservedCustomerTrafficLaneEntityId",
+                "CustomerLoadingDepartureRoute",
+                "AddReservedCustomerTrafficLaneEntityId",
+                "isCustomerVisitDeparting = true");
+            RequireSourceContains(completeDepartureSource,
+                "GameMatcher.OrderContentReleased",
+                "GetEntitiesWithOrderEntityId",
+                "RemoveCustomerVisitStoreEntityId",
+                "RemoveReservedCustomerLoadingBayEntityId",
+                "RemoveReservedCustomerTrafficLaneEntityId",
+                "isDestructed = true");
+
+            string validationSource = ReadRuntimeSource(
+                "Gameplay", "Features", "Customers", "Systems",
+                "ValidateCustomerFlowStateSystem.cs");
+            RequireSourceContains(validationSource,
+                "GetEntitiesWithCustomerParkingSpotStoreEntityId",
+                "GetEntitiesWithCustomerQueueSpotStoreEntityId",
+                "parkingCount != _config.ParkingCapacity",
+                "lifecycleCount != 1",
+                "arrivalSequences.Add",
+                "ValidateParkingRelation",
+                "ValidateBayRelation",
+                "ValidateLaneRelation",
+                "ValidateCounterRelation",
+                "ValidateFifoQueue",
+                "spot.QueueSpotIndex != expectedIndex");
+
+            string storeDayValidationSource = ReadRuntimeSource(
+                "Gameplay", "Features", "StoreDay", "Systems",
+                "ValidateStoreDayStateSystem.cs");
+            string openReportSource = ReadRuntimeSource(
+                "Gameplay", "Features", "StoreDay", "Systems",
+                "OpenDayReportSystem.cs");
+            RequireSourceContains(storeDayValidationSource,
+                "StoreDayCustomerVisitGuard.CountActiveVisits",
+                "GetEntitiesWithCustomerVisitStoreEntityId",
+                "lifecycleCount != 1");
+            RequireSourceContains(openReportSource,
+                "StoreDayCustomerVisitGuard.CountActiveVisits(",
+                "store.EntityId) != 0");
+
+            string combinedRuntimeSource = string.Join(
+                Environment.NewLine,
+                GetRuntimeSourcePaths().Select(File.ReadAllText));
+            Require(!Regex.IsMatch(
+                    combinedRuntimeSource,
+                    @"\.GetEntityWithCustomerVisitStoreEntityId\s*\("),
+                "Customer visits are one-to-many per store; runtime source must use the plural " +
+                "CustomerVisitStoreEntityId index.");
+            Require(!Regex.IsMatch(
+                    combinedRuntimeSource,
+                    @"SceneRouteId\.Customer|\.GetRoute\s*\("),
+                "Runtime customer flow must consume typed parking, queue and loading layout " +
+                "resources instead of legacy generic customer routes.");
+
+            ValidateImmutableSnapshotType(typeof(CustomerFlowSnapshot));
+            ValidateSnapshotProperties(
+                typeof(CustomerFlowSnapshot),
+                (nameof(CustomerFlowSnapshot.TotalActiveCount), typeof(int)),
+                (nameof(CustomerFlowSnapshot.ArrivingCount), typeof(int)),
+                (nameof(CustomerFlowSnapshot.QueuedCount), typeof(int)),
+                (nameof(CustomerFlowSnapshot.ConsultingCount), typeof(int)),
+                (nameof(CustomerFlowSnapshot.LoadingPipelineCount), typeof(int)),
+                (nameof(CustomerFlowSnapshot.LeavingCount), typeof(int)));
+            Require(typeof(CustomerFlowSnapshot).GetConstructor(Enumerable.Repeat(
+                        typeof(int), 6).ToArray()) != null &&
+                    typeof(HudSnapshot).GetProperty(nameof(HudSnapshot.CustomerFlow))
+                        ?.PropertyType == typeof(CustomerFlowSnapshot),
+                "HUD must expose one immutable aggregate snapshot for the full customer queue.");
+            string presentHudSource = ReadRuntimeSource(
+                "Gameplay", "Features", "Presentation", "Systems",
+                "PresentHudSystem.cs");
+            string hudViewSource = ReadRuntimeSource(
+                "Gameplay", "Presentation", "PrototypeHudView.cs");
+            RequireSourceContains(presentHudSource,
+                "GetEntitiesWithCustomerVisitStoreEntityId",
+                "CreateCustomerFlowSnapshot",
+                "isCustomerVisitQueued",
+                "isCustomerVisitWaitingForLoadingBay",
+                "new CustomerFlowSnapshot(");
+            RequireSourceContains(hudViewSource,
+                "LocalizationKey.HudCustomerFlow",
+                "_snapshot.CustomerFlow.TotalActiveCount",
+                "_snapshot.CustomerFlow.QueuedCount",
+                "_snapshot.CustomerFlow.LoadingPipelineCount",
+                "_snapshot.CustomerFlow.LeavingCount");
         }
 
         private static void ValidateContextAwareInteractionFocus()
@@ -3435,6 +3873,47 @@ namespace HardwareStore.Editor
                 $"{nameof(CustomerVehicleConfig)}.Configure must assign all values and then call Validate().");
 
             RequireMethod(
+                typeof(CustomerFlowConfig),
+                nameof(CustomerFlowConfig.Configure),
+                typeof(void),
+                typeof(int),
+                typeof(float),
+                typeof(CustomerArrivalSchedulePoint[]));
+            Require(typeof(CustomerArrivalSchedulePoint).GetConstructor(new[]
+                    {
+                        typeof(int),
+                        typeof(float)
+                    }) != null,
+                $"{nameof(CustomerArrivalSchedulePoint)} must expose minute and delay through " +
+                "its public value constructor.");
+            string customerFlowConfigSource = ReadRuntimeSource(
+                "Gameplay", "Configs", nameof(CustomerFlowConfig) + ".cs");
+            RequireSourceContains(
+                customerFlowConfigSource,
+                "(CustomerArrivalSchedulePoint[])arrivalSchedule.Clone()",
+                "Validate();");
+            Require(typeof(ICustomerArrivalSchedule).IsAssignableFrom(
+                        typeof(CustomerArrivalSchedule)),
+                $"{nameof(CustomerArrivalSchedule)} must implement " +
+                $"{nameof(ICustomerArrivalSchedule)}.");
+            RequireMethod(
+                typeof(ICustomerArrivalSchedule),
+                nameof(ICustomerArrivalSchedule.GetDelay),
+                typeof(float),
+                typeof(float));
+            string arrivalScheduleSource = ReadRuntimeSource(
+                "Gameplay", "Common", "Customers",
+                nameof(CustomerArrivalSchedule) + ".cs");
+            RequireSourceContains(arrivalScheduleSource,
+                "staticData.CustomerFlow.ArrivalSchedule",
+                "currentDayMinute < first.Minute || currentDayMinute > last.Minute",
+                "left.Delay + (right.Delay - left.Delay) * progress");
+            string bootstrapSource = ReadRuntimeSource(
+                "Infrastructure", "Installers", "BootstrapInstaller.cs");
+            RequireSourceContains(bootstrapSource,
+                "Bind<ICustomerArrivalSchedule>().To<CustomerArrivalSchedule>().AsSingle()");
+
+            RequireMethod(
                 typeof(CustomerConfig),
                 nameof(CustomerConfig.Configure),
                 typeof(void),
@@ -3472,6 +3951,7 @@ namespace HardwareStore.Editor
                 "ProductTypes",
                 "ProjectTypes",
                 "CustomerConfig Customer",
+                "CustomerFlowConfig CustomerFlow",
                 "ProductRecoveryConfig ProductRecovery",
                 "PlatformTrolleyConfig PlatformTrolley",
                 "WarehouseWorkerConfig WarehouseWorker");
@@ -3552,14 +4032,19 @@ namespace HardwareStore.Editor
                 "Gameplay", "Features", "Customers", "Systems",
                 "CompleteCustomerVehicleArrivalSystem.cs");
             RequireSourceContains(arrivalSource,
-                "GameMatcher.CustomerProjectType",
-                "SceneRouteId.CustomerWalkToCounter",
-                "SceneRouteId.CustomerWalkToVehicle",
+                "GameMatcher.CustomerVisitArriving",
+                "GameMatcher.ReservedCustomerParkingSpotEntityId",
+                "GetEntitiesWithCustomerQueueSpotStoreEntityId",
+                "GetEntityWithReservedCustomerQueueSpotEntityId",
+                "isCustomerVisitQueued = true",
                 "_customerFactory.Create");
             Require(!arrivalSource.Contains("GameMatcher.Order", StringComparison.Ordinal) &&
                     !arrivalSource.Contains("GameMatcher.RequiredProductCount", StringComparison.Ordinal) &&
                     !arrivalSource.Contains("isCustomerVisitConsulting = true", StringComparison.Ordinal),
-                "A parked customer must enter consultation before order components exist.");
+                "A parked customer must join the FIFO queue before order components exist.");
+            Require(!arrivalSource.Contains("SceneRouteId.", StringComparison.Ordinal),
+                "Customer arrival must consume typed parking/queue resources instead of legacy " +
+                "generic scene-route identifiers.");
 
             string approachSource = ReadRuntimeSource(
                 "Gameplay", "Features", "Customers", "Systems",
@@ -3567,11 +4052,21 @@ namespace HardwareStore.Editor
             RequireSourceContains(approachSource,
                 "GameMatcher.CustomerApproachingCounter",
                 "GameMatcher.CustomerActorVisitEntityId",
+                "GameMatcher.ReservedCustomerQueueSpotEntityId",
                 "GameMatcher.RouteCompleted",
                 "isCustomerApproachingCounter = false",
-                "isCustomerWaitingAtCounter = true",
-                "isCustomerVisitArriving = false",
-                "isCustomerVisitConsulting = true");
+                "isCustomerWaitingInQueue = true");
+            string promoteSource = ReadRuntimeSource(
+                "Gameplay", "Features", "Customers", "Systems",
+                "PromoteCustomerAtCounterSystem.cs");
+            RequireSourceContains(promoteSource,
+                "GameMatcher.CustomerWaitingInQueue",
+                "queueSpot.QueueSpotIndex != 0",
+                "GetEntityWithServingOrderCounterEntityId",
+                "isCustomerVisitQueued = false",
+                "isCustomerVisitConsulting = true",
+                "AddServingOrderCounterEntityId",
+                "isCustomerWaitingAtCounter = true");
 
             string openSource = ReadRuntimeSource(
                 "Gameplay", "Features", "Consultation", "Systems",
@@ -3611,13 +4106,15 @@ namespace HardwareStore.Editor
                 "RemoveConsultationVisitEntityId",
                 "isModalOpen = false",
                 "isCustomerVisitConsulting = false",
-                "isCustomerVisitLoading = true",
+                "isCustomerVisitReturning = true",
+                "RemoveServingOrderCounterEntityId",
+                "RemoveReservedCustomerQueueSpotEntityId",
                 "_events.EmitAudio(AudioCueId.OrderAccepted)",
                 "isDestructed = true");
-            Require(!confirmSource.Contains(
-                    "isCustomerVisitWaiting", StringComparison.Ordinal),
-                "Confirming an offer must activate loading in the same Enter action without " +
-                "a legacy waiting state or repeated E acceptance.");
+            Require(!confirmSource.Contains("isCustomerVisitLoading = true",
+                    StringComparison.Ordinal),
+                "Confirming an offer must release the service point and start the pedestrian " +
+                "return before the vehicle may claim the loading bay.");
 
             string cancelSource = ReadRuntimeSource(
                 "Gameplay", "Features", "Consultation", "Systems",
@@ -3631,29 +4128,90 @@ namespace HardwareStore.Editor
             Require(!cancelSource.Contains("isDestructed = true", StringComparison.Ordinal),
                 "Cancelling consultation must preserve its offer entities.");
 
-            string[] promptSystemFiles =
-            {
-                "ResolveEmptyHandsStoragePromptSystem.cs",
-                "ResolveOrderCounterPromptSystem.cs",
-                "ResolveProductPromptSystem.cs",
-                "ResolveLoadingZonePromptSystem.cs"
-            };
-            foreach (string promptSystemFile in promptSystemFiles)
-            {
-                string promptSource = ReadRuntimeSource(
-                    "Gameplay", "Features", "Interaction", "Systems", promptSystemFile);
-                Require(promptSource.Contains("isCustomerVisitConsulting", StringComparison.Ordinal),
-                    $"{promptSystemFile} must present the pre-order consultation state before " +
-                    "reading order components.");
-            }
+            string emptyHandsStoragePromptSource = ReadRuntimeSource(
+                "Gameplay", "Features", "Interaction", "Systems",
+                "ResolveEmptyHandsStoragePromptSystem.cs");
+            RequireSourceContains(emptyHandsStoragePromptSource,
+                "GetCurrentLoadingVisit(store.EntityId)",
+                "GetOrderLines(customerVisit)");
+            RequireSourceOrder(
+                emptyHandsStoragePromptSource,
+                "GetCurrentLoadingVisit(store.EntityId)",
+                "GetOrderLines(customerVisit)",
+                "Empty-hands storage prompts must resolve the bay-owned loading visit before " +
+                "reading its order graph.");
+
+            string consultationProductPromptSource = ReadRuntimeSource(
+                "Gameplay", "Features", "Interaction", "Systems",
+                "ResolveProductPromptSystem.cs");
+            RequireSourceContains(consultationProductPromptSource,
+                "GetCurrentLoadingVisit(store.EntityId)",
+                "GetOrderLines(customerVisit)");
+            RequireSourceOrder(
+                consultationProductPromptSource,
+                "GetCurrentLoadingVisit(store.EntityId)",
+                "GetOrderLines(customerVisit)",
+                "Stock-product prompts must resolve the bay-owned loading visit before " +
+                "reading its order graph.");
+
+            string consultationLoadingPromptSource = ReadRuntimeSource(
+                "Gameplay", "Features", "Interaction", "Systems",
+                "ResolveLoadingZonePromptSystem.cs");
+            RequireSourceContains(consultationLoadingPromptSource,
+                "isCustomerVisitConsulting",
+                "GetCurrentLoadingVisit(player.StoreEntityId)",
+                "GetOrderLines(loadingZone)");
+            RequireSourceOrder(
+                consultationLoadingPromptSource,
+                "isCustomerVisitConsulting",
+                "GetCurrentLoadingVisit(player.StoreEntityId)",
+                "A focused pre-order visit must present its consultation prompt before " +
+                "resolving loading-bay order state.");
+            RequireSourceOrder(
+                consultationLoadingPromptSource,
+                "GetCurrentLoadingVisit(player.StoreEntityId)",
+                "GetOrderLines(loadingZone)",
+                "Loading prompts must validate the bay reservation before reading order lines.");
+
+            string consultationCounterPromptSource = ReadRuntimeSource(
+                "Gameplay", "Features", "Interaction", "Systems",
+                "ResolveOrderCounterPromptSystem.cs");
+            RequireSourceContains(consultationCounterPromptSource,
+                "GetEntityWithServingOrderCounterEntityId",
+                "CountQueuedCustomerVisits(",
+                "isCustomerVisitConsulting",
+                "visit.isOrder");
+
+            string promptExtensionsSource = ReadRuntimeSource(
+                "Gameplay", "Features", "Interaction", "Systems",
+                "InteractionPromptSystemExtensions.cs");
+            RequireSourceContains(promptExtensionsSource,
+                "GetEntityWithCustomerLoadingBayStoreEntityId(storeEntityId)",
+                "GetEntityWithReservedCustomerLoadingBayEntityId(",
+                "if (!visit.isCustomerVisitLoading)",
+                "if (!visit.isLoadingZone || !visit.isOrder");
+            RequireSourceOrder(
+                promptExtensionsSource,
+                "if (!visit.isCustomerVisitLoading)",
+                "if (!visit.isLoadingZone || !visit.isOrder",
+                "The shared prompt lookup must reject non-loading lifecycle states before " +
+                "requiring loading-order components.");
+
+            Require(!string.Concat(
+                        emptyHandsStoragePromptSource,
+                        consultationProductPromptSource,
+                        consultationLoadingPromptSource,
+                        consultationCounterPromptSource,
+                        promptExtensionsSource)
+                    .Contains("GetEntityWithCustomerVisitStoreEntityId(",
+                        StringComparison.Ordinal),
+                "Interaction prompts must not restore the removed singleton customer-visit " +
+                "lookup.");
 
             string heldProductStoragePromptSource = ReadRuntimeSource(
                 "Gameplay", "Features", "Interaction", "Systems",
                 "ResolveHeldProductStoragePromptSystem.cs");
             Require(!heldProductStoragePromptSource.Contains(
-                        "GetEntityWithCustomerVisitStoreEntityId",
-                        StringComparison.Ordinal) &&
-                    !heldProductStoragePromptSource.Contains(
                         "GetEntitiesWithOrderEntityId",
                         StringComparison.Ordinal),
                 "Held-product storage prompts must be derived from the already established " +
@@ -3726,10 +4284,36 @@ namespace HardwareStore.Editor
                         typeof(bool),
                         typeof(bool),
                         typeof(bool),
+                        typeof(CustomerFlowSnapshot),
                         typeof(WarehouseWorkerStatusSnapshot?)
                     }) != null,
                 $"{nameof(HudSnapshot)} must expose semantic project/product identity, immutable " +
-                "order lines, derived totals and localized interaction text.");
+                "order lines, derived totals, customer flow and localized interaction text.");
+            ValidateSnapshotProperties(
+                typeof(HudSnapshot),
+                (nameof(HudSnapshot.DayClock), typeof(DayClockSnapshot)),
+                (nameof(HudSnapshot.OrderState), typeof(HudOrderState)),
+                (nameof(HudSnapshot.ProjectType), typeof(CustomerProjectTypeId?)),
+                (nameof(HudSnapshot.OrderLines), typeof(IReadOnlyList<OrderLineSnapshot>)),
+                (nameof(HudSnapshot.TotalAvailableProductCount), typeof(int)),
+                (nameof(HudSnapshot.TotalLoadedProductCount), typeof(int)),
+                (nameof(HudSnapshot.TotalRequiredProductCount), typeof(int)),
+                (nameof(HudSnapshot.Money), typeof(int)),
+                (nameof(HudSnapshot.StockCount), typeof(int)),
+                (nameof(HudSnapshot.HasActiveDelivery), typeof(bool)),
+                (nameof(HudSnapshot.DeliveryProductType), typeof(ProductTypeId)),
+                (nameof(HudSnapshot.DeliveryStockedCount), typeof(int)),
+                (nameof(HudSnapshot.DeliveryProductCount), typeof(int)),
+                (nameof(HudSnapshot.CarriedProductType), typeof(ProductTypeId?)),
+                (nameof(HudSnapshot.Prompt), typeof(LocalizedText)),
+                (nameof(HudSnapshot.HasFocus), typeof(bool)),
+                (nameof(HudSnapshot.CanInteract), typeof(bool)),
+                (nameof(HudSnapshot.HasItem), typeof(bool)),
+                (nameof(HudSnapshot.IsPushingTrolley), typeof(bool)),
+                (nameof(HudSnapshot.CursorLocked), typeof(bool)),
+                (nameof(HudSnapshot.CustomerFlow), typeof(CustomerFlowSnapshot)),
+                (nameof(HudSnapshot.WarehouseWorkerStatus),
+                    typeof(WarehouseWorkerStatusSnapshot?)));
             ValidateImmutableSnapshotType(typeof(ConsultationOfferLineSnapshot));
             ValidateImmutableSnapshotType(typeof(OrderLineSnapshot));
             ValidateImmutableSnapshotType(typeof(ConsultationOfferSnapshot));
@@ -4051,8 +4635,6 @@ namespace HardwareStore.Editor
                 "LocalizationKey.PromptOpenProcurement");
             Require(!promptSource.Contains("InputMatcher.PreviousPressed", StringComparison.Ordinal) &&
                     !promptSource.Contains("InputMatcher.NextPressed", StringComparison.Ordinal) &&
-                    !promptSource.Contains("GetEntityWithCustomerVisitStoreEntityId",
-                        StringComparison.Ordinal) &&
                     !promptSource.Contains("HasOrderDeficit", StringComparison.Ordinal) &&
                     !promptSource.Contains("LocalizationKey.PromptWaitForCustomer",
                         StringComparison.Ordinal) &&
@@ -4094,12 +4676,68 @@ namespace HardwareStore.Editor
                 "storageZone.Slots.Length",
                 "checked(",
                 "IncludeCommittedDelivery(state, terminalState.Terminal)",
-                "int forecastDepth = projectCount",
+                "GetEntitiesWithCustomerVisitStoreEntityId(",
+                "OrderBy(visit => visit.CustomerArrivalSequence)",
+                "new List<ProtectedDemand>(visits.Length)",
+                "ProtectedDemand.ConfirmedOrder(",
+                "CollectRemainingOrderRequirements(visit, stock)",
+                "ProtectedDemand.ProjectForecast(visit)",
+                "store.NextProjectSequenceIndex,",
+                "_staticData.ProjectTypes.Count);",
+                "ValidateProjectionBound(demandPlan)",
+                "AreProtectedDemandsSolvent(",
+                "demandIndex == demandPlan.ProtectedDemands.Count",
                 "AreForecastPathsSolvent(",
                 "remainingProjectCount - 1",
                 "foreach (CustomerProjectOfferDefinition offer in project.Offers)",
+                "demandPlan.ProtectedDemands.Count",
+                "demandPlan.FutureProjectCount",
+                "MultiplyProjectionLeafCount(ref leafCount, project)",
+                "MaximumProjectionLeafCount / offerCount",
                 "completed.OccupiedSlotCount + additionalProductCount >",
                 "completed.Capacity");
+            RequireSourceOrder(
+                solvencySource,
+                "GetEntitiesWithCustomerVisitStoreEntityId(",
+                "OrderBy(visit => visit.CustomerArrivalSequence)",
+                "Procurement demand planning must collect the store's plural active visits " +
+                "before imposing deterministic arrival order.");
+            RequireSourceOrder(
+                solvencySource,
+                "OrderBy(visit => visit.CustomerArrivalSequence)",
+                "new List<ProtectedDemand>(visits.Length)",
+                "Protected demand projection must preserve FIFO visit order.");
+            RequireSourceOrder(
+                solvencySource,
+                "ProtectedDemand.ConfirmedOrder(",
+                "ProtectedDemand.ProjectForecast(visit)",
+                "Active confirmed orders must retain their exact requirements while pre-order " +
+                "visits branch across configured offers.");
+            RequireSourceOrder(
+                solvencySource,
+                "var demandPlan = new DemandPlan(",
+                "ValidateProjectionBound(demandPlan)",
+                "The complete active-visit and future-project plan must be bounded before " +
+                "solvency recursion.");
+            RequireSourceOrder(
+                solvencySource,
+                "demandIndex == demandPlan.ProtectedDemands.Count",
+                "AreForecastPathsSolvent(",
+                "Future catalog forecasting must begin only after every active customer " +
+                "demand has been projected.");
+            RequireSourceOrder(
+                solvencySource,
+                "for (int index = 0; index < demandPlan.ProtectedDemands.Count; index++)",
+                "for (int offset = 0; offset < demandPlan.FutureProjectCount; offset++)",
+                "Projection bounds must include active pre-order branches before the full " +
+                "future project horizon.");
+            Require(!solvencySource.Contains(
+                        "GetEntityWithCustomerVisitStoreEntityId(",
+                        StringComparison.Ordinal) &&
+                    !solvencySource.Contains("forecastDepth", StringComparison.Ordinal) &&
+                    !solvencySource.Contains("int projectCount", StringComparison.Ordinal),
+                "Procurement solvency must not restore the singleton visit lookup or the " +
+                "obsolete fixed-depth local forecast contract.");
             string bootstrapSource = ReadRuntimeSource(
                 "Infrastructure", "Installers", nameof(BootstrapInstaller) + ".cs");
             RequireSourceContains(bootstrapSource,
@@ -4704,6 +5342,8 @@ namespace HardwareStore.Editor
             CustomerVehicleConfig customerVehicleConfig =
                 RequireAsset<CustomerVehicleConfig>(CustomerVehicleConfigPath);
             CustomerConfig customerConfig = RequireAsset<CustomerConfig>(CustomerConfigPath);
+            CustomerFlowConfig customerFlowConfig =
+                RequireAsset<CustomerFlowConfig>(CustomerFlowConfigPath);
             EconomyConfig economyConfig = RequireAsset<EconomyConfig>(EconomyConfigPath);
             ProductRecoveryConfig productRecoveryConfig =
                 RequireAsset<ProductRecoveryConfig>(ProductRecoveryConfigPath);
@@ -4833,11 +5473,32 @@ namespace HardwareStore.Editor
                 $"{CustomerVehicleConfigPath} must use a waypoint tolerance of 0.08.");
             Require(Mathf.Approximately(customerVehicleConfig.CompletedDwellDuration, 1.25f),
                 $"{CustomerVehicleConfigPath} must keep a completed customer visible for 1.25 seconds.");
-            Require(Mathf.Approximately(customerVehicleConfig.FirstCustomerDelay, 1f) &&
-                    Mathf.Approximately(customerVehicleConfig.NextCustomerDelay, 4f),
-                $"{CustomerVehicleConfigPath} must use prototype customer delays of 1 and 4 seconds.");
             Require(customerVehicleConfig.CargoCapacity == 3,
                 $"{CustomerVehicleConfigPath} must expose exactly three customer cargo slots.");
+            Require(customerFlowConfig.ParkingCapacity == 3 &&
+                    Mathf.Approximately(customerFlowConfig.FirstArrivalDelay, 10f),
+                $"{CustomerFlowConfigPath} must author three parking spots and a ten-second " +
+                "first-arrival delay.");
+            CustomerArrivalSchedulePoint[] expectedArrivalSchedule =
+            {
+                new(8 * 60, 45f),
+                new(10 * 60, 36f),
+                new(13 * 60, 26f),
+                new(17 * 60, 28f),
+                new(19 * 60, 45f),
+                new(20 * 60, 70f)
+            };
+            Require(customerFlowConfig.ArrivalSchedule.Count ==
+                    expectedArrivalSchedule.Length &&
+                    customerFlowConfig.ArrivalSchedule
+                        .Select((point, index) =>
+                            point.Minute == expectedArrivalSchedule[index].Minute &&
+                            Mathf.Approximately(
+                                point.Delay,
+                                expectedArrivalSchedule[index].Delay))
+                        .All(matches => matches),
+                $"{CustomerFlowConfigPath} must preserve the deterministic morning, midday " +
+                "and evening arrival schedule.");
             Require(Mathf.Approximately(customerConfig.MovementSpeed, 2.4f),
                 $"{CustomerConfigPath} must use a customer movement speed of 2.4.");
             Require(Mathf.Approximately(customerConfig.RotationSpeed, 360f),
@@ -5652,6 +6313,10 @@ namespace HardwareStore.Editor
                 CameraRegistrar[] cameraRegistrars = FindComponentsInScene<CameraRegistrar>(scene);
                 SpawnPointMarker[] spawnPoints = FindComponentsInScene<SpawnPointMarker>(scene);
                 SceneRouteMarker[] routes = FindComponentsInScene<SceneRouteMarker>(scene);
+                CustomerFlowLayoutMarker[] customerFlowLayouts =
+                    FindComponentsInScene<CustomerFlowLayoutMarker>(scene);
+                CustomerParkingSpotLayoutMarker[] customerParkingSpots =
+                    FindComponentsInScene<CustomerParkingSpotLayoutMarker>(scene);
                 SceneViewMarker[] sceneViews = FindComponentsInScene<SceneViewMarker>(scene);
                 EntityBehaviour[] entityViews = FindComponentsInScene<EntityBehaviour>(scene);
                 SlotsRegistrar[] slotRegistrars = FindComponentsInScene<SlotsRegistrar>(scene);
@@ -5690,6 +6355,9 @@ namespace HardwareStore.Editor
                     serializedInitializer, "_spawnPoints", nameof(PrototypeSceneInitializer));
                 SceneRouteMarker[] configuredRoutes = ReadObjectArray<SceneRouteMarker>(
                     serializedInitializer, "_routes", nameof(PrototypeSceneInitializer));
+                CustomerFlowLayoutMarker configuredCustomerFlowLayout =
+                    serializedInitializer.FindProperty("_customerFlowLayout")
+                        ?.objectReferenceValue as CustomerFlowLayoutMarker;
                 SceneViewMarker[] configuredSceneViews = ReadObjectArray<SceneViewMarker>(
                     serializedInitializer, "_sceneViews", nameof(PrototypeSceneInitializer));
                 Require(new HashSet<SpawnPointMarker>(configuredSpawnPoints).SetEquals(spawnPoints) &&
@@ -5698,6 +6366,10 @@ namespace HardwareStore.Editor
                 Require(new HashSet<SceneRouteMarker>(configuredRoutes).SetEquals(routes) &&
                         configuredRoutes.Length == routes.Length,
                     $"{nameof(PrototypeSceneInitializer)} does not reference the scene route set.");
+                Require(customerFlowLayouts.Length == 1 &&
+                        configuredCustomerFlowLayout == customerFlowLayouts[0],
+                    $"{nameof(PrototypeSceneInitializer)} must reference the scene's one " +
+                    "typed customer-flow layout marker.");
                 Require(new HashSet<SceneViewMarker>(configuredSceneViews).SetEquals(sceneViews) &&
                         configuredSceneViews.Length == sceneViews.Length,
                     $"{nameof(PrototypeSceneInitializer)} does not reference the static scene view set.");
@@ -5833,53 +6505,299 @@ namespace HardwareStore.Editor
                     }
                 }
 
-                var expectedRouteIds = new HashSet<SceneRouteId>
-                {
-                    SceneRouteId.CustomerVehicleArrival,
-                    SceneRouteId.CustomerVehicleDeparture,
-                    SceneRouteId.CustomerWalkToCounter,
-                    SceneRouteId.CustomerWalkToVehicle
-                };
-                var actualRouteIds = new HashSet<SceneRouteId>(routes.Select(marker => marker.Id));
-                Require(routes.Length == expectedRouteIds.Count && actualRouteIds.SetEquals(expectedRouteIds),
-                    $"{PrototypeScenePath} must contain exactly one marker for both vehicle and " +
-                    "customer actor routes.");
+                Require(routes.Length == 0,
+                    $"{PrototypeScenePath} must express customer traffic through its typed " +
+                    "customer-flow layout instead of legacy singleton routes.");
+                Require(customerParkingSpots.Length == 3 &&
+                        customerParkingSpots.All(spot =>
+                            spot.transform.parent == customerFlowLayouts[0].transform),
+                    $"{PrototypeScenePath} must contain exactly three customer parking-spot " +
+                    "markers beneath the customer-flow root.");
 
-                var routeWaypoints = new Dictionary<SceneRouteId, Transform[]>();
-                foreach (SceneRouteMarker route in routes)
+                CustomerFlowSceneLayout customerFlowLayout = customerFlowLayouts[0].Layout;
+                CustomerParkingSpotSceneLayout[] parkingLayouts =
+                    customerFlowLayout.ParkingSpots;
+                Pose[] queuePoses = customerFlowLayout.QueuePoses;
+                Pose[] loadingDepartureRoute =
+                    customerFlowLayout.LoadingDepartureRoute;
+                Require(parkingLayouts.Length == 3 &&
+                        parkingLayouts.Select(layout => layout.Index)
+                            .SequenceEqual(new[] { 0, 1, 2 }),
+                    "The customer-flow layout must expose three contiguous parking spots.");
+                Pose preservedQueueHead = queuePoses[0];
+                queuePoses[0] = default;
+                Require(PoseMatches(
+                        customerFlowLayout.QueuePoses[0],
+                        preservedQueueHead),
+                    "Customer-flow queue snapshots must not expose their internal pose array.");
+                queuePoses = customerFlowLayout.QueuePoses;
+                Pose preservedArrivalStart =
+                    parkingLayouts[0].VehicleArrivalRoute[0];
+                Pose[] mutableArrival = parkingLayouts[0].VehicleArrivalRoute;
+                mutableArrival[0] = default;
+                parkingLayouts[0] = null;
+                Require(customerFlowLayout.ParkingSpots[0] != null &&
+                        PoseMatches(
+                            customerFlowLayout.ParkingSpots[0].VehicleArrivalRoute[0],
+                            preservedArrivalStart),
+                    "Customer-flow parking snapshots must deep-clone their layout and route " +
+                    "arrays.");
+                parkingLayouts = customerFlowLayout.ParkingSpots;
+                Require(queuePoses.Length == 3 &&
+                        Vector3.Distance(queuePoses[0].position,
+                            new Vector3(-7.25f, 0.02f, 0.55f)) < 0.001f &&
+                        Vector3.Distance(queuePoses[1].position,
+                            new Vector3(-7.25f, 0.02f, -0.75f)) < 0.001f &&
+                        Vector3.Distance(queuePoses[2].position,
+                            new Vector3(-7.25f, 0.02f, -2.05f)) < 0.001f,
+                    "Customer queue poses must preserve the authored service-to-tail order.");
+                for (int index = 1; index < queuePoses.Length; index++)
                 {
-                    Transform[] waypoints = ReadObjectArray<Transform>(
-                        new SerializedObject(route), "_waypoints", route.name);
-                    Require(waypoints.Length == 4,
-                        $"Scene route {route.Id} must contain exactly four authored waypoints.");
-                    Require(waypoints.All(waypoint => waypoint.gameObject.scene == scene &&
-                                                       waypoint.IsChildOf(route.transform)),
-                        $"Every waypoint of scene route {route.Id} must belong to its marker hierarchy " +
-                        $"in {PrototypeScenePath}.");
-                    routeWaypoints.Add(route.Id, waypoints);
+                    Require(Vector3.Distance(
+                            queuePoses[index - 1].position,
+                            queuePoses[index].position) >= 1.1f,
+                        "Customer queue poses must retain safe pedestrian spacing.");
                 }
 
-                Transform arrivalParking = routeWaypoints[SceneRouteId.CustomerVehicleArrival][^1];
-                Transform departureParking = routeWaypoints[SceneRouteId.CustomerVehicleDeparture][0];
-                Require(Vector3.Distance(arrivalParking.position, departureParking.position) < 0.001f &&
-                        Quaternion.Angle(arrivalParking.rotation, departureParking.rotation) < 0.01f,
-                    "Customer vehicle arrival must end at the exact pose where departure begins.");
+                Vector3[] expectedParkingPositions =
+                {
+                    new(-10.8f, 0.02f, -21.5f),
+                    new(-7.4f, 0.02f, -21.5f),
+                    new(-4f, 0.02f, -21.5f)
+                };
+                Pose[] expectedLoadingDepartureRoute =
+                {
+                    new(new Vector3(6f, 0.02f, -2.5f),
+                        Quaternion.Euler(0f, 180f, 0f)),
+                    new(new Vector3(6f, 0.02f, -10f),
+                        Quaternion.Euler(0f, 180f, 0f)),
+                    new(new Vector3(3.5f, 0.02f, -11.8f),
+                        Quaternion.Euler(0f, -126f, 0f)),
+                    new(new Vector3(0f, 0.02f, -13f),
+                        Quaternion.Euler(0f, -109f, 0f)),
+                    new(new Vector3(0f, 0.02f, -20f),
+                        Quaternion.Euler(0f, 180f, 0f)),
+                    new(new Vector3(0f, 0.02f, -30f),
+                        Quaternion.Euler(0f, 180f, 0f)),
+                    new(new Vector3(0f, 0.02f, -35f),
+                        Quaternion.Euler(0f, 180f, 0f))
+                };
+                Require(loadingDepartureRoute.Length ==
+                            expectedLoadingDepartureRoute.Length &&
+                        loadingDepartureRoute.Select((pose, index) =>
+                                PoseMatches(pose, expectedLoadingDepartureRoute[index]))
+                            .All(matches => matches),
+                    "Customer loading departure must start from the rear-facing bay pose, " +
+                    "leave forward and continue through the vehicle gate along the exterior " +
+                    "access road.");
+                const float storagePadSouthEdgeZ = 3.25f;
+                const float trolleyBodyDepth = 2.1f;
+                const float rearFacingVehicleMaxZOffset = 3.2f;
+                float trolleyPassageClearance =
+                    storagePadSouthEdgeZ - trolleyBodyDepth -
+                    (loadingDepartureRoute[0].position.z +
+                     rearFacingVehicleMaxZOffset);
+                Require(trolleyPassageClearance >= 0.25f,
+                    $"The rear-facing customer vehicle must leave at least 0.25m for the " +
+                    $"trolley to slide tangent to the Storage Pad; clearance is " +
+                    $"{trolleyPassageClearance:0.###}m.");
+                foreach (CustomerParkingSpotSceneLayout parkingLayout in parkingLayouts)
+                {
+                    Pose[] arrivalRoute = parkingLayout.VehicleArrivalRoute;
+                    Pose[] toLoadingRoute = parkingLayout.VehicleToLoadingRoute;
+                    Pose[] approachRoute = parkingLayout.CustomerApproachRoute;
+                    Pose[] returnRoute = parkingLayout.CustomerReturnRoute;
+                    Require(arrivalRoute.Length == 5 && toLoadingRoute.Length == 10 &&
+                            approachRoute.Length == 6 && returnRoute.Length == 6,
+                        $"Customer parking spot {parkingLayout.Index} has invalid route lengths.");
+                    Require(PoseMatches(arrivalRoute[^1], toLoadingRoute[0]) &&
+                            Vector3.Distance(
+                                arrivalRoute[^1].position,
+                                expectedParkingPositions[parkingLayout.Index]) < 0.001f,
+                        $"Customer parking spot {parkingLayout.Index} arrival and loading " +
+                        "routes must join at its exact authored parking pose.");
+                    Pose[] expectedToLoadingRoute =
+                    {
+                        new(expectedParkingPositions[parkingLayout.Index],
+                            Quaternion.identity),
+                        new(new Vector3(
+                                expectedParkingPositions[parkingLayout.Index].x,
+                                0.02f,
+                                -26.5f),
+                            Quaternion.identity),
+                        new(new Vector3(
+                                expectedParkingPositions[parkingLayout.Index].x,
+                                0.02f,
+                                -30f),
+                            Quaternion.identity),
+                        new(new Vector3(0f, 0.02f, -30f),
+                            Quaternion.Euler(0f, 90f, 0f)),
+                        new(new Vector3(0f, 0.02f, -12.5f),
+                            Quaternion.identity),
+                        new(new Vector3(1.5f, 0.02f, -9f),
+                            Quaternion.Euler(0f, 25f, 0f)),
+                        new(new Vector3(4f, 0.02f, -7.5f),
+                            Quaternion.Euler(0f, 60f, 0f)),
+                        new(new Vector3(6f, 0.02f, -8f),
+                            Quaternion.Euler(0f, 120f, 0f)),
+                        new(new Vector3(6f, 0.02f, -10f),
+                            Quaternion.Euler(0f, 180f, 0f)),
+                        expectedLoadingDepartureRoute[0]
+                    };
+                    Require(Vector3.Distance(
+                                arrivalRoute[0].position,
+                                new Vector3(1.5f, 0.02f, -35f)) < 0.001f &&
+                            Mathf.Approximately(arrivalRoute[1].position.z, -30f) &&
+                            Mathf.Approximately(arrivalRoute[2].position.z, -30f) &&
+                            Mathf.Approximately(arrivalRoute[3].position.z, -26.5f) &&
+                            toLoadingRoute.Select((pose, index) =>
+                                    PoseMatches(pose, expectedToLoadingRoute[index]))
+                                .All(matches => matches),
+                        $"Customer parking spot {parkingLayout.Index} must maneuver outside " +
+                        "the fence, enter through the vehicle gate, turn in the yard and " +
+                        "reverse into the loading bay.");
+                    Require(PoseMatches(toLoadingRoute[^1], loadingDepartureRoute[0]),
+                        $"Customer parking spot {parkingLayout.Index} must enter the shared " +
+                        "loading bay without a pose discontinuity.");
+                    Require(PoseMatches(approachRoute[^1], queuePoses[^1]) &&
+                            PoseMatches(returnRoute[0], queuePoses[0]) &&
+                            PoseMatches(returnRoute[^1], approachRoute[0]),
+                        $"Customer parking spot {parkingLayout.Index} pedestrian routes must " +
+                        "connect door, queue tail and counter service poses.");
+                    Require(Vector3.Distance(
+                                approachRoute[2].position,
+                                new Vector3(-7.25f, 0.02f, -17.15f)) < 0.001f &&
+                            Vector3.Distance(
+                                approachRoute[3].position,
+                                new Vector3(-7.25f, 0.02f, -14.6f)) < 0.001f &&
+                            Vector3.Distance(
+                                returnRoute[2].position,
+                                new Vector3(-7.25f, 0.02f, -14.6f)) < 0.001f &&
+                            Vector3.Distance(
+                                returnRoute[3].position,
+                                new Vector3(-7.25f, 0.02f, -17.15f)) < 0.001f,
+                        $"Customer parking spot {parkingLayout.Index} pedestrians must cross " +
+                        "the south fence through the dedicated gate.");
 
-                Transform[] walkToCounter = routeWaypoints[SceneRouteId.CustomerWalkToCounter];
-                Transform[] walkToVehicle = routeWaypoints[SceneRouteId.CustomerWalkToVehicle];
-                Require(Vector3.Distance(walkToCounter[^1].position, walkToVehicle[0].position) < 0.001f &&
-                        Quaternion.Angle(walkToCounter[^1].rotation, walkToVehicle[0].rotation) < 0.01f,
-                    "Customer return route must begin at the exact counter position where the " +
-                    "approach route ends, without a pose discontinuity.");
-                Require(Vector3.Distance(walkToCounter[0].position, walkToVehicle[^1].position) < 0.001f,
-                    "Customer return route must end at the exact vehicle-door position where the " +
-                    "approach route begins.");
-                Require(Vector3.Distance(arrivalParking.position, walkToCounter[0].position) < 2.5f,
-                    "Customer approach route must begin beside the parked vehicle.");
+                    bool doorIsOnNavMesh = NavMesh.SamplePosition(
+                        approachRoute[0].position,
+                        out NavMeshHit doorHit,
+                        2f,
+                        NavMesh.AllAreas);
+                    bool serviceIsOnNavMesh = NavMesh.SamplePosition(
+                        queuePoses[0].position,
+                        out NavMeshHit serviceHit,
+                        2f,
+                        NavMesh.AllAreas);
+                    Require(doorIsOnNavMesh && serviceIsOnNavMesh &&
+                            Vector3.Distance(
+                                doorHit.position,
+                                approachRoute[0].position) <= 0.35f &&
+                            Vector3.Distance(
+                                serviceHit.position,
+                                queuePoses[0].position) <= 0.35f,
+                        $"Customer parking spot {parkingLayout.Index} door and counter poses " +
+                        "must sample onto the authored NavMesh.");
+                    var approachPath = new NavMeshPath();
+                    var returnPath = new NavMeshPath();
+                    Require(NavMesh.CalculatePath(
+                                doorHit.position,
+                                serviceHit.position,
+                                NavMesh.AllAreas,
+                                approachPath) &&
+                            approachPath.status == NavMeshPathStatus.PathComplete &&
+                            NavMesh.CalculatePath(
+                                serviceHit.position,
+                                doorHit.position,
+                                NavMesh.AllAreas,
+                                returnPath) &&
+                            returnPath.status == NavMeshPathStatus.PathComplete,
+                        $"Customer parking spot {parkingLayout.Index} must expose complete " +
+                        "pedestrian NavMesh paths to and from the counter.");
+                }
+
+                for (int first = 0; first < expectedParkingPositions.Length; first++)
+                {
+                    Bounds firstVehicleBounds = new(
+                        expectedParkingPositions[first] + new Vector3(0f, 1f, -0.15f),
+                        new Vector3(2.3f, 2f, 6.1f));
+                    float southFenceClearance = -16.09f - firstVehicleBounds.max.z;
+                    Require(southFenceClearance >= 2.4f,
+                        $"Customer parking spot {first} must remain fully outside the south " +
+                        $"fence; clearance is {southFenceClearance:0.###}m.");
+                    for (int second = first + 1;
+                         second < expectedParkingPositions.Length;
+                         second++)
+                    {
+                        Bounds secondVehicleBounds = new(
+                            expectedParkingPositions[second] +
+                            new Vector3(0f, 1f, -0.15f),
+                            new Vector3(2.3f, 2f, 6.1f));
+                        Require(!firstVehicleBounds.Intersects(secondVehicleBounds),
+                            $"Customer parking spots {first} and {second} overlap for the " +
+                            "authored vehicle body.");
+                    }
+                }
+
+                foreach (CustomerParkingSpotSceneLayout movingLayout in parkingLayouts)
+                {
+                    Pose[] toLoadingRoute = movingLayout.VehicleToLoadingRoute;
+                    Vector3 sweptCenter = new(
+                        (toLoadingRoute[2].position.x + toLoadingRoute[3].position.x) * 0.5f,
+                        1.02f,
+                        toLoadingRoute[2].position.z + 0.15f);
+                    Vector3 sweptSize = new(
+                        Mathf.Abs(toLoadingRoute[3].position.x -
+                                  toLoadingRoute[2].position.x) + 2.3f,
+                        2f,
+                        6.1f);
+                    Bounds sweptBody = new(sweptCenter, sweptSize);
+                    for (int parkedIndex = 0;
+                         parkedIndex < expectedParkingPositions.Length;
+                         parkedIndex++)
+                    {
+                        if (parkedIndex == movingLayout.Index)
+                            continue;
+                        Bounds parkedBody = new(
+                            expectedParkingPositions[parkedIndex] +
+                            new Vector3(0f, 1f, -0.15f),
+                            new Vector3(2.3f, 2f, 6.1f));
+                        float clearance = parkedBody.min.z - sweptBody.max.z;
+                        Require(!sweptBody.Intersects(parkedBody) && clearance >= 2f,
+                            $"Customer parking spot {movingLayout.Index} loading route sweeps " +
+                            $"too close to occupied parking spot {parkedIndex}: " +
+                            $"clearance {clearance:0.###}m.");
+                    }
+                }
 
                 Transform[] allSceneTransforms = scene.GetRootGameObjects()
                     .SelectMany(root => root.GetComponentsInChildren<Transform>(true))
                     .ToArray();
+                Transform customerAccessRoad = allSceneTransforms.SingleOrDefault(candidate =>
+                    candidate.name == "Customer Access Road");
+                Transform southFenceFarLeft = allSceneTransforms.SingleOrDefault(candidate =>
+                    candidate.name == "South Fence Far Left");
+                Transform southFenceMidLeft = allSceneTransforms.SingleOrDefault(candidate =>
+                    candidate.name == "South Fence Mid Left");
+                Require(customerAccessRoad != null && southFenceFarLeft != null &&
+                        southFenceMidLeft != null,
+                    $"{PrototypeScenePath} must author the exterior customer road and " +
+                    "dedicated pedestrian gate.");
+                Bounds customerAccessRoadBounds =
+                    customerAccessRoad.GetComponent<Renderer>().bounds;
+                Bounds southFenceFarLeftBounds =
+                    southFenceFarLeft.GetComponent<Renderer>().bounds;
+                Bounds southFenceMidLeftBounds =
+                    southFenceMidLeft.GetComponent<Renderer>().bounds;
+                Require(customerAccessRoadBounds.min.x <= -16.99f &&
+                        customerAccessRoadBounds.max.x >= 5.99f &&
+                        customerAccessRoadBounds.min.z <= -38.99f &&
+                        customerAccessRoadBounds.max.z >= -16.01f &&
+                        southFenceFarLeftBounds.max.x <= -8.49f &&
+                        southFenceMidLeftBounds.min.x >= -6.01f &&
+                        southFenceMidLeftBounds.min.x - southFenceFarLeftBounds.max.x >= 2.49f,
+                    "The exterior access road and pedestrian gate must preserve their " +
+                    "authored clearances outside the yard fence.");
                 Require(allSceneTransforms.All(candidate => candidate.name != "Customer Truck"),
                     $"{PrototypeScenePath} must not contain the legacy static Customer Truck.");
                 Require(allSceneTransforms.All(candidate => candidate.name != "Customer"),
@@ -5898,7 +6816,7 @@ namespace HardwareStore.Editor
                 Bounds customerCounterBounds = customerCounter.GetComponent<Renderer>().bounds;
                 Bounds customerOrderTerminalBounds =
                     customerOrderTerminal.GetComponent<Renderer>().bounds;
-                Vector3 customerCounterPosition = walkToCounter[^1].position;
+                Vector3 customerCounterPosition = queuePoses[0].position;
                 Require(customerCounterPosition.z < customerCounterBounds.min.z - 0.2f &&
                         customerCounterPosition.x > customerOrderTerminalBounds.min.x &&
                         customerCounterPosition.x < customerOrderTerminalBounds.max.x,
@@ -6118,6 +7036,7 @@ namespace HardwareStore.Editor
                         LocalizationKey.WorldProcurement,
                         LocalizationKey.WorldStorageCatalog,
                         LocalizationKey.WorldStorageIntake,
+                        LocalizationKey.WorldCustomerParking,
                         LocalizationKey.WorldCustomerLoadingBay,
                         LocalizationKey.WorldDeliveryIntake,
                         LocalizationKey.WorldBoardProductLabel,
@@ -6532,6 +7451,10 @@ namespace HardwareStore.Editor
 
             return slots;
         }
+
+        private static bool PoseMatches(Pose first, Pose second) =>
+            Vector3.Distance(first.position, second.position) < 0.001f &&
+            Quaternion.Angle(first.rotation, second.rotation) < 0.01f;
 
         private static TObject[] ReadObjectArray<TObject>(SerializedObject owner, string propertyName,
             string ownerName) where TObject : UnityEngine.Object

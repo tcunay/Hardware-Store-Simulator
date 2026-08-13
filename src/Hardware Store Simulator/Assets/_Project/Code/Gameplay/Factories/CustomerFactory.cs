@@ -10,35 +10,35 @@ namespace HardwareStore.Gameplay.Factories
 {
     public sealed class CustomerFactory : ICustomerFactory
     {
-        private const float RouteRotationContinuityTolerance = 0.1f;
-
+        private readonly GameContext _gameContext;
         private readonly IIdentifierService _identifiers;
         private readonly IStaticDataService _staticData;
 
-        public CustomerFactory(IIdentifierService identifiers, IStaticDataService staticData)
+        public CustomerFactory(GameContext gameContext,
+            IIdentifierService identifiers, IStaticDataService staticData)
         {
+            _gameContext = gameContext;
             _identifiers = identifiers;
             _staticData = staticData;
         }
 
-        public GameEntity Create(GameEntity customerVisit, Pose[] routeToCounter,
-            Pose[] routeToVehicle)
+        public GameEntity Create(GameEntity customerVisit, GameEntity parkingSpot,
+            GameEntity queueSpot)
         {
-            ValidateCustomerVisit(customerVisit);
+            ValidateCustomerVisit(customerVisit, parkingSpot);
+            ValidateQueueSpot(customerVisit, queueSpot);
 
             CustomerConfig config = _staticData.Customer;
-            Pose[] approach = CloneAndValidateRoute(routeToCounter, nameof(routeToCounter));
-            Pose[] returning = CloneAndValidateRoute(routeToVehicle, nameof(routeToVehicle));
-            ValidateRouteContinuity(
-                approach,
-                returning,
-                config.WaypointTolerance);
+            Pose[] approach = (Pose[])parkingSpot.CustomerApproachRoute.Clone();
+            approach[^1] = new Pose(queueSpot.WorldPosition, queueSpot.WorldRotation);
+            Pose[] returning = (Pose[])parkingSpot.CustomerReturnRoute.Clone();
 
             return CreateEntity.Empty(_identifiers.Next())
                 .AddViewPrefab(config.ViewPrefab)
                 .AddSpawnPosition(approach[0].position)
                 .AddSpawnRotation(approach[0].rotation)
                 .AddCustomerActorVisitEntityId(customerVisit.EntityId)
+                .AddReservedCustomerQueueSpotEntityId(queueSpot.EntityId)
                 .AddRoute(approach)
                 .AddCustomerReturnRoute(returning)
                 .AddRouteWaypointIndex(1)
@@ -50,58 +50,49 @@ namespace HardwareStore.Gameplay.Factories
                 .With(x => x.isRouteMover = true);
         }
 
-        private static void ValidateCustomerVisit(GameEntity customerVisit)
+        private void ValidateCustomerVisit(GameEntity visit, GameEntity parkingSpot)
         {
-            if (customerVisit == null)
-                throw new ArgumentNullException(nameof(customerVisit));
-            if (!customerVisit.isCustomerVisit || !customerVisit.isCustomerVehicle ||
-                !customerVisit.isCustomerVisitArriving || !customerVisit.hasEntityId ||
-                !customerVisit.hasRoute || !customerVisit.hasRouteWaypointIndex ||
-                !customerVisit.isRouteCompleted || customerVisit.isDestructed)
+            if (visit == null || !visit.isCustomerVisit || !visit.isCustomerVehicle ||
+                !visit.isCustomerVisitQueued || !visit.hasEntityId ||
+                !visit.hasReservedCustomerParkingSpotEntityId || visit.hasRoute ||
+                visit.hasRouteWaypointIndex || visit.isRouteCompleted || visit.isDestructed)
             {
                 throw new InvalidOperationException(
-                    "A customer actor requires a parked arriving customer visit.");
+                    "A customer actor requires a parked queued customer visit.");
+            }
+            if (_gameContext.GetEntityWithCustomerActorVisitEntityId(visit.EntityId) != null)
+                throw new InvalidOperationException(
+                    $"Customer visit {visit.EntityId} already has a customer actor.");
+            if (parkingSpot == null || parkingSpot.isDestructed ||
+                !parkingSpot.isCustomerParkingSpot || !parkingSpot.hasEntityId ||
+                !parkingSpot.hasCustomerApproachRoute ||
+                !parkingSpot.hasCustomerReturnRoute ||
+                parkingSpot.EntityId != visit.ReservedCustomerParkingSpotEntityId ||
+                parkingSpot.CustomerApproachRoute == null ||
+                parkingSpot.CustomerApproachRoute.Length < 2 ||
+                parkingSpot.CustomerReturnRoute == null ||
+                parkingSpot.CustomerReturnRoute.Length < 2)
+            {
+                throw new InvalidOperationException(
+                    $"Customer visit {visit.EntityId} has an invalid parking relation.");
             }
         }
 
-        private static Pose[] CloneAndValidateRoute(Pose[] route, string argumentName)
+        private void ValidateQueueSpot(GameEntity visit, GameEntity queueSpot)
         {
-            if (route == null)
-                throw new ArgumentNullException(argumentName);
-            if (route.Length < 2)
-                throw new ArgumentException(
-                    "A customer walking route must contain at least two waypoints.",
-                    argumentName);
-
-            return (Pose[])route.Clone();
-        }
-
-        private static void ValidateRouteContinuity(Pose[] approach, Pose[] returning,
-            float tolerance)
-        {
-            float positionGap = Vector3.Distance(
-                approach[^1].position,
-                returning[0].position);
-            float rotationGap = Quaternion.Angle(
-                approach[^1].rotation,
-                returning[0].rotation);
-            if (positionGap <= tolerance &&
-                rotationGap <= RouteRotationContinuityTolerance)
+            if (queueSpot == null || queueSpot.isDestructed ||
+                !queueSpot.isCustomerQueueSpot || !queueSpot.hasEntityId ||
+                !queueSpot.hasCustomerQueueSpotStoreEntityId ||
+                !queueSpot.hasQueueSpotIndex || !queueSpot.hasWorldPosition ||
+                !queueSpot.hasWorldRotation ||
+                queueSpot.CustomerQueueSpotStoreEntityId !=
+                visit.CustomerVisitStoreEntityId ||
+                _gameContext.GetEntityWithReservedCustomerQueueSpotEntityId(
+                    queueSpot.EntityId) != null)
             {
-                float vehicleDoorGap = Vector3.Distance(
-                    returning[^1].position,
-                    approach[0].position);
-                if (vehicleDoorGap <= tolerance)
-                    return;
-
                 throw new InvalidOperationException(
-                    "The customer return route must end at the same vehicle door where the " +
-                    $"approach route starts. Position gap: {vehicleDoorGap}.");
+                    $"Customer visit {visit.EntityId} cannot reserve an invalid queue spot.");
             }
-
-            throw new InvalidOperationException(
-                "The customer return route must start at the complete pose at the end of " +
-                $"the approach route. Position gap: {positionGap}, rotation gap: {rotationGap}.");
         }
     }
 }

@@ -22,19 +22,23 @@ namespace HardwareStore.Gameplay.Features.Carrying.Systems
             foreach (GameEntity request in _requests)
             {
                 GameEntity visit = _gameContext.GetEntityWithEntityId(request.TargetEntityId);
+                if (visit == null)
+                    throw new InvalidOperationException(
+                        $"Product loading targets missing entity {request.TargetEntityId}.");
                 if (!visit.isLoadingZone || !visit.isCustomerVisitLoading)
                     continue;
 
                 GameEntity player = _gameContext.GetEntityWithEntityId(request.SourceEntityId);
+                if (player == null || player.isDestructed || !player.isPlayer ||
+                    !player.hasEntityId || !player.hasStoreEntityId)
+                {
+                    throw new InvalidOperationException(
+                        $"Interaction source cannot load customer visit {visit.EntityId}.");
+                }
+                ValidateLoadingVisit(visit, player.StoreEntityId);
                 if (player.StoreEntityId != visit.CustomerVisitStoreEntityId ||
                     !player.isHandsOccupied || !player.isCarryingProduct)
                     continue;
-                if (!visit.isOrder || !visit.hasEntityId ||
-                    !visit.hasStorageZoneEntityId || !visit.hasSlots)
-                {
-                    throw new InvalidOperationException(
-                        $"Loading customer visit {visit.EntityId} has incomplete order state.");
-                }
 
                 GameEntity product = _gameContext.GetEntityWithCarrierEntityId(player.EntityId);
                 if (!product.isInStock || product.isLoaded)
@@ -80,6 +84,51 @@ namespace HardwareStore.Gameplay.Features.Carrying.Systems
                 product.AddLoadingSlotIndex(totalLoadedProductCount);
                 product.isProductLoaded = true;
                 product.isProductPlacementDirty = true;
+            }
+        }
+
+        private void ValidateLoadingVisit(GameEntity visit, int storeEntityId)
+        {
+            if (visit.isDestructed || !visit.isCustomerVisit ||
+                !visit.isCustomerVehicle || !visit.isCustomerVisitLoading ||
+                !visit.hasEntityId || !visit.hasCustomerVisitStoreEntityId ||
+                visit.CustomerVisitStoreEntityId != storeEntityId ||
+                !visit.hasReservedCustomerLoadingBayEntityId ||
+                !visit.isOrder || !visit.hasStorageZoneEntityId || !visit.hasSlots)
+            {
+                throw new InvalidOperationException(
+                    $"Loading customer visit {visit.EntityId} has incomplete runtime state.");
+            }
+
+            int lifecycleCount =
+                (visit.isCustomerVisitArriving ? 1 : 0) +
+                (visit.isCustomerVisitQueued ? 1 : 0) +
+                (visit.isCustomerVisitConsulting ? 1 : 0) +
+                (visit.isCustomerVisitWaitingForLoadingBay ? 1 : 0) +
+                (visit.isCustomerVisitMovingToLoadingBay ? 1 : 0) +
+                (visit.isCustomerVisitLoading ? 1 : 0) +
+                (visit.isCustomerVisitCompleted ? 1 : 0) +
+                (visit.isCustomerVisitReturning ? 1 : 0) +
+                (visit.isCustomerVisitDeparting ? 1 : 0);
+            if (lifecycleCount != 1)
+            {
+                throw new InvalidOperationException(
+                    $"Customer visit {visit.EntityId} must have exactly one lifecycle marker.");
+            }
+
+            GameEntity loadingBay =
+                _gameContext.GetEntityWithCustomerLoadingBayStoreEntityId(storeEntityId);
+            if (loadingBay == null || loadingBay.isDestructed ||
+                !loadingBay.isCustomerLoadingBay || !loadingBay.hasEntityId ||
+                !loadingBay.hasCustomerLoadingBayStoreEntityId ||
+                loadingBay.CustomerLoadingBayStoreEntityId != storeEntityId ||
+                visit.ReservedCustomerLoadingBayEntityId != loadingBay.EntityId ||
+                _gameContext.GetEntityWithReservedCustomerLoadingBayEntityId(
+                    loadingBay.EntityId) != visit)
+            {
+                throw new InvalidOperationException(
+                    $"Loading customer visit {visit.EntityId} does not reserve store " +
+                    $"{storeEntityId} customer loading bay.");
             }
         }
 

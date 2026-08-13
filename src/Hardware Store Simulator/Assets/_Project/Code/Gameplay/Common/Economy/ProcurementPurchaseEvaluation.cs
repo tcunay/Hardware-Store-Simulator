@@ -9,6 +9,7 @@ namespace HardwareStore.Gameplay.Common.Economy
             ProcurementPurchaseAvailability availability,
             ProcurementDemandKind demandKind,
             CustomerProjectTypeId projectType,
+            int? demandVisitEntityId,
             int deliveryProductCount,
             int deliveryCost,
             int moneyAfterPurchase)
@@ -19,6 +20,15 @@ namespace HardwareStore.Gameplay.Common.Economy
                 throw new ArgumentOutOfRangeException(nameof(demandKind));
             if (!Enum.IsDefined(typeof(CustomerProjectTypeId), projectType))
                 throw new ArgumentOutOfRangeException(nameof(projectType));
+            if (demandVisitEntityId.HasValue && demandVisitEntityId.Value <= 0)
+                throw new ArgumentOutOfRangeException(nameof(demandVisitEntityId));
+            if (demandKind == ProcurementDemandKind.ConfirmedOrder &&
+                !demandVisitEntityId.HasValue)
+            {
+                throw new ArgumentException(
+                    "Confirmed procurement demand must identify its customer visit.",
+                    nameof(demandVisitEntityId));
+            }
             if (deliveryProductCount <= 0)
                 throw new ArgumentOutOfRangeException(nameof(deliveryProductCount));
             if (deliveryCost < 0)
@@ -27,6 +37,7 @@ namespace HardwareStore.Gameplay.Common.Economy
             Availability = availability;
             DemandKind = demandKind;
             ProjectType = projectType;
+            DemandVisitEntityId = demandVisitEntityId;
             DeliveryProductCount = deliveryProductCount;
             DeliveryCost = deliveryCost;
             MoneyAfterPurchase = moneyAfterPurchase;
@@ -35,6 +46,7 @@ namespace HardwareStore.Gameplay.Common.Economy
         public ProcurementPurchaseAvailability Availability { get; }
         public ProcurementDemandKind DemandKind { get; }
         public CustomerProjectTypeId ProjectType { get; }
+        public int? DemandVisitEntityId { get; }
         public int DeliveryProductCount { get; }
         public int DeliveryCost { get; }
         public int MoneyAfterPurchase { get; }

@@ -168,19 +168,30 @@ namespace HardwareStore.Gameplay.Presentation
         {
             bool hasOrderLines = _snapshot.OrderLines.Count > 0;
             float workerRowHeight = _snapshot.WarehouseWorkerStatus.HasValue ? 30f : 0f;
-            float panelHeight = (hasOrderLines ? 222f : 164f) + workerRowHeight;
-            Rect panel = new(24f, 24f, 680f, panelHeight);
+            float panelHeight = (hasOrderLines ? 270f : 212f) + workerRowHeight;
+            Rect panel = new(24f, 24f, 740f, panelHeight);
             DrawPanel(panel, new Color(0.035f, 0.045f, 0.055f, 0.9f));
             GUI.Label(new Rect(42f, 38f, 370f, 32f),
                 Resolve(LocalizationKey.HudStoreTitle), _titleStyle);
             GUI.Label(new Rect(42f, 74f, 640f, 28f), ResolveObjective(), _bodyStyle);
+            GUI.Label(
+                new Rect(42f, 106f, 700f, 46f),
+                Resolve(
+                    LocalizationKey.HudCustomerFlow,
+                    _snapshot.CustomerFlow.TotalActiveCount,
+                    checked(
+                        _snapshot.CustomerFlow.QueuedCount +
+                        _snapshot.CustomerFlow.ConsultingCount),
+                    _snapshot.CustomerFlow.LoadingPipelineCount,
+                    _snapshot.CustomerFlow.LeavingCount),
+                _cardMetaStyle);
             if (hasOrderLines)
             {
                 for (int index = 0; index < _snapshot.OrderLines.Count; index++)
                 {
                     OrderLineSnapshot line = _snapshot.OrderLines[index];
                     GUI.Label(
-                        new Rect(42f, 106f + index * 30f, 640f, 28f),
+                        new Rect(42f, 154f + index * 30f, 640f, 28f),
                         Resolve(
                             LocalizationKey.HudOrderLineStatus,
                             LocalizedTexts.ProductName(line.ProductType),
@@ -198,10 +209,10 @@ namespace HardwareStore.Gameplay.Presentation
             }
             else
             {
-                GUI.Label(new Rect(42f, 106f, 640f, 28f), ResolveStockStatus(), _bodyStyle);
+                GUI.Label(new Rect(42f, 154f, 640f, 28f), ResolveStockStatus(), _bodyStyle);
                 GUI.Label(new Rect(
                         42f,
-                        _snapshot.WarehouseWorkerStatus.HasValue ? 168f : 138f,
+                        _snapshot.WarehouseWorkerStatus.HasValue ? 216f : 186f,
                         640f,
                         28f),
                     Resolve(LocalizationKey.HudBalance, _snapshot.Money), _bodyStyle);
@@ -212,7 +223,7 @@ namespace HardwareStore.Gameplay.Presentation
                 GUI.Label(
                     new Rect(
                         42f,
-                        hasOrderLines ? panel.yMax - 68f : 138f,
+                        hasOrderLines ? panel.yMax - 68f : 186f,
                         640f,
                         28f),
                     ResolveWarehouseWorkerStatus(

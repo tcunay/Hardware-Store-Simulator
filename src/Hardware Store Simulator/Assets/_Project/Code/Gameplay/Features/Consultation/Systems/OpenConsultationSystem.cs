@@ -1,3 +1,4 @@
+using System;
 using Entitas;
 using HardwareStore.Gameplay.Common.Cursor;
 using UnityEngine;
@@ -26,27 +27,50 @@ namespace HardwareStore.Gameplay.Features.Consultation.Systems
             {
                 GameEntity orderCounter =
                     _gameContext.GetEntityWithEntityId(request.TargetEntityId);
+                if (orderCounter == null)
+                    throw new InvalidOperationException(
+                        $"Consultation interaction targets missing entity " +
+                        $"{request.TargetEntityId}.");
                 if (!orderCounter.isOrderCounter)
                     continue;
+                if (orderCounter.isDestructed || !orderCounter.isInteractable ||
+                    !orderCounter.hasEntityId || !orderCounter.hasStoreEntityId)
+                {
+                    throw new InvalidOperationException(
+                        "Order counter has incomplete consultation configuration.");
+                }
 
                 GameEntity player =
                     _gameContext.GetEntityWithEntityId(request.SourceEntityId);
-                if (!player.isPlayer || player.isHandsOccupied ||
+                if (player == null || !player.isPlayer || player.isDestructed ||
+                    !player.hasEntityId)
+                {
+                    throw new InvalidOperationException(
+                        $"Interaction source cannot use order counter " +
+                        $"{orderCounter.EntityId}.");
+                }
+                if (player.isHandsOccupied ||
                     player.isModalOpen)
                 {
                     continue;
                 }
-                if (!player.hasStoreEntityId || !player.hasMoveDirection ||
-                    player.StoreEntityId != orderCounter.StoreEntityId)
+                if (!player.hasStoreEntityId || !player.hasMoveDirection)
                 {
-                    continue;
+                    throw new InvalidOperationException(
+                        $"Player {player.EntityId} has incomplete consultation state.");
+                }
+                if (player.StoreEntityId != orderCounter.StoreEntityId)
+                {
+                    throw new InvalidOperationException(
+                        $"Player {player.EntityId} cannot consult at another store's counter.");
                 }
 
                 GameEntity visit =
-                    _gameContext.GetEntityWithCustomerVisitStoreEntityId(
-                        orderCounter.StoreEntityId);
-                if (visit == null || !visit.isCustomerVisitConsulting)
+                    _gameContext.GetEntityWithServingOrderCounterEntityId(
+                        orderCounter.EntityId);
+                if (visit == null)
                     continue;
+                ValidateConsultingVisit(visit, orderCounter);
                 if (player.hasConsultationVisitEntityId ||
                     player.hasProcurementTerminalEntityId ||
                     player.hasDayReportStoreEntityId)
@@ -68,6 +92,40 @@ namespace HardwareStore.Gameplay.Features.Consultation.Systems
                 orderCounter.isHighlighted = false;
                 player.isCursorLocked = true;
                 _cursor.SetLocked(true);
+            }
+        }
+
+        private static void ValidateConsultingVisit(
+            GameEntity visit,
+            GameEntity orderCounter)
+        {
+            if (visit.isDestructed || !visit.isCustomerVisit ||
+                !visit.isCustomerVehicle || !visit.isCustomerVisitConsulting ||
+                visit.isOrder || !visit.hasEntityId ||
+                !visit.hasCustomerVisitStoreEntityId ||
+                !visit.hasCustomerProjectType ||
+                !visit.hasServingOrderCounterEntityId ||
+                visit.CustomerVisitStoreEntityId != orderCounter.StoreEntityId ||
+                visit.ServingOrderCounterEntityId != orderCounter.EntityId)
+            {
+                throw new InvalidOperationException(
+                    $"Order counter {orderCounter.EntityId} serves invalid customer visit.");
+            }
+
+            int lifecycleCount =
+                (visit.isCustomerVisitArriving ? 1 : 0) +
+                (visit.isCustomerVisitQueued ? 1 : 0) +
+                (visit.isCustomerVisitConsulting ? 1 : 0) +
+                (visit.isCustomerVisitWaitingForLoadingBay ? 1 : 0) +
+                (visit.isCustomerVisitMovingToLoadingBay ? 1 : 0) +
+                (visit.isCustomerVisitLoading ? 1 : 0) +
+                (visit.isCustomerVisitCompleted ? 1 : 0) +
+                (visit.isCustomerVisitReturning ? 1 : 0) +
+                (visit.isCustomerVisitDeparting ? 1 : 0);
+            if (lifecycleCount != 1)
+            {
+                throw new InvalidOperationException(
+                    $"Customer visit {visit.EntityId} must have exactly one lifecycle marker.");
             }
         }
     }

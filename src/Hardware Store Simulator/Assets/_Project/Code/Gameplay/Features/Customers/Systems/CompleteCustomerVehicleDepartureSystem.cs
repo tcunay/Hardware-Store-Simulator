@@ -1,23 +1,18 @@
 using System;
 using System.Collections.Generic;
 using Entitas;
-using HardwareStore.Gameplay.Configs;
-using HardwareStore.Gameplay.StaticData;
 
 namespace HardwareStore.Gameplay.Features.Customers.Systems
 {
     public sealed class CompleteCustomerVehicleDepartureSystem : IExecuteSystem
     {
         private readonly GameContext _gameContext;
-        private readonly CustomerVehicleConfig _config;
         private readonly IGroup<GameEntity> _visits;
         private readonly List<GameEntity> _buffer = new(4);
 
-        public CompleteCustomerVehicleDepartureSystem(GameContext gameContext,
-            IStaticDataService staticData)
+        public CompleteCustomerVehicleDepartureSystem(GameContext gameContext)
         {
             _gameContext = gameContext;
-            _config = staticData.CustomerVehicle;
             _visits = gameContext.GetGroup(GameMatcher.AllOf(
                     GameMatcher.CustomerVisit,
                     GameMatcher.CustomerVehicle,
@@ -27,6 +22,8 @@ namespace HardwareStore.Gameplay.Features.Customers.Systems
                     GameMatcher.OrderContentReleased,
                     GameMatcher.EntityId,
                     GameMatcher.CustomerVisitStoreEntityId,
+                    GameMatcher.ReservedCustomerLoadingBayEntityId,
+                    GameMatcher.ReservedCustomerTrafficLaneEntityId,
                     GameMatcher.LoadingZone,
                     GameMatcher.RouteCompleted)
                 .NoneOf(GameMatcher.Destructed));
@@ -35,26 +32,42 @@ namespace HardwareStore.Gameplay.Features.Customers.Systems
         public void Execute()
         {
             foreach (GameEntity visit in _visits.GetEntities(_buffer))
+                CompleteDeparture(visit);
+        }
+
+        private void CompleteDeparture(GameEntity visit)
+        {
+            if (_gameContext.GetEntitiesWithOrderEntityId(visit.EntityId).Count != 0)
             {
-                if (_gameContext.GetEntitiesWithOrderEntityId(visit.EntityId).Count != 0)
-                {
-                    throw new InvalidOperationException(
-                        $"Departed customer visit {visit.EntityId} still owns order content.");
-                }
-
-                GameEntity store = _gameContext.GetEntityWithEntityId(
-                    visit.CustomerVisitStoreEntityId);
-                if (store == null || !store.isStore || !store.hasEntityId ||
-                    (!store.isStoreOpen && !store.isStoreClosing) ||
-                    store.hasCustomerCooldownRemaining)
-                    throw new InvalidOperationException(
-                        $"Customer visit {visit.EntityId} references an invalid active store.");
-
-                visit.RemoveCustomerVisitStoreEntityId();
-                visit.isDestructed = true;
-                if (store.isStoreOpen)
-                    store.AddCustomerCooldownRemaining(_config.NextCustomerDelay);
+                throw new InvalidOperationException(
+                    $"Departed customer visit {visit.EntityId} still owns order content.");
             }
+            GameEntity store = _gameContext.GetEntityWithEntityId(
+                visit.CustomerVisitStoreEntityId);
+            if (store == null || store.isDestructed || !store.isStore ||
+                !store.hasEntityId || (!store.isStoreOpen && !store.isStoreClosing))
+            {
+                throw new InvalidOperationException(
+                    $"Customer visit {visit.EntityId} references an invalid active store.");
+            }
+            GameEntity bay = _gameContext.GetEntityWithEntityId(
+                visit.ReservedCustomerLoadingBayEntityId);
+            if (bay == null || bay.isDestructed || !bay.isCustomerLoadingBay)
+                throw new InvalidOperationException(
+                    $"Customer visit {visit.EntityId} has an invalid loading bay.");
+            GameEntity trafficLane = _gameContext.GetEntityWithEntityId(
+                visit.ReservedCustomerTrafficLaneEntityId);
+            if (trafficLane == null || trafficLane.isDestructed ||
+                !trafficLane.isCustomerTrafficLane)
+            {
+                throw new InvalidOperationException(
+                    $"Customer visit {visit.EntityId} has an invalid traffic lane.");
+            }
+
+            visit.RemoveCustomerVisitStoreEntityId();
+            visit.RemoveReservedCustomerLoadingBayEntityId();
+            visit.RemoveReservedCustomerTrafficLaneEntityId();
+            visit.isDestructed = true;
         }
     }
 }

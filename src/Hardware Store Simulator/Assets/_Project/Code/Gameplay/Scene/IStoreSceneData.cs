@@ -12,8 +12,10 @@ namespace HardwareStore.Gameplay.Scene
 
         Pose GetSpawnPoint(SpawnPointId id);
         Pose[] GetRoute(SceneRouteId id);
+        CustomerFlowSceneLayout GetCustomerFlowLayout();
         EntityBehaviour GetSceneView(SceneViewId id);
         void Register(SpawnPointMarker[] spawnPoints, SceneRouteMarker[] routes,
+            CustomerFlowLayoutMarker customerFlowLayout,
             SceneViewMarker[] sceneViews, PrototypeHudView hudView,
             PrototypeAudioView audioView, PrototypeDayNightView dayNightView);
         void Unregister();

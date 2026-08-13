@@ -58,6 +58,7 @@ namespace HardwareStore.Editor
         private const string PlatformTrolleyConfigName = "PlatformTrolleyConfig";
         private const string WarehouseWorkerConfigName = "WarehouseWorkerConfig";
         private const string StoreDayConfigName = "StoreDayConfig";
+        private const string CustomerFlowConfigName = "CustomerFlowConfig";
         private const string LegacyCementOrderConfigName = "OrderConfig";
         private const string LegacyBoardOrderConfigName = "OrderConfig_BoardBundle";
         private const int CustomerVehicleCargoCapacity = 3;
@@ -90,6 +91,8 @@ namespace HardwareStore.Editor
             CustomerVehicleConfig customerVehicleConfig =
                 LoadConfig<CustomerVehicleConfig>("CustomerVehicleConfig");
             CustomerConfig customerConfig = LoadConfig<CustomerConfig>("CustomerConfig");
+            CustomerFlowConfig customerFlowConfig =
+                LoadConfig<CustomerFlowConfig>(CustomerFlowConfigName);
             EconomyConfig economyConfig = LoadConfig<EconomyConfig>("EconomyConfig");
             ProductRecoveryConfig productRecoveryConfig =
                 LoadConfig<ProductRecoveryConfig>(ProductRecoveryConfigName);
@@ -114,6 +117,7 @@ namespace HardwareStore.Editor
                 economyConfig,
                 productRecoveryConfig,
                 storeDayConfig,
+                customerFlowConfig,
                 warehouseWorkerConfig,
                 cementProductConfig,
                 boardProductConfig,
@@ -191,7 +195,7 @@ namespace HardwareStore.Editor
                 timber,
                 darkMetal,
                 brandOrange);
-            SceneRouteMarker[] customerRoutes = BuildCustomerRoutes(
+            CustomerFlowLayoutMarker customerFlowLayout = BuildCustomerFlowLayout(
                 environment.transform, asphalt, white, loadingGreen);
             BuildLumberArea(
                 environment.transform,
@@ -226,7 +230,8 @@ namespace HardwareStore.Editor
                     workerDeliveryAccessPoint,
                     workerStorageAccessPoint
                 },
-                customerRoutes,
+                Array.Empty<SceneRouteMarker>(),
+                customerFlowLayout,
                 new[]
                 {
                     orderCounter,
@@ -242,8 +247,9 @@ namespace HardwareStore.Editor
             installer.Configure(initializer);
             sceneContext.Installers = new MonoInstaller[] { installer };
 
-            BakeAndValidateWarehouseWorkerNavigation(
+            BakeAndValidateNavigation(
                 navigation,
+                customerFlowLayout,
                 workerIdlePoint,
                 workerDeliveryAccessPoint,
                 workerStorageAccessPoint);
@@ -315,6 +321,9 @@ namespace HardwareStore.Editor
             GameObject yard = CreateEmpty("Yard", parent);
             CreateCube("Asphalt Ground", yard.transform, new Vector3(0f, -0.12f, 0f), new Vector3(34f, 0.24f, 34f),
                 asphalt);
+            CreateCube("Customer Access Road", yard.transform,
+                new Vector3(-5.5f, -0.12f, -27.5f),
+                new Vector3(23f, 0.24f, 23f), asphalt);
 
             CreateCube("North Fence", yard.transform, new Vector3(0f, 1.15f, 16f), new Vector3(32f, 2.3f, 0.18f),
                 brandBlue);
@@ -322,10 +331,19 @@ namespace HardwareStore.Editor
                 brandBlue);
             CreateCube("East Fence", yard.transform, new Vector3(16f, 1.15f, 0f), new Vector3(0.18f, 2.3f, 32f),
                 brandBlue);
-            CreateCube("South Fence Left", yard.transform, new Vector3(-10f, 1.15f, -16f),
-                new Vector3(12f, 2.3f, 0.18f), brandBlue);
+            CreateCube("South Fence Far Left", yard.transform, new Vector3(-12.25f, 1.15f, -16f),
+                new Vector3(7.5f, 2.3f, 0.18f), brandBlue);
+            CreateCube("South Fence Mid Left", yard.transform, new Vector3(-5f, 1.15f, -16f),
+                new Vector3(2f, 2.3f, 0.18f), brandBlue);
             CreateCube("South Fence Right", yard.transform, new Vector3(10f, 1.15f, -16f),
                 new Vector3(12f, 2.3f, 0.18f), brandBlue);
+
+            CreateCube("Customer Exterior Walkway", yard.transform,
+                new Vector3(-9.15f, 0.025f, -17.35f), new Vector3(8f, 0.05f, 1.8f),
+                concrete, false);
+            CreateCube("Customer Pedestrian Gate Walkway", yard.transform,
+                new Vector3(-7.25f, 0.025f, -15.15f), new Vector3(2.2f, 0.05f, 2.6f),
+                concrete, false);
 
             CreateCube("Entrance Stripe Left", yard.transform, new Vector3(-3.2f, 0.015f, -14.7f),
                 new Vector3(0.18f, 0.03f, 2.2f), white, false);
@@ -338,8 +356,8 @@ namespace HardwareStore.Editor
                     new Vector3(0.65f, 0.04f, 0.16f), yellow, false);
             }
 
-            CreateCube("Shop Walkway", yard.transform, new Vector3(-9f, 0.02f, -0.1f),
-                new Vector3(6.5f, 0.04f, 1.3f), concrete, false);
+            CreateCube("Shop Walkway", yard.transform, new Vector3(-9f, 0.02f, -0.95f),
+                new Vector3(6.5f, 0.04f, 3f), concrete, false);
         }
 
         private static (SceneViewMarker OrderCounter, SceneViewMarker ProcurementTerminal) BuildShop(
@@ -602,16 +620,50 @@ namespace HardwareStore.Editor
             collider.size = size;
         }
 
-        private static SceneRouteMarker[] BuildCustomerRoutes(Transform parent, Material asphalt,
-            Material white, Material loadingGreen)
+        private static CustomerFlowLayoutMarker BuildCustomerFlowLayout(
+            Transform parent,
+            Material asphalt,
+            Material white,
+            Material loadingGreen)
         {
             GameObject traffic = CreateEmpty("Customer Vehicle Traffic", parent);
-            CreateCube("Customer Parking Pad", traffic.transform, new Vector3(6f, 0.015f, -5.4f),
-                new Vector3(4f, 0.03f, 9.8f), asphalt, false);
-            CreateCube("Parking Stripe Left", traffic.transform, new Vector3(4.25f, 0.035f, -5.4f),
-                new Vector3(0.12f, 0.04f, 9.2f), white, false);
-            CreateCube("Parking Stripe Right", traffic.transform, new Vector3(7.75f, 0.035f, -5.4f),
-                new Vector3(0.12f, 0.04f, 9.2f), white, false);
+            CreateCube(
+                "Customer Parking Pad",
+                traffic.transform,
+                new Vector3(-7.4f, 0.015f, -21.5f),
+                new Vector3(10.2f, 0.03f, 7f),
+                asphalt,
+                false);
+            for (int stripeIndex = 0; stripeIndex < 4; stripeIndex++)
+            {
+                CreateCube(
+                    $"Parking Stripe {stripeIndex + 1}",
+                    traffic.transform,
+                    new Vector3(-12.5f + stripeIndex * 3.4f, 0.035f, -21.5f),
+                    new Vector3(0.12f, 0.04f, 6.5f),
+                    white,
+                    false);
+            }
+            CreateWorldLabel(
+                "Customer Parking Label",
+                traffic.transform,
+                LocalizationKey.WorldCustomerParking,
+                new Vector3(-7.4f, 0.045f, -25.25f),
+                Quaternion.Euler(90f, 0f, 0f),
+                0.03f,
+                white.color);
+
+            CreateCube(
+                "Customer Loading Pad",
+                traffic.transform,
+                new Vector3(6f, 0.015f, -5.4f),
+                new Vector3(4f, 0.03f, 9.8f),
+                asphalt,
+                false);
+            CreateCube("Loading Stripe Left", traffic.transform, new Vector3(4.25f, 0.035f, -5.4f),
+                new Vector3(0.12f, 0.04f, 9.2f), loadingGreen, false);
+            CreateCube("Loading Stripe Right", traffic.transform, new Vector3(7.75f, 0.035f, -5.4f),
+                new Vector3(0.12f, 0.04f, 9.2f), loadingGreen, false);
             CreateCube("Loading Stripe", traffic.transform, new Vector3(6f, 0.04f, -9.9f),
                 new Vector3(3.5f, 0.05f, 0.18f), loadingGreen, false);
             CreateWorldLabel("Customer Loading Bay Label", traffic.transform,
@@ -619,53 +671,133 @@ namespace HardwareStore.Editor
                 new Vector3(6f, 0.045f, -10.45f), Quaternion.Euler(90f, 0f, 0f),
                 0.03f, loadingGreen.color);
 
-            SceneRouteMarker arrival = CreateSceneRoute(
-                "Customer Vehicle Arrival Route",
+            Pose[] queuePoses =
+            {
+                new(new Vector3(-7.25f, 0.02f, 0.55f), Quaternion.identity),
+                new(new Vector3(-7.25f, 0.02f, -0.75f), Quaternion.identity),
+                new(new Vector3(-7.25f, 0.02f, -2.05f), Quaternion.identity)
+            };
+            Transform[] queueWaypoints = CreateWaypointTransforms(
+                "Customer Queue",
                 traffic.transform,
-                SceneRouteId.CustomerVehicleArrival,
-                new[]
-                {
-                    new Pose(new Vector3(0f, 0.02f, -22f), Quaternion.identity),
-                    new Pose(new Vector3(0f, 0.02f, -11.8f), Quaternion.identity),
-                    new Pose(new Vector3(6f, 0.02f, -10f), Quaternion.Euler(0f, 55f, 0f)),
-                    new Pose(new Vector3(6f, 0.02f, -3.5f), Quaternion.identity)
-                });
-            SceneRouteMarker departure = CreateSceneRoute(
-                "Customer Vehicle Departure Route",
-                traffic.transform,
-                SceneRouteId.CustomerVehicleDeparture,
-                new[]
-                {
-                    new Pose(new Vector3(6f, 0.02f, -3.5f), Quaternion.identity),
-                    new Pose(new Vector3(6f, 0.02f, -10f), Quaternion.identity),
-                    new Pose(new Vector3(0f, 0.02f, -11.8f), Quaternion.Euler(0f, 55f, 0f)),
-                    new Pose(new Vector3(0f, 0.02f, -22f), Quaternion.identity)
-                });
+                queuePoses);
 
-            SceneRouteMarker walkToCounter = CreateSceneRoute(
-                "Customer Walk To Counter Route",
+            Pose[] loadingDepartureRoute =
+            {
+                new(new Vector3(6f, 0.02f, -2.5f),
+                    Quaternion.Euler(0f, 180f, 0f)),
+                new(new Vector3(6f, 0.02f, -10f),
+                    Quaternion.Euler(0f, 180f, 0f)),
+                new(new Vector3(3.5f, 0.02f, -11.8f),
+                    Quaternion.Euler(0f, -126f, 0f)),
+                new(new Vector3(0f, 0.02f, -13f),
+                    Quaternion.Euler(0f, -109f, 0f)),
+                new(new Vector3(0f, 0.02f, -20f),
+                    Quaternion.Euler(0f, 180f, 0f)),
+                new(new Vector3(0f, 0.02f, -30f),
+                    Quaternion.Euler(0f, 180f, 0f)),
+                new(new Vector3(0f, 0.02f, -35f),
+                    Quaternion.Euler(0f, 180f, 0f))
+            };
+            Transform[] loadingDepartureWaypoints = CreateWaypointTransforms(
+                "Customer Loading Departure Route",
                 traffic.transform,
-                SceneRouteId.CustomerWalkToCounter,
-                new[]
-                {
-                    new Pose(new Vector3(4.55f, 0.02f, -2.35f), Quaternion.Euler(0f, -90f, 0f)),
-                    new Pose(new Vector3(1.8f, 0.02f, -1.85f), Quaternion.Euler(0f, -80f, 0f)),
-                    new Pose(new Vector3(-4.4f, 0.02f, 0f), Quaternion.Euler(0f, -75f, 0f)),
-                    new Pose(new Vector3(-7.25f, 0.02f, 0.55f), Quaternion.identity)
-                });
-            SceneRouteMarker walkToVehicle = CreateSceneRoute(
-                "Customer Walk To Vehicle Route",
-                traffic.transform,
-                SceneRouteId.CustomerWalkToVehicle,
-                new[]
-                {
-                    new Pose(new Vector3(-7.25f, 0.02f, 0.55f), Quaternion.identity),
-                    new Pose(new Vector3(-4.4f, 0.02f, 0f), Quaternion.Euler(0f, 105f, 0f)),
-                    new Pose(new Vector3(1.8f, 0.02f, -1.85f), Quaternion.Euler(0f, 105f, 0f)),
-                    new Pose(new Vector3(4.55f, 0.02f, -2.35f), Quaternion.Euler(0f, 90f, 0f))
-                });
+                loadingDepartureRoute);
 
-            return new[] { arrival, departure, walkToCounter, walkToVehicle };
+            float[] parkingXs = { -10.8f, -7.4f, -4f };
+            var spotMarkers = new CustomerParkingSpotLayoutMarker[parkingXs.Length];
+            for (int index = 0; index < parkingXs.Length; index++)
+            {
+                float parkingX = parkingXs[index];
+                Pose parkingPose = new(
+                    new Vector3(parkingX, 0.02f, -21.5f),
+                    Quaternion.identity);
+                Pose customerDoorPose = new(
+                    new Vector3(parkingX - 1.75f, 0.02f, -20.35f),
+                    Quaternion.Euler(0f, 90f, 0f));
+
+                Pose[] vehicleArrivalRoute =
+                {
+                    new(new Vector3(1.5f, 0.02f, -35f), Quaternion.identity),
+                    new(new Vector3(1.5f, 0.02f, -30f), Quaternion.identity),
+                    new(new Vector3(parkingX, 0.02f, -30f),
+                        Quaternion.Euler(0f, -90f, 0f)),
+                    new(new Vector3(parkingX, 0.02f, -26.5f), Quaternion.identity),
+                    parkingPose
+                };
+                Pose[] vehicleToLoadingRoute =
+                {
+                    parkingPose,
+                    new(new Vector3(parkingX, 0.02f, -26.5f), Quaternion.identity),
+                    new(new Vector3(parkingX, 0.02f, -30f),
+                        Quaternion.identity),
+                    new(new Vector3(0f, 0.02f, -30f),
+                        Quaternion.Euler(0f, 90f, 0f)),
+                    new(new Vector3(0f, 0.02f, -12.5f), Quaternion.identity),
+                    new(new Vector3(1.5f, 0.02f, -9f),
+                        Quaternion.Euler(0f, 25f, 0f)),
+                    new(new Vector3(4f, 0.02f, -7.5f),
+                        Quaternion.Euler(0f, 60f, 0f)),
+                    new(new Vector3(6f, 0.02f, -8f),
+                        Quaternion.Euler(0f, 120f, 0f)),
+                    new(new Vector3(6f, 0.02f, -10f),
+                        Quaternion.Euler(0f, 180f, 0f)),
+                    loadingDepartureRoute[0]
+                };
+                Pose[] customerApproachRoute =
+                {
+                    customerDoorPose,
+                    new(new Vector3(parkingX - 1.75f, 0.02f, -17.65f),
+                        Quaternion.identity),
+                    new(new Vector3(-7.25f, 0.02f, -17.15f), Quaternion.identity),
+                    new(new Vector3(-7.25f, 0.02f, -14.6f), Quaternion.identity),
+                    new(new Vector3(-7.25f, 0.02f, -3f), Quaternion.identity),
+                    queuePoses[^1]
+                };
+                Pose[] customerReturnRoute =
+                {
+                    queuePoses[0],
+                    new(new Vector3(-7.25f, 0.02f, -3f),
+                        Quaternion.Euler(0f, 180f, 0f)),
+                    new(new Vector3(-7.25f, 0.02f, -14.6f),
+                        Quaternion.Euler(0f, 180f, 0f)),
+                    new(new Vector3(-7.25f, 0.02f, -17.15f),
+                        Quaternion.Euler(0f, 180f, 0f)),
+                    new(new Vector3(parkingX - 1.75f, 0.02f, -17.65f),
+                        Quaternion.Euler(0f, 180f, 0f)),
+                    customerDoorPose
+                };
+
+                GameObject spotObject = CreateEmpty(
+                    $"Customer Parking Spot {index + 1}",
+                    traffic.transform);
+                CustomerParkingSpotLayoutMarker spotMarker =
+                    spotObject.AddComponent<CustomerParkingSpotLayoutMarker>();
+                spotMarker.Configure(
+                    index,
+                    CreateWaypointTransforms(
+                        "Vehicle Arrival Route",
+                        spotObject.transform,
+                        vehicleArrivalRoute),
+                    CreateWaypointTransforms(
+                        "Vehicle To Loading Route",
+                        spotObject.transform,
+                        vehicleToLoadingRoute),
+                    CreateWaypointTransforms(
+                        "Customer Approach Route",
+                        spotObject.transform,
+                        customerApproachRoute),
+                    CreateWaypointTransforms(
+                        "Customer Return Route",
+                        spotObject.transform,
+                        customerReturnRoute));
+                spotMarkers[index] = spotMarker;
+            }
+
+            CustomerFlowLayoutMarker marker =
+                traffic.AddComponent<CustomerFlowLayoutMarker>();
+            marker.Configure(spotMarkers, queueWaypoints, loadingDepartureWaypoints);
+            return marker;
         }
 
         private static void BuildLumberArea(Transform parent, Material concrete, Material brandBlue,
@@ -1088,8 +1220,6 @@ namespace HardwareStore.Editor
                     rotationSpeed: 135f,
                     waypointTolerance: 0.08f,
                     completedDwellDuration: 1.25f,
-                    firstCustomerDelay: 1f,
-                    nextCustomerDelay: 4f,
                     cargoCapacity: CustomerVehicleCargoCapacity);
                 EditorUtility.SetDirty(config);
             }
@@ -1490,12 +1620,39 @@ namespace HardwareStore.Editor
             return marker;
         }
 
-        private static void BakeAndValidateWarehouseWorkerNavigation(
+        private static Transform[] CreateWaypointTransforms(
+            string name,
+            Transform parent,
+            Pose[] poses)
+        {
+            if (poses == null || poses.Length == 0)
+                throw new ArgumentException("Waypoints require at least one pose.", nameof(poses));
+
+            GameObject routeObject = CreateEmpty(name, parent);
+            var waypoints = new Transform[poses.Length];
+            for (int index = 0; index < poses.Length; index++)
+            {
+                GameObject waypoint = CreateEmpty(
+                    $"Waypoint {index + 1}",
+                    routeObject.transform);
+                waypoint.transform.SetPositionAndRotation(
+                    poses[index].position,
+                    poses[index].rotation);
+                waypoints[index] = waypoint.transform;
+            }
+
+            return waypoints;
+        }
+
+        private static void BakeAndValidateNavigation(
             NavMeshSurface surface,
+            CustomerFlowLayoutMarker customerFlowLayout,
             params SpawnPointMarker[] accessPoints)
         {
             if (surface == null)
                 throw new ArgumentNullException(nameof(surface));
+            if (customerFlowLayout == null)
+                throw new ArgumentNullException(nameof(customerFlowLayout));
             if (accessPoints == null || accessPoints.Length != 3 || accessPoints.Any(point => point == null))
             {
                 throw new ArgumentException(
@@ -1565,6 +1722,61 @@ namespace HardwareStore.Editor
                             $"'{accessPoints[originIndex].name}' to " +
                             $"'{accessPoints[destinationIndex].name}'.");
                     }
+                }
+            }
+
+            ValidateCustomerFlowNavigation(customerFlowLayout.Layout);
+        }
+
+        private static void ValidateCustomerFlowNavigation(
+            CustomerFlowSceneLayout layout)
+        {
+            Pose servicePose = layout.QueuePoses[0];
+            if (!NavMesh.SamplePosition(
+                    servicePose.position,
+                    out NavMeshHit serviceHit,
+                    2f,
+                    NavMesh.AllAreas) ||
+                Vector3.Distance(serviceHit.position, servicePose.position) > 0.35f)
+            {
+                throw new InvalidOperationException(
+                    $"Customer queue service pose at {servicePose.position} is not on the " +
+                    "baked NavMesh.");
+            }
+
+            foreach (CustomerParkingSpotSceneLayout parkingSpot in layout.ParkingSpots)
+            {
+                Vector3 doorPosition = parkingSpot.CustomerApproachRoute[0].position;
+                if (!NavMesh.SamplePosition(
+                        doorPosition,
+                        out NavMeshHit doorHit,
+                        2f,
+                        NavMesh.AllAreas) ||
+                    Vector3.Distance(doorHit.position, doorPosition) > 0.35f)
+                {
+                    throw new InvalidOperationException(
+                        $"Customer parking spot {parkingSpot.Index} door pose at " +
+                        $"{doorPosition} is not on the baked NavMesh.");
+                }
+
+                var approachPath = new NavMeshPath();
+                var returnPath = new NavMeshPath();
+                bool canApproach = NavMesh.CalculatePath(
+                    doorHit.position,
+                    serviceHit.position,
+                    NavMesh.AllAreas,
+                    approachPath);
+                bool canReturn = NavMesh.CalculatePath(
+                    serviceHit.position,
+                    doorHit.position,
+                    NavMesh.AllAreas,
+                    returnPath);
+                if (!canApproach || approachPath.status != NavMeshPathStatus.PathComplete ||
+                    !canReturn || returnPath.status != NavMeshPathStatus.PathComplete)
+                {
+                    throw new InvalidOperationException(
+                        $"Customer parking spot {parkingSpot.Index} must have complete " +
+                        "NavMesh paths between its vehicle door and the order counter.");
                 }
             }
         }
@@ -1709,6 +1921,7 @@ namespace HardwareStore.Editor
             EnsureConfigAsset<DeliveryConfig>(BoardDeliveryConfigName);
             EnsureConfigAsset<CustomerVehicleConfig>("CustomerVehicleConfig");
             EnsureConfigAsset<CustomerConfig>("CustomerConfig");
+            EnsureConfigAsset<CustomerFlowConfig>(CustomerFlowConfigName);
             EnsureConfigAsset<EconomyConfig>("EconomyConfig");
             EnsureConfigAsset<ProductRecoveryConfig>(ProductRecoveryConfigName);
             EnsureConfigAsset<PlatformTrolleyConfig>(PlatformTrolleyConfigName);
@@ -1722,6 +1935,7 @@ namespace HardwareStore.Editor
             EconomyConfig economyConfig,
             ProductRecoveryConfig productRecoveryConfig,
             StoreDayConfig storeDayConfig,
+            CustomerFlowConfig customerFlowConfig,
             WarehouseWorkerConfig warehouseWorkerConfig,
             ProductConfig cementProductConfig,
             ProductConfig boardProductConfig,
@@ -1756,6 +1970,20 @@ namespace HardwareStore.Editor
             RequireSerializedProperty(storeDay, "_dayDurationSeconds").floatValue = 480f;
             storeDay.ApplyModifiedPropertiesWithoutUndo();
             EditorUtility.SetDirty(storeDayConfig);
+
+            customerFlowConfig.Configure(
+                parkingCapacity: 3,
+                firstArrivalDelay: 10f,
+                arrivalSchedule: new[]
+                {
+                    new CustomerArrivalSchedulePoint(8 * 60, 45f),
+                    new CustomerArrivalSchedulePoint(10 * 60, 36f),
+                    new CustomerArrivalSchedulePoint(13 * 60, 26f),
+                    new CustomerArrivalSchedulePoint(17 * 60, 28f),
+                    new CustomerArrivalSchedulePoint(19 * 60, 45f),
+                    new CustomerArrivalSchedulePoint(20 * 60, 70f)
+                });
+            EditorUtility.SetDirty(customerFlowConfig);
 
             SerializedObject warehouseWorker = new(warehouseWorkerConfig);
             RequireSerializedProperty(warehouseWorker, "_requiredCompletedOrderCount").intValue = 4;

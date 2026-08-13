@@ -19,6 +19,7 @@ namespace HardwareStore.Gameplay.Features.Consultation.Systems
             _gameContext = gameContext;
             _players = gameContext.GetGroup(GameMatcher.AllOf(
                 GameMatcher.Player,
+                GameMatcher.StoreEntityId,
                 GameMatcher.ModalOpen,
                 GameMatcher.ConsultationVisitEntityId));
             _inputs = inputContext.GetGroup(InputMatcher.AllOf(InputMatcher.InputState)
@@ -43,9 +44,45 @@ namespace HardwareStore.Gameplay.Features.Consultation.Systems
         {
             GameEntity visit = _gameContext.GetEntityWithEntityId(
                 player.ConsultationVisitEntityId);
-            if (!visit.isCustomerVisitConsulting)
+            if (visit == null || visit.isDestructed || !visit.isCustomerVisit ||
+                !visit.isCustomerVehicle || !visit.isCustomerVisitConsulting ||
+                visit.isOrder || !visit.hasEntityId ||
+                !visit.hasCustomerVisitStoreEntityId ||
+                visit.CustomerVisitStoreEntityId != player.StoreEntityId ||
+                !visit.hasServingOrderCounterEntityId)
+            {
                 throw new InvalidOperationException(
-                    $"Player consultation references inactive visit {visit.EntityId}.");
+                    "Player consultation references an inactive customer visit.");
+            }
+
+            int lifecycleCount =
+                (visit.isCustomerVisitArriving ? 1 : 0) +
+                (visit.isCustomerVisitQueued ? 1 : 0) +
+                (visit.isCustomerVisitConsulting ? 1 : 0) +
+                (visit.isCustomerVisitWaitingForLoadingBay ? 1 : 0) +
+                (visit.isCustomerVisitMovingToLoadingBay ? 1 : 0) +
+                (visit.isCustomerVisitLoading ? 1 : 0) +
+                (visit.isCustomerVisitCompleted ? 1 : 0) +
+                (visit.isCustomerVisitReturning ? 1 : 0) +
+                (visit.isCustomerVisitDeparting ? 1 : 0);
+            if (lifecycleCount != 1)
+            {
+                throw new InvalidOperationException(
+                    $"Customer visit {visit.EntityId} must have exactly one lifecycle marker.");
+            }
+
+            GameEntity orderCounter = _gameContext.GetEntityWithEntityId(
+                visit.ServingOrderCounterEntityId);
+            if (orderCounter == null || orderCounter.isDestructed ||
+                !orderCounter.isOrderCounter || !orderCounter.hasEntityId ||
+                !orderCounter.hasStoreEntityId ||
+                orderCounter.StoreEntityId != visit.CustomerVisitStoreEntityId ||
+                _gameContext.GetEntityWithServingOrderCounterEntityId(
+                    orderCounter.EntityId) != visit)
+            {
+                throw new InvalidOperationException(
+                    $"Customer visit {visit.EntityId} has an invalid counter reservation.");
+            }
 
             CollectOffers(visit);
             GameEntity selectedOffer = null;

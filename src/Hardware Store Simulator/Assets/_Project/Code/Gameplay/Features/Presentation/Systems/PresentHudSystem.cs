@@ -59,15 +59,14 @@ namespace HardwareStore.Gameplay.Features.Presentation.Systems
             int totalAvailableProductCount = 0;
             int totalLoadedProductCount = 0;
             int totalRequiredProductCount = 0;
-            GameEntity customerVisit =
-                _gameContext.GetEntityWithCustomerVisitStoreEntityId(store.EntityId);
+            GameEntity[] customerVisits = GetOrderedCustomerVisits(store);
+            CustomerFlowSnapshot customerFlow = CreateCustomerFlowSnapshot(customerVisits);
+            GameEntity customerVisit = ResolvePresentedCustomerVisit(customerVisits);
             if (customerVisit != null)
             {
-                ValidateVisit(customerVisit);
                 orderState = ResolveOrderState(customerVisit);
                 projectType = customerVisit.CustomerProjectType;
-                bool lifecycleRequiresOrder = orderState is not (
-                    HudOrderState.Arriving or HudOrderState.Consulting);
+                bool lifecycleRequiresOrder = LifecycleRequiresOrder(customerVisit);
                 if (customerVisit.isOrder != lifecycleRequiresOrder)
                 {
                     throw new InvalidOperationException(
@@ -136,7 +135,91 @@ namespace HardwareStore.Gameplay.Features.Presentation.Systems
                 player.isCarryingProduct,
                 player.isPushingTrolley,
                 player.isCursorLocked,
+                customerFlow,
                 warehouseWorkerStatus));
+        }
+
+        private GameEntity[] GetOrderedCustomerVisits(GameEntity store)
+        {
+            GameEntity[] visits = _gameContext
+                .GetEntitiesWithCustomerVisitStoreEntityId(store.EntityId)
+                .ToArray();
+            foreach (GameEntity visit in visits)
+                ValidateVisit(visit, store);
+
+            visits = visits
+                .OrderBy(visit => visit.CustomerArrivalSequence)
+                .ThenBy(visit => visit.EntityId)
+                .ToArray();
+            int previousArrivalSequence = -1;
+            foreach (GameEntity visit in visits)
+            {
+                if (visit.CustomerArrivalSequence == previousArrivalSequence)
+                {
+                    throw new InvalidOperationException(
+                        $"Store {store.EntityId} has duplicate customer arrival sequence " +
+                        $"{visit.CustomerArrivalSequence}.");
+                }
+
+                previousArrivalSequence = visit.CustomerArrivalSequence;
+            }
+
+            return visits;
+        }
+
+        private static GameEntity ResolvePresentedCustomerVisit(GameEntity[] visits)
+        {
+            for (int index = 0; index < visits.Length; index++)
+            {
+                if (!visits[index].isOrderRewarded)
+                    return visits[index];
+            }
+
+            return visits.Length == 0 ? null : visits[0];
+        }
+
+        private static CustomerFlowSnapshot CreateCustomerFlowSnapshot(
+            GameEntity[] visits)
+        {
+            int arrivingCount = 0;
+            int queuedCount = 0;
+            int consultingCount = 0;
+            int loadingPipelineCount = 0;
+            int leavingCount = 0;
+            foreach (GameEntity visit in visits)
+            {
+                if (visit.isCustomerVisitArriving)
+                    arrivingCount = checked(arrivingCount + 1);
+                else if (visit.isCustomerVisitQueued)
+                    queuedCount = checked(queuedCount + 1);
+                else if (visit.isCustomerVisitConsulting)
+                    consultingCount = checked(consultingCount + 1);
+                else if (visit.isCustomerVisitReturning ||
+                         visit.isCustomerVisitWaitingForLoadingBay ||
+                         visit.isCustomerVisitMovingToLoadingBay ||
+                         visit.isCustomerVisitLoading)
+                {
+                    loadingPipelineCount = checked(loadingPipelineCount + 1);
+                }
+                else if (visit.isCustomerVisitCompleted ||
+                         visit.isCustomerVisitDeparting)
+                {
+                    leavingCount = checked(leavingCount + 1);
+                }
+                else
+                {
+                    throw new InvalidOperationException(
+                        $"Customer visit {visit.EntityId} has no countable lifecycle state.");
+                }
+            }
+
+            return new CustomerFlowSnapshot(
+                visits.Length,
+                arrivingCount,
+                queuedCount,
+                consultingCount,
+                loadingPipelineCount,
+                leavingCount);
         }
 
         private WarehouseWorkerStatusSnapshot? CreateWarehouseWorkerStatusSnapshot(
@@ -264,14 +347,35 @@ namespace HardwareStore.Gameplay.Features.Presentation.Systems
             return snapshots;
         }
 
-        private static void ValidateVisit(GameEntity visit)
+        private static void ValidateVisit(GameEntity visit, GameEntity store)
         {
-            ValidateSingleLifecycleState(visit);
-            if (!visit.isCustomerVisit || !visit.hasEntityId ||
-                !visit.hasCustomerProjectType)
+            if (!visit.isCustomerVisit || visit.isDestructed ||
+                !visit.hasEntityId || !visit.hasCustomerVisitStoreEntityId ||
+                !visit.hasCustomerProjectType || !visit.hasCustomerArrivalSequence ||
+                visit.CustomerVisitStoreEntityId != store.EntityId ||
+                visit.CustomerArrivalSequence < 0 ||
+                !Enum.IsDefined(typeof(CustomerProjectTypeId),
+                    visit.CustomerProjectType))
             {
                 throw new InvalidOperationException(
-                    "The HUD requires a fully configured customer project visit.");
+                    $"Store {store.EntityId} has an invalid customer visit.");
+            }
+
+            ValidateSingleLifecycleState(visit);
+            bool lifecycleRequiresOrder = LifecycleRequiresOrder(visit);
+            if (visit.isOrder != lifecycleRequiresOrder)
+            {
+                throw new InvalidOperationException(
+                    $"Customer visit {visit.EntityId} has an order that does not match " +
+                    "its lifecycle state.");
+            }
+            bool lifecycleRequiresReward =
+                visit.isCustomerVisitCompleted || visit.isCustomerVisitDeparting;
+            if (visit.isOrderRewarded != lifecycleRequiresReward)
+            {
+                throw new InvalidOperationException(
+                    $"Customer visit {visit.EntityId} has a reward marker that does not " +
+                    "match its lifecycle state.");
             }
         }
 
@@ -315,7 +419,8 @@ namespace HardwareStore.Gameplay.Features.Presentation.Systems
 
         private static HudOrderState ResolveOrderState(GameEntity customerVisit)
         {
-            if (customerVisit.isCustomerVisitArriving)
+            if (customerVisit.isCustomerVisitArriving ||
+                customerVisit.isCustomerVisitQueued)
                 return HudOrderState.Arriving;
             if (customerVisit.isCustomerVisitConsulting)
                 return HudOrderState.Consulting;
@@ -323,7 +428,9 @@ namespace HardwareStore.Gameplay.Features.Presentation.Systems
                 return HudOrderState.Returning;
             if (customerVisit.isCustomerVisitDeparting)
                 return HudOrderState.Departing;
-            if (customerVisit.isCustomerVisitLoading)
+            if (customerVisit.isCustomerVisitWaitingForLoadingBay ||
+                customerVisit.isCustomerVisitMovingToLoadingBay ||
+                customerVisit.isCustomerVisitLoading)
                 return HudOrderState.Active;
             if (customerVisit.isCustomerVisitCompleted)
                 return HudOrderState.Completed;
@@ -336,7 +443,10 @@ namespace HardwareStore.Gameplay.Features.Presentation.Systems
         {
             int lifecycleStateCount =
                 (customerVisit.isCustomerVisitArriving ? 1 : 0) +
+                (customerVisit.isCustomerVisitQueued ? 1 : 0) +
                 (customerVisit.isCustomerVisitConsulting ? 1 : 0) +
+                (customerVisit.isCustomerVisitWaitingForLoadingBay ? 1 : 0) +
+                (customerVisit.isCustomerVisitMovingToLoadingBay ? 1 : 0) +
                 (customerVisit.isCustomerVisitLoading ? 1 : 0) +
                 (customerVisit.isCustomerVisitCompleted ? 1 : 0) +
                 (customerVisit.isCustomerVisitReturning ? 1 : 0) +
@@ -346,5 +456,13 @@ namespace HardwareStore.Gameplay.Features.Presentation.Systems
                     $"Customer visit {customerVisit.EntityId} must have exactly one " +
                     "lifecycle state.");
         }
+
+        private static bool LifecycleRequiresOrder(GameEntity customerVisit) =>
+            customerVisit.isCustomerVisitWaitingForLoadingBay ||
+            customerVisit.isCustomerVisitMovingToLoadingBay ||
+            customerVisit.isCustomerVisitLoading ||
+            customerVisit.isCustomerVisitCompleted ||
+            customerVisit.isCustomerVisitReturning ||
+            customerVisit.isCustomerVisitDeparting;
     }
 }

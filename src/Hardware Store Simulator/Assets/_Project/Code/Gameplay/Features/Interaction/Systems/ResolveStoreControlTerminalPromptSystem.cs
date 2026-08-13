@@ -95,11 +95,14 @@ namespace HardwareStore.Gameplay.Features.Interaction.Systems
                     "day report is open.");
             }
 
-            if (_gameContext.GetEntityWithCustomerVisitStoreEntityId(store.EntityId) != null)
+            int activeCustomerVisitCount =
+                _gameContext.CountActiveCustomerVisits(store.EntityId);
+            if (activeCustomerVisitCount > 0)
             {
                 player.SetInteractionPrompt(
                     LocalizedTexts.Text(
-                        LocalizationKey.PromptCloseStoreCustomerActive),
+                        LocalizationKey.PromptCloseStoreCustomerActive,
+                        activeCustomerVisitCount),
                     false);
                 return;
             }

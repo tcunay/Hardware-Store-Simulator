@@ -19,6 +19,7 @@ namespace HardwareStore.Gameplay.Features.Customers.Systems
                     GameMatcher.CustomerApproachingCounter,
                     GameMatcher.EntityId,
                     GameMatcher.CustomerActorVisitEntityId,
+                    GameMatcher.ReservedCustomerQueueSpotEntityId,
                     GameMatcher.CustomerReturnRoute,
                     GameMatcher.Route,
                     GameMatcher.RouteWaypointIndex,
@@ -36,25 +37,29 @@ namespace HardwareStore.Gameplay.Features.Customers.Systems
         {
             GameEntity visit = _gameContext.GetEntityWithEntityId(
                 customer.CustomerActorVisitEntityId);
-            if (!visit.isCustomerVisit || !visit.isCustomerVehicle ||
-                !visit.isCustomerVisitArriving || visit.isInteractable ||
+            if (visit == null || !visit.isCustomerVisit || !visit.isCustomerVehicle ||
+                !visit.isCustomerVisitQueued || visit.isInteractable ||
                 visit.hasRoute || visit.hasRouteWaypointIndex || visit.isRouteCompleted ||
                 visit.isDestructed)
             {
                 throw new InvalidOperationException(
-                    $"Customer {customer.EntityId} cannot complete its approach for visit " +
-                    $"{visit.EntityId}.");
+                    $"Customer {customer.EntityId} cannot complete its queue approach.");
+            }
+
+            GameEntity queueSpot = _gameContext.GetEntityWithEntityId(
+                customer.ReservedCustomerQueueSpotEntityId);
+            if (queueSpot == null || queueSpot.isDestructed ||
+                !queueSpot.isCustomerQueueSpot || !queueSpot.hasQueueSpotIndex)
+            {
+                throw new InvalidOperationException(
+                    $"Customer {customer.EntityId} has an invalid queue reservation.");
             }
 
             customer.isRouteCompleted = false;
             customer.RemoveRoute();
             customer.RemoveRouteWaypointIndex();
             customer.isCustomerApproachingCounter = false;
-            customer.isCustomerWaitingAtCounter = true;
-
-            visit.isCustomerVisitArriving = false;
-            visit.isCustomerVisitConsulting = true;
-            visit.isInteractable = true;
+            customer.isCustomerWaitingInQueue = true;
         }
     }
 }

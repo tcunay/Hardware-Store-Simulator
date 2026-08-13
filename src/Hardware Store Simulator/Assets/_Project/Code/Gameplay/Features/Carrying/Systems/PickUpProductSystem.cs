@@ -106,17 +106,39 @@ namespace HardwareStore.Gameplay.Features.Carrying.Systems
                     $"In-stock product {product.EntityId} has no storage ownership relation.");
 
             GameEntity store = _gameContext.GetEntityWithEntityId(player.StoreEntityId);
+            if (store == null || store.isDestructed || !store.isStore ||
+                !store.hasEntityId || !store.hasStorageZoneEntityId)
+            {
+                throw new InvalidOperationException(
+                    $"Player {player.EntityId} references an invalid store.");
+            }
             if (product.StorageZoneEntityId != store.StorageZoneEntityId)
                 return false;
+
+            GameEntity loadingBay =
+                _gameContext.GetEntityWithCustomerLoadingBayStoreEntityId(store.EntityId);
+            if (loadingBay == null || loadingBay.isDestructed ||
+                !loadingBay.isCustomerLoadingBay || !loadingBay.hasEntityId ||
+                !loadingBay.hasCustomerLoadingBayStoreEntityId ||
+                loadingBay.CustomerLoadingBayStoreEntityId != store.EntityId)
+            {
+                throw new InvalidOperationException(
+                    $"Store {store.EntityId} has an invalid customer loading bay relation.");
+            }
+
             GameEntity customerVisit =
-                _gameContext.GetEntityWithCustomerVisitStoreEntityId(store.EntityId);
+                _gameContext.GetEntityWithReservedCustomerLoadingBayEntityId(
+                    loadingBay.EntityId);
             if (customerVisit == null)
                 return false;
+            ValidateLoadingBayReservation(customerVisit, loadingBay, store.EntityId);
             if (!customerVisit.isCustomerVisitLoading)
                 return false;
-            if (!customerVisit.isOrder || !customerVisit.hasEntityId)
+            if (!customerVisit.isLoadingZone || !customerVisit.isOrder ||
+                !customerVisit.hasStorageZoneEntityId)
                 throw new InvalidOperationException(
-                    $"Loading customer visit {customerVisit.EntityId} has no order.");
+                    $"Loading customer visit {customerVisit.EntityId} has incomplete order " +
+                    "state.");
 
             if (product.hasReservedOrderLineEntityId)
             {
@@ -165,6 +187,39 @@ namespace HardwareStore.Gameplay.Features.Carrying.Systems
 
             reservedOrderLine = matchingLine;
             return true;
+        }
+
+        private static void ValidateLoadingBayReservation(
+            GameEntity visit,
+            GameEntity loadingBay,
+            int storeEntityId)
+        {
+            if (visit.isDestructed || !visit.isCustomerVisit ||
+                !visit.isCustomerVehicle || !visit.hasEntityId ||
+                !visit.hasCustomerVisitStoreEntityId ||
+                visit.CustomerVisitStoreEntityId != storeEntityId ||
+                !visit.hasReservedCustomerLoadingBayEntityId ||
+                visit.ReservedCustomerLoadingBayEntityId != loadingBay.EntityId)
+            {
+                throw new InvalidOperationException(
+                    $"Customer loading bay {loadingBay.EntityId} has an invalid reservation.");
+            }
+
+            int lifecycleCount =
+                (visit.isCustomerVisitArriving ? 1 : 0) +
+                (visit.isCustomerVisitQueued ? 1 : 0) +
+                (visit.isCustomerVisitConsulting ? 1 : 0) +
+                (visit.isCustomerVisitWaitingForLoadingBay ? 1 : 0) +
+                (visit.isCustomerVisitMovingToLoadingBay ? 1 : 0) +
+                (visit.isCustomerVisitLoading ? 1 : 0) +
+                (visit.isCustomerVisitCompleted ? 1 : 0) +
+                (visit.isCustomerVisitReturning ? 1 : 0) +
+                (visit.isCustomerVisitDeparting ? 1 : 0);
+            if (lifecycleCount != 1)
+            {
+                throw new InvalidOperationException(
+                    $"Customer visit {visit.EntityId} must have exactly one lifecycle marker.");
+            }
         }
 
         private int CountReservedProducts(GameEntity orderLine)

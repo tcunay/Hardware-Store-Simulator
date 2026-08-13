@@ -13,13 +13,16 @@ namespace HardwareStore.Gameplay.Factories
         private readonly IIdentifierService _identifiers;
         private readonly IStaticDataService _staticData;
         private readonly IInteractionTargetFactory _interactionTargetFactory;
+        private readonly ICustomerFlowFactory _customerFlowFactory;
 
         public StoreFactory(IIdentifierService identifiers, IStaticDataService staticData,
-            IInteractionTargetFactory interactionTargetFactory)
+            IInteractionTargetFactory interactionTargetFactory,
+            ICustomerFlowFactory customerFlowFactory)
         {
             _identifiers = identifiers;
             _staticData = staticData;
             _interactionTargetFactory = interactionTargetFactory;
+            _customerFlowFactory = customerFlowFactory;
         }
 
         public GameEntity Create(IStoreSceneData sceneData)
@@ -31,6 +34,7 @@ namespace HardwareStore.Gameplay.Factories
             GameEntity store = CreateEntity.Empty(_identifiers.Next())
                 .AddMoney(initialMoney)
                 .AddNextProjectSequenceIndex(0)
+                .AddNextCustomerArrivalSequence(0)
                 .AddCompletedOrderCount(0)
                 .AddDayNumber(1)
                 .AddCurrentDayMinute(_staticData.StoreDay.StartMinute)
@@ -64,6 +68,7 @@ namespace HardwareStore.Gameplay.Factories
             store.AddStorageZoneEntityId(storageZone.EntityId);
             store.AddTrolleyUpgradeTerminalEntityId(trolleyUpgradeTerminal.EntityId);
             store.AddStoreControlTerminalEntityId(storeControlTerminal.EntityId);
+            _customerFlowFactory.Create(store, sceneData.GetCustomerFlowLayout());
             return store;
         }
     }

@@ -18,17 +18,12 @@ namespace HardwareStore.Gameplay.Features.Customers.Systems
                     GameMatcher.CustomerVisit,
                     GameMatcher.CustomerVehicle,
                     GameMatcher.Order,
-                    GameMatcher.CustomerVisitCompleted,
-                    GameMatcher.OrderRewarded,
+                    GameMatcher.CustomerVisitReturning,
                     GameMatcher.EntityId,
-                    GameMatcher.LoadingZone,
-                    GameMatcher.Interactable,
-                    GameMatcher.DepartureRoute,
-                    GameMatcher.CustomerDepartureDelayRemaining)
+                    GameMatcher.CustomerVisitStoreEntityId,
+                    GameMatcher.ReservedCustomerParkingSpotEntityId)
                 .NoneOf(
-                    GameMatcher.Route,
-                    GameMatcher.RouteWaypointIndex,
-                    GameMatcher.RouteCompleted,
+                    GameMatcher.ServingOrderCounterEntityId,
                     GameMatcher.Destructed));
         }
 
@@ -40,43 +35,30 @@ namespace HardwareStore.Gameplay.Features.Customers.Systems
 
         private void BeginReturn(GameEntity visit)
         {
-            float departureDelay = visit.CustomerDepartureDelayRemaining;
-            if (float.IsNaN(departureDelay) || float.IsInfinity(departureDelay) ||
-                departureDelay < 0f)
-            {
-                throw new InvalidOperationException(
-                    $"Customer visit {visit.EntityId} has invalid departure delay " +
-                    $"{departureDelay}.");
-            }
-            if (departureDelay > 0f)
-                return;
-
             GameEntity customer =
                 _gameContext.GetEntityWithCustomerActorVisitEntityId(visit.EntityId);
-            if (customer == null)
-                throw new InvalidOperationException(
-                    $"Completed customer visit {visit.EntityId} has no customer actor.");
-            if (!customer.isCustomer || !customer.isRouteMover ||
+            if (customer != null && customer.isCustomerReturningToVehicle &&
+                customer.hasRoute && customer.hasRouteWaypointIndex &&
+                !customer.isRouteCompleted && !customer.hasCustomerReturnRoute &&
+                !customer.hasReservedCustomerQueueSpotEntityId)
+                return;
+
+            if (customer == null || !customer.isCustomer || !customer.isRouteMover ||
                 !customer.isCustomerWaitingAtCounter || !customer.hasEntityId ||
-                !customer.hasCustomerReturnRoute || !customer.hasMovementSpeed ||
-                !customer.hasRotationSpeed || !customer.hasWaypointTolerance ||
-                customer.hasRoute || customer.hasRouteWaypointIndex ||
-                customer.isRouteCompleted || customer.isDestructed)
+                !customer.hasCustomerReturnRoute ||
+                !customer.hasMovementSpeed || !customer.hasRotationSpeed ||
+                !customer.hasWaypointTolerance || customer.hasRoute ||
+                customer.hasRouteWaypointIndex || customer.isRouteCompleted ||
+                customer.hasReservedCustomerQueueSpotEntityId || customer.isDestructed)
             {
                 throw new InvalidOperationException(
-                    $"Customer {customer.EntityId} cannot return to vehicle for visit " +
-                    $"{visit.EntityId}.");
+                    $"Customer visit {visit.EntityId} cannot begin its accepted return.");
             }
 
             Pose[] returnRoute = customer.CustomerReturnRoute;
             if (returnRoute == null || returnRoute.Length < 2)
                 throw new InvalidOperationException(
                     $"Customer {customer.EntityId} has an invalid return route.");
-
-            visit.isCustomerVisitCompleted = false;
-            visit.isCustomerVisitReturning = true;
-            visit.isInteractable = false;
-            visit.RemoveCustomerDepartureDelayRemaining();
 
             customer.isCustomerWaitingAtCounter = false;
             customer.isCustomerReturningToVehicle = true;

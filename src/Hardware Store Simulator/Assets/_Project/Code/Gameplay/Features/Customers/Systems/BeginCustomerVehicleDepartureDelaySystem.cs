@@ -21,7 +21,8 @@ namespace HardwareStore.Gameplay.Features.Customers.Systems
                     GameMatcher.Order,
                     GameMatcher.CustomerVisitCompleted,
                     GameMatcher.OrderRewarded,
-                    GameMatcher.EntityId)
+                    GameMatcher.EntityId,
+                    GameMatcher.ReservedCustomerLoadingBayEntityId)
                 .NoneOf(
                     GameMatcher.CustomerDepartureDelayRemaining,
                     GameMatcher.Destructed));
@@ -30,7 +31,10 @@ namespace HardwareStore.Gameplay.Features.Customers.Systems
         public void Execute()
         {
             foreach (GameEntity visit in _visits.GetEntities(_buffer))
+            {
+                visit.isInteractable = false;
                 visit.AddCustomerDepartureDelayRemaining(_config.CompletedDwellDuration);
+            }
         }
     }
 }

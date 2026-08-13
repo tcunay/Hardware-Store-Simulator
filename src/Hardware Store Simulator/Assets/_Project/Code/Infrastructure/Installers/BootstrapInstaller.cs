@@ -1,4 +1,5 @@
 using HardwareStore.Gameplay.Common.Collisions;
+using HardwareStore.Gameplay.Common.Customers;
 using HardwareStore.Gameplay.Common.Cursor;
 using HardwareStore.Gameplay.Common.Economy;
 using HardwareStore.Gameplay.Common.Input;
@@ -48,6 +49,7 @@ namespace HardwareStore.Infrastructure.Installers
             Container.Bind<IProductDropPhysicsService>().To<ProductDropPhysicsService>().AsSingle();
             Container.Bind<ITrolleyMotionService>().To<TrolleyMotionService>().AsSingle();
             Container.Bind<IWorkerNavigationService>().To<NavMeshWorkerNavigationService>().AsSingle();
+            Container.Bind<ICustomerArrivalSchedule>().To<CustomerArrivalSchedule>().AsSingle();
             Container.Bind<ISceneLoader>().To<SceneLoader>().AsSingle();
             Container.Bind<IEntityViewFactory>().To<EntityViewFactory>().AsSingle();
         }
@@ -79,6 +81,7 @@ namespace HardwareStore.Infrastructure.Installers
             Container.Bind<IStoreFactory>().To<StoreFactory>().AsSingle();
             Container.Bind<ICustomerVisitFactory>().To<CustomerVisitFactory>().AsSingle();
             Container.Bind<ICustomerFactory>().To<CustomerFactory>().AsSingle();
+            Container.Bind<ICustomerFlowFactory>().To<CustomerFlowFactory>().AsSingle();
             Container.Bind<IConsultationOfferFactory>().To<ConsultationOfferFactory>().AsSingle();
             Container.Bind<IOrderFactory>().To<OrderFactory>().AsSingle();
             Container.Bind<IProductFactory>().To<ProductFactory>().AsSingle();

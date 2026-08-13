@@ -18,6 +18,4 @@ MonoBehaviour:
   _rotationSpeed: 135
   _waypointTolerance: 0.08
   _completedDwellDuration: 1.25
-  _firstCustomerDelay: 1
-  _nextCustomerDelay: 4
   _cargoCapacity: 3

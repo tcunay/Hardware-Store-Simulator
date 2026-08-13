@@ -63,6 +63,10 @@ public partial class Contexts {
     public const string ConsultationOfferEntityId = "ConsultationOfferEntityId";
     public const string ConsultationOfferVisitEntityId = "ConsultationOfferVisitEntityId";
     public const string CustomerActorVisitEntityId = "CustomerActorVisitEntityId";
+    public const string CustomerLoadingBayStoreEntityId = "CustomerLoadingBayStoreEntityId";
+    public const string CustomerParkingSpotStoreEntityId = "CustomerParkingSpotStoreEntityId";
+    public const string CustomerQueueSpotStoreEntityId = "CustomerQueueSpotStoreEntityId";
+    public const string CustomerTrafficLaneStoreEntityId = "CustomerTrafficLaneStoreEntityId";
     public const string CustomerVisitStoreEntityId = "CustomerVisitStoreEntityId";
     public const string DayReportStoreEntityId = "DayReportStoreEntityId";
     public const string DeliveryEntityId = "DeliveryEntityId";
@@ -70,7 +74,12 @@ public partial class Contexts {
     public const string EntityId = "EntityId";
     public const string OrderEntityId = "OrderEntityId";
     public const string OrderLineEntityId = "OrderLineEntityId";
+    public const string ReservedCustomerLoadingBayEntityId = "ReservedCustomerLoadingBayEntityId";
+    public const string ReservedCustomerParkingSpotEntityId = "ReservedCustomerParkingSpotEntityId";
+    public const string ReservedCustomerQueueSpotEntityId = "ReservedCustomerQueueSpotEntityId";
+    public const string ReservedCustomerTrafficLaneEntityId = "ReservedCustomerTrafficLaneEntityId";
     public const string ReservedOrderLineEntityId = "ReservedOrderLineEntityId";
+    public const string ServingOrderCounterEntityId = "ServingOrderCounterEntityId";
     public const string TrolleyEntityId = "TrolleyEntityId";
     public const string TrolleyPusherEntityId = "TrolleyPusherEntityId";
     public const string TrolleyStoreEntityId = "TrolleyStoreEntityId";
@@ -107,6 +116,26 @@ public partial class Contexts {
             (e, c) => ((HardwareStore.Gameplay.Components.CustomerActorVisitEntityId)c).Value));
 
         game.AddEntityIndex(new Entitas.PrimaryEntityIndex<GameEntity, int>(
+            CustomerLoadingBayStoreEntityId,
+            game.GetGroup(GameMatcher.CustomerLoadingBayStoreEntityId),
+            (e, c) => ((HardwareStore.Gameplay.Components.CustomerLoadingBayStoreEntityId)c).Value));
+
+        game.AddEntityIndex(new Entitas.EntityIndex<GameEntity, int>(
+            CustomerParkingSpotStoreEntityId,
+            game.GetGroup(GameMatcher.CustomerParkingSpotStoreEntityId),
+            (e, c) => ((HardwareStore.Gameplay.Components.CustomerParkingSpotStoreEntityId)c).Value));
+
+        game.AddEntityIndex(new Entitas.EntityIndex<GameEntity, int>(
+            CustomerQueueSpotStoreEntityId,
+            game.GetGroup(GameMatcher.CustomerQueueSpotStoreEntityId),
+            (e, c) => ((HardwareStore.Gameplay.Components.CustomerQueueSpotStoreEntityId)c).Value));
+
+        game.AddEntityIndex(new Entitas.PrimaryEntityIndex<GameEntity, int>(
+            CustomerTrafficLaneStoreEntityId,
+            game.GetGroup(GameMatcher.CustomerTrafficLaneStoreEntityId),
+            (e, c) => ((HardwareStore.Gameplay.Components.CustomerTrafficLaneStoreEntityId)c).Value));
+
+        game.AddEntityIndex(new Entitas.EntityIndex<GameEntity, int>(
             CustomerVisitStoreEntityId,
             game.GetGroup(GameMatcher.CustomerVisitStoreEntityId),
             (e, c) => ((HardwareStore.Gameplay.Components.CustomerVisitStoreEntityId)c).Value));
@@ -141,10 +170,35 @@ public partial class Contexts {
             game.GetGroup(GameMatcher.OrderLineEntityId),
             (e, c) => ((HardwareStore.Gameplay.Components.OrderLineEntityId)c).Value));
 
+        game.AddEntityIndex(new Entitas.PrimaryEntityIndex<GameEntity, int>(
+            ReservedCustomerLoadingBayEntityId,
+            game.GetGroup(GameMatcher.ReservedCustomerLoadingBayEntityId),
+            (e, c) => ((HardwareStore.Gameplay.Components.ReservedCustomerLoadingBayEntityId)c).Value));
+
+        game.AddEntityIndex(new Entitas.PrimaryEntityIndex<GameEntity, int>(
+            ReservedCustomerParkingSpotEntityId,
+            game.GetGroup(GameMatcher.ReservedCustomerParkingSpotEntityId),
+            (e, c) => ((HardwareStore.Gameplay.Components.ReservedCustomerParkingSpotEntityId)c).Value));
+
+        game.AddEntityIndex(new Entitas.PrimaryEntityIndex<GameEntity, int>(
+            ReservedCustomerQueueSpotEntityId,
+            game.GetGroup(GameMatcher.ReservedCustomerQueueSpotEntityId),
+            (e, c) => ((HardwareStore.Gameplay.Components.ReservedCustomerQueueSpotEntityId)c).Value));
+
+        game.AddEntityIndex(new Entitas.PrimaryEntityIndex<GameEntity, int>(
+            ReservedCustomerTrafficLaneEntityId,
+            game.GetGroup(GameMatcher.ReservedCustomerTrafficLaneEntityId),
+            (e, c) => ((HardwareStore.Gameplay.Components.ReservedCustomerTrafficLaneEntityId)c).Value));
+
         game.AddEntityIndex(new Entitas.EntityIndex<GameEntity, int>(
             ReservedOrderLineEntityId,
             game.GetGroup(GameMatcher.ReservedOrderLineEntityId),
             (e, c) => ((HardwareStore.Gameplay.Components.ReservedOrderLineEntityId)c).Value));
+
+        game.AddEntityIndex(new Entitas.PrimaryEntityIndex<GameEntity, int>(
+            ServingOrderCounterEntityId,
+            game.GetGroup(GameMatcher.ServingOrderCounterEntityId),
+            (e, c) => ((HardwareStore.Gameplay.Components.ServingOrderCounterEntityId)c).Value));
 
         game.AddEntityIndex(new Entitas.EntityIndex<GameEntity, int>(
             TrolleyEntityId,
@@ -205,8 +259,24 @@ public static class ContextsExtensions {
         return ((Entitas.PrimaryEntityIndex<GameEntity, int>)context.GetEntityIndex(Contexts.CustomerActorVisitEntityId)).GetEntity(Value);
     }
 
-    public static GameEntity GetEntityWithCustomerVisitStoreEntityId(this GameContext context, int Value) {
-        return ((Entitas.PrimaryEntityIndex<GameEntity, int>)context.GetEntityIndex(Contexts.CustomerVisitStoreEntityId)).GetEntity(Value);
+    public static GameEntity GetEntityWithCustomerLoadingBayStoreEntityId(this GameContext context, int Value) {
+        return ((Entitas.PrimaryEntityIndex<GameEntity, int>)context.GetEntityIndex(Contexts.CustomerLoadingBayStoreEntityId)).GetEntity(Value);
+    }
+
+    public static System.Collections.Generic.HashSet<GameEntity> GetEntitiesWithCustomerParkingSpotStoreEntityId(this GameContext context, int Value) {
+        return ((Entitas.EntityIndex<GameEntity, int>)context.GetEntityIndex(Contexts.CustomerParkingSpotStoreEntityId)).GetEntities(Value);
+    }
+
+    public static System.Collections.Generic.HashSet<GameEntity> GetEntitiesWithCustomerQueueSpotStoreEntityId(this GameContext context, int Value) {
+        return ((Entitas.EntityIndex<GameEntity, int>)context.GetEntityIndex(Contexts.CustomerQueueSpotStoreEntityId)).GetEntities(Value);
+    }
+
+    public static GameEntity GetEntityWithCustomerTrafficLaneStoreEntityId(this GameContext context, int Value) {
+        return ((Entitas.PrimaryEntityIndex<GameEntity, int>)context.GetEntityIndex(Contexts.CustomerTrafficLaneStoreEntityId)).GetEntity(Value);
+    }
+
+    public static System.Collections.Generic.HashSet<GameEntity> GetEntitiesWithCustomerVisitStoreEntityId(this GameContext context, int Value) {
+        return ((Entitas.EntityIndex<GameEntity, int>)context.GetEntityIndex(Contexts.CustomerVisitStoreEntityId)).GetEntities(Value);
     }
 
     public static GameEntity GetEntityWithDayReportStoreEntityId(this GameContext context, int Value) {
@@ -233,8 +303,28 @@ public static class ContextsExtensions {
         return ((Entitas.EntityIndex<GameEntity, int>)context.GetEntityIndex(Contexts.OrderLineEntityId)).GetEntities(Value);
     }
 
+    public static GameEntity GetEntityWithReservedCustomerLoadingBayEntityId(this GameContext context, int Value) {
+        return ((Entitas.PrimaryEntityIndex<GameEntity, int>)context.GetEntityIndex(Contexts.ReservedCustomerLoadingBayEntityId)).GetEntity(Value);
+    }
+
+    public static GameEntity GetEntityWithReservedCustomerParkingSpotEntityId(this GameContext context, int Value) {
+        return ((Entitas.PrimaryEntityIndex<GameEntity, int>)context.GetEntityIndex(Contexts.ReservedCustomerParkingSpotEntityId)).GetEntity(Value);
+    }
+
+    public static GameEntity GetEntityWithReservedCustomerQueueSpotEntityId(this GameContext context, int Value) {
+        return ((Entitas.PrimaryEntityIndex<GameEntity, int>)context.GetEntityIndex(Contexts.ReservedCustomerQueueSpotEntityId)).GetEntity(Value);
+    }
+
+    public static GameEntity GetEntityWithReservedCustomerTrafficLaneEntityId(this GameContext context, int Value) {
+        return ((Entitas.PrimaryEntityIndex<GameEntity, int>)context.GetEntityIndex(Contexts.ReservedCustomerTrafficLaneEntityId)).GetEntity(Value);
+    }
+
     public static System.Collections.Generic.HashSet<GameEntity> GetEntitiesWithReservedOrderLineEntityId(this GameContext context, int Value) {
         return ((Entitas.EntityIndex<GameEntity, int>)context.GetEntityIndex(Contexts.ReservedOrderLineEntityId)).GetEntities(Value);
+    }
+
+    public static GameEntity GetEntityWithServingOrderCounterEntityId(this GameContext context, int Value) {
+        return ((Entitas.PrimaryEntityIndex<GameEntity, int>)context.GetEntityIndex(Contexts.ServingOrderCounterEntityId)).GetEntity(Value);
     }
 
     public static System.Collections.Generic.HashSet<GameEntity> GetEntitiesWithTrolleyEntityId(this GameContext context, int Value) {

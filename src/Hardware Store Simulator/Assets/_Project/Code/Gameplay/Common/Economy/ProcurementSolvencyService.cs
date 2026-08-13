@@ -40,7 +40,6 @@ namespace HardwareStore.Gameplay.Common.Economy
             GameEntity terminal =
                 _gameContext.GetEntityWithEntityId(procurementTerminalEntityId);
             TerminalState terminalState = ValidateAndResolveTerminal(terminal);
-            DemandTarget demand = ResolveDemand(terminalState.Store);
             DeliveryConfig candidateDelivery = _staticData.GetDelivery(productType);
             if (candidateDelivery.ProductType != productType)
             {
@@ -52,10 +51,9 @@ namespace HardwareStore.Gameplay.Common.Economy
             ProjectionState state = CreateCurrentState(
                 terminalState.Store,
                 terminalState.StorageZone);
-            Dictionary<ProductTypeId, int> exactRequirements =
-                demand.Kind == ProcurementDemandKind.ConfirmedOrder
-                    ? CollectRemainingOrderRequirements(demand.Order, state.Stock)
-                    : null;
+            DemandPlan demandPlan = ResolveDemandPlan(
+                terminalState.Store,
+                state.Stock);
             int moneyAfterPurchase;
             try
             {
@@ -91,16 +89,16 @@ namespace HardwareStore.Gameplay.Common.Economy
 
                 availability = IsProtectedDemandSolvent(
                         afterCandidate,
-                        demand,
-                        exactRequirements)
+                        demandPlan)
                     ? ProcurementPurchaseAvailability.Available
                     : ProcurementPurchaseAvailability.DemandWouldBecomeInsolvent;
             }
 
             return new ProcurementPurchaseEvaluation(
                 availability,
-                demand.Kind,
-                demand.ProjectType,
+                demandPlan.Summary.Kind,
+                demandPlan.Summary.ProjectType,
+                demandPlan.Summary.VisitEntityId,
                 candidateDelivery.ProductCount,
                 candidateDelivery.TotalCost,
                 moneyAfterPurchase);
@@ -113,14 +111,10 @@ namespace HardwareStore.Gameplay.Common.Economy
 
             GameEntity store = _gameContext.GetEntityWithEntityId(storeEntityId);
             TerminalState terminalState = ValidateAndResolveStore(store);
-            DemandTarget demand = ResolveDemand(store);
             ProjectionState state = CreateCurrentState(
                 store,
                 terminalState.StorageZone);
-            Dictionary<ProductTypeId, int> exactRequirements =
-                demand.Kind == ProcurementDemandKind.ConfirmedOrder
-                    ? CollectRemainingOrderRequirements(demand.Order, state.Stock)
-                    : null;
+            DemandPlan demandPlan = ResolveDemandPlan(store, state.Stock);
             IncludeCommittedDelivery(state, terminalState.Terminal);
 
             int moneyAfterDebit;
@@ -145,8 +139,7 @@ namespace HardwareStore.Gameplay.Common.Economy
                 state.Money = moneyAfterDebit;
                 availability = IsProtectedDemandSolvent(
                         state,
-                        demand,
-                        exactRequirements)
+                        demandPlan)
                     ? EconomyDebitAvailability.Available
                     : EconomyDebitAvailability.DemandWouldBecomeInsolvent;
             }
@@ -179,8 +172,10 @@ namespace HardwareStore.Gameplay.Common.Economy
                 _gameContext.GetEntityWithEntityId(terminal.StorageZoneEntityId);
             if (store == null || !store.isStore || !store.hasEntityId ||
                 !store.hasMoney || !store.hasNextProjectSequenceIndex ||
+                !store.hasNextCustomerArrivalSequence ||
                 !store.hasProcurementTerminalEntityId ||
                 !store.hasStorageZoneEntityId || store.Money < 0 ||
+                store.NextCustomerArrivalSequence < 0 ||
                 store.ProcurementTerminalEntityId != terminal.EntityId ||
                 store.StorageZoneEntityId != storageZone?.EntityId)
             {
@@ -205,8 +200,10 @@ namespace HardwareStore.Gameplay.Common.Economy
         {
             if (store == null || !store.isStore || !store.hasEntityId ||
                 !store.hasMoney || !store.hasNextProjectSequenceIndex ||
+                !store.hasNextCustomerArrivalSequence ||
                 !store.hasProcurementTerminalEntityId ||
-                !store.hasStorageZoneEntityId || store.Money < 0)
+                !store.hasStorageZoneEntityId || store.Money < 0 ||
+                store.NextCustomerArrivalSequence < 0)
             {
                 throw new InvalidOperationException(
                     "Economy solvency requires a configured store.");
@@ -317,125 +314,132 @@ namespace HardwareStore.Gameplay.Common.Economy
                 stock);
         }
 
-        private DemandTarget ResolveDemand(GameEntity store)
+        private DemandPlan ResolveDemandPlan(
+            GameEntity store,
+            IReadOnlyDictionary<ProductTypeId, int> stock)
         {
-            GameEntity visit =
-                _gameContext.GetEntityWithCustomerVisitStoreEntityId(store.EntityId);
-            if (visit == null)
+            ValidateSequenceIndex(store.NextProjectSequenceIndex);
+            GameEntity[] visits = _gameContext.GetEntitiesWithCustomerVisitStoreEntityId(
+                    store.EntityId)
+                .ToArray();
+            foreach (GameEntity visit in visits)
             {
-                return CreateForecastDemand(store.NextProjectSequenceIndex);
-            }
-
-            ValidateVisit(visit, store);
-            int lifecycleCount =
-                (visit.isCustomerVisitArriving ? 1 : 0) +
-                (visit.isCustomerVisitConsulting ? 1 : 0) +
-                (visit.isCustomerVisitLoading ? 1 : 0) +
-                (visit.isCustomerVisitCompleted ? 1 : 0) +
-                (visit.isCustomerVisitReturning ? 1 : 0) +
-                (visit.isCustomerVisitDeparting ? 1 : 0);
-            if (lifecycleCount != 1)
-            {
-                throw new InvalidOperationException(
-                    $"Customer visit {visit.EntityId} must have exactly one lifecycle state.");
-            }
-
-            int visitProjectIndex = GetProjectIndex(visit.CustomerProjectType);
-            int followingProjectIndex = NextSequenceIndex(visitProjectIndex);
-            if (store.NextProjectSequenceIndex != followingProjectIndex)
-            {
-                throw new InvalidOperationException(
-                    $"Customer visit {visit.EntityId} project {visit.CustomerProjectType} " +
-                    $"expects next sequence index {followingProjectIndex}, but store " +
-                    $"{store.EntityId} exposes {store.NextProjectSequenceIndex}.");
-            }
-
-            if (visit.isCustomerVisitLoading)
-            {
-                if (!visit.isOrder || !visit.hasOrderReward || visit.OrderReward <= 0)
+                ValidateVisit(visit, store);
+                ValidateVisitLifecycle(visit);
+                if (visit.CustomerArrivalSequence < 0 ||
+                    visit.CustomerArrivalSequence >= store.NextCustomerArrivalSequence)
                 {
                     throw new InvalidOperationException(
-                        $"Active customer visit {visit.EntityId} has incomplete order state.");
+                        $"Customer visit {visit.EntityId} has arrival sequence " +
+                        $"{visit.CustomerArrivalSequence} outside store {store.EntityId} " +
+                        $"counter {store.NextCustomerArrivalSequence}.");
                 }
-
-                return new DemandTarget(
-                    ProcurementDemandKind.ConfirmedOrder,
-                    visit.CustomerProjectType,
-                    visit,
-                    visitProjectIndex);
             }
 
-            if (visit.isCustomerVisitArriving || visit.isCustomerVisitConsulting)
+            visits = visits
+                .OrderBy(visit => visit.CustomerArrivalSequence)
+                .ThenBy(visit => visit.EntityId)
+                .ToArray();
+            var protectedDemands = new List<ProtectedDemand>(visits.Length);
+            int previousArrivalSequence = -1;
+            int previousProjectIndex = -1;
+            foreach (GameEntity visit in visits)
             {
+                if (visit.CustomerArrivalSequence == previousArrivalSequence)
+                {
+                    throw new InvalidOperationException(
+                        $"Store {store.EntityId} has invalid or duplicate customer arrival " +
+                        $"sequence {visit.CustomerArrivalSequence}.");
+                }
+
+                previousArrivalSequence = visit.CustomerArrivalSequence;
+                int projectIndex = GetProjectIndex(visit.CustomerProjectType);
+                if (previousProjectIndex >= 0 &&
+                    projectIndex != NextSequenceIndex(previousProjectIndex))
+                {
+                    throw new InvalidOperationException(
+                        $"Customer visit {visit.EntityId} project " +
+                        $"{visit.CustomerProjectType} breaks the store {store.EntityId} " +
+                        "arrival sequence.");
+                }
+
+                previousProjectIndex = projectIndex;
+                if (visit.isOrderRewarded)
+                {
+                    if (!visit.isOrder ||
+                        (!visit.isCustomerVisitCompleted &&
+                         !visit.isCustomerVisitDeparting))
+                    {
+                        throw new InvalidOperationException(
+                            $"Rewarded customer visit {visit.EntityId} has an invalid " +
+                            "protected-demand lifecycle.");
+                    }
+
+                    continue;
+                }
+
                 if (visit.isOrder)
                 {
-                    throw new InvalidOperationException(
-                        $"Unconfirmed customer visit {visit.EntityId} already owns an order.");
+                    if (!visit.hasOrderReward || visit.OrderReward <= 0)
+                    {
+                        throw new InvalidOperationException(
+                            $"Confirmed customer visit {visit.EntityId} has no positive reward.");
+                    }
+
+                    protectedDemands.Add(ProtectedDemand.ConfirmedOrder(
+                        visit,
+                        CollectRemainingOrderRequirements(visit, stock)));
+                    continue;
                 }
 
-                return new DemandTarget(
-                    ProcurementDemandKind.ProjectForecast,
-                    visit.CustomerProjectType,
-                    null,
-                    visitProjectIndex);
+                if (!visit.isCustomerVisitArriving &&
+                    !visit.isCustomerVisitQueued &&
+                    !visit.isCustomerVisitConsulting)
+                {
+                    throw new InvalidOperationException(
+                        $"Pre-order customer visit {visit.EntityId} has invalid lifecycle.");
+                }
+
+                protectedDemands.Add(ProtectedDemand.ProjectForecast(visit));
             }
 
-            return CreateForecastDemand(store.NextProjectSequenceIndex);
-        }
+            if (previousProjectIndex >= 0 &&
+                store.NextProjectSequenceIndex != NextSequenceIndex(previousProjectIndex))
+            {
+                throw new InvalidOperationException(
+                    $"Store {store.EntityId} next project sequence index " +
+                    $"{store.NextProjectSequenceIndex} does not follow its latest active " +
+                    "customer visit.");
+            }
 
-        private DemandTarget CreateForecastDemand(int projectSequenceIndex)
-        {
-            ValidateSequenceIndex(projectSequenceIndex);
-            return new DemandTarget(
-                ProcurementDemandKind.ProjectForecast,
-                _staticData.ProjectTypes[projectSequenceIndex],
-                null,
-                projectSequenceIndex);
+            DemandSummary summary = protectedDemands.Count > 0
+                ? protectedDemands[0].CreateSummary()
+                : new DemandSummary(
+                    ProcurementDemandKind.ProjectForecast,
+                    _staticData.ProjectTypes[store.NextProjectSequenceIndex],
+                    null);
+            var demandPlan = new DemandPlan(
+                protectedDemands,
+                summary,
+                store.NextProjectSequenceIndex,
+                _staticData.ProjectTypes.Count);
+            ValidateProjectionBound(demandPlan);
+            return demandPlan;
         }
 
         private bool IsProtectedDemandSolvent(
             ProjectionState afterCandidate,
-            DemandTarget demand,
-            IReadOnlyDictionary<ProductTypeId, int> exactRequirements)
+            DemandPlan demandPlan)
         {
-            int projectCount = _staticData.ProjectTypes.Count;
-            if (projectCount <= 0)
+            if (demandPlan.FutureProjectCount <= 0)
                 throw new InvalidOperationException("Customer project catalog is empty.");
 
             try
             {
-                if (demand.Kind == ProcurementDemandKind.ProjectForecast)
-                {
-                    ValidateProjectionBound(demand.ProjectSequenceIndex, projectCount);
-                    return AreForecastPathsSolvent(
-                        afterCandidate,
-                        demand.ProjectSequenceIndex,
-                        projectCount);
-                }
-
-                if (exactRequirements == null)
-                {
-                    throw new InvalidOperationException(
-                        $"Confirmed order {demand.Order.EntityId} has no projected " +
-                        "requirements.");
-                }
-                if (!TryCompleteRequirements(
-                        afterCandidate,
-                        exactRequirements,
-                        demand.Order.OrderReward,
-                        out ProjectionState afterOrder))
-                {
-                    return false;
-                }
-
-                int forecastDepth = projectCount;
-                ValidateProjectionBound(
-                    NextSequenceIndex(demand.ProjectSequenceIndex),
-                    forecastDepth);
-                return AreForecastPathsSolvent(
-                    afterOrder,
-                    NextSequenceIndex(demand.ProjectSequenceIndex),
-                    forecastDepth);
+                return AreProtectedDemandsSolvent(
+                    afterCandidate,
+                    demandPlan,
+                    demandIndex: 0);
             }
             catch (OverflowException exception)
             {
@@ -443,6 +447,66 @@ namespace HardwareStore.Gameplay.Common.Economy
                     "Procurement solvency projection must fit a 32-bit signed integer.",
                     exception);
             }
+        }
+
+        private bool AreProtectedDemandsSolvent(
+            ProjectionState state,
+            DemandPlan demandPlan,
+            int demandIndex)
+        {
+            if (demandIndex == demandPlan.ProtectedDemands.Count)
+            {
+                return AreForecastPathsSolvent(
+                    state,
+                    demandPlan.FutureProjectSequenceIndex,
+                    demandPlan.FutureProjectCount);
+            }
+
+            ProtectedDemand demand = demandPlan.ProtectedDemands[demandIndex];
+            if (demand.Kind == ProcurementDemandKind.ConfirmedOrder)
+            {
+                if (!TryCompleteRequirements(
+                        state,
+                        demand.ExactRequirements,
+                        demand.Reward,
+                        out ProjectionState afterOrder))
+                {
+                    return false;
+                }
+
+                return AreProtectedDemandsSolvent(
+                    afterOrder,
+                    demandPlan,
+                    demandIndex + 1);
+            }
+
+            CustomerProjectConfig project = _staticData.GetProject(demand.ProjectType);
+            if (project.Offers.Count == 0)
+            {
+                throw new InvalidOperationException(
+                    $"Customer project {project.ProjectType} has no offers to project.");
+            }
+
+            foreach (CustomerProjectOfferDefinition offer in project.Offers)
+            {
+                Dictionary<ProductTypeId, int> requirements =
+                    CollectOfferRequirements(project, offer);
+                int reward = CalculateReward(requirements);
+                if (!TryCompleteRequirements(
+                        state,
+                        requirements,
+                        reward,
+                        out ProjectionState afterOffer) ||
+                    !AreProtectedDemandsSolvent(
+                        afterOffer,
+                        demandPlan,
+                        demandIndex + 1))
+                {
+                    return false;
+                }
+            }
+
+            return true;
         }
 
         private bool AreForecastPathsSolvent(
@@ -568,8 +632,18 @@ namespace HardwareStore.Gameplay.Common.Economy
             GameEntity order,
             IReadOnlyDictionary<ProductTypeId, int> stock)
         {
-            GameEntity[] lines = _gameContext
-                .GetEntitiesWithOrderEntityId(order.EntityId)
+            HashSet<GameEntity> indexedLines =
+                _gameContext.GetEntitiesWithOrderEntityId(order.EntityId);
+            foreach (GameEntity line in indexedLines)
+            {
+                if (!line.hasLineIndex)
+                {
+                    throw new InvalidOperationException(
+                        $"Order {order.EntityId} contains a line without an index.");
+                }
+            }
+
+            GameEntity[] lines = indexedLines
                 .OrderBy(line => line.LineIndex)
                 .ToArray();
             if (lines.Length == 0 ||
@@ -658,28 +732,55 @@ namespace HardwareStore.Gameplay.Common.Economy
             return reward;
         }
 
-        private void ValidateProjectionBound(int startSequenceIndex, int projectCount)
+        private void ValidateProjectionBound(DemandPlan demandPlan)
         {
-            ValidateSequenceIndex(startSequenceIndex);
-            if (projectCount < 0 || projectCount > _staticData.ProjectTypes.Count)
-                throw new ArgumentOutOfRangeException(nameof(projectCount));
+            ValidateSequenceIndex(demandPlan.FutureProjectSequenceIndex);
+            if (demandPlan.FutureProjectCount < 0 ||
+                demandPlan.FutureProjectCount > _staticData.ProjectTypes.Count)
+            {
+                throw new ArgumentOutOfRangeException(
+                    nameof(demandPlan.FutureProjectCount));
+            }
 
             int leafCount = 1;
-            int sequenceIndex = startSequenceIndex;
-            for (int offset = 0; offset < projectCount; offset++)
+            for (int index = 0; index < demandPlan.ProtectedDemands.Count; index++)
+            {
+                ProtectedDemand demand = demandPlan.ProtectedDemands[index];
+                if (demand.Kind != ProcurementDemandKind.ProjectForecast)
+                    continue;
+
+                CustomerProjectConfig project = _staticData.GetProject(demand.ProjectType);
+                MultiplyProjectionLeafCount(ref leafCount, project);
+            }
+
+            int sequenceIndex = demandPlan.FutureProjectSequenceIndex;
+            for (int offset = 0; offset < demandPlan.FutureProjectCount; offset++)
             {
                 CustomerProjectConfig project = _staticData.GetProject(
                     _staticData.ProjectTypes[sequenceIndex]);
-                leafCount = checked(leafCount * project.Offers.Count);
-                if (leafCount > MaximumProjectionLeafCount)
-                {
-                    throw new InvalidOperationException(
-                        $"Procurement solvency projection expands to more than " +
-                        $"{MaximumProjectionLeafCount} offer paths.");
-                }
-
+                MultiplyProjectionLeafCount(ref leafCount, project);
                 sequenceIndex = NextSequenceIndex(sequenceIndex);
             }
+        }
+
+        private static void MultiplyProjectionLeafCount(
+            ref int leafCount,
+            CustomerProjectConfig project)
+        {
+            int offerCount = project.Offers.Count;
+            if (offerCount <= 0)
+            {
+                throw new InvalidOperationException(
+                    $"Customer project {project.ProjectType} has no offers to project.");
+            }
+            if (leafCount > MaximumProjectionLeafCount / offerCount)
+            {
+                throw new InvalidOperationException(
+                    $"Procurement solvency projection expands to more than " +
+                    $"{MaximumProjectionLeafCount} offer paths.");
+            }
+
+            leafCount *= offerCount;
         }
 
         private void ValidateVisit(GameEntity visit, GameEntity store)
@@ -687,11 +788,31 @@ namespace HardwareStore.Gameplay.Common.Economy
             if (!visit.isCustomerVisit || visit.isDestructed ||
                 !visit.hasEntityId || !visit.hasCustomerVisitStoreEntityId ||
                 !visit.hasStorageZoneEntityId || !visit.hasCustomerProjectType ||
+                !visit.hasCustomerArrivalSequence ||
                 visit.CustomerVisitStoreEntityId != store.EntityId ||
                 visit.StorageZoneEntityId != store.StorageZoneEntityId)
             {
                 throw new InvalidOperationException(
                     $"Store {store.EntityId} has an invalid customer visit.");
+            }
+        }
+
+        private static void ValidateVisitLifecycle(GameEntity visit)
+        {
+            int lifecycleCount = 0;
+            if (visit.isCustomerVisitArriving) lifecycleCount++;
+            if (visit.isCustomerVisitQueued) lifecycleCount++;
+            if (visit.isCustomerVisitConsulting) lifecycleCount++;
+            if (visit.isCustomerVisitWaitingForLoadingBay) lifecycleCount++;
+            if (visit.isCustomerVisitMovingToLoadingBay) lifecycleCount++;
+            if (visit.isCustomerVisitLoading) lifecycleCount++;
+            if (visit.isCustomerVisitCompleted) lifecycleCount++;
+            if (visit.isCustomerVisitReturning) lifecycleCount++;
+            if (visit.isCustomerVisitDeparting) lifecycleCount++;
+            if (lifecycleCount != 1)
+            {
+                throw new InvalidOperationException(
+                    $"Customer visit {visit.EntityId} must have exactly one lifecycle marker.");
             }
         }
 
@@ -766,24 +887,85 @@ namespace HardwareStore.Gameplay.Common.Economy
             public GameEntity StorageZone { get; }
         }
 
-        private readonly struct DemandTarget
+        private sealed class DemandPlan
         {
-            public DemandTarget(
+            public DemandPlan(
+                IReadOnlyList<ProtectedDemand> protectedDemands,
+                DemandSummary summary,
+                int futureProjectSequenceIndex,
+                int futureProjectCount)
+            {
+                ProtectedDemands = protectedDemands;
+                Summary = summary;
+                FutureProjectSequenceIndex = futureProjectSequenceIndex;
+                FutureProjectCount = futureProjectCount;
+            }
+
+            public IReadOnlyList<ProtectedDemand> ProtectedDemands { get; }
+            public DemandSummary Summary { get; }
+            public int FutureProjectSequenceIndex { get; }
+            public int FutureProjectCount { get; }
+        }
+
+        private readonly struct ProtectedDemand
+        {
+            private ProtectedDemand(
                 ProcurementDemandKind kind,
                 CustomerProjectTypeId projectType,
-                GameEntity order,
-                int projectSequenceIndex)
+                int visitEntityId,
+                IReadOnlyDictionary<ProductTypeId, int> exactRequirements,
+                int reward)
             {
                 Kind = kind;
                 ProjectType = projectType;
-                Order = order;
-                ProjectSequenceIndex = projectSequenceIndex;
+                VisitEntityId = visitEntityId;
+                ExactRequirements = exactRequirements;
+                Reward = reward;
             }
 
             public ProcurementDemandKind Kind { get; }
             public CustomerProjectTypeId ProjectType { get; }
-            public GameEntity Order { get; }
-            public int ProjectSequenceIndex { get; }
+            public int VisitEntityId { get; }
+            public IReadOnlyDictionary<ProductTypeId, int> ExactRequirements { get; }
+            public int Reward { get; }
+
+            public static ProtectedDemand ConfirmedOrder(
+                GameEntity visit,
+                IReadOnlyDictionary<ProductTypeId, int> exactRequirements) =>
+                new(
+                    ProcurementDemandKind.ConfirmedOrder,
+                    visit.CustomerProjectType,
+                    visit.EntityId,
+                    exactRequirements,
+                    visit.OrderReward);
+
+            public static ProtectedDemand ProjectForecast(GameEntity visit) =>
+                new(
+                    ProcurementDemandKind.ProjectForecast,
+                    visit.CustomerProjectType,
+                    visit.EntityId,
+                    null,
+                    0);
+
+            public DemandSummary CreateSummary() =>
+                new(Kind, ProjectType, VisitEntityId);
+        }
+
+        private readonly struct DemandSummary
+        {
+            public DemandSummary(
+                ProcurementDemandKind kind,
+                CustomerProjectTypeId projectType,
+                int? visitEntityId)
+            {
+                Kind = kind;
+                ProjectType = projectType;
+                VisitEntityId = visitEntityId;
+            }
+
+            public ProcurementDemandKind Kind { get; }
+            public CustomerProjectTypeId ProjectType { get; }
+            public int? VisitEntityId { get; }
         }
     }
 }

@@ -13,6 +13,7 @@ namespace HardwareStore.Gameplay.StaticData
         PlatformTrolleyConfig PlatformTrolley { get; }
         WarehouseWorkerConfig WarehouseWorker { get; }
         StoreDayConfig StoreDay { get; }
+        CustomerFlowConfig CustomerFlow { get; }
         CustomerConfig Customer { get; }
         CustomerVehicleConfig CustomerVehicle { get; }
         IReadOnlyList<ProductTypeId> ProductTypes { get; }

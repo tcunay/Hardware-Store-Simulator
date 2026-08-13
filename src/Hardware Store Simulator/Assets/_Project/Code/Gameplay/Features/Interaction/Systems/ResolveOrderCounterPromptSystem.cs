@@ -29,78 +29,46 @@ namespace HardwareStore.Gameplay.Features.Interaction.Systems
 
                 GameEntity orderCounter =
                     _gameContext.GetEntityWithEntityId(player.FocusedEntityId);
+                if (orderCounter == null || orderCounter.isDestructed ||
+                    !orderCounter.isOrderCounter || !orderCounter.isInteractable ||
+                    !orderCounter.hasEntityId || !orderCounter.hasStoreEntityId)
+                {
+                    throw new InvalidOperationException(
+                        $"Player focuses invalid order counter {player.FocusedEntityId}.");
+                }
                 if (orderCounter.StoreEntityId != player.StoreEntityId)
                     continue;
 
                 GameEntity customerVisit =
-                    _gameContext.GetEntityWithCustomerVisitStoreEntityId(
-                        orderCounter.StoreEntityId);
+                    _gameContext.GetEntityWithServingOrderCounterEntityId(
+                        orderCounter.EntityId);
                 if (customerVisit == null)
                 {
+                    int queuedCustomerCount =
+                        _gameContext.CountQueuedCustomerVisits(
+                            orderCounter.StoreEntityId);
                     player.SetInteractionPrompt(
-                        LocalizedTexts.Text(ResolveNoCustomerPrompt(
-                            orderCounter.StoreEntityId)),
-                        false);
-                    continue;
-                }
-                if (customerVisit.isCustomerVisitArriving)
-                {
-                    player.SetInteractionPrompt(
-                        LocalizedTexts.Text(
-                            LocalizationKey.PromptCounterCustomerApproaching),
-                        false);
-                    continue;
-                }
-
-                if (customerVisit.isCustomerVisitDeparting)
-                {
-                    player.SetInteractionPrompt(
-                        LocalizedTexts.Text(LocalizationKey.PromptCounterVehicleDeparting),
-                        false);
-                    continue;
-                }
-
-                if (customerVisit.isCustomerVisitReturning)
-                {
-                    player.SetInteractionPrompt(
-                        LocalizedTexts.Text(LocalizationKey.PromptCounterCustomerReturning),
-                        false);
-                    continue;
-                }
-
-                if (customerVisit.isCustomerVisitConsulting)
-                {
-                    player.SetInteractionPrompt(
-                        player.isHandsOccupied
+                        queuedCustomerCount > 0
                             ? LocalizedTexts.Text(
-                                player.isPushingTrolley
-                                    ? LocalizationKey.PromptReleaseTrolleyFirst
-                                    : LocalizationKey.PromptFreeHandsForConsultation)
-                            : LocalizedTexts.Text(
-                                LocalizationKey.PromptDiscussProject,
-                                LocalizedTexts.ProjectTitle(
-                                    customerVisit.CustomerProjectType)),
-                        !player.isHandsOccupied);
-                    continue;
-                }
-
-                if (customerVisit.isCustomerVisitLoading)
-                {
-                    player.SetInteractionPrompt(
-                        LocalizedTexts.Text(
-                            LocalizationKey.PromptOrderAcceptedLoadVehicle),
+                                LocalizationKey.PromptCounterNextCustomerApproaching,
+                                queuedCustomerCount)
+                            : LocalizedTexts.Text(ResolveNoCustomerPrompt(
+                                orderCounter.StoreEntityId)),
                         false);
                     continue;
                 }
-
-                if (!customerVisit.isCustomerVisitCompleted)
-                    throw new InvalidOperationException(
-                        $"Customer visit {customerVisit.EntityId} has no valid lifecycle state.");
-
+                ValidateConsultingVisit(customerVisit, orderCounter);
                 player.SetInteractionPrompt(
-                    LocalizedTexts.Text(
-                        LocalizationKey.PromptOrderCompletedCustomerLeaving),
-                    false);
+                    player.isHandsOccupied
+                        ? LocalizedTexts.Text(
+                            player.isPushingTrolley
+                                ? LocalizationKey.PromptReleaseTrolleyFirst
+                                : LocalizationKey.PromptFreeHandsForConsultation)
+                        : LocalizedTexts.Text(
+                            LocalizationKey.PromptDiscussProject,
+                            LocalizedTexts.ProjectTitle(
+                                customerVisit.CustomerProjectType)),
+                    !player.isHandsOccupied);
             }
         }
 
@@ -128,6 +96,40 @@ namespace HardwareStore.Gameplay.Features.Interaction.Systems
 
             throw new InvalidOperationException(
                 $"Store {store.EntityId} has no valid day phase.");
+        }
+
+        private static void ValidateConsultingVisit(
+            GameEntity visit,
+            GameEntity orderCounter)
+        {
+            if (visit.isDestructed || !visit.isCustomerVisit ||
+                !visit.isCustomerVehicle || !visit.isCustomerVisitConsulting ||
+                visit.isOrder || !visit.hasEntityId ||
+                !visit.hasCustomerVisitStoreEntityId ||
+                !visit.hasCustomerProjectType ||
+                !visit.hasServingOrderCounterEntityId ||
+                visit.CustomerVisitStoreEntityId != orderCounter.StoreEntityId ||
+                visit.ServingOrderCounterEntityId != orderCounter.EntityId)
+            {
+                throw new InvalidOperationException(
+                    $"Order counter {orderCounter.EntityId} serves invalid customer visit.");
+            }
+
+            int lifecycleCount =
+                (visit.isCustomerVisitArriving ? 1 : 0) +
+                (visit.isCustomerVisitQueued ? 1 : 0) +
+                (visit.isCustomerVisitConsulting ? 1 : 0) +
+                (visit.isCustomerVisitWaitingForLoadingBay ? 1 : 0) +
+                (visit.isCustomerVisitMovingToLoadingBay ? 1 : 0) +
+                (visit.isCustomerVisitLoading ? 1 : 0) +
+                (visit.isCustomerVisitCompleted ? 1 : 0) +
+                (visit.isCustomerVisitReturning ? 1 : 0) +
+                (visit.isCustomerVisitDeparting ? 1 : 0);
+            if (lifecycleCount != 1)
+            {
+                throw new InvalidOperationException(
+                    $"Customer visit {visit.EntityId} must have exactly one lifecycle marker.");
+            }
         }
 
     }

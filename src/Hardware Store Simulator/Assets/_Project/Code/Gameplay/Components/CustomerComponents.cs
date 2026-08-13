@@ -9,21 +9,24 @@ namespace HardwareStore.Gameplay.Components
     [Game] public class Customer : IComponent { }
     [Game] public class RouteMover : IComponent { }
     [Game] public class CustomerVisitArriving : IComponent { }
+    [Game] public class CustomerVisitQueued : IComponent { }
     [Game] public class CustomerVisitConsulting : IComponent { }
+    [Game] public class CustomerVisitWaitingForLoadingBay : IComponent { }
+    [Game] public class CustomerVisitMovingToLoadingBay : IComponent { }
     [Game] public class CustomerVisitLoading : IComponent { }
     [Game] public class CustomerVisitCompleted : IComponent { }
     [Game] public class CustomerVisitReturning : IComponent { }
     [Game] public class CustomerVisitDeparting : IComponent { }
     [Game] public class CustomerApproachingCounter : IComponent { }
+    [Game] public class CustomerWaitingInQueue : IComponent { }
     [Game] public class CustomerWaitingAtCounter : IComponent { }
     [Game] public class CustomerReturningToVehicle : IComponent { }
-    [Game] public class CustomerVisitStoreEntityId : IComponent { [PrimaryEntityIndex] public int Value; }
+    [Game] public class CustomerVisitStoreEntityId : IComponent { [EntityIndex] public int Value; }
     [Game] public class CustomerActorVisitEntityId : IComponent { [PrimaryEntityIndex] public int Value; }
     [Game] public class CustomerProjectType : IComponent { public CustomerProjectTypeId Value; }
     [Game] public class CustomerCooldownRemaining : IComponent { public float Value; }
     [Game] public class CustomerDepartureDelayRemaining : IComponent { public float Value; }
     [Game] public class RouteComponent : IComponent { public Pose[] Value; }
-    [Game] public class DepartureRoute : IComponent { public Pose[] Value; }
     [Game] public class CustomerReturnRoute : IComponent { public Pose[] Value; }
     [Game] public class RouteWaypointIndex : IComponent { public int Value; }
     [Game] public class RotationSpeed : IComponent { public float Value; }

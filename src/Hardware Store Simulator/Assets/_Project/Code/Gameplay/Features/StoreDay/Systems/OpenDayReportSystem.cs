@@ -71,7 +71,9 @@ namespace HardwareStore.Gameplay.Features.StoreDay.Systems
                     throw new InvalidOperationException(
                         $"Closing store {store.EntityId} cannot schedule another customer.");
                 }
-                if (_gameContext.GetEntityWithCustomerVisitStoreEntityId(store.EntityId) != null)
+                if (StoreDayCustomerVisitGuard.CountActiveVisits(
+                        _gameContext,
+                        store.EntityId) != 0)
                     continue;
                 if (HasActiveWarehouseWork(store))
                     continue;

@@ -92,15 +92,16 @@ namespace HardwareStore.Gameplay.Features.StoreDay.Systems
                     $"Store {store.EntityId} has an invalid store control terminal relation.");
             }
 
-            GameEntity activeVisit =
-                _gameContext.GetEntityWithCustomerVisitStoreEntityId(store.EntityId);
+            int activeVisitCount = StoreDayCustomerVisitGuard.CountActiveVisits(
+                _gameContext,
+                store.EntityId);
             GameEntity reportPlayer =
                 _gameContext.GetEntityWithDayReportStoreEntityId(store.EntityId);
 
             if (store.isStorePreparing)
             {
                 ValidateMinute(store, _startMinute);
-                if (store.hasCustomerCooldownRemaining || activeVisit != null ||
+                if (store.hasCustomerCooldownRemaining || activeVisitCount != 0 ||
                     reportPlayer != null)
                 {
                     throw new InvalidOperationException(
@@ -120,12 +121,13 @@ namespace HardwareStore.Gameplay.Features.StoreDay.Systems
                         $"Open store {store.EntityId} has invalid time " +
                         $"{store.CurrentDayMinute}.");
                 }
-                if ((store.hasCustomerCooldownRemaining ? 1 : 0) +
-                    (activeVisit != null ? 1 : 0) != 1 || reportPlayer != null)
+                if (!store.hasCustomerCooldownRemaining || reportPlayer != null)
                 {
                     throw new InvalidOperationException(
-                        $"Open store {store.EntityId} must either schedule or serve one customer.");
+                        $"Open store {store.EntityId} must own its customer arrival cooldown " +
+                        "and cannot own a day report.");
                 }
+                ValidateCustomerCooldown(store);
                 return;
             }
 
@@ -146,7 +148,7 @@ namespace HardwareStore.Gameplay.Features.StoreDay.Systems
                 return;
             }
 
-            if (activeVisit != null || reportPlayer == null)
+            if (activeVisitCount != 0 || reportPlayer == null)
             {
                 throw new InvalidOperationException(
                     $"Store {store.EntityId} can show its report only after its customer leaves " +
@@ -174,6 +176,62 @@ namespace HardwareStore.Gameplay.Features.StoreDay.Systems
                 throw new InvalidOperationException(
                     $"Store {store.EntityId} expects minute {expectedMinute}, but has " +
                     $"{store.CurrentDayMinute}.");
+            }
+        }
+
+        private static void ValidateCustomerCooldown(GameEntity store)
+        {
+            float cooldown = store.CustomerCooldownRemaining;
+            if (float.IsNaN(cooldown) || float.IsInfinity(cooldown) || cooldown < 0f)
+            {
+                throw new InvalidOperationException(
+                    $"Open store {store.EntityId} has invalid customer cooldown {cooldown}.");
+            }
+        }
+    }
+
+    internal static class StoreDayCustomerVisitGuard
+    {
+        public static int CountActiveVisits(
+            GameContext gameContext,
+            int storeEntityId)
+        {
+            int count = 0;
+            foreach (GameEntity visit in
+                     gameContext.GetEntitiesWithCustomerVisitStoreEntityId(storeEntityId))
+            {
+                ValidateVisit(visit, storeEntityId);
+                count++;
+            }
+
+            return count;
+        }
+
+        private static void ValidateVisit(GameEntity visit, int storeEntityId)
+        {
+            if (visit == null || visit.isDestructed || !visit.isCustomerVisit ||
+                !visit.isCustomerVehicle || !visit.hasEntityId ||
+                !visit.hasCustomerVisitStoreEntityId ||
+                visit.CustomerVisitStoreEntityId != storeEntityId)
+            {
+                throw new InvalidOperationException(
+                    $"Store {storeEntityId} has an invalid indexed customer visit.");
+            }
+
+            int lifecycleCount =
+                (visit.isCustomerVisitArriving ? 1 : 0) +
+                (visit.isCustomerVisitQueued ? 1 : 0) +
+                (visit.isCustomerVisitConsulting ? 1 : 0) +
+                (visit.isCustomerVisitWaitingForLoadingBay ? 1 : 0) +
+                (visit.isCustomerVisitMovingToLoadingBay ? 1 : 0) +
+                (visit.isCustomerVisitLoading ? 1 : 0) +
+                (visit.isCustomerVisitCompleted ? 1 : 0) +
+                (visit.isCustomerVisitReturning ? 1 : 0) +
+                (visit.isCustomerVisitDeparting ? 1 : 0);
+            if (lifecycleCount != 1)
+            {
+                throw new InvalidOperationException(
+                    $"Customer visit {visit.EntityId} must have exactly one lifecycle marker.");
             }
         }
     }

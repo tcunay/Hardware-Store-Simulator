@@ -78,8 +78,6 @@ namespace HardwareStore.Gameplay.Features.Presentation.Systems
                     "while a delivery is active.");
             }
 
-            GameEntity visit = _gameContext.GetEntityWithCustomerVisitStoreEntityId(
-                store.EntityId);
             ProductTypeId[] productTypes = _staticData.ProductTypes.ToArray();
             if (productTypes.Length != ProductCardCount)
             {
@@ -97,19 +95,37 @@ namespace HardwareStore.Gameplay.Features.Presentation.Systems
             }
             ProcurementDemandKind demandKind = evaluations[0].DemandKind;
             CustomerProjectTypeId projectType = evaluations[0].ProjectType;
+            int? demandVisitEntityId = evaluations[0].DemandVisitEntityId;
             for (int index = 1; index < evaluations.Length; index++)
             {
                 if (evaluations[index].DemandKind != demandKind ||
-                    evaluations[index].ProjectType != projectType)
+                    evaluations[index].ProjectType != projectType ||
+                    evaluations[index].DemandVisitEntityId != demandVisitEntityId)
                 {
                     throw new InvalidOperationException(
                         "One procurement catalog cannot mix different demand plans.");
                 }
             }
 
-            GameEntity[] orderLines = demandKind == ProcurementDemandKind.ConfirmedOrder
-                ? GetConfirmedOrderLines(visit, store, storageZone)
-                : Array.Empty<GameEntity>();
+            GameEntity[] orderLines;
+            if (demandKind == ProcurementDemandKind.ConfirmedOrder)
+            {
+                if (!demandVisitEntityId.HasValue)
+                    throw new InvalidOperationException(
+                        "Confirmed procurement demand does not identify its customer visit.");
+
+                GameEntity visit = _gameContext.GetEntityWithEntityId(
+                    demandVisitEntityId.Value);
+                orderLines = GetConfirmedOrderLines(
+                    visit,
+                    store,
+                    storageZone,
+                    projectType);
+            }
+            else
+            {
+                orderLines = Array.Empty<GameEntity>();
+            }
             CustomerProjectConfig project = _staticData.GetProject(projectType);
             int freeStorageSlotCount =
                 storageZone.Slots.Length - storageZone.OccupiedStorageSlotCount;
@@ -315,9 +331,10 @@ namespace HardwareStore.Gameplay.Features.Presentation.Systems
         private GameEntity[] GetConfirmedOrderLines(
             GameEntity visit,
             GameEntity store,
-            GameEntity storageZone)
+            GameEntity storageZone,
+            CustomerProjectTypeId projectType)
         {
-            ValidateOrder(visit, store, storageZone);
+            ValidateOrder(visit, store, storageZone, projectType);
             var indexedOrderLines =
                 _gameContext.GetEntitiesWithOrderEntityId(visit.EntityId);
             foreach (GameEntity line in indexedOrderLines)
@@ -339,17 +356,42 @@ namespace HardwareStore.Gameplay.Features.Presentation.Systems
         private static void ValidateOrder(
             GameEntity visit,
             GameEntity store,
-            GameEntity storageZone)
+            GameEntity storageZone,
+            CustomerProjectTypeId projectType)
         {
-            if (visit == null || !visit.isCustomerVisit || !visit.isOrder ||
-                !visit.hasEntityId || !visit.hasCustomerProjectType ||
-                !visit.hasStorageZoneEntityId ||
-                !visit.isCustomerVisitLoading ||
+            if (visit == null || !visit.isCustomerVisit || visit.isDestructed ||
+                !visit.isOrder || visit.isOrderRewarded || !visit.hasEntityId ||
+                !visit.hasCustomerVisitStoreEntityId ||
+                !visit.hasCustomerProjectType || !visit.hasStorageZoneEntityId ||
+                !visit.hasCustomerArrivalSequence ||
+                visit.CustomerVisitStoreEntityId != store.EntityId ||
+                visit.CustomerProjectType != projectType ||
                 visit.StorageZoneEntityId != storageZone.EntityId)
             {
                 throw new InvalidOperationException(
                     $"Store {store.EntityId} cannot present procurement without an active " +
                     "customer order.");
+            }
+
+            ValidateVisitLifecycle(visit);
+        }
+
+        private static void ValidateVisitLifecycle(GameEntity visit)
+        {
+            int lifecycleCount = 0;
+            if (visit.isCustomerVisitArriving) lifecycleCount++;
+            if (visit.isCustomerVisitQueued) lifecycleCount++;
+            if (visit.isCustomerVisitConsulting) lifecycleCount++;
+            if (visit.isCustomerVisitWaitingForLoadingBay) lifecycleCount++;
+            if (visit.isCustomerVisitMovingToLoadingBay) lifecycleCount++;
+            if (visit.isCustomerVisitLoading) lifecycleCount++;
+            if (visit.isCustomerVisitCompleted) lifecycleCount++;
+            if (visit.isCustomerVisitReturning) lifecycleCount++;
+            if (visit.isCustomerVisitDeparting) lifecycleCount++;
+            if (lifecycleCount != 1)
+            {
+                throw new InvalidOperationException(
+                    $"Customer visit {visit.EntityId} must have exactly one lifecycle marker.");
             }
         }
 

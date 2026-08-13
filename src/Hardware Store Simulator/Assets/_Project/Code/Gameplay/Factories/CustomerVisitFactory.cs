@@ -11,28 +11,30 @@ namespace HardwareStore.Gameplay.Factories
 {
     public sealed class CustomerVisitFactory : ICustomerVisitFactory
     {
-        private const float RouteRotationContinuityTolerance = 0.1f;
-
+        private readonly GameContext _gameContext;
         private readonly IIdentifierService _identifiers;
         private readonly IStaticDataService _staticData;
         private readonly IConsultationOfferFactory _consultationOffers;
 
-        public CustomerVisitFactory(IIdentifierService identifiers, IStaticDataService staticData,
+        public CustomerVisitFactory(GameContext gameContext,
+            IIdentifierService identifiers, IStaticDataService staticData,
             IConsultationOfferFactory consultationOffers)
         {
+            _gameContext = gameContext;
             _identifiers = identifiers;
             _staticData = staticData;
             _consultationOffers = consultationOffers;
         }
 
-        public GameEntity Create(GameEntity store, Pose[] arrivalRoute, Pose[] departureRoute)
+        public GameEntity Create(GameEntity store, GameEntity parkingSpot,
+            GameEntity trafficLane)
         {
             ValidateStore(store);
+            ValidateParkingSpot(store, parkingSpot);
+            ValidateTrafficLane(store, trafficLane);
 
             CustomerVehicleConfig config = _staticData.CustomerVehicle;
-            Pose[] arrival = CloneAndValidateRoute(arrivalRoute, nameof(arrivalRoute));
-            Pose[] departure = CloneAndValidateRoute(departureRoute, nameof(departureRoute));
-            ValidateRouteContinuity(arrival, departure, config.WaypointTolerance);
+            Pose[] arrival = (Pose[])parkingSpot.CustomerVehicleArrivalRoute.Clone();
             int projectSequenceIndex = store.NextProjectSequenceIndex;
             if (projectSequenceIndex < 0 ||
                 projectSequenceIndex >= _staticData.ProjectTypes.Count)
@@ -41,10 +43,13 @@ namespace HardwareStore.Gameplay.Factories
                     $"Store {store.EntityId} has invalid next project sequence index " +
                     $"{projectSequenceIndex} for {_staticData.ProjectTypes.Count} projects.");
             }
+            if (store.NextCustomerArrivalSequence < 0)
+                throw new InvalidOperationException(
+                    $"Store {store.EntityId} has invalid customer arrival sequence.");
 
             CustomerProjectTypeId projectType =
                 _staticData.ProjectTypes[projectSequenceIndex];
-
+            int arrivalSequence = store.NextCustomerArrivalSequence;
             GameEntity customerVisit = CreateEntity.Empty(_identifiers.Next())
                 .AddViewPrefab(config.ViewPrefab)
                 .AddSpawnPosition(arrival[0].position)
@@ -52,8 +57,10 @@ namespace HardwareStore.Gameplay.Factories
                 .AddCustomerVisitStoreEntityId(store.EntityId)
                 .AddStorageZoneEntityId(store.StorageZoneEntityId)
                 .AddCustomerProjectType(projectType)
+                .AddCustomerArrivalSequence(arrivalSequence)
+                .AddReservedCustomerParkingSpotEntityId(parkingSpot.EntityId)
+                .AddReservedCustomerTrafficLaneEntityId(trafficLane.EntityId)
                 .AddRoute(arrival)
-                .AddDepartureRoute(departure)
                 .AddRouteWaypointIndex(1)
                 .AddMovementSpeed(config.ArrivalSpeed)
                 .AddRotationSpeed(config.RotationSpeed)
@@ -67,7 +74,7 @@ namespace HardwareStore.Gameplay.Factories
             _consultationOffers.CreateOffers(customerVisit);
             store.ReplaceNextProjectSequenceIndex(
                 (projectSequenceIndex + 1) % _staticData.ProjectTypes.Count);
-            store.RemoveCustomerCooldownRemaining();
+            store.ReplaceNextCustomerArrivalSequence(checked(arrivalSequence + 1));
             return customerVisit;
         }
 
@@ -76,41 +83,55 @@ namespace HardwareStore.Gameplay.Factories
             if (store == null)
                 throw new ArgumentNullException(nameof(store));
             if (!store.isStore || !store.isStoreOpen || !store.hasEntityId ||
-                !store.hasStorageZoneEntityId ||
-                !store.hasNextProjectSequenceIndex)
-                throw new InvalidOperationException("A customer visit requires a configured store.");
-            if (!store.hasCustomerCooldownRemaining)
-                throw new InvalidOperationException(
-                    $"Store {store.EntityId} cannot start a customer visit outside cooldown.");
-        }
-
-        private static Pose[] CloneAndValidateRoute(Pose[] route, string argumentName)
-        {
-            if (route == null)
-                throw new ArgumentNullException(argumentName);
-            if (route.Length < 2)
-                throw new ArgumentException(
-                    "A customer vehicle route must contain at least two waypoints.",
-                    argumentName);
-
-            return (Pose[])route.Clone();
-        }
-
-        private static void ValidateRouteContinuity(Pose[] arrival, Pose[] departure,
-            float tolerance)
-        {
-            float positionGap = Vector3.Distance(
-                arrival[^1].position,
-                departure[0].position);
-            float rotationGap = Quaternion.Angle(
-                arrival[^1].rotation,
-                departure[0].rotation);
-            if (positionGap > tolerance ||
-                rotationGap > RouteRotationContinuityTolerance)
+                !store.hasStorageZoneEntityId || !store.hasNextProjectSequenceIndex ||
+                !store.hasNextCustomerArrivalSequence ||
+                !store.hasCustomerCooldownRemaining)
             {
                 throw new InvalidOperationException(
-                    "The customer departure route must start at the complete pose at the end " +
-                    $"of the arrival route. Position gap: {positionGap}, rotation gap: {rotationGap}.");
+                    "A customer visit requires a configured open store.");
+            }
+            float cooldown = store.CustomerCooldownRemaining;
+            if (float.IsNaN(cooldown) || float.IsInfinity(cooldown) || cooldown != 0f)
+                throw new InvalidOperationException(
+                    $"Store {store.EntityId} cannot spawn a customer before cooldown expires.");
+        }
+
+        private void ValidateParkingSpot(GameEntity store, GameEntity parkingSpot)
+        {
+            if (parkingSpot == null || parkingSpot.isDestructed ||
+                !parkingSpot.isCustomerParkingSpot || !parkingSpot.hasEntityId ||
+                !parkingSpot.hasCustomerParkingSpotStoreEntityId ||
+                !parkingSpot.hasParkingSpotIndex ||
+                !parkingSpot.hasCustomerVehicleArrivalRoute ||
+                !parkingSpot.hasCustomerVehicleToLoadingRoute ||
+                !parkingSpot.hasCustomerApproachRoute ||
+                !parkingSpot.hasCustomerReturnRoute ||
+                parkingSpot.CustomerParkingSpotStoreEntityId != store.EntityId)
+            {
+                throw new InvalidOperationException(
+                    $"Store {store.EntityId} cannot reserve an invalid parking spot.");
+            }
+            if (parkingSpot.CustomerVehicleArrivalRoute == null ||
+                parkingSpot.CustomerVehicleArrivalRoute.Length < 2 ||
+                _gameContext.GetEntityWithReservedCustomerParkingSpotEntityId(
+                    parkingSpot.EntityId) != null)
+            {
+                throw new InvalidOperationException(
+                    $"Customer parking spot {parkingSpot.EntityId} is unavailable.");
+            }
+        }
+
+        private void ValidateTrafficLane(GameEntity store, GameEntity trafficLane)
+        {
+            if (trafficLane == null || trafficLane.isDestructed ||
+                !trafficLane.isCustomerTrafficLane || !trafficLane.hasEntityId ||
+                !trafficLane.hasCustomerTrafficLaneStoreEntityId ||
+                trafficLane.CustomerTrafficLaneStoreEntityId != store.EntityId ||
+                _gameContext.GetEntityWithReservedCustomerTrafficLaneEntityId(
+                    trafficLane.EntityId) != null)
+            {
+                throw new InvalidOperationException(
+                    $"Store {store.EntityId} customer traffic lane is unavailable.");
             }
         }
     }

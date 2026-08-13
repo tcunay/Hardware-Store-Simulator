@@ -17,7 +17,7 @@ namespace HardwareStore.Gameplay.Features.StoreDay.Systems
             IStaticDataService staticData, IGameEventFactory events)
         {
             _gameContext = gameContext;
-            _firstCustomerDelay = staticData.CustomerVehicle.FirstCustomerDelay;
+            _firstCustomerDelay = staticData.CustomerFlow.FirstArrivalDelay;
             _events = events;
             _requests = gameContext.GetGroup(GameMatcher.AllOf(
                 GameMatcher.InteractionRequest,
@@ -52,7 +52,9 @@ namespace HardwareStore.Gameplay.Features.StoreDay.Systems
                 if (!store.isStorePreparing)
                     continue;
                 if (store.hasCustomerCooldownRemaining ||
-                    _gameContext.GetEntityWithCustomerVisitStoreEntityId(store.EntityId) != null)
+                    StoreDayCustomerVisitGuard.CountActiveVisits(
+                        _gameContext,
+                        store.EntityId) != 0)
                 {
                     throw new InvalidOperationException(
                         $"Preparing store {store.EntityId} cannot already schedule a customer.");

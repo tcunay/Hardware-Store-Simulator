@@ -31,9 +31,13 @@ namespace HardwareStore.Gameplay.Features.Interaction.Systems
 
                 GameEntity loadingZone =
                     _gameContext.GetEntityWithEntityId(player.FocusedEntityId);
+                ValidateVisit(loadingZone, player.StoreEntityId);
                 if (loadingZone.CustomerVisitStoreEntityId != player.StoreEntityId)
                     continue;
-                if (loadingZone.isCustomerVisitArriving)
+                if (loadingZone.isCustomerVisitArriving ||
+                    loadingZone.isCustomerVisitQueued ||
+                    loadingZone.isCustomerVisitWaitingForLoadingBay ||
+                    loadingZone.isCustomerVisitMovingToLoadingBay)
                 {
                     player.SetInteractionPrompt(
                         LocalizedTexts.Text(LocalizationKey.PromptLoadingWaitConsultation),
@@ -78,6 +82,16 @@ namespace HardwareStore.Gameplay.Features.Interaction.Systems
                 if (!loadingZone.isCustomerVisitLoading)
                     throw new InvalidOperationException(
                         $"Customer visit {loadingZone.EntityId} has no valid lifecycle state.");
+
+                GameEntity currentLoadingVisit =
+                    _gameContext.GetCurrentLoadingVisit(player.StoreEntityId);
+                if (currentLoadingVisit == null ||
+                    currentLoadingVisit.EntityId != loadingZone.EntityId)
+                {
+                    throw new InvalidOperationException(
+                        $"Loading-zone visit {loadingZone.EntityId} does not reserve store " +
+                        $"{player.StoreEntityId} customer loading bay.");
+                }
 
                 GameEntity[] lines = GetOrderLines(loadingZone);
                 if (player.isPushingTrolley)
@@ -188,6 +202,34 @@ namespace HardwareStore.Gameplay.Features.Interaction.Systems
                     $"Order {order.EntityId} has no active product lines.");
 
             return lines;
+        }
+
+        private static void ValidateVisit(GameEntity visit, int storeEntityId)
+        {
+            if (visit == null || visit.isDestructed || !visit.isCustomerVisit ||
+                !visit.isCustomerVehicle || !visit.isLoadingZone || !visit.hasEntityId ||
+                !visit.hasCustomerVisitStoreEntityId ||
+                visit.CustomerVisitStoreEntityId != storeEntityId)
+            {
+                throw new InvalidOperationException(
+                    $"Player store {storeEntityId} focuses an invalid customer loading zone.");
+            }
+
+            int lifecycleCount =
+                (visit.isCustomerVisitArriving ? 1 : 0) +
+                (visit.isCustomerVisitQueued ? 1 : 0) +
+                (visit.isCustomerVisitConsulting ? 1 : 0) +
+                (visit.isCustomerVisitWaitingForLoadingBay ? 1 : 0) +
+                (visit.isCustomerVisitMovingToLoadingBay ? 1 : 0) +
+                (visit.isCustomerVisitLoading ? 1 : 0) +
+                (visit.isCustomerVisitCompleted ? 1 : 0) +
+                (visit.isCustomerVisitReturning ? 1 : 0) +
+                (visit.isCustomerVisitDeparting ? 1 : 0);
+            if (lifecycleCount != 1)
+            {
+                throw new InvalidOperationException(
+                    $"Customer visit {visit.EntityId} must have exactly one lifecycle marker.");
+            }
         }
     }
 }

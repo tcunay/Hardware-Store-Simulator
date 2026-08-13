@@ -149,6 +149,8 @@ namespace HardwareStore.Gameplay.Localization
                 "Грузчик: задача приостановлена"),
             E(LocalizationKey.HudWarehouseWorkerOffShift,
                 "Грузчик: смена не оплачена"),
+            E(LocalizationKey.HudCustomerFlow,
+                "Клиенты: {0} • очередь: {1} • ждут погрузки: {2} • уезжают: {3}", 4),
             E(LocalizationKey.ProcurementStatusNotRequired,
                 "Не требуется для текущего заказа"),
             E(LocalizationKey.ProcurementStatusStockSufficient,
@@ -310,7 +312,7 @@ namespace HardwareStore.Gameplay.Localization
             E(LocalizationKey.PromptStoreOpenUntil,
                 "Магазин открыт до {0:00}:{1:00}", 2),
             E(LocalizationKey.PromptCloseStoreCustomerActive,
-                "Сначала завершите обслуживание текущего клиента"),
+                "Нельзя закрыть магазин • клиентов осталось: {0}", 1),
             E(LocalizationKey.PromptCloseStoreHandsOccupied,
                 "Освободите руки перед закрытием магазина"),
             E(LocalizationKey.PromptCloseStoreForReport,
@@ -337,6 +339,8 @@ namespace HardwareStore.Gameplay.Localization
                 "Оплата смены недоступна: деньги нужны для ближайших проектов"),
             E(LocalizationKey.PromptCloseStoreWarehouseWorkerBusy,
                 "Грузчик ещё выполняет задачу — дождитесь окончания смены"),
+            E(LocalizationKey.PromptCounterNextCustomerApproaching,
+                "Следующий клиент подходит • в очереди {0}", 1),
 
             E(LocalizationKey.NotificationAcceptCurrentDeliveryFirst,
                 "Сначала примите текущую поставку на склад"),
@@ -427,7 +431,9 @@ namespace HardwareStore.Gameplay.Localization
             E(LocalizationKey.WorldTrolleyUpgrade,
                 "ПЛАТФОРМЕННАЯ ТЕЛЕЖКА • {0:N0} ₽", 1),
             E(LocalizationKey.WorldStoreControlTerminal,
-                "УПРАВЛЕНИЕ МАГАЗИНОМ")
+                "УПРАВЛЕНИЕ МАГАЗИНОМ"),
+            E(LocalizationKey.WorldCustomerParking,
+                "ПАРКОВКА КЛИЕНТОВ")
         };
 
         private static readonly IReadOnlyList<LocalizationEntry> ReadOnlyEntries =

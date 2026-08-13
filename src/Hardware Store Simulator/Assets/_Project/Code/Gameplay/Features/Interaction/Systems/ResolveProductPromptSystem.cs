@@ -87,7 +87,7 @@ namespace HardwareStore.Gameplay.Features.Interaction.Systems
                 }
 
                 GameEntity customerVisit =
-                    _gameContext.GetEntityWithCustomerVisitStoreEntityId(store.EntityId);
+                    _gameContext.GetCurrentLoadingVisit(store.EntityId);
                 if (customerVisit == null)
                 {
                     player.SetInteractionPrompt(
@@ -96,45 +96,6 @@ namespace HardwareStore.Gameplay.Features.Interaction.Systems
                         false);
                     continue;
                 }
-                if (customerVisit.isCustomerVisitArriving)
-                {
-                    player.SetInteractionPrompt(
-                        LocalizedTexts.Text(LocalizationKey.PromptArrivingProductWait),
-                        false);
-                    continue;
-                }
-
-                if (customerVisit.isCustomerVisitReturning ||
-                    customerVisit.isCustomerVisitDeparting)
-                {
-                    player.SetInteractionPrompt(
-                        customerVisit.isCustomerVisitReturning
-                            ? LocalizedTexts.Text(LocalizationKey.PromptCustomerReturningWait)
-                            : LocalizedTexts.Text(
-                                LocalizationKey.PromptCustomerVehicleDepartingWait),
-                        false);
-                    continue;
-                }
-
-                if (customerVisit.isCustomerVisitConsulting)
-                {
-                    player.SetInteractionPrompt(
-                        LocalizedTexts.Text(LocalizationKey.PromptConsultFirst),
-                        false);
-                    continue;
-                }
-
-                if (customerVisit.isCustomerVisitCompleted)
-                {
-                    player.SetInteractionPrompt(
-                        LocalizedTexts.Text(LocalizationKey.PromptOrderAlreadyCompleted),
-                        false);
-                    continue;
-                }
-
-                if (!customerVisit.isCustomerVisitLoading)
-                    throw new InvalidOperationException(
-                        $"Customer visit {customerVisit.EntityId} has no valid lifecycle state.");
 
                 GameEntity[] lines = GetOrderLines(customerVisit);
                 GameEntity matchingLine = lines.FirstOrDefault(line =>

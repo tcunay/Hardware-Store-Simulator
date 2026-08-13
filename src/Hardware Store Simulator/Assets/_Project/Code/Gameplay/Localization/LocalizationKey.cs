@@ -94,6 +94,7 @@ namespace HardwareStore.Gameplay.Localization
         HudWarehouseWorkerMovingToStorage = 1059,
         HudWarehouseWorkerBlocked = 1060,
         HudWarehouseWorkerOffShift = 1061,
+        HudCustomerFlow = 1062,
         ProcurementStatusNotRequired = 1100,
         ProcurementStatusStockSufficient = 1101,
         ProcurementStatusInsufficientStorage = 1102,
@@ -194,6 +195,7 @@ namespace HardwareStore.Gameplay.Localization
         PromptWarehouseWorkerWageInsufficientMoney = 2094,
         PromptWarehouseWorkerWageWouldBlockProjects = 2095,
         PromptCloseStoreWarehouseWorkerBusy = 2096,
+        PromptCounterNextCustomerApproaching = 2097,
 
         NotificationAcceptCurrentDeliveryFirst = 3000,
         NotificationWaitForCustomer = 3001,
@@ -243,6 +245,7 @@ namespace HardwareStore.Gameplay.Localization
         WorldCustomerVehicleLoading = 4006,
         WorldBoardProductLabel = 4007,
         WorldTrolleyUpgrade = 4008,
-        WorldStoreControlTerminal = 4009
+        WorldStoreControlTerminal = 4009,
+        WorldCustomerParking = 4010
     }
 }

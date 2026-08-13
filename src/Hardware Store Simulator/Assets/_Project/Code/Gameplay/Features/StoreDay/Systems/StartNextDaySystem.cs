@@ -62,7 +62,9 @@ namespace HardwareStore.Gameplay.Features.StoreDay.Systems
             }
             if (store.CurrentDayMinute != _closingMinute ||
                 store.hasCustomerCooldownRemaining ||
-                _gameContext.GetEntityWithCustomerVisitStoreEntityId(store.EntityId) != null)
+                StoreDayCustomerVisitGuard.CountActiveVisits(
+                    _gameContext,
+                    store.EntityId) != 0)
             {
                 throw new InvalidOperationException(
                     $"Store {store.EntityId} cannot advance an unfinished day report.");

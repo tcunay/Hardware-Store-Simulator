@@ -35,9 +35,6 @@ namespace HardwareStore.Gameplay.Features.Interaction.Systems
                     _gameContext.GetEntityWithEntityId(player.StoreEntityId);
                 if (storageZone.EntityId != store.StorageZoneEntityId)
                     continue;
-                GameEntity customerVisit =
-                    _gameContext.GetEntityWithCustomerVisitStoreEntityId(store.EntityId);
-
                 GameEntity terminal = _gameContext.GetEntityWithEntityId(
                     store.ProcurementTerminalEntityId);
                 GameEntity delivery =
@@ -53,6 +50,8 @@ namespace HardwareStore.Gameplay.Features.Interaction.Systems
                     continue;
                 }
 
+                GameEntity customerVisit =
+                    _gameContext.GetCurrentLoadingVisit(store.EntityId);
                 if (customerVisit == null)
                 {
                     player.SetInteractionPrompt(
@@ -65,79 +64,31 @@ namespace HardwareStore.Gameplay.Features.Interaction.Systems
                         false);
                     continue;
                 }
-                if (customerVisit.isCustomerVisitArriving)
+                GameEntity[] lines = GetOrderLines(customerVisit);
+                GameEntity incompleteLine = lines.FirstOrDefault(line =>
+                    line.LoadedProductCount < line.RequiredProductCount);
+                if (incompleteLine == null)
                 {
                     player.SetInteractionPrompt(
-                        LocalizedTexts.Text(LocalizationKey.PromptArrivingPrepareProduct),
+                        LocalizedTexts.Text(LocalizationKey.PromptAllLinesLoaded),
                         false);
                     continue;
                 }
 
-                if (customerVisit.isCustomerVisitReturning ||
-                    customerVisit.isCustomerVisitDeparting)
-                {
-                    player.SetInteractionPrompt(
-                        customerVisit.isCustomerVisitReturning
-                            ? LocalizedTexts.Text(LocalizationKey.PromptCustomerReturningWait)
-                            : LocalizedTexts.Text(
-                                LocalizationKey.PromptCustomerVehicleDepartingWait),
-                        false);
-                    continue;
-                }
-
-                if (customerVisit.isCustomerVisitConsulting)
-                {
-                    player.SetInteractionPrompt(
-                        LocalizedTexts.Text(
-                            LocalizationKey.PromptConsultProjectFirst,
-                            LocalizedTexts.ProjectTitle(
-                                customerVisit.CustomerProjectType)),
-                        false);
-                    continue;
-                }
-
-                if (customerVisit.isCustomerVisitLoading)
-                {
-                    GameEntity[] lines = GetOrderLines(customerVisit);
-                    GameEntity incompleteLine = lines.FirstOrDefault(line =>
-                        line.LoadedProductCount < line.RequiredProductCount);
-                    if (incompleteLine == null)
-                    {
-                        player.SetInteractionPrompt(
-                            LocalizedTexts.Text(LocalizationKey.PromptAllLinesLoaded),
-                            false);
-                        continue;
-                    }
-
-                    GameEntity availableLine = lines.FirstOrDefault(line =>
-                        line.LoadedProductCount < line.RequiredProductCount &&
-                        line.AvailableProductCount > 0);
-                    GameEntity promptedLine = availableLine ?? incompleteLine;
-                    LocalizedText productName =
-                        LocalizedTexts.ProductName(promptedLine.ProductType);
-                    player.SetInteractionPrompt(
-                        availableLine != null
-                            ? LocalizedTexts.Text(
-                                LocalizationKey.PromptFocusStockProduct,
-                                productName)
-                            : LocalizedTexts.Text(
-                                LocalizationKey.PromptNoStockForOrder,
-                                productName),
-                        false);
-                    continue;
-                }
-
-                if (!customerVisit.isCustomerVisitCompleted)
-                    throw new InvalidOperationException(
-                        $"Customer visit {customerVisit.EntityId} has no valid lifecycle state.");
-
+                GameEntity availableLine = lines.FirstOrDefault(line =>
+                    line.LoadedProductCount < line.RequiredProductCount &&
+                    line.AvailableProductCount > 0);
+                GameEntity promptedLine = availableLine ?? incompleteLine;
+                LocalizedText productName =
+                    LocalizedTexts.ProductName(promptedLine.ProductType);
                 player.SetInteractionPrompt(
-                    storageZone.StorageProductCount > 0
+                    availableLine != null
                         ? LocalizedTexts.Text(
-                            LocalizationKey.PromptCompletedStockCount,
-                            storageZone.StorageProductCount)
+                            LocalizationKey.PromptFocusStockProduct,
+                            productName)
                         : LocalizedTexts.Text(
-                            LocalizationKey.PromptCompletedStorageEmpty),
+                            LocalizationKey.PromptNoStockForOrder,
+                            productName),
                     false);
             }
         }

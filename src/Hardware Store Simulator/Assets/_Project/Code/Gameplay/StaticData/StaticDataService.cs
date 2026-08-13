@@ -24,6 +24,7 @@ namespace HardwareStore.Gameplay.StaticData
         public PlatformTrolleyConfig PlatformTrolley { get; private set; }
         public WarehouseWorkerConfig WarehouseWorker { get; private set; }
         public StoreDayConfig StoreDay { get; private set; }
+        public CustomerFlowConfig CustomerFlow { get; private set; }
         public CustomerConfig Customer { get; private set; }
         public CustomerVehicleConfig CustomerVehicle { get; private set; }
         public IReadOnlyList<ProductTypeId> ProductTypes =>
@@ -45,6 +46,8 @@ namespace HardwareStore.Gameplay.StaticData
             WarehouseWorkerConfig warehouseWorker =
                 Load<WarehouseWorkerConfig>(nameof(WarehouseWorkerConfig));
             StoreDayConfig storeDay = Load<StoreDayConfig>(nameof(StoreDayConfig));
+            CustomerFlowConfig customerFlow =
+                Load<CustomerFlowConfig>(nameof(CustomerFlowConfig));
             CustomerConfig customer = Load<CustomerConfig>(nameof(CustomerConfig));
             CustomerVehicleConfig customerVehicle =
                 Load<CustomerVehicleConfig>(nameof(CustomerVehicleConfig));
@@ -69,6 +72,7 @@ namespace HardwareStore.Gameplay.StaticData
             platformTrolley.Validate();
             warehouseWorker.Validate();
             storeDay.Validate();
+            customerFlow.Validate();
             customer.Validate();
             customerVehicle.Validate();
             ValidateEnumCoverage<ProductTypeId, ProductConfig>(products, "Product");
@@ -82,6 +86,8 @@ namespace HardwareStore.Gameplay.StaticData
                 customerVehicle,
                 platformTrolley,
                 warehouseWorker,
+                storeDay,
+                customerFlow,
                 productTypes,
                 projectTypes,
                 products,
@@ -95,6 +101,7 @@ namespace HardwareStore.Gameplay.StaticData
             PlatformTrolley = platformTrolley;
             WarehouseWorker = warehouseWorker;
             StoreDay = storeDay;
+            CustomerFlow = customerFlow;
             Customer = customer;
             CustomerVehicle = customerVehicle;
             _products = products;
@@ -159,12 +166,16 @@ namespace HardwareStore.Gameplay.StaticData
             CustomerVehicleConfig customerVehicle,
             PlatformTrolleyConfig platformTrolley,
             WarehouseWorkerConfig warehouseWorker,
+            StoreDayConfig storeDay,
+            CustomerFlowConfig customerFlow,
             IReadOnlyList<ProductTypeId> productTypes,
             IReadOnlyList<CustomerProjectTypeId> projectTypes,
             IReadOnlyDictionary<ProductTypeId, ProductConfig> products,
             IReadOnlyDictionary<ProductTypeId, DeliveryConfig> deliveries,
             IReadOnlyDictionary<CustomerProjectTypeId, CustomerProjectConfig> projects)
         {
+            ValidateCustomerFlow(storeDay, customerFlow);
+
             foreach (ProductTypeId productType in productTypes)
             {
                 ProductConfig product = products[productType];
@@ -222,6 +233,22 @@ namespace HardwareStore.Gameplay.StaticData
                 projects,
                 products,
                 deliveries);
+        }
+
+        private static void ValidateCustomerFlow(
+            StoreDayConfig storeDay,
+            CustomerFlowConfig customerFlow)
+        {
+            IReadOnlyList<CustomerArrivalSchedulePoint> schedule =
+                customerFlow.ArrivalSchedule;
+            if (schedule[0].Minute != storeDay.StartMinute ||
+                schedule[schedule.Count - 1].Minute != storeDay.ClosingMinute)
+            {
+                throw new InvalidOperationException(
+                    $"{nameof(CustomerFlowConfig)} schedule must start at " +
+                    $"{nameof(StoreDayConfig)}.{nameof(StoreDayConfig.StartMinute)} and end at " +
+                    $"{nameof(StoreDayConfig)}.{nameof(StoreDayConfig.ClosingMinute)}.");
+            }
         }
 
         private static void ValidateProject(

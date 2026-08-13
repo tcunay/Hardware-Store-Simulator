@@ -8,16 +8,23 @@ namespace HardwareStore.Gameplay.Features.Customers
         public CustomerFeature(ISystemFactory systems)
         {
             Add(systems.Create<TickCustomerCooldownSystem>());
-            Add(systems.Create<SpawnCustomerVisitSystem>());
-            Add(systems.Create<MoveRouteSystem>());
-            Add(systems.Create<CompleteCustomerVehicleArrivalSystem>());
-            Add(systems.Create<CompleteCustomerApproachSystem>());
             Add(systems.Create<BeginCustomerVehicleDepartureDelaySystem>());
             Add(systems.Create<TickCustomerVehicleDepartureDelaySystem>());
+            Add(systems.Create<ReserveCustomerLoadingBaySystem>());
+            Add(systems.Create<BeginCustomerVehicleDepartureSystem>());
             Add(systems.Create<BeginCustomerReturnSystem>());
-            Add(systems.Create<CompleteCustomerReturnSystem>());
+            Add(systems.Create<AdvanceCustomerQueueSystem>());
+            Add(systems.Create<MoveCustomerVehicleToLoadingBaySystem>());
+            Add(systems.Create<SpawnCustomerVisitSystem>());
+            Add(systems.Create<MoveRouteSystem>());
             Add(systems.Create<ReleaseDepartedOrderContentSystem>());
             Add(systems.Create<CompleteCustomerVehicleDepartureSystem>());
+            Add(systems.Create<CompleteCustomerLoadingBayArrivalSystem>());
+            Add(systems.Create<CompleteCustomerVehicleArrivalSystem>());
+            Add(systems.Create<CompleteCustomerReturnSystem>());
+            Add(systems.Create<CompleteCustomerApproachSystem>());
+            Add(systems.Create<PromoteCustomerAtCounterSystem>());
+            Add(systems.Create<ValidateCustomerFlowStateSystem>());
         }
     }
 }

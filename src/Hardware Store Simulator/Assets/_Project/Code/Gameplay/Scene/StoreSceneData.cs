@@ -12,6 +12,7 @@ namespace HardwareStore.Gameplay.Scene
     {
         private Dictionary<SpawnPointId, Pose> _spawnPoints;
         private Dictionary<SceneRouteId, Pose[]> _routes;
+        private CustomerFlowSceneLayout _customerFlowLayout;
         private Dictionary<SceneViewId, EntityBehaviour> _sceneViews;
         private IHudService _hud;
         private INotificationService _notifications;
@@ -40,6 +41,12 @@ namespace HardwareStore.Gameplay.Scene
             return view;
         }
 
+        public CustomerFlowSceneLayout GetCustomerFlowLayout()
+        {
+            EnsureRegistered();
+            return _customerFlowLayout.Clone();
+        }
+
         public Pose[] GetRoute(SceneRouteId id)
         {
             EnsureRegistered();
@@ -51,6 +58,7 @@ namespace HardwareStore.Gameplay.Scene
         }
 
         public void Register(SpawnPointMarker[] spawnPoints, SceneRouteMarker[] routes,
+            CustomerFlowLayoutMarker customerFlowLayout,
             SceneViewMarker[] sceneViews, PrototypeHudView hudView,
             PrototypeAudioView audioView, PrototypeDayNightView dayNightView)
         {
@@ -61,6 +69,8 @@ namespace HardwareStore.Gameplay.Scene
                 throw new ArgumentNullException(nameof(spawnPoints));
             if (routes == null)
                 throw new ArgumentNullException(nameof(routes));
+            if (customerFlowLayout == null)
+                throw new ArgumentNullException(nameof(customerFlowLayout));
             if (sceneViews == null)
                 throw new ArgumentNullException(nameof(sceneViews));
             if (hudView == null)
@@ -105,6 +115,7 @@ namespace HardwareStore.Gameplay.Scene
 
             _spawnPoints = spawnPointPoses;
             _routes = routesById;
+            _customerFlowLayout = customerFlowLayout.Layout;
             _sceneViews = viewsById;
             _hud = hudView;
             _notifications = hudView;
@@ -122,6 +133,7 @@ namespace HardwareStore.Gameplay.Scene
             _spawnPoints = null;
             _routes.Clear();
             _routes = null;
+            _customerFlowLayout = null;
             _sceneViews.Clear();
             _sceneViews = null;
             _hud = null;
