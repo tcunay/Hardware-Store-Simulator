@@ -21,7 +21,7 @@ namespace HardwareStore.Gameplay.Factories
         }
 
         public GameEntity Create(int storeEntityId, Pose spawnPose, Pose pickupPose,
-            Pose storagePose)
+            Pose storagePose, Pose customerLoadingPose)
         {
             WarehouseWorkerConfig config = _staticData.WarehouseWorker;
             return CreateEntity.Empty(_identifiers.Next())
@@ -34,6 +34,10 @@ namespace HardwareStore.Gameplay.Factories
                 .AddWarehouseWorkerPickupRotation(pickupPose.rotation)
                 .AddWarehouseWorkerStoragePosition(storagePose.position)
                 .AddWarehouseWorkerStorageRotation(storagePose.rotation)
+                .AddWarehouseWorkerCustomerLoadingPosition(
+                    customerLoadingPose.position)
+                .AddWarehouseWorkerCustomerLoadingRotation(
+                    customerLoadingPose.rotation)
                 .With(x => x.isWarehouseWorker = true);
         }
     }

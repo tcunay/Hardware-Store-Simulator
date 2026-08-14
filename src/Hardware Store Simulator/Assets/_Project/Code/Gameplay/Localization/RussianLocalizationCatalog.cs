@@ -145,6 +145,8 @@ namespace HardwareStore.Gameplay.Localization
                 "Грузчик идёт за товаром: {0}", 1),
             E(LocalizationKey.HudWarehouseWorkerMovingToStorage,
                 "Грузчик несёт на склад: {0}", 1),
+            E(LocalizationKey.HudWarehouseWorkerMovingToCustomerLoading,
+                "Грузчик несёт в машину клиента: {0}", 1),
             E(LocalizationKey.HudWarehouseWorkerBlocked,
                 "Грузчик: задача приостановлена"),
             E(LocalizationKey.HudWarehouseWorkerOffShift,

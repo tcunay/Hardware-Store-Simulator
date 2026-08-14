@@ -107,6 +107,15 @@ namespace HardwareStore.Gameplay.Features.Interaction.Systems
                 return;
             }
 
+            if (HasActiveWarehouseTask(store.EntityId))
+            {
+                player.SetInteractionPrompt(
+                    LocalizedTexts.Text(
+                        LocalizationKey.PromptCloseStoreWarehouseWorkerBusy),
+                    false);
+                return;
+            }
+
             GameEntity worker =
                 _gameContext.GetEntityWithWarehouseWorkerStoreEntityId(store.EntityId);
             if (worker != null)
@@ -137,6 +146,28 @@ namespace HardwareStore.Gameplay.Features.Interaction.Systems
             player.SetInteractionPrompt(
                 LocalizedTexts.Text(LocalizationKey.PromptCloseStoreForReport),
                 true);
+        }
+
+        private bool HasActiveWarehouseTask(int storeEntityId)
+        {
+            foreach (GameEntity task in
+                     _gameContext.GetEntitiesWithWarehouseTaskStoreEntityId(
+                         storeEntityId))
+            {
+                if (task.isDestructed)
+                    continue;
+                if (!task.isWarehouseTask || !task.hasWarehouseTaskStep ||
+                    !task.hasEntityId ||
+                    task.isInboundToStorageTask ==
+                    task.isStockToCustomerLoadingTask)
+                {
+                    throw new InvalidOperationException(
+                        $"Store {storeEntityId} has an invalid warehouse task.");
+                }
+                if (task.WarehouseTaskStep != WarehouseTaskStepId.Blocked)
+                    return true;
+            }
+            return false;
         }
 
         private void ResolveOpenStorePrompt(GameEntity player, GameEntity store)

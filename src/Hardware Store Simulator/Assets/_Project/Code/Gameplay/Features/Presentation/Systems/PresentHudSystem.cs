@@ -257,7 +257,8 @@ namespace HardwareStore.Gameplay.Features.Presentation.Systems
             GameEntity task =
                 _gameContext.GetEntityWithAssignedWorkerEntityId(worker.EntityId);
             bool requiresTaskProduct = status is WarehouseWorkerStatusId.MovingToPickup or
-                WarehouseWorkerStatusId.MovingToStorage;
+                WarehouseWorkerStatusId.MovingToStorage or
+                WarehouseWorkerStatusId.MovingToCustomerLoading;
             if (!requiresTaskProduct)
             {
                 if (task != null)

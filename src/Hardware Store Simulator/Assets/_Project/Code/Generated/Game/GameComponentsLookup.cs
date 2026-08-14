@@ -189,62 +189,68 @@ public static class GameComponentsLookup {
     public const int SpawnRotation = 178;
     public const int SprintSpeed = 179;
     public const int StockedProductCount = 180;
-    public const int StorageProductCount = 181;
-    public const int StorageSlotIndex = 182;
-    public const int StorageZone = 183;
-    public const int StorageZoneEntityId = 184;
-    public const int Store = 185;
-    public const int StoreClosing = 186;
-    public const int StoreControlTerminal = 187;
-    public const int StoreControlTerminalEntityId = 188;
-    public const int StoreEntityId = 189;
-    public const int StoreOpen = 190;
-    public const int StorePreparing = 191;
-    public const int StoreSceneBindingsValidated = 192;
-    public const int TargetEntityId = 193;
-    public const int Transform = 194;
-    public const int TrolleyCapacity = 195;
-    public const int TrolleyEntityId = 196;
-    public const int TrolleyFollowDistance = 197;
-    public const int TrolleyMovementSpeed = 198;
-    public const int TrolleyPusherEntityId = 199;
-    public const int TrolleySlotIndex = 200;
-    public const int TrolleySpawnPosition = 201;
-    public const int TrolleySpawnRotation = 202;
-    public const int TrolleyStoreEntityId = 203;
-    public const int TrolleyUpgradeTerminal = 204;
-    public const int TrolleyUpgradeTerminalEntityId = 205;
-    public const int TrolleyUpgradeUnlocked = 206;
-    public const int UnitPrice = 207;
-    public const int VerticalVelocity = 208;
-    public const int View = 209;
-    public const int ViewPitch = 210;
-    public const int ViewPivot = 211;
-    public const int ViewPrefab = 212;
-    public const int WalkSpeed = 213;
-    public const int WarehouseTask = 214;
-    public const int WarehouseTaskBlockReason = 215;
-    public const int WarehouseTaskProductEntityId = 216;
-    public const int WarehouseTaskReservedStorageSlotIndex = 217;
-    public const int WarehouseTaskStep = 218;
-    public const int WarehouseTaskStorageZoneEntityId = 219;
-    public const int WarehouseTaskStoreEntityId = 220;
-    public const int WarehouseTaskTimeoutRemaining = 221;
-    public const int WarehouseWorker = 222;
-    public const int WarehouseWorkerHiringUnlocked = 223;
-    public const int WarehouseWorkerPickupPosition = 224;
-    public const int WarehouseWorkerPickupRotation = 225;
-    public const int WarehouseWorkerStatus = 226;
-    public const int WarehouseWorkerStoragePosition = 227;
-    public const int WarehouseWorkerStorageRotation = 228;
-    public const int WarehouseWorkerStoreEntityId = 229;
-    public const int WaypointTolerance = 230;
-    public const int WorkerPaidDayNumber = 231;
-    public const int WorkerShiftActive = 232;
-    public const int WorldPosition = 233;
-    public const int WorldRotation = 234;
+    public const int StockToCustomerLoadingTask = 181;
+    public const int StorageProductCount = 182;
+    public const int StorageSlotIndex = 183;
+    public const int StorageZone = 184;
+    public const int StorageZoneEntityId = 185;
+    public const int Store = 186;
+    public const int StoreClosing = 187;
+    public const int StoreControlTerminal = 188;
+    public const int StoreControlTerminalEntityId = 189;
+    public const int StoreEntityId = 190;
+    public const int StoreOpen = 191;
+    public const int StorePreparing = 192;
+    public const int StoreSceneBindingsValidated = 193;
+    public const int TargetEntityId = 194;
+    public const int Transform = 195;
+    public const int TrolleyCapacity = 196;
+    public const int TrolleyEntityId = 197;
+    public const int TrolleyFollowDistance = 198;
+    public const int TrolleyMovementSpeed = 199;
+    public const int TrolleyPusherEntityId = 200;
+    public const int TrolleySlotIndex = 201;
+    public const int TrolleySpawnPosition = 202;
+    public const int TrolleySpawnRotation = 203;
+    public const int TrolleyStoreEntityId = 204;
+    public const int TrolleyUpgradeTerminal = 205;
+    public const int TrolleyUpgradeTerminalEntityId = 206;
+    public const int TrolleyUpgradeUnlocked = 207;
+    public const int UnitPrice = 208;
+    public const int VerticalVelocity = 209;
+    public const int View = 210;
+    public const int ViewPitch = 211;
+    public const int ViewPivot = 212;
+    public const int ViewPrefab = 213;
+    public const int WalkSpeed = 214;
+    public const int WarehouseTask = 215;
+    public const int WarehouseTaskBlockReason = 216;
+    public const int WarehouseTaskCustomerVisitEntityId = 217;
+    public const int WarehouseTaskOrderLineEntityId = 218;
+    public const int WarehouseTaskProductEntityId = 219;
+    public const int WarehouseTaskReservedLoadingSlotIndex = 220;
+    public const int WarehouseTaskReservedStorageSlotIndex = 221;
+    public const int WarehouseTaskStep = 222;
+    public const int WarehouseTaskStorageZoneEntityId = 223;
+    public const int WarehouseTaskStoreEntityId = 224;
+    public const int WarehouseTaskTimeoutRemaining = 225;
+    public const int WarehouseWorker = 226;
+    public const int WarehouseWorkerCustomerLoadingPosition = 227;
+    public const int WarehouseWorkerCustomerLoadingRotation = 228;
+    public const int WarehouseWorkerHiringUnlocked = 229;
+    public const int WarehouseWorkerPickupPosition = 230;
+    public const int WarehouseWorkerPickupRotation = 231;
+    public const int WarehouseWorkerStatus = 232;
+    public const int WarehouseWorkerStoragePosition = 233;
+    public const int WarehouseWorkerStorageRotation = 234;
+    public const int WarehouseWorkerStoreEntityId = 235;
+    public const int WaypointTolerance = 236;
+    public const int WorkerPaidDayNumber = 237;
+    public const int WorkerShiftActive = 238;
+    public const int WorldPosition = 239;
+    public const int WorldRotation = 240;
 
-    public const int TotalComponents = 235;
+    public const int TotalComponents = 241;
 
     public static readonly string[] componentNames = {
         "AimAssistRadius",
@@ -428,6 +434,7 @@ public static class GameComponentsLookup {
         "SpawnRotation",
         "SprintSpeed",
         "StockedProductCount",
+        "StockToCustomerLoadingTask",
         "StorageProductCount",
         "StorageSlotIndex",
         "StorageZone",
@@ -463,13 +470,18 @@ public static class GameComponentsLookup {
         "WalkSpeed",
         "WarehouseTask",
         "WarehouseTaskBlockReason",
+        "WarehouseTaskCustomerVisitEntityId",
+        "WarehouseTaskOrderLineEntityId",
         "WarehouseTaskProductEntityId",
+        "WarehouseTaskReservedLoadingSlotIndex",
         "WarehouseTaskReservedStorageSlotIndex",
         "WarehouseTaskStep",
         "WarehouseTaskStorageZoneEntityId",
         "WarehouseTaskStoreEntityId",
         "WarehouseTaskTimeoutRemaining",
         "WarehouseWorker",
+        "WarehouseWorkerCustomerLoadingPosition",
+        "WarehouseWorkerCustomerLoadingRotation",
         "WarehouseWorkerHiringUnlocked",
         "WarehouseWorkerPickupPosition",
         "WarehouseWorkerPickupRotation",
@@ -666,6 +678,7 @@ public static class GameComponentsLookup {
         typeof(HardwareStore.Gameplay.Components.SpawnRotation),
         typeof(HardwareStore.Gameplay.Components.SprintSpeed),
         typeof(HardwareStore.Gameplay.Components.StockedProductCount),
+        typeof(HardwareStore.Gameplay.Components.StockToCustomerLoadingTask),
         typeof(HardwareStore.Gameplay.Components.StorageProductCount),
         typeof(HardwareStore.Gameplay.Components.StorageSlotIndex),
         typeof(HardwareStore.Gameplay.Components.StorageZone),
@@ -701,13 +714,18 @@ public static class GameComponentsLookup {
         typeof(HardwareStore.Gameplay.Components.WalkSpeed),
         typeof(HardwareStore.Gameplay.Components.WarehouseTask),
         typeof(HardwareStore.Gameplay.Components.WarehouseTaskBlockReason),
+        typeof(HardwareStore.Gameplay.Components.WarehouseTaskCustomerVisitEntityId),
+        typeof(HardwareStore.Gameplay.Components.WarehouseTaskOrderLineEntityId),
         typeof(HardwareStore.Gameplay.Components.WarehouseTaskProductEntityId),
+        typeof(HardwareStore.Gameplay.Components.WarehouseTaskReservedLoadingSlotIndex),
         typeof(HardwareStore.Gameplay.Components.WarehouseTaskReservedStorageSlotIndex),
         typeof(HardwareStore.Gameplay.Components.WarehouseTaskStep),
         typeof(HardwareStore.Gameplay.Components.WarehouseTaskStorageZoneEntityId),
         typeof(HardwareStore.Gameplay.Components.WarehouseTaskStoreEntityId),
         typeof(HardwareStore.Gameplay.Components.WarehouseTaskTimeoutRemaining),
         typeof(HardwareStore.Gameplay.Components.WarehouseWorker),
+        typeof(HardwareStore.Gameplay.Components.WarehouseWorkerCustomerLoadingPosition),
+        typeof(HardwareStore.Gameplay.Components.WarehouseWorkerCustomerLoadingRotation),
         typeof(HardwareStore.Gameplay.Components.WarehouseWorkerHiringUnlocked),
         typeof(HardwareStore.Gameplay.Components.WarehouseWorkerPickupPosition),
         typeof(HardwareStore.Gameplay.Components.WarehouseWorkerPickupRotation),

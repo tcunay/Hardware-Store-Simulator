@@ -150,9 +150,10 @@ namespace HardwareStore.Gameplay.Features.Carrying.Systems
                         $"Product {product.EntityId} reserves order line " +
                         $"{reservedOrderLine.EntityId} for another product type.");
                 int existingReservationCount = CountReservedProducts(reservedOrderLine);
-                if (reservedOrderLine.LoadedProductCount >=
-                    reservedOrderLine.RequiredProductCount ||
-                    reservedOrderLine.LoadedProductCount + existingReservationCount >
+                int linkedProductCount = CountLinkedProducts(reservedOrderLine);
+                if (linkedProductCount < reservedOrderLine.LoadedProductCount ||
+                    linkedProductCount >= reservedOrderLine.RequiredProductCount ||
+                    linkedProductCount + existingReservationCount >
                     reservedOrderLine.RequiredProductCount)
                 {
                     throw new InvalidOperationException(
@@ -181,7 +182,15 @@ namespace HardwareStore.Gameplay.Features.Carrying.Systems
                 return false;
 
             int reservedProductCount = CountReservedProducts(matchingLine);
-            if (matchingLine.LoadedProductCount + reservedProductCount >=
+            int matchingLinkedProductCount = CountLinkedProducts(matchingLine);
+            if (matchingLinkedProductCount < matchingLine.LoadedProductCount ||
+                matchingLinkedProductCount + reservedProductCount >
+                matchingLine.RequiredProductCount)
+            {
+                throw new InvalidOperationException(
+                    $"Order line {matchingLine.EntityId} has invalid linked/reserved quota.");
+            }
+            if (matchingLinkedProductCount + reservedProductCount >=
                 matchingLine.RequiredProductCount)
                 return false;
 
@@ -246,6 +255,27 @@ namespace HardwareStore.Gameplay.Features.Carrying.Systems
                 count++;
             }
 
+            return count;
+        }
+
+        private int CountLinkedProducts(GameEntity orderLine)
+        {
+            int count = 0;
+            foreach (GameEntity product in
+                     _gameContext.GetEntitiesWithOrderLineEntityId(
+                         orderLine.EntityId))
+            {
+                if (!product.isProduct || product.isDestructed ||
+                    !product.isLoaded || !product.hasEntityId ||
+                    !product.hasProductType ||
+                    product.ProductType != orderLine.ProductType ||
+                    !product.hasLoadingSlotIndex)
+                {
+                    throw new InvalidOperationException(
+                        $"Order line {orderLine.EntityId} has an invalid linked product.");
+                }
+                count++;
+            }
             return count;
         }
 

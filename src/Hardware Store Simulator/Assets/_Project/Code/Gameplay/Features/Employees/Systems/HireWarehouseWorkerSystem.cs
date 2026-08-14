@@ -81,12 +81,20 @@ namespace HardwareStore.Gameplay.Features.Employees.Systems
                     store.EntityId,
                     _sceneData.GetSpawnPoint(SpawnPointId.WarehouseWorker),
                     _sceneData.GetSpawnPoint(SpawnPointId.WarehouseWorkerDeliveryAccess),
-                    _sceneData.GetSpawnPoint(SpawnPointId.WarehouseWorkerStorageAccess));
+                    _sceneData.GetSpawnPoint(SpawnPointId.WarehouseWorkerStorageAccess),
+                    _sceneData.GetSpawnPoint(
+                        SpawnPointId.WarehouseWorkerCustomerLoadingAccess));
                 if (worker == null || !worker.isWarehouseWorker ||
                     !worker.hasEntityId || !worker.hasWarehouseWorkerStoreEntityId ||
                     worker.WarehouseWorkerStoreEntityId != store.EntityId ||
                     !worker.hasWarehouseWorkerStatus || worker.isWorkerShiftActive ||
-                    worker.hasWorkerPaidDayNumber)
+                    worker.hasWorkerPaidDayNumber ||
+                    !worker.hasWarehouseWorkerPickupPosition ||
+                    !worker.hasWarehouseWorkerPickupRotation ||
+                    !worker.hasWarehouseWorkerStoragePosition ||
+                    !worker.hasWarehouseWorkerStorageRotation ||
+                    !worker.hasWarehouseWorkerCustomerLoadingPosition ||
+                    !worker.hasWarehouseWorkerCustomerLoadingRotation)
                 {
                     throw new InvalidOperationException(
                         "Warehouse worker factory returned invalid initial state.");

@@ -83,6 +83,8 @@ public partial class Contexts {
     public const string TrolleyEntityId = "TrolleyEntityId";
     public const string TrolleyPusherEntityId = "TrolleyPusherEntityId";
     public const string TrolleyStoreEntityId = "TrolleyStoreEntityId";
+    public const string WarehouseTaskCustomerVisitEntityId = "WarehouseTaskCustomerVisitEntityId";
+    public const string WarehouseTaskOrderLineEntityId = "WarehouseTaskOrderLineEntityId";
     public const string WarehouseTaskProductEntityId = "WarehouseTaskProductEntityId";
     public const string WarehouseTaskStorageZoneEntityId = "WarehouseTaskStorageZoneEntityId";
     public const string WarehouseTaskStoreEntityId = "WarehouseTaskStoreEntityId";
@@ -215,6 +217,16 @@ public partial class Contexts {
             game.GetGroup(GameMatcher.TrolleyStoreEntityId),
             (e, c) => ((HardwareStore.Gameplay.Components.TrolleyStoreEntityId)c).Value));
 
+        game.AddEntityIndex(new Entitas.EntityIndex<GameEntity, int>(
+            WarehouseTaskCustomerVisitEntityId,
+            game.GetGroup(GameMatcher.WarehouseTaskCustomerVisitEntityId),
+            (e, c) => ((HardwareStore.Gameplay.Components.WarehouseTaskCustomerVisitEntityId)c).Value));
+
+        game.AddEntityIndex(new Entitas.EntityIndex<GameEntity, int>(
+            WarehouseTaskOrderLineEntityId,
+            game.GetGroup(GameMatcher.WarehouseTaskOrderLineEntityId),
+            (e, c) => ((HardwareStore.Gameplay.Components.WarehouseTaskOrderLineEntityId)c).Value));
+
         game.AddEntityIndex(new Entitas.PrimaryEntityIndex<GameEntity, int>(
             WarehouseTaskProductEntityId,
             game.GetGroup(GameMatcher.WarehouseTaskProductEntityId),
@@ -337,6 +349,14 @@ public static class ContextsExtensions {
 
     public static GameEntity GetEntityWithTrolleyStoreEntityId(this GameContext context, int Value) {
         return ((Entitas.PrimaryEntityIndex<GameEntity, int>)context.GetEntityIndex(Contexts.TrolleyStoreEntityId)).GetEntity(Value);
+    }
+
+    public static System.Collections.Generic.HashSet<GameEntity> GetEntitiesWithWarehouseTaskCustomerVisitEntityId(this GameContext context, int Value) {
+        return ((Entitas.EntityIndex<GameEntity, int>)context.GetEntityIndex(Contexts.WarehouseTaskCustomerVisitEntityId)).GetEntities(Value);
+    }
+
+    public static System.Collections.Generic.HashSet<GameEntity> GetEntitiesWithWarehouseTaskOrderLineEntityId(this GameContext context, int Value) {
+        return ((Entitas.EntityIndex<GameEntity, int>)context.GetEntityIndex(Contexts.WarehouseTaskOrderLineEntityId)).GetEntities(Value);
     }
 
     public static GameEntity GetEntityWithWarehouseTaskProductEntityId(this GameContext context, int Value) {

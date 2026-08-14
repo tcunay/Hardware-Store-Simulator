@@ -12,7 +12,8 @@ namespace HardwareStore.Gameplay.Presentation
             if (!Enum.IsDefined(typeof(WarehouseWorkerStatusId), status))
                 throw new ArgumentOutOfRangeException(nameof(status));
             if (status is WarehouseWorkerStatusId.MovingToPickup or
-                WarehouseWorkerStatusId.MovingToStorage)
+                WarehouseWorkerStatusId.MovingToStorage or
+                WarehouseWorkerStatusId.MovingToCustomerLoading)
             {
                 if (!productType.HasValue ||
                     !Enum.IsDefined(typeof(ProductTypeId), productType.Value))

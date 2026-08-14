@@ -96,6 +96,7 @@ namespace HardwareStore.Gameplay.Localization
         HudWarehouseWorkerOffShift = 1061,
         HudCustomerFlow = 1062,
         HudDayReportLostCustomers = 1063,
+        HudWarehouseWorkerMovingToCustomerLoading = 1064,
         ProcurementStatusNotRequired = 1100,
         ProcurementStatusStockSufficient = 1101,
         ProcurementStatusInsufficientStorage = 1102,

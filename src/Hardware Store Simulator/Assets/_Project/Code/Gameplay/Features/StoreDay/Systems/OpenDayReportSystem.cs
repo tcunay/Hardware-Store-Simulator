@@ -120,9 +120,7 @@ namespace HardwareStore.Gameplay.Features.StoreDay.Systems
             foreach (GameEntity task in _warehouseTasks)
             {
                 if (task.WarehouseTaskStoreEntityId == store.EntityId &&
-                    task.WarehouseTaskStep != WarehouseTaskStepId.Blocked &&
-                    (task.hasAssignedWorkerEntityId ||
-                     task.hasWarehouseTaskReservedStorageSlotIndex))
+                    task.WarehouseTaskStep != WarehouseTaskStepId.Blocked)
                 {
                     return true;
                 }

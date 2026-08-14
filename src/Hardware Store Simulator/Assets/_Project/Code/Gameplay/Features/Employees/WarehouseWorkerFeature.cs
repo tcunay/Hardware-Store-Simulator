@@ -9,10 +9,15 @@ namespace HardwareStore.Gameplay.Features.Employees
         {
             Add(systems.Create<ConfigureWarehouseWorkerNavigationSystem>());
             Add(systems.Create<CleanupBlockedWarehouseTaskSystem>());
+            Add(systems.Create<GenerateCustomerLoadingTaskSystem>());
             Add(systems.Create<GenerateInboundStorageTaskSystem>());
-            Add(systems.Create<ExecuteWarehouseWorkerTaskSystem>());
+            Add(systems.Create<AssignWarehouseTaskSystem>());
+            Add(systems.Create<TickWarehouseTaskTimeoutSystem>());
+            Add(systems.Create<ExecuteInboundStorageTaskSystem>());
+            Add(systems.Create<ExecuteCustomerLoadingTaskSystem>());
             Add(systems.Create<DetectOrphanedWarehouseTaskSystem>());
-            Add(systems.Create<RecoverBlockedWarehouseTaskSystem>());
+            Add(systems.Create<RecoverBlockedInboundTaskSystem>());
+            Add(systems.Create<RecoverBlockedCustomerLoadingTaskSystem>());
             Add(systems.Create<ValidateWarehouseWorkerStateSystem>());
         }
     }

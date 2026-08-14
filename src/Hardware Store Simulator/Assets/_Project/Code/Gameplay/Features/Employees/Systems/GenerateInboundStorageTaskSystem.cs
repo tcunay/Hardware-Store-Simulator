@@ -95,12 +95,12 @@ namespace HardwareStore.Gameplay.Features.Employees.Systems
                     !store.hasStorageZoneEntityId)
                     throw new InvalidOperationException(
                         $"Warehouse worker {worker.EntityId} has invalid store relation.");
-                if (!store.isStoreOpen)
+                if (!store.isStoreOpen && !store.isStoreClosing)
                     continue;
                 if (HasActiveTask(store.EntityId))
                     continue;
 
-                GameEntity product = FindNextProduct(store.EntityId);
+                GameEntity product = FindNextProduct(store);
                 if (product == null)
                 {
                     if (worker.WarehouseWorkerStatus == WarehouseWorkerStatusId.StorageFull)
@@ -139,7 +139,9 @@ namespace HardwareStore.Gameplay.Features.Employees.Systems
                      _gameContext.GetEntitiesWithWarehouseTaskStoreEntityId(
                          storeEntityId))
             {
-                if (task.WarehouseTaskStoreEntityId == storeEntityId &&
+                if (!task.isDestructed && task.isWarehouseTask &&
+                    task.hasWarehouseTaskStep &&
+                    task.WarehouseTaskStoreEntityId == storeEntityId &&
                     task.WarehouseTaskStep != WarehouseTaskStepId.Blocked)
                     return true;
             }
@@ -147,27 +149,223 @@ namespace HardwareStore.Gameplay.Features.Employees.Systems
             return false;
         }
 
-        private GameEntity FindNextProduct(int storeEntityId)
+        private GameEntity FindNextProduct(GameEntity store)
         {
+            GameEntity prerequisite = FindCustomerPrerequisiteProduct(store);
+            if (prerequisite != null || store.isStoreClosing)
+                return prerequisite;
+
             GameEntity result = null;
             foreach (GameEntity product in _products)
             {
-                GameEntity delivery = _gameContext.GetEntityWithEntityId(
-                    product.DeliveryEntityId);
-                if (delivery == null || !delivery.isDeliveryActive ||
-                    delivery.StoreEntityId != storeEntityId)
+                if (!IsAvailableInboundProduct(product, store.EntityId))
                     continue;
-                if (_gameContext.GetEntityWithWarehouseTaskProductEntityId(
-                        product.EntityId) != null)
-                    continue;
-                if (result == null ||
-                    product.DeliverySlotIndex < result.DeliverySlotIndex ||
-                    product.DeliverySlotIndex == result.DeliverySlotIndex &&
-                    product.EntityId < result.EntityId)
+                if (result == null || CompareInboundProduct(product, result) < 0)
                     result = product;
             }
 
             return result;
+        }
+
+        private GameEntity FindCustomerPrerequisiteProduct(GameEntity store)
+        {
+            GameEntity visit = GetCurrentLoadingVisit(store);
+            if (visit == null)
+                return null;
+
+            GameEntity selectedLine = null;
+            GameEntity selectedProduct = null;
+            foreach (GameEntity line in
+                     _gameContext.GetEntitiesWithOrderEntityId(visit.EntityId))
+            {
+                ValidateOrderLine(visit, line);
+                int linkedCount = CountLinkedProducts(line);
+                int reservedCount = CountReservedProducts(line);
+                if (linkedCount < line.LoadedProductCount ||
+                    linkedCount + reservedCount > line.RequiredProductCount)
+                {
+                    throw new InvalidOperationException(
+                        $"Order line {line.EntityId} has invalid linked/reserved quota.");
+                }
+                if (linkedCount + reservedCount >= line.RequiredProductCount ||
+                    HasShelfProduct(line))
+                {
+                    continue;
+                }
+
+                GameEntity inbound = FindInboundProduct(
+                    store.EntityId, line.ProductType);
+                if (inbound == null)
+                    continue;
+                if (selectedLine == null ||
+                    line.LineIndex < selectedLine.LineIndex ||
+                    line.LineIndex == selectedLine.LineIndex &&
+                    CompareInboundProduct(inbound, selectedProduct) < 0)
+                {
+                    selectedLine = line;
+                    selectedProduct = inbound;
+                }
+            }
+
+            return selectedProduct;
+        }
+
+        private GameEntity GetCurrentLoadingVisit(GameEntity store)
+        {
+            GameEntity bay =
+                _gameContext.GetEntityWithCustomerLoadingBayStoreEntityId(
+                    store.EntityId);
+            if (bay == null || bay.isDestructed ||
+                !bay.isCustomerLoadingBay || !bay.hasEntityId ||
+                !bay.hasCustomerLoadingBayStoreEntityId ||
+                bay.CustomerLoadingBayStoreEntityId != store.EntityId)
+            {
+                throw new InvalidOperationException(
+                    $"Store {store.EntityId} has invalid customer loading bay.");
+            }
+            GameEntity visit =
+                _gameContext.GetEntityWithReservedCustomerLoadingBayEntityId(
+                    bay.EntityId);
+            if (visit == null || !visit.isCustomerVisitLoading)
+                return null;
+            if (visit.isDestructed || !visit.isCustomerVisit ||
+                !visit.isCustomerVehicle || !visit.isOrder ||
+                !visit.hasEntityId || !visit.hasCustomerVisitStoreEntityId ||
+                visit.CustomerVisitStoreEntityId != store.EntityId ||
+                !visit.hasStorageZoneEntityId ||
+                visit.StorageZoneEntityId != store.StorageZoneEntityId ||
+                !visit.hasReservedCustomerLoadingBayEntityId ||
+                visit.ReservedCustomerLoadingBayEntityId != bay.EntityId)
+            {
+                throw new InvalidOperationException(
+                    $"Store {store.EntityId} has invalid current loading visit.");
+            }
+            return visit;
+        }
+
+        private GameEntity FindInboundProduct(int storeEntityId,
+            ProductTypeId productType)
+        {
+            GameEntity selected = null;
+            foreach (GameEntity product in _products)
+            {
+                if (product.ProductType != productType ||
+                    !IsAvailableInboundProduct(product, storeEntityId))
+                {
+                    continue;
+                }
+                if (selected == null ||
+                    CompareInboundProduct(product, selected) < 0)
+                {
+                    selected = product;
+                }
+            }
+            return selected;
+        }
+
+        private bool IsAvailableInboundProduct(GameEntity product,
+            int storeEntityId)
+        {
+            GameEntity delivery = _gameContext.GetEntityWithEntityId(
+                product.DeliveryEntityId);
+            if (delivery == null || delivery.isDestructed ||
+                !delivery.isDelivery || !delivery.isDeliveryActive ||
+                !delivery.hasEntityId || !delivery.hasStoreEntityId ||
+                !delivery.hasSlots ||
+                delivery.EntityId != product.DeliveryEntityId)
+            {
+                throw new InvalidOperationException(
+                    $"Inbound product {product.EntityId} references invalid delivery.");
+            }
+            if (delivery.StoreEntityId != storeEntityId)
+                return false;
+            return _gameContext.GetEntityWithWarehouseTaskProductEntityId(
+                product.EntityId) == null;
+        }
+
+        private bool HasShelfProduct(GameEntity line)
+        {
+            foreach (GameEntity product in _stockedProducts)
+            {
+                if (!product.isDestructed && product.isProduct &&
+                    product.hasProductType &&
+                    product.StorageZoneEntityId == line.StorageZoneEntityId &&
+                    product.ProductType == line.ProductType)
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        private int CountLinkedProducts(GameEntity line)
+        {
+            int count = 0;
+            foreach (GameEntity product in
+                     _gameContext.GetEntitiesWithOrderLineEntityId(line.EntityId))
+            {
+                if (product.isDestructed || !product.isProduct ||
+                    !product.isLoaded || !product.hasEntityId ||
+                    !product.hasProductType ||
+                    product.ProductType != line.ProductType ||
+                    !product.hasLoadingSlotIndex)
+                {
+                    throw new InvalidOperationException(
+                        $"Order line {line.EntityId} has an invalid linked product.");
+                }
+                count++;
+            }
+            return count;
+        }
+
+        private int CountReservedProducts(GameEntity line)
+        {
+            int count = 0;
+            foreach (GameEntity product in
+                     _gameContext.GetEntitiesWithReservedOrderLineEntityId(
+                         line.EntityId))
+            {
+                if (product.isDestructed || !product.isProduct ||
+                    !product.isInStock || !product.hasEntityId ||
+                    !product.hasProductType ||
+                    product.ProductType != line.ProductType ||
+                    !product.hasStorageZoneEntityId ||
+                    product.StorageZoneEntityId != line.StorageZoneEntityId ||
+                    !product.hasReservedStorageSlotIndex)
+                {
+                    throw new InvalidOperationException(
+                        $"Order line {line.EntityId} has an invalid product reservation.");
+                }
+                count++;
+            }
+            return count;
+        }
+
+        private static void ValidateOrderLine(GameEntity visit, GameEntity line)
+        {
+            if (line.isDestructed || !line.isOrderLine || !line.hasEntityId ||
+                !line.hasOrderEntityId || line.OrderEntityId != visit.EntityId ||
+                !line.hasStorageZoneEntityId ||
+                line.StorageZoneEntityId != visit.StorageZoneEntityId ||
+                !line.hasLineIndex || line.LineIndex < 0 ||
+                !line.hasProductType || !line.hasRequiredProductCount ||
+                !line.hasLoadedProductCount || line.RequiredProductCount <= 0 ||
+                line.LoadedProductCount < 0 ||
+                line.LoadedProductCount > line.RequiredProductCount)
+            {
+                throw new InvalidOperationException(
+                    $"Customer visit {visit.EntityId} has an invalid order line.");
+            }
+        }
+
+        private static int CompareInboundProduct(GameEntity left,
+            GameEntity right)
+        {
+            int slotComparison = left.DeliverySlotIndex.CompareTo(
+                right.DeliverySlotIndex);
+            return slotComparison != 0
+                ? slotComparison
+                : left.EntityId.CompareTo(right.EntityId);
         }
 
         private int FindFreeStorageSlot(GameEntity storageZone)

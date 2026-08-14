@@ -5,6 +5,7 @@ using Entitas;
 using HardwareStore.Common.Entity;
 using HardwareStore.Gameplay.Common.Customers;
 using HardwareStore.Gameplay.Common.Economy;
+using HardwareStore.Gameplay.Common.Navigation;
 using HardwareStore.Gameplay.Common.Physics;
 using HardwareStore.Gameplay.Common.Time;
 using HardwareStore.Gameplay.Components;
@@ -1046,6 +1047,52 @@ namespace HardwareStore.Editor
                 $"{arrival.Delivery.EntityId}. The worker is walking to the inbound bay.");
         }
 
+        [MenuItem("Tools/Hardware Store/Prepare Warehouse Worker Customer Loading Visual Check")]
+        public static void PrepareWarehouseWorkerCustomerLoadingVisualCheck()
+        {
+            Runtime runtime = ResolveRuntime();
+            Scenario scenario = ResolveFreshScenario(runtime);
+            OpenStoreForSmoke(runtime, scenario);
+            UnlockWarehouseWorkerHiring(runtime, scenario);
+            GameEntity worker = HireWarehouseWorker(runtime, scenario);
+            DeliveryArrival stock = PurchaseAndPrepareArrival(
+                runtime,
+                scenario,
+                ProductTypeId.CementBag);
+            StoreDeliveryWithWarehouseWorker(runtime, scenario, worker, stock);
+            CleanupCompletedDelivery(runtime, scenario, stock);
+
+            CustomerVisit visit = SpawnAndParkCustomer(runtime, scenario);
+            OpenConsultation(runtime, scenario, visit.Entity);
+            ConfirmConsultation(
+                runtime,
+                scenario,
+                visit.Entity,
+                runtime.StaticData.GetProject(
+                    CustomerProjectTypeId.CementFoundation).Offers[1]);
+            runtime.Systems.Create<GenerateCustomerLoadingTaskSystem>().Execute();
+            runtime.Systems.Create<AssignWarehouseTaskSystem>().Execute();
+            WarpWarehouseWorker(worker, worker.WarehouseWorkerStoragePosition);
+            runtime.Systems.Create<ExecuteCustomerLoadingTaskSystem>().Execute();
+            ExecuteProductPlacement(runtime);
+            runtime.Systems.Create<FollowWorkerCarriedProductSystem>().Execute();
+            runtime.Systems.Create<PresentHudSystem>().Execute();
+
+            GameEntity task = FindLiveCustomerLoadingTasks(runtime.Game).Single();
+            Require(task.WarehouseTaskStep ==
+                    WarehouseTaskStepId.MovingToCustomerLoading &&
+                    worker.WarehouseWorkerStatus ==
+                    WarehouseWorkerStatusId.MovingToCustomerLoading,
+                "Customer-loading visual check did not reach the carrying step.");
+            Selection.activeGameObject = worker.View.gameObject;
+            SceneView.lastActiveSceneView?.FrameSelected();
+            Debug.Log(
+                $"[Hardware Store] Customer-loading worker visual check prepared: " +
+                $"worker {worker.EntityId} carries product " +
+                $"{task.WarehouseTaskProductEntityId} from storage to visit " +
+                $"{visit.Entity.EntityId}.");
+        }
+
         [MenuItem("Tools/Hardware Store/Run Warehouse Worker Smoke Test")]
         public static void RunWarehouseWorkerSmokeTest()
         {
@@ -1105,6 +1152,27 @@ namespace HardwareStore.Editor
                 $"blocked-reservation intake, full-storage wait, exact-slot timeout recovery, " +
                 $"active-task report guard, blocked diagnostic report release, automatic " +
                 $"three-product stocking and Day 2 wage {config.DailyWage:N0} ₽.");
+        }
+
+        [MenuItem("Tools/Hardware Store/Run Warehouse Worker Customer Loading Smoke Test")]
+        public static void RunWarehouseWorkerCustomerLoadingSmokeTest()
+        {
+            Runtime runtime = ResolveRuntime();
+            Scenario scenario = ResolveFreshScenario(runtime);
+            OpenStoreForSmoke(runtime, scenario);
+            UnlockWarehouseWorkerHiring(runtime, scenario);
+            GameEntity worker = HireWarehouseWorker(runtime, scenario);
+
+            ValidateWarehouseWorkerCustomerLoadingFlow(
+                runtime,
+                scenario,
+                worker);
+
+            Debug.Log(
+                "[Hardware Store] Warehouse-worker customer-loading smoke passed: bay A/B " +
+                "ownership, outbound priority, no preemption, player/worker cooperative " +
+                "slots, StorageFull and closing work, recovery branches, exact reward and " +
+                "clean departure.");
         }
 
         [MenuItem("Tools/Hardware Store/Run Gameplay Smoke Test")]
@@ -1780,7 +1848,15 @@ namespace HardwareStore.Editor
                         upgradeExpensesBefore + config.HirePrice) &&
                     worker.isWorkerShiftActive &&
                     worker.WorkerPaidDayNumber == scenario.Store.DayNumber &&
-                    worker.WarehouseWorkerStatus == WarehouseWorkerStatusId.Idle,
+                    worker.WarehouseWorkerStatus == WarehouseWorkerStatusId.Idle &&
+                    worker.hasWarehouseWorkerCustomerLoadingPosition &&
+                    Vector3.Distance(
+                        worker.WarehouseWorkerCustomerLoadingPosition,
+                        new Vector3(6f, 0.02f, 1.62f)) < 0.001f &&
+                    worker.hasWarehouseWorkerCustomerLoadingRotation &&
+                    Quaternion.Angle(
+                        worker.WarehouseWorkerCustomerLoadingRotation,
+                        Quaternion.Euler(0f, 180f, 0f)) < 0.01f,
                 "Worker hire did not create one paid Day 1 employee and debit once.");
             RequireNotificationKey(runtime, LocalizationKey.NotificationWarehouseWorkerHired);
             CleanupEvents(runtime);
@@ -1832,6 +1908,391 @@ namespace HardwareStore.Editor
             scenario.Player.RemoveFocusedEntityId();
             ExecuteInteractionPrompts(runtime);
             return worker;
+        }
+
+        private static void ValidateWarehouseWorkerCustomerLoadingFlow(
+            Runtime runtime,
+            Scenario scenario,
+            GameEntity worker)
+        {
+            ProductTypeId cement = ProductTypeId.CementBag;
+            ProductTypeId boards = ProductTypeId.BoardBundle;
+            DeliveryArrival cementArrival = PurchaseAndPrepareArrival(
+                runtime,
+                scenario,
+                cement);
+            StoreDeliveryWithWarehouseWorker(
+                runtime,
+                scenario,
+                worker,
+                cementArrival);
+            CleanupCompletedDelivery(runtime, scenario, cementArrival);
+            Require(CountStockProducts(runtime.Game,
+                        scenario.StorageZone.EntityId,
+                        cement) == 3,
+                "Customer-loading smoke requires a complete three-unit cement batch.");
+
+            DeliveryArrival boardArrival = PurchaseAndPrepareArrival(
+                runtime,
+                scenario,
+                boards);
+            runtime.Systems.Create<GenerateInboundStorageTaskSystem>().Execute();
+            runtime.Systems.Create<AssignWarehouseTaskSystem>().Execute();
+            GameEntity assignedInbound = FindLiveWarehouseTasks(runtime.Game).Single();
+            Require(assignedInbound.hasAssignedWorkerEntityId &&
+                    assignedInbound.AssignedWorkerEntityId == worker.EntityId &&
+                    assignedInbound.WarehouseTaskStep ==
+                    WarehouseTaskStepId.MovingToPickup,
+                "The no-preemption setup did not assign its inbound task.");
+
+            CustomerVisit bayA = SpawnAndParkCustomer(runtime, scenario);
+            OpenConsultation(runtime, scenario, bayA.Entity);
+            GameEntity[] bayALines = ConfirmConsultation(
+                runtime,
+                scenario,
+                bayA.Entity,
+                runtime.StaticData.GetProject(
+                    CustomerProjectTypeId.CementFoundation).Offers[1]);
+            runtime.Systems.Create<GenerateCustomerLoadingTaskSystem>().Execute();
+            Require(FindLiveCustomerLoadingTasks(runtime.Game).Length == 0 &&
+                    assignedInbound.hasAssignedWorkerEntityId &&
+                    assignedInbound.AssignedWorkerEntityId == worker.EntityId &&
+                    assignedInbound.WarehouseTaskStep ==
+                    WarehouseTaskStepId.MovingToPickup &&
+                    worker.WarehouseWorkerStatus ==
+                    WarehouseWorkerStatusId.MovingToPickup,
+                "A newly available outbound order preempted an assigned inbound task.");
+
+            GameEntity firstBoard = CompleteAssignedInboundTask(
+                runtime,
+                scenario,
+                worker,
+                assignedInbound);
+            Require(firstBoard.ProductType == boards && firstBoard.isInStock,
+                "The no-preemption inbound task did not finish before outbound work.");
+
+            CustomerVisit bayB = SpawnCustomerToQueue(
+                runtime,
+                scenario,
+                promoteAtCounter: true);
+            OpenConsultation(runtime, scenario, bayB.Entity);
+            SelectConsultationOfferWithWraparound(
+                runtime,
+                scenario,
+                bayB.Entity,
+                selectedIndex: 2);
+            GameEntity[] bayBLines = ConfirmConsultation(
+                runtime,
+                scenario,
+                bayB.Entity,
+                runtime.StaticData.GetProject(
+                    CustomerProjectTypeId.LumberShelving).Offers[2],
+                advanceToLoadingBay: false);
+            ReturnAcceptedCustomerToParkingWait(runtime, scenario, bayB);
+
+            GameEntity[] cementStock = FindStockProducts(
+                    runtime.Game,
+                    scenario.StorageZone.EntityId)
+                .Where(product => product.ProductType == cement)
+                .OrderBy(product => product.StorageSlotIndex)
+                .ToArray();
+            Require(cementStock.Length == 3,
+                "Cooperative loading requires three deterministic cement candidates.");
+            GameEntity playerProduct = cementStock[0];
+            GameEntity looseExcluded = cementStock[1];
+            GameEntity trolleyExcluded = cementStock[2];
+            RequestInteraction(scenario.Player, playerProduct);
+            looseExcluded.isLooseProduct = true;
+            trolleyExcluded.AddTrolleyEntityId(int.MinValue + 101);
+            trolleyExcluded.AddTrolleySlotIndex(0);
+            runtime.Systems.Create<GenerateCustomerLoadingTaskSystem>().Execute();
+            Require(FindLiveCustomerLoadingTasks(runtime.Game).Length == 0,
+                "Outbound generation selected player-requested, loose or trolley cargo.");
+            looseExcluded.isLooseProduct = false;
+            looseExcluded.AddCarrierEntityId(int.MinValue + 102);
+            trolleyExcluded.RemoveTrolleyEntityId();
+            trolleyExcluded.RemoveTrolleySlotIndex();
+            trolleyExcluded.isLooseProduct = true;
+            runtime.Systems.Create<GenerateCustomerLoadingTaskSystem>().Execute();
+            Require(FindLiveCustomerLoadingTasks(runtime.Game).Length == 0,
+                "Outbound generation selected player-requested, carried or loose cargo.");
+            looseExcluded.RemoveCarrierEntityId();
+            trolleyExcluded.isLooseProduct = false;
+
+            runtime.Systems.Create<GenerateCustomerLoadingTaskSystem>().Execute();
+            GameEntity outboundA = FindLiveCustomerLoadingTasks(runtime.Game).Single();
+            GameEntity workerProduct = runtime.Game.GetEntityWithEntityId(
+                outboundA.WarehouseTaskProductEntityId);
+            Require(outboundA.WarehouseTaskCustomerVisitEntityId == bayA.Entity.EntityId &&
+                    outboundA.WarehouseTaskOrderLineEntityId == bayALines.Single().EntityId &&
+                    outboundA.WarehouseTaskReservedLoadingSlotIndex == 0 &&
+                    workerProduct != playerProduct &&
+                    !workerProduct.isInteractable &&
+                    workerProduct.hasReservedStorageSlotIndex &&
+                    workerProduct.hasReservedOrderLineEntityId &&
+                    runtime.Game.GetEntitiesWithWarehouseTaskCustomerVisitEntityId(
+                        bayB.Entity.EntityId).Count == 0,
+                "Outbound generation ignored bay ownership, FIFO line or player-first cargo.");
+
+            GameEntity priorityInboundProduct = boardArrival.Products
+                .Where(product => product.isInboundProduct &&
+                                  product.hasDeliverySlotIndex &&
+                                  product.isInteractable)
+                .OrderBy(product => product.DeliverySlotIndex)
+                .First();
+            int priorityStorageSlot = FindFirstFreeStorageSlot(
+                runtime.Game,
+                scenario.StorageZone);
+            GameEntity priorityInbound = runtime.WarehouseTasks.CreateInboundToStorage(
+                scenario.Store.EntityId,
+                priorityInboundProduct.EntityId,
+                scenario.StorageZone.EntityId,
+                priorityStorageSlot);
+            priorityInboundProduct.isInteractable = false;
+            runtime.Systems.Create<AssignWarehouseTaskSystem>().Execute();
+            Require(outboundA.hasAssignedWorkerEntityId &&
+                    outboundA.AssignedWorkerEntityId == worker.EntityId &&
+                    outboundA.WarehouseTaskStep ==
+                    WarehouseTaskStepId.MovingToPickup &&
+                    !priorityInbound.hasAssignedWorkerEntityId &&
+                    priorityInbound.WarehouseTaskStep ==
+                    WarehouseTaskStepId.Available,
+                "An idle worker did not prioritize outbound work over available inbound work.");
+            priorityInbound.isDestructed = true;
+            priorityInboundProduct.isInteractable = true;
+
+            runtime.Systems.Create<PickUpProductSystem>().Execute();
+            Require(playerProduct.hasCarrierEntityId &&
+                    playerProduct.CarrierEntityId == scenario.Player.EntityId &&
+                    scenario.Player.isHandsOccupied &&
+                    playerProduct.hasReservedOrderLineEntityId &&
+                    playerProduct.ReservedOrderLineEntityId == bayALines.Single().EntityId,
+                "The player's same-frame request did not reserve its exact product.");
+            runtime.Systems.Create<CleanupDestructedEntitiesSystem>().Cleanup();
+            CleanupEvents(runtime);
+
+            WarpWarehouseWorker(worker, worker.WarehouseWorkerStoragePosition);
+            runtime.Systems.Create<ExecuteCustomerLoadingTaskSystem>().Execute();
+            ExecuteProductPlacement(runtime);
+            runtime.Systems.Create<FollowWorkerCarriedProductSystem>().Execute();
+            Require(outboundA.WarehouseTaskStep ==
+                    WarehouseTaskStepId.MovingToCustomerLoading &&
+                    worker.WarehouseWorkerStatus ==
+                    WarehouseWorkerStatusId.MovingToCustomerLoading &&
+                    workerProduct.hasCarrierEntityId &&
+                    workerProduct.CarrierEntityId == worker.EntityId,
+                "The outbound task did not pick its reserved shelf product.");
+
+            RequestInteraction(scenario.Player, bayA.Entity);
+            runtime.Systems.Create<LoadHeldProductSystem>().Execute();
+            WarpWarehouseWorker(worker,
+                worker.WarehouseWorkerCustomerLoadingPosition);
+            runtime.Systems.Create<ExecuteCustomerLoadingTaskSystem>().Execute();
+            GameEntity[] cooperativeProducts = { playerProduct, workerProduct };
+            Require(cooperativeProducts.All(product =>
+                        product.isLoaded && product.isProductLoaded &&
+                        product.hasLoadingSlotIndex &&
+                        product.hasOrderLineEntityId) &&
+                    cooperativeProducts.Select(product => product.LoadingSlotIndex)
+                        .OrderBy(index => index).SequenceEqual(new[] { 0, 1 }) &&
+                    outboundA.isDestructed &&
+                    !worker.isHandsOccupied && !worker.isCarryingProduct,
+                "Player and worker did not produce distinct deterministic pending slots.");
+            runtime.Systems.Create<RegisterLoadedProductSystem>().Execute();
+            Require(!playerProduct.isProductLoaded &&
+                    !workerProduct.isProductLoaded &&
+                    bayALines.Single().LoadedProductCount == 2,
+                "One registration pass did not consume both cooperative pending products.");
+            runtime.Systems.Create<CompleteOrderSystem>().Execute();
+            runtime.Systems.Create<CleanupDestructedEntitiesSystem>().Cleanup();
+            ExecuteProductPlacement(runtime);
+            ExecuteStorageState(runtime);
+            CleanupEvents(runtime);
+            Require(bayA.Entity.isCustomerVisitCompleted &&
+                    !bayA.Entity.isCustomerVisitLoading,
+                "The cooperative two-product order did not complete exactly once.");
+            RewardCustomerOrder(runtime, scenario, bayA.Entity, cooperativeProducts);
+            DepartAndCleanupCustomer(
+                runtime,
+                scenario,
+                bayA,
+                bayALines,
+                cooperativeProducts);
+
+            ValidateWaitingBayPromotion(runtime, scenario, bayB);
+            ValidateOutboundRecoveryAndClosing(
+                runtime,
+                scenario,
+                worker,
+                boardArrival,
+                bayB,
+                bayBLines,
+                firstBoard);
+        }
+
+        private static void ValidateOutboundRecoveryAndClosing(
+            Runtime runtime,
+            Scenario scenario,
+            GameEntity worker,
+            DeliveryArrival boardArrival,
+            CustomerVisit visit,
+            GameEntity[] orderLines,
+            GameEntity initialShelfProduct)
+        {
+            GameEntity line = orderLines.Single();
+            Require(visit.Entity.isCustomerVisitLoading &&
+                    line.ProductType == ProductTypeId.BoardBundle &&
+                    line.RequiredProductCount == 3 &&
+                    line.LoadedProductCount == 0 &&
+                    initialShelfProduct.isInStock &&
+                    initialShelfProduct.hasStorageSlotIndex,
+                "Bay-B recovery matrix requires one stocked board for a three-board order.");
+
+            GameEntity[] sentinels = FillFreeStorageSlotsWithSentinels(
+                runtime,
+                scenario.StorageZone);
+            ExecuteStorageState(runtime);
+            Require(scenario.StorageZone.OccupiedStorageSlotCount ==
+                    scenario.StorageZone.Slots.Length,
+                "StorageFull outbound smoke did not occupy every authored shelf slot.");
+            runtime.Systems.Create<GenerateInboundStorageTaskSystem>().Execute();
+            Require(worker.WarehouseWorkerStatus ==
+                    WarehouseWorkerStatusId.StorageFull &&
+                    FindLiveWarehouseTasks(runtime.Game).Length == 0,
+                "Full storage did not hold inbound work in StorageFull state.");
+            runtime.Systems.Create<GenerateCustomerLoadingTaskSystem>().Execute();
+            GameEntity timeoutTask = FindLiveCustomerLoadingTasks(runtime.Game).Single();
+            Require(worker.WarehouseWorkerStatus == WarehouseWorkerStatusId.Idle &&
+                    timeoutTask.WarehouseTaskProductEntityId ==
+                    initialShelfProduct.EntityId,
+                "StorageFull prevented an eligible outbound task.");
+            runtime.Systems.Create<AssignWarehouseTaskSystem>().Execute();
+            RecoverTimedOutCustomerLoadingTask(
+                runtime,
+                scenario,
+                worker,
+                timeoutTask,
+                initialShelfProduct);
+
+            GameEntity workerMissingBeforePickup = CreateAssignedCustomerLoadingTask(
+                runtime,
+                worker,
+                visit.Entity);
+            RecoverWorkerMissingCustomerLoadingTask(
+                runtime,
+                scenario,
+                worker,
+                workerMissingBeforePickup,
+                initialShelfProduct,
+                afterPickup: false);
+
+            GameEntity workerMissingAfterPickup = CreateAssignedCustomerLoadingTask(
+                runtime,
+                worker,
+                visit.Entity);
+            RecoverWorkerMissingCustomerLoadingTask(
+                runtime,
+                scenario,
+                worker,
+                workerMissingAfterPickup,
+                initialShelfProduct,
+                afterPickup: true);
+
+            GameEntity noPathTask = CreateAssignedCustomerLoadingTask(
+                runtime,
+                worker,
+                visit.Entity);
+            GameEntity firstLoadedBoard = RecoverNoPathAndCompleteManualHandoff(
+                runtime,
+                scenario,
+                worker,
+                noPathTask,
+                visit.Entity,
+                line,
+                initialShelfProduct);
+            Require(line.LoadedProductCount == 1 &&
+                    visit.Entity.isCustomerVisitLoading &&
+                    !visit.Entity.isCustomerVisitCompleted,
+                "Recovery matrix completed bay B before the final two products.");
+
+            foreach (GameEntity sentinel in sentinels)
+                sentinel.isDestructed = true;
+            runtime.Systems.Create<CleanupDestructedEntitiesSystem>().Cleanup();
+            ExecuteStorageState(runtime);
+            runtime.Systems.Create<GenerateCustomerLoadingTaskSystem>().Execute();
+            Require(FindLiveCustomerLoadingTasks(runtime.Game).Length == 0,
+                "Bay B generated outbound work despite missing board stock.");
+
+            runtime.Systems.Create<GenerateInboundStorageTaskSystem>().Execute();
+            runtime.Systems.Create<AssignWarehouseTaskSystem>().Execute();
+            GameEntity missingStockInbound = FindLiveWarehouseTasks(runtime.Game).Single();
+            GameEntity secondShelfBoard = CompleteAssignedInboundTask(
+                runtime,
+                scenario,
+                worker,
+                missingStockInbound);
+            Require(secondShelfBoard.ProductType == ProductTypeId.BoardBundle &&
+                    secondShelfBoard.isInStock,
+                "Missing stock did not flow through inbound work into an outbound candidate.");
+
+            GameEntity thirdShelfBoard = boardArrival.Products.Single(product =>
+                product.isInboundProduct && product.hasDeliverySlotIndex &&
+                product.isInteractable);
+            StockInboundProductManually(
+                runtime,
+                scenario,
+                thirdShelfBoard);
+            CleanupCompletedDelivery(runtime, scenario, boardArrival);
+            Require(CountStockProducts(runtime.Game,
+                        scenario.StorageZone.EntityId,
+                        ProductTypeId.BoardBundle) == 2,
+                "Closing setup did not preserve exactly two outstanding board products.");
+
+            AdvanceStoreFrom1959ToClosing(runtime, scenario);
+            var loadedProducts = new List<GameEntity> { firstLoadedBoard };
+            loadedProducts.Add(CompleteOneCustomerLoadingTask(
+                runtime,
+                scenario,
+                worker,
+                visit.Entity,
+                line,
+                expectCompleted: false));
+            loadedProducts.Add(CompleteOneCustomerLoadingTask(
+                runtime,
+                scenario,
+                worker,
+                visit.Entity,
+                line,
+                expectCompleted: true));
+            Require(scenario.Store.isStoreClosing &&
+                    scenario.Store.CurrentDayMinute == 20 * 60 &&
+                    line.LoadedProductCount == 3 &&
+                    visit.Entity.isCustomerVisitCompleted &&
+                    !visit.Entity.isCustomerVisitLoading,
+                "Closing did not allow multiple sequential outbound tasks to finish bay B.");
+
+            RewardCustomerOrder(
+                runtime,
+                scenario,
+                visit.Entity,
+                loadedProducts.ToArray());
+            DepartAndCleanupCustomer(
+                runtime,
+                scenario,
+                visit,
+                orderLines,
+                loadedProducts.ToArray());
+            runtime.Systems.Create<ValidateWarehouseWorkerStateSystem>().Execute();
+            Require(FindLiveWarehouseTasks(runtime.Game).Length == 0 &&
+                    FindLiveCustomerLoadingTasks(runtime.Game).Length == 0 &&
+                    runtime.Game.GetGroup(GameMatcher.AssignedWorkerEntityId).count == 0 &&
+                    runtime.Game.GetGroup(GameMatcher.WarehouseTaskReservedLoadingSlotIndex)
+                        .count == 0 &&
+                    runtime.Game.GetGroup(GameMatcher.CarrierEntityId).count == 0 &&
+                    runtime.Game.GetGroup(GameMatcher.ReservedOrderLineEntityId).count == 0 &&
+                    !worker.isHandsOccupied && !worker.isCarryingProduct &&
+                    worker.WarehouseWorkerStatus == WarehouseWorkerStatusId.Idle,
+                "Outbound smoke left task, carrier, loading-slot or order reservations behind.");
         }
 
         private static void ValidateWarehouseWorkerStorageFull(
@@ -1936,7 +2397,7 @@ namespace HardwareStore.Editor
             ExecuteProductPlacement(runtime);
             CleanupEvents(runtime);
 
-            runtime.Systems.Create<ExecuteWarehouseWorkerTaskSystem>().Execute();
+            runtime.Systems.Create<AssignWarehouseTaskSystem>().Execute();
             Require(task.hasAssignedWorkerEntityId &&
                     task.AssignedWorkerEntityId == worker.EntityId &&
                     task.WarehouseTaskStep == WarehouseTaskStepId.MovingToPickup &&
@@ -1944,7 +2405,7 @@ namespace HardwareStore.Editor
                 "Worker did not take the oldest available inbound task.");
 
             WarpWarehouseWorker(worker, worker.WarehouseWorkerPickupPosition);
-            runtime.Systems.Create<ExecuteWarehouseWorkerTaskSystem>().Execute();
+            runtime.Systems.Create<ExecuteInboundStorageTaskSystem>().Execute();
             ExecuteProductPlacement(runtime);
             runtime.Systems.Create<FollowWorkerCarriedProductSystem>().Execute();
             Require(task.WarehouseTaskStep == WarehouseTaskStepId.MovingToStorage &&
@@ -1966,8 +2427,8 @@ namespace HardwareStore.Editor
                 task);
 
             task.ReplaceWarehouseTaskTimeoutRemaining(0f);
-            runtime.Systems.Create<ExecuteWarehouseWorkerTaskSystem>().Execute();
-            runtime.Systems.Create<RecoverBlockedWarehouseTaskSystem>().Execute();
+            runtime.Systems.Create<TickWarehouseTaskTimeoutSystem>().Execute();
+            runtime.Systems.Create<RecoverBlockedInboundTaskSystem>().Execute();
             runtime.Systems.Create<ValidateWarehouseWorkerStateSystem>().Execute();
             Require(task.WarehouseTaskStep == WarehouseTaskStepId.Blocked &&
                     task.WarehouseTaskBlockReason == WarehouseTaskBlockReasonId.TimedOut &&
@@ -2195,6 +2656,512 @@ namespace HardwareStore.Editor
                 .GetEntities()
                 .OrderBy(task => task.EntityId)
                 .ToArray();
+
+        private static GameEntity[] FindLiveCustomerLoadingTasks(
+            GameContext context) =>
+            context.GetGroup(GameMatcher.AllOf(
+                    GameMatcher.WarehouseTask,
+                    GameMatcher.StockToCustomerLoadingTask,
+                    GameMatcher.EntityId,
+                    GameMatcher.WarehouseTaskProductEntityId,
+                    GameMatcher.WarehouseTaskCustomerVisitEntityId,
+                    GameMatcher.WarehouseTaskOrderLineEntityId,
+                    GameMatcher.WarehouseTaskStep)
+                .NoneOf(GameMatcher.Destructed))
+                .GetEntities()
+                .OrderBy(task => task.EntityId)
+                .ToArray();
+
+        private static int FindFirstFreeStorageSlot(
+            GameContext context,
+            GameEntity storageZone)
+        {
+            var occupied = new HashSet<int>();
+            foreach (GameEntity product in FindStockProducts(
+                         context,
+                         storageZone.EntityId))
+            {
+                if (product.hasStorageSlotIndex)
+                    occupied.Add(product.StorageSlotIndex);
+                if (product.hasReservedStorageSlotIndex)
+                    occupied.Add(product.ReservedStorageSlotIndex);
+            }
+            foreach (GameEntity task in context.GetGroup(GameMatcher.AllOf(
+                         GameMatcher.WarehouseTask,
+                         GameMatcher.WarehouseTaskStorageZoneEntityId,
+                         GameMatcher.WarehouseTaskReservedStorageSlotIndex)
+                     .NoneOf(GameMatcher.Destructed)).GetEntities())
+            {
+                if (task.WarehouseTaskStorageZoneEntityId == storageZone.EntityId)
+                    occupied.Add(task.WarehouseTaskReservedStorageSlotIndex);
+            }
+
+            for (int slotIndex = 0;
+                 slotIndex < storageZone.Slots.Length;
+                 slotIndex++)
+            {
+                if (!occupied.Contains(slotIndex))
+                    return slotIndex;
+            }
+            throw new InvalidOperationException(
+                $"Storage zone {storageZone.EntityId} has no free smoke-test slot.");
+        }
+
+        private static GameEntity CompleteAssignedInboundTask(
+            Runtime runtime,
+            Scenario scenario,
+            GameEntity worker,
+            GameEntity task)
+        {
+            Require(task.isInboundToStorageTask &&
+                    !task.isStockToCustomerLoadingTask &&
+                    task.hasAssignedWorkerEntityId &&
+                    task.AssignedWorkerEntityId == worker.EntityId &&
+                    task.WarehouseTaskStep == WarehouseTaskStepId.MovingToPickup,
+                "Only an assigned inbound task can be completed by this smoke helper.");
+            GameEntity product = runtime.Game.GetEntityWithEntityId(
+                task.WarehouseTaskProductEntityId);
+            WarpWarehouseWorker(worker, worker.WarehouseWorkerPickupPosition);
+            runtime.Systems.Create<ExecuteInboundStorageTaskSystem>().Execute();
+            ExecuteProductPlacement(runtime);
+            runtime.Systems.Create<FollowWorkerCarriedProductSystem>().Execute();
+            Require(task.WarehouseTaskStep == WarehouseTaskStepId.MovingToStorage &&
+                    product.hasCarrierEntityId &&
+                    product.CarrierEntityId == worker.EntityId,
+                "Assigned inbound task did not pick its exact delivery product.");
+            WarpWarehouseWorker(worker, worker.WarehouseWorkerStoragePosition);
+            runtime.Systems.Create<ExecuteInboundStorageTaskSystem>().Execute();
+            Require(task.isDestructed && product.isProductStocked &&
+                    product.isInStock && product.hasStorageSlotIndex &&
+                    worker.WarehouseWorkerStatus == WarehouseWorkerStatusId.Idle &&
+                    !worker.isHandsOccupied && !worker.isCarryingProduct,
+                "Assigned inbound task did not settle product and worker state.");
+            runtime.Systems.Create<CleanupDestructedEntitiesSystem>().Cleanup();
+            runtime.Systems.Create<RegisterStockedProductSystem>().Execute();
+            runtime.Systems.Create<CompleteDeliverySystem>().Execute();
+            ExecuteProductPlacement(runtime);
+            ExecuteStorageState(runtime);
+            CleanupEvents(runtime);
+            return product;
+        }
+
+        private static void ReturnAcceptedCustomerToParkingWait(
+            Runtime runtime,
+            Scenario scenario,
+            CustomerVisit visit)
+        {
+            GameEntity entity = visit.Entity;
+            GameEntity actor = runtime.Game.GetEntityWithCustomerActorVisitEntityId(
+                entity.EntityId);
+            Require(entity.isCustomerVisitReturning && actor != null &&
+                    actor.isCustomerWaitingAtCounter &&
+                    !entity.hasReservedCustomerLoadingBayEntityId,
+                "Bay-B customer did not begin from the accepted counter state.");
+            runtime.Systems.Create<ReserveCustomerLoadingBaySystem>().Execute();
+            Require(!entity.hasReservedCustomerLoadingBayEntityId,
+                "Bay-B customer stole the loading bay from active bay A.");
+            runtime.Systems.Create<BeginCustomerReturnSystem>().Execute();
+            runtime.Systems.Create<AdvanceCustomerQueueSystem>().Execute();
+            Require(actor.isCustomerReturningToVehicle &&
+                    actor.hasRoute && actor.hasRouteWaypointIndex,
+                "Bay-B actor did not start its authored return route.");
+            int actorId = actor.EntityId;
+            ForceRouteEndpoint(runtime, actor);
+            runtime.Systems.Create<CompleteCustomerReturnSystem>().Execute();
+            Require(entity.isCustomerVisitWaitingForLoadingBay &&
+                    !entity.hasReservedCustomerLoadingBayEntityId &&
+                    actor.isDestructed,
+                "Bay-B customer did not settle into parking-bay wait.");
+            runtime.Systems.Create<CleanupDestructedViewsSystem>().Cleanup();
+            runtime.Systems.Create<CleanupDestructedEntitiesSystem>().Cleanup();
+            Require(runtime.Game.GetEntityWithEntityId(actorId) == null &&
+                    !visit.ActorView.HasEntity,
+                "Bay-B returning actor survived cleanup.");
+            runtime.Systems.Create<MoveCustomerVehicleToLoadingBaySystem>().Execute();
+            Require(entity.isCustomerVisitWaitingForLoadingBay &&
+                    !entity.isCustomerVisitMovingToLoadingBay &&
+                    !entity.isCustomerVisitLoading,
+                "Bay-B vehicle moved before owning the loading bay.");
+            Require(runtime.Game.GetEntitiesWithWarehouseTaskCustomerVisitEntityId(
+                        entity.EntityId).Count == 0,
+                "Waiting bay-B customer already owned outbound work before its loading-bay " +
+                "eligibility check.");
+            runtime.Systems.Create<ValidateCustomerFlowStateSystem>().Execute();
+        }
+
+        private static void ValidateWaitingBayPromotion(
+            Runtime runtime,
+            Scenario scenario,
+            CustomerVisit visit)
+        {
+            GameEntity entity = visit.Entity;
+            Require(entity.isCustomerVisitWaitingForLoadingBay &&
+                    !entity.hasReservedCustomerLoadingBayEntityId &&
+                    FindLiveCustomerLoadingTasks(runtime.Game).Length == 0,
+                "Bay-B promotion did not start from a clean waiting state.");
+            runtime.Systems.Create<GenerateCustomerLoadingTaskSystem>().Execute();
+            Require(FindLiveCustomerLoadingTasks(runtime.Game).Length == 0,
+                "Bay-B waiting state generated outbound work before reservation.");
+            runtime.Systems.Create<ReserveCustomerLoadingBaySystem>().Execute();
+            Require(entity.hasReservedCustomerLoadingBayEntityId &&
+                    entity.isCustomerVisitWaitingForLoadingBay,
+                "Oldest bay-B customer did not reserve the released loading bay.");
+            runtime.Systems.Create<GenerateCustomerLoadingTaskSystem>().Execute();
+            Require(FindLiveCustomerLoadingTasks(runtime.Game).Length == 0,
+                "Reserved but parked bay-B customer generated outbound work.");
+            runtime.Systems.Create<MoveCustomerVehicleToLoadingBaySystem>().Execute();
+            Require(entity.isCustomerVisitMovingToLoadingBay &&
+                    !entity.isCustomerVisitWaitingForLoadingBay,
+                "Bay-B customer did not start its authored loading-bay route.");
+            runtime.Systems.Create<GenerateCustomerLoadingTaskSystem>().Execute();
+            Require(FindLiveCustomerLoadingTasks(runtime.Game).Length == 0,
+                "Moving bay-B customer generated outbound work before arrival.");
+            ForceRouteEndpoint(runtime, entity);
+            runtime.Systems.Create<CompleteCustomerLoadingBayArrivalSystem>().Execute();
+            Require(entity.isCustomerVisitLoading &&
+                    !entity.isCustomerVisitMovingToLoadingBay &&
+                    entity.isInteractable,
+                "Bay-B customer did not become loadable at the authored endpoint.");
+            runtime.Systems.Create<ValidateCustomerFlowStateSystem>().Execute();
+        }
+
+        private static GameEntity[] FillFreeStorageSlotsWithSentinels(
+            Runtime runtime,
+            GameEntity storageZone)
+        {
+            var occupied = new HashSet<int>();
+            foreach (GameEntity product in FindStockProducts(
+                         runtime.Game,
+                         storageZone.EntityId))
+            {
+                if (product.hasStorageSlotIndex)
+                    occupied.Add(product.StorageSlotIndex);
+                if (product.hasReservedStorageSlotIndex)
+                    occupied.Add(product.ReservedStorageSlotIndex);
+            }
+            int[] freeSlots = Enumerable.Range(0, storageZone.Slots.Length)
+                .Where(slotIndex => !occupied.Contains(slotIndex))
+                .ToArray();
+            int firstEntityId = runtime.Game.GetGroup(GameMatcher.EntityId)
+                .GetEntities().Min(entity => entity.EntityId) - freeSlots.Length - 1;
+            var sentinels = new GameEntity[freeSlots.Length];
+            for (int index = 0; index < freeSlots.Length; index++)
+            {
+                GameEntity sentinel = CreateEntity.Empty(firstEntityId + index)
+                    .AddProductType(ProductTypeId.CementBag)
+                    .AddStorageZoneEntityId(storageZone.EntityId)
+                    .AddStorageSlotIndex(freeSlots[index]);
+                sentinel.isProduct = true;
+                sentinel.isInStock = true;
+                sentinel.isInteractable = true;
+                sentinels[index] = sentinel;
+            }
+            return sentinels;
+        }
+
+        private static GameEntity CreateAssignedCustomerLoadingTask(
+            Runtime runtime,
+            GameEntity worker,
+            GameEntity visit)
+        {
+            Require(worker.WarehouseWorkerStatus == WarehouseWorkerStatusId.Idle &&
+                    visit.isCustomerVisitLoading &&
+                    FindLiveCustomerLoadingTasks(runtime.Game).Length == 0,
+                "Assigned outbound helper requires an idle worker and clean loading visit.");
+            runtime.Systems.Create<GenerateCustomerLoadingTaskSystem>().Execute();
+            GameEntity task = FindLiveCustomerLoadingTasks(runtime.Game).Single();
+            runtime.Systems.Create<AssignWarehouseTaskSystem>().Execute();
+            Require(task.hasAssignedWorkerEntityId &&
+                    task.AssignedWorkerEntityId == worker.EntityId &&
+                    task.WarehouseTaskStep == WarehouseTaskStepId.MovingToPickup &&
+                    worker.WarehouseWorkerStatus ==
+                    WarehouseWorkerStatusId.MovingToPickup,
+                "Outbound helper did not assign its single generated task.");
+            return task;
+        }
+
+        private static void RecoverTimedOutCustomerLoadingTask(
+            Runtime runtime,
+            Scenario scenario,
+            GameEntity worker,
+            GameEntity task,
+            GameEntity product)
+        {
+            int storageSlotIndex = product.ReservedStorageSlotIndex;
+            task.ReplaceWarehouseTaskTimeoutRemaining(0f);
+            runtime.Systems.Create<TickWarehouseTaskTimeoutSystem>().Execute();
+            Require(task.WarehouseTaskStep == WarehouseTaskStepId.Blocked &&
+                    task.WarehouseTaskBlockReason ==
+                    WarehouseTaskBlockReasonId.TimedOut,
+                "Outbound timeout did not block the assigned task.");
+            runtime.Systems.Create<RecoverBlockedCustomerLoadingTaskSystem>().Execute();
+            RequireRecoveredCustomerLoadingTask(
+                worker,
+                task,
+                product,
+                storageSlotIndex,
+                WarehouseTaskBlockReasonId.TimedOut);
+            CompleteBlockedManualHandoffAndRestoreShelf(
+                runtime,
+                scenario,
+                worker,
+                task,
+                product,
+                storageSlotIndex);
+        }
+
+        private static void RecoverWorkerMissingCustomerLoadingTask(
+            Runtime runtime,
+            Scenario scenario,
+            GameEntity worker,
+            GameEntity task,
+            GameEntity product,
+            bool afterPickup)
+        {
+            int storageSlotIndex = product.ReservedStorageSlotIndex;
+            if (afterPickup)
+            {
+                WarpWarehouseWorker(worker, worker.WarehouseWorkerStoragePosition);
+                runtime.Systems.Create<ExecuteCustomerLoadingTaskSystem>().Execute();
+                Require(task.WarehouseTaskStep ==
+                        WarehouseTaskStepId.MovingToCustomerLoading &&
+                        product.hasCarrierEntityId &&
+                        product.CarrierEntityId == worker.EntityId,
+                    "Post-pickup WorkerMissing setup did not reach carried outbound state.");
+            }
+
+            worker.isDestructed = true;
+            runtime.Systems.Create<DetectOrphanedWarehouseTaskSystem>().Execute();
+            Require(task.WarehouseTaskStep == WarehouseTaskStepId.Blocked &&
+                    task.WarehouseTaskBlockReason ==
+                    WarehouseTaskBlockReasonId.WorkerMissing,
+                afterPickup
+                    ? "Post-pickup missing worker did not block its outbound task."
+                    : "Pre-pickup missing worker did not block its outbound task.");
+            runtime.Systems.Create<RecoverBlockedCustomerLoadingTaskSystem>().Execute();
+            worker.isDestructed = false;
+            worker.isHandsOccupied = false;
+            worker.isCarryingProduct = false;
+            worker.ReplaceWarehouseWorkerStatus(WarehouseWorkerStatusId.Blocked);
+            RequireRecoveredCustomerLoadingTask(
+                worker,
+                task,
+                product,
+                storageSlotIndex,
+                WarehouseTaskBlockReasonId.WorkerMissing);
+            CompleteBlockedManualHandoffAndRestoreShelf(
+                runtime,
+                scenario,
+                worker,
+                task,
+                product,
+                storageSlotIndex);
+        }
+
+        private static GameEntity RecoverNoPathAndCompleteManualHandoff(
+            Runtime runtime,
+            Scenario scenario,
+            GameEntity worker,
+            GameEntity task,
+            GameEntity visit,
+            GameEntity line,
+            GameEntity product)
+        {
+            int storageSlotIndex = product.ReservedStorageSlotIndex;
+            WarpWarehouseWorker(worker, worker.WarehouseWorkerStoragePosition);
+            runtime.Systems.Create<ExecuteCustomerLoadingTaskSystem>().Execute();
+            Require(task.WarehouseTaskStep ==
+                    WarehouseTaskStepId.MovingToCustomerLoading &&
+                    product.hasCarrierEntityId &&
+                    product.CarrierEntityId == worker.EntityId,
+                "No-path recovery setup did not pick the outbound product.");
+            new ExecuteCustomerLoadingTaskSystem(
+                runtime.Game,
+                runtime.StaticData,
+                new RejectDestinationWorkerNavigationService()).Execute();
+            Require(task.WarehouseTaskStep == WarehouseTaskStepId.Blocked &&
+                    task.WarehouseTaskBlockReason ==
+                    WarehouseTaskBlockReasonId.NoCustomerLoadingPath,
+                "Unavailable loading path did not block the carried outbound task.");
+            runtime.Systems.Create<RecoverBlockedCustomerLoadingTaskSystem>().Execute();
+            RequireRecoveredCustomerLoadingTask(
+                worker,
+                task,
+                product,
+                storageSlotIndex,
+                WarehouseTaskBlockReasonId.NoCustomerLoadingPath);
+
+            RequestInteraction(scenario.Player, product);
+            runtime.Systems.Create<PickUpProductSystem>().Execute();
+            Require(product.hasCarrierEntityId &&
+                    product.CarrierEntityId == scenario.Player.EntityId &&
+                    scenario.Player.isHandsOccupied,
+                "Player did not take the recovered no-path product.");
+            runtime.Systems.Create<CleanupBlockedWarehouseTaskSystem>().Execute();
+            Require(task.isDestructed &&
+                    worker.WarehouseWorkerStatus == WarehouseWorkerStatusId.Idle,
+                "Manual no-path handoff did not release diagnostic task and worker.");
+            runtime.Systems.Create<CleanupDestructedEntitiesSystem>().Cleanup();
+            RequestInteraction(scenario.Player, visit);
+            runtime.Systems.Create<LoadHeldProductSystem>().Execute();
+            Require(product.isProductLoaded && product.isLoaded &&
+                    product.OrderLineEntityId == line.EntityId &&
+                    product.hasLoadingSlotIndex &&
+                    !scenario.Player.isHandsOccupied,
+                "Recovered no-path product did not load through the player handoff.");
+            runtime.Systems.Create<RegisterLoadedProductSystem>().Execute();
+            runtime.Systems.Create<CompleteOrderSystem>().Execute();
+            ExecuteProductPlacement(runtime);
+            ExecuteStorageState(runtime);
+            CleanupEvents(runtime);
+            return product;
+        }
+
+        private static void RequireRecoveredCustomerLoadingTask(
+            GameEntity worker,
+            GameEntity task,
+            GameEntity product,
+            int storageSlotIndex,
+            WarehouseTaskBlockReasonId expectedReason)
+        {
+            Require(task.WarehouseTaskStep == WarehouseTaskStepId.Blocked &&
+                    task.WarehouseTaskBlockReason == expectedReason &&
+                    !task.hasAssignedWorkerEntityId &&
+                    !task.hasWarehouseTaskReservedLoadingSlotIndex &&
+                    worker.WarehouseWorkerStatus == WarehouseWorkerStatusId.Blocked &&
+                    !worker.isHandsOccupied && !worker.isCarryingProduct &&
+                    product.isInStock && product.isInteractable &&
+                    product.hasStorageSlotIndex &&
+                    product.StorageSlotIndex == storageSlotIndex &&
+                    !product.hasReservedStorageSlotIndex &&
+                    !product.hasReservedOrderLineEntityId &&
+                    !product.hasCarrierEntityId,
+                $"{expectedReason} recovery did not restore the exact shelf slot and release " +
+                "worker/task reservations.");
+        }
+
+        private static void CompleteBlockedManualHandoffAndRestoreShelf(
+            Runtime runtime,
+            Scenario scenario,
+            GameEntity worker,
+            GameEntity task,
+            GameEntity product,
+            int expectedStorageSlotIndex)
+        {
+            RequestInteraction(scenario.Player, product);
+            runtime.Systems.Create<PickUpProductSystem>().Execute();
+            Require(product.hasCarrierEntityId &&
+                    product.CarrierEntityId == scenario.Player.EntityId &&
+                    product.hasReservedStorageSlotIndex &&
+                    product.ReservedStorageSlotIndex == expectedStorageSlotIndex &&
+                    product.hasReservedOrderLineEntityId,
+                "Manual blocked-task handoff did not reserve the recovered shelf product.");
+            runtime.Systems.Create<CleanupBlockedWarehouseTaskSystem>().Execute();
+            Require(task.isDestructed &&
+                    worker.WarehouseWorkerStatus == WarehouseWorkerStatusId.Idle,
+                "Manual handoff did not clean the blocked task or release its worker.");
+            runtime.Systems.Create<CleanupDestructedEntitiesSystem>().Cleanup();
+
+            product.RemoveCarrierEntityId();
+            scenario.Player.isHandsOccupied = false;
+            scenario.Player.isCarryingProduct = false;
+            product.RemoveReservedStorageSlotIndex();
+            product.RemoveReservedOrderLineEntityId();
+            product.AddStorageSlotIndex(expectedStorageSlotIndex);
+            product.isInteractable = true;
+            product.isProductPlacementDirty = true;
+            ExecuteProductPlacement(runtime);
+            ExecuteStorageState(runtime);
+            CleanupEvents(runtime);
+            Require(product.isInStock && product.hasStorageSlotIndex &&
+                    product.StorageSlotIndex == expectedStorageSlotIndex &&
+                    !product.hasCarrierEntityId && !product.isProductPlacementDirty &&
+                    FindLiveCustomerLoadingTasks(runtime.Game).Length == 0,
+                "Smoke handback did not restore a reusable exact shelf state.");
+        }
+
+        private static void StockInboundProductManually(
+            Runtime runtime,
+            Scenario scenario,
+            GameEntity product)
+        {
+            Require(product.isInboundProduct && product.hasDeliverySlotIndex &&
+                    product.isInteractable,
+                "Manual stocking helper requires an available inbound product.");
+            PickUpProduct(runtime, scenario, product);
+            RequestInteraction(scenario.Player, scenario.StorageZone);
+            runtime.Systems.Create<StoreInboundProductSystem>().Execute();
+            Require(product.isProductStocked && product.isInStock &&
+                    product.hasStorageSlotIndex && !scenario.Player.isHandsOccupied,
+                "Player did not stock the final closing-setup product.");
+            runtime.Systems.Create<RegisterStockedProductSystem>().Execute();
+            runtime.Systems.Create<CompleteDeliverySystem>().Execute();
+            ExecuteProductPlacement(runtime);
+            ExecuteStorageState(runtime);
+            CleanupEvents(runtime);
+        }
+
+        private static void AdvanceStoreFrom1959ToClosing(
+            Runtime runtime,
+            Scenario scenario)
+        {
+            StoreDayConfig config = runtime.StaticData.StoreDay;
+            scenario.Store.ReplaceCurrentDayMinute(19 * 60 + 59);
+            float secondsPerMinute = config.DayDurationSeconds /
+                                     (config.ClosingMinute - config.StartMinute);
+            new TickStoreDayClockSystem(
+                runtime.Game,
+                runtime.StaticData,
+                new FixedTimeService(secondsPerMinute)).Execute();
+            runtime.Systems.Create<ReachStoreClosingTimeSystem>().Execute();
+            Require(scenario.Store.isStoreClosing && !scenario.Store.isStoreOpen &&
+                    scenario.Store.CurrentDayMinute == config.ClosingMinute &&
+                    !scenario.Store.hasCustomerCooldownRemaining,
+                "19:59 -> 20:00 did not enter Closing without scheduling customers.");
+            CleanupEvents(runtime);
+        }
+
+        private static GameEntity CompleteOneCustomerLoadingTask(
+            Runtime runtime,
+            Scenario scenario,
+            GameEntity worker,
+            GameEntity visit,
+            GameEntity line,
+            bool expectCompleted)
+        {
+            Require(scenario.Store.isStoreClosing &&
+                    worker.WarehouseWorkerStatus == WarehouseWorkerStatusId.Idle,
+                "Closing outbound helper requires an idle active-shift worker.");
+            GameEntity task = CreateAssignedCustomerLoadingTask(
+                runtime,
+                worker,
+                visit);
+            GameEntity product = runtime.Game.GetEntityWithEntityId(
+                task.WarehouseTaskProductEntityId);
+            WarpWarehouseWorker(worker, worker.WarehouseWorkerStoragePosition);
+            runtime.Systems.Create<ExecuteCustomerLoadingTaskSystem>().Execute();
+            WarpWarehouseWorker(worker,
+                worker.WarehouseWorkerCustomerLoadingPosition);
+            runtime.Systems.Create<ExecuteCustomerLoadingTaskSystem>().Execute();
+            Require(task.isDestructed && product.isProductLoaded &&
+                    product.isLoaded && product.OrderLineEntityId == line.EntityId &&
+                    product.hasLoadingSlotIndex &&
+                    worker.WarehouseWorkerStatus == WarehouseWorkerStatusId.Idle,
+                "Closing outbound task did not pick and load its exact product.");
+            runtime.Systems.Create<RegisterLoadedProductSystem>().Execute();
+            runtime.Systems.Create<CompleteOrderSystem>().Execute();
+            runtime.Systems.Create<CleanupDestructedEntitiesSystem>().Cleanup();
+            ExecuteProductPlacement(runtime);
+            ExecuteStorageState(runtime);
+            CleanupEvents(runtime);
+            Require(visit.isCustomerVisitCompleted == expectCompleted &&
+                    visit.isCustomerVisitLoading != expectCompleted &&
+                    !product.isProductLoaded,
+                expectCompleted
+                    ? "Final closing outbound task did not complete the order."
+                    : "First closing outbound task completed the order too early.");
+            return product;
+        }
 
         private static void ValidateWarehouseWorkerDayTwoWage(
             Runtime runtime,
@@ -6823,25 +7790,44 @@ namespace HardwareStore.Editor
 
             scenario.Player.ReplaceFocusedEntityId(scenario.ProcurementTerminal.EntityId);
             ExecuteInteractionPrompts(runtime);
+            GameEntity activeDelivery =
+                runtime.Game.GetEntityWithDeliveryProcurementTerminalEntityId(
+                    scenario.ProcurementTerminal.EntityId);
+            LocalizedText expectedTerminalPrompt = activeDelivery == null
+                ? LocalizedTexts.Text(LocalizationKey.PromptOpenProcurement)
+                : LocalizedTexts.Text(
+                    LocalizationKey.PromptDeliveryBeingStocked,
+                    LocalizedTexts.ProductName(activeDelivery.ProductType),
+                    activeDelivery.StockedProductCount,
+                    activeDelivery.DeliveryProductCount,
+                    LocalizedTexts.ProductUnit(activeDelivery.ProductType));
             Require(PromptMatches(
                         runtime,
                         scenario.Player,
-                        LocalizedTexts.Text(LocalizationKey.PromptOpenProcurement)) &&
-                    scenario.Player.isFocusInteractionAvailable,
-                "A delivery-free terminal did not stay available while the customer returned.");
+                        expectedTerminalPrompt) &&
+                    scenario.Player.isFocusInteractionAvailable == (activeDelivery == null),
+                activeDelivery == null
+                    ? "A delivery-free terminal did not stay available while the customer " +
+                      "returned."
+                    : "An active delivery did not keep its procurement terminal blocked " +
+                      "while the customer returned.");
 
             scenario.Player.RemoveFocusedEntityId();
             ExecuteInteractionPrompts(runtime);
-            int moneyBeforeCatalog = scenario.Store.Money;
-            OpenProcurement(runtime, scenario);
-            ProcurementSnapshot snapshot = CaptureProcurementSnapshot(runtime, scenario);
-            Require(snapshot.DemandKind == ProcurementDemandKind.ConfirmedOrder &&
-                    snapshot.ProjectType == visit.CustomerProjectType &&
-                    scenario.Store.Money == moneyBeforeCatalog &&
-                    runtime.Game.GetEntityWithDeliveryProcurementTerminalEntityId(
-                        scenario.ProcurementTerminal.EntityId) == null,
-                "Returning-customer procurement did not preserve the confirmed order demand.");
-            CancelProcurement(runtime, scenario, moneyBeforeCatalog);
+            if (activeDelivery == null)
+            {
+                int moneyBeforeCatalog = scenario.Store.Money;
+                OpenProcurement(runtime, scenario);
+                ProcurementSnapshot snapshot = CaptureProcurementSnapshot(runtime, scenario);
+                Require(snapshot.DemandKind == ProcurementDemandKind.ConfirmedOrder &&
+                        snapshot.ProjectType == visit.CustomerProjectType &&
+                        scenario.Store.Money == moneyBeforeCatalog &&
+                        runtime.Game.GetEntityWithDeliveryProcurementTerminalEntityId(
+                            scenario.ProcurementTerminal.EntityId) == null,
+                    "Returning-customer procurement did not preserve the confirmed order " +
+                    "demand.");
+                CancelProcurement(runtime, scenario, moneyBeforeCatalog);
+            }
 
             Require(!visit.isInteractable,
                 "The loading zone remained interactable while the customer was returning.");
@@ -7312,9 +8298,14 @@ namespace HardwareStore.Editor
                     "Клиент ушёл из-за долгого ожидания" &&
                     localization.Resolve(LocalizedTexts.Text(
                         LocalizationKey.WorldCustomerDissatisfied)) ==
-                    "НЕДОВОЛЕН • МОЖЕТ УЙТИ",
+                    "НЕДОВОЛЕН • МОЖЕТ УЙТИ" &&
+                    localization.Resolve(LocalizedTexts.Text(
+                        LocalizationKey.HudWarehouseWorkerMovingToCustomerLoading,
+                        LocalizedTexts.ProductName(ProductTypeId.CementBag))) ==
+                    "Грузчик несёт в машину клиента: Цемент 25 кг",
                 "Russian customer-mood HUD, prompt, report, notification or world-label " +
-                "localization changed content or argument arity.");
+                "localization, or the outbound-worker status, changed content or argument " +
+                "arity.");
         }
 
         private static ILocalizationService CreateRussianLocalization()
@@ -7380,7 +8371,8 @@ namespace HardwareStore.Editor
                 container.Resolve<IInteractionPhysicsService>(),
                 container.Resolve<ITrolleyMotionService>(),
                 container.Resolve<ICustomerArrivalSchedule>(),
-                container.Resolve<ILocalizationService>());
+                container.Resolve<ILocalizationService>(),
+                container.Resolve<IWarehouseTaskFactory>());
         }
 
         private static GameEntity[] FindProducts(GameContext context) =>
@@ -7536,7 +8528,8 @@ namespace HardwareStore.Editor
                 IInteractionPhysicsService interactionPhysics,
                 ITrolleyMotionService trolleyMotion,
                 ICustomerArrivalSchedule customerArrivalSchedule,
-                ILocalizationService localization)
+                ILocalizationService localization,
+                IWarehouseTaskFactory warehouseTasks)
             {
                 Game = game;
                 Input = input;
@@ -7549,6 +8542,7 @@ namespace HardwareStore.Editor
                 TrolleyMotion = trolleyMotion;
                 CustomerArrivalSchedule = customerArrivalSchedule;
                 Localization = localization;
+                WarehouseTasks = warehouseTasks;
             }
 
             public GameContext Game { get; }
@@ -7562,6 +8556,7 @@ namespace HardwareStore.Editor
             public ITrolleyMotionService TrolleyMotion { get; }
             public ICustomerArrivalSchedule CustomerArrivalSchedule { get; }
             public ILocalizationService Localization { get; }
+            public IWarehouseTaskFactory WarehouseTasks { get; }
         }
 
         private sealed class CaptureHudService : IHudService
@@ -7639,6 +8634,40 @@ namespace HardwareStore.Editor
 
             public float DeltaTime { get; }
             public float UnscaledTime => 0f;
+        }
+
+        private sealed class RejectDestinationWorkerNavigationService :
+            IWorkerNavigationService
+        {
+            public void Configure(UnityEngine.AI.NavMeshAgent agent,
+                float speed, float acceleration, float angularSpeed,
+                float stoppingDistance)
+            {
+            }
+
+            public bool TryEnsurePlacedOnNavMesh(
+                UnityEngine.AI.NavMeshAgent agent,
+                Vector3 position,
+                float sampleRadius) => true;
+
+            public bool TrySetDestination(
+                UnityEngine.AI.NavMeshAgent agent,
+                Vector3 destination,
+                float sampleRadius) => false;
+
+            public WorkerNavigationStateId GetState(
+                UnityEngine.AI.NavMeshAgent agent) =>
+                WorkerNavigationStateId.PathUnavailable;
+
+            public bool HasReachedDestination(
+                UnityEngine.AI.NavMeshAgent agent,
+                Vector3 currentPosition,
+                Vector3 destination,
+                float fallbackTolerance) => false;
+
+            public void Stop(UnityEngine.AI.NavMeshAgent agent)
+            {
+            }
         }
 
         private readonly struct CustomerVisit

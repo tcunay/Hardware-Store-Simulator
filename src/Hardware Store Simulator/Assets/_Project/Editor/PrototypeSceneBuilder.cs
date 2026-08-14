@@ -209,7 +209,8 @@ namespace HardwareStore.Editor
                 BuildInboundDeliveryBay(environment.transform, asphalt, yellow);
             (SpawnPointMarker workerIdlePoint,
                     SpawnPointMarker workerDeliveryAccessPoint,
-                    SpawnPointMarker workerStorageAccessPoint) =
+                    SpawnPointMarker workerStorageAccessPoint,
+                    SpawnPointMarker workerCustomerLoadingAccessPoint) =
                 BuildWarehouseWorkerAccessPoints(environment.transform);
 
             SpawnPointMarker playerSpawnPoint = BuildPlayerSpawnPoint();
@@ -228,7 +229,8 @@ namespace HardwareStore.Editor
                     platformTrolleySpawnPoint,
                     workerIdlePoint,
                     workerDeliveryAccessPoint,
-                    workerStorageAccessPoint
+                    workerStorageAccessPoint,
+                    workerCustomerLoadingAccessPoint
                 },
                 Array.Empty<SceneRouteMarker>(),
                 customerFlowLayout,
@@ -252,7 +254,8 @@ namespace HardwareStore.Editor
                 customerFlowLayout,
                 workerIdlePoint,
                 workerDeliveryAccessPoint,
-                workerStorageAccessPoint);
+                workerStorageAccessPoint,
+                workerCustomerLoadingAccessPoint);
             EditorSceneManager.MarkSceneDirty(scene);
             if (!EditorSceneManager.SaveScene(scene, ScenePath))
                 throw new InvalidOperationException($"Could not save prototype scene to {ScenePath}.");
@@ -902,7 +905,8 @@ namespace HardwareStore.Editor
         }
 
         private static (SpawnPointMarker Idle, SpawnPointMarker DeliveryAccess,
-                SpawnPointMarker StorageAccess)
+                SpawnPointMarker StorageAccess,
+                SpawnPointMarker CustomerLoadingAccess)
             BuildWarehouseWorkerAccessPoints(Transform parent)
         {
             GameObject root = CreateEmpty("Warehouse Worker Access Points", parent);
@@ -924,7 +928,13 @@ namespace HardwareStore.Editor
                 SpawnPointId.WarehouseWorkerStorageAccess,
                 new Vector3(5f, 0.02f, 2.45f),
                 Quaternion.identity);
-            return (idle, deliveryAccess, storageAccess);
+            SpawnPointMarker customerLoadingAccess = CreateSpawnPoint(
+                "Warehouse Worker Customer Loading Access",
+                root.transform,
+                SpawnPointId.WarehouseWorkerCustomerLoadingAccess,
+                new Vector3(6f, 0.02f, 1.62f),
+                Quaternion.Euler(0f, 180f, 0f));
+            return (idle, deliveryAccess, storageAccess, customerLoadingAccess);
         }
 
         private static SpawnPointMarker CreateSpawnPoint(
@@ -1735,10 +1745,11 @@ namespace HardwareStore.Editor
                 throw new ArgumentNullException(nameof(surface));
             if (customerFlowLayout == null)
                 throw new ArgumentNullException(nameof(customerFlowLayout));
-            if (accessPoints == null || accessPoints.Length != 3 || accessPoints.Any(point => point == null))
+            if (accessPoints == null || accessPoints.Length != 4 ||
+                accessPoints.Any(point => point == null))
             {
                 throw new ArgumentException(
-                    "Warehouse worker navigation requires exactly three access points.",
+                    "Warehouse worker navigation requires exactly four access points.",
                     nameof(accessPoints));
             }
 

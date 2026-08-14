@@ -34,5 +34,24 @@ namespace HardwareStore.Gameplay.Factories
                 .With(x => x.isWarehouseTask = true)
                 .With(x => x.isInboundToStorageTask = true);
         }
+
+        public GameEntity CreateStockToCustomerLoading(int storeEntityId,
+            int productEntityId, int customerVisitEntityId,
+            int orderLineEntityId, int reservedLoadingSlotIndex)
+        {
+            return CreateEntity.Empty(_identifiers.Next())
+                .AddWarehouseTaskStoreEntityId(storeEntityId)
+                .AddWarehouseTaskProductEntityId(productEntityId)
+                .AddWarehouseTaskCustomerVisitEntityId(customerVisitEntityId)
+                .AddWarehouseTaskOrderLineEntityId(orderLineEntityId)
+                .AddWarehouseTaskReservedLoadingSlotIndex(
+                    reservedLoadingSlotIndex)
+                .AddWarehouseTaskStep(WarehouseTaskStepId.Available)
+                .AddWarehouseTaskBlockReason(WarehouseTaskBlockReasonId.None)
+                .AddWarehouseTaskTimeoutRemaining(
+                    _staticData.WarehouseWorker.TaskTimeout)
+                .With(x => x.isWarehouseTask = true)
+                .With(x => x.isStockToCustomerLoadingTask = true);
+        }
     }
 }

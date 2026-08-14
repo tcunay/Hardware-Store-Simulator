@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using Entitas;
 
 namespace HardwareStore.Gameplay.Features.Carrying.Systems
@@ -7,6 +8,7 @@ namespace HardwareStore.Gameplay.Features.Carrying.Systems
     {
         private readonly GameContext _gameContext;
         private readonly IGroup<GameEntity> _requests;
+        private readonly Dictionary<int, int> _occupiedLoadingSlots = new();
 
         public LoadHeldProductSystem(GameContext gameContext)
         {
@@ -55,19 +57,20 @@ namespace HardwareStore.Gameplay.Features.Carrying.Systems
                         $"line {product.ReservedOrderLineEntityId}.");
                 }
 
-                int totalLoadedProductCount = 0;
-                foreach (GameEntity line in
-                         _gameContext.GetEntitiesWithOrderEntityId(visit.EntityId))
+                int linkedProductCount = CountLinkedProducts(orderLine);
+                int reservedProductCount = CountReservedProducts(orderLine);
+                if (linkedProductCount < orderLine.LoadedProductCount ||
+                    linkedProductCount + reservedProductCount >
+                    orderLine.RequiredProductCount)
                 {
-                    ValidateOrderLine(visit, line);
-                    totalLoadedProductCount = checked(
-                        totalLoadedProductCount + line.LoadedProductCount);
+                    throw new InvalidOperationException(
+                        $"Order line {orderLine.EntityId} has invalid linked/reserved quota.");
                 }
-
-                if (orderLine.LoadedProductCount >= orderLine.RequiredProductCount)
+                if (linkedProductCount >= orderLine.RequiredProductCount)
                     throw new InvalidOperationException(
                         $"Reserved order line {orderLine.EntityId} is already fully loaded.");
-                if (visit.Slots.Length <= totalLoadedProductCount)
+                int loadingSlotIndex = FindFreeLoadingSlot(visit);
+                if (loadingSlotIndex < 0)
                     throw new InvalidOperationException(
                         $"Customer visit {visit.EntityId} has insufficient loading slots.");
 
@@ -81,9 +84,123 @@ namespace HardwareStore.Gameplay.Features.Carrying.Systems
                 product.RemoveReservedStorageSlotIndex();
                 product.RemoveReservedOrderLineEntityId();
                 product.AddOrderLineEntityId(orderLine.EntityId);
-                product.AddLoadingSlotIndex(totalLoadedProductCount);
+                product.AddLoadingSlotIndex(loadingSlotIndex);
                 product.isProductLoaded = true;
                 product.isProductPlacementDirty = true;
+            }
+        }
+
+        private int FindFreeLoadingSlot(GameEntity visit)
+        {
+            _occupiedLoadingSlots.Clear();
+            foreach (GameEntity line in
+                     _gameContext.GetEntitiesWithOrderEntityId(visit.EntityId))
+            {
+                ValidateOrderLine(visit, line);
+                foreach (GameEntity product in
+                         _gameContext.GetEntitiesWithOrderLineEntityId(line.EntityId))
+                {
+                    ValidateLinkedProduct(line, product);
+                    ReserveLoadingSlot(visit, product.LoadingSlotIndex,
+                        product.EntityId);
+                }
+            }
+            foreach (GameEntity task in
+                     _gameContext.GetEntitiesWithWarehouseTaskCustomerVisitEntityId(
+                         visit.EntityId))
+            {
+                if (task.isDestructed ||
+                    !task.hasWarehouseTaskReservedLoadingSlotIndex)
+                {
+                    continue;
+                }
+                if (!task.isWarehouseTask ||
+                    !task.isStockToCustomerLoadingTask ||
+                    task.isInboundToStorageTask || !task.hasEntityId ||
+                    !task.hasWarehouseTaskStep)
+                {
+                    throw new InvalidOperationException(
+                        $"Customer visit {visit.EntityId} has invalid worker loading " +
+                        "reservation.");
+                }
+                ReserveLoadingSlot(visit,
+                    task.WarehouseTaskReservedLoadingSlotIndex,
+                    task.EntityId);
+            }
+
+            for (int slotIndex = 0; slotIndex < visit.Slots.Length; slotIndex++)
+            {
+                if (!_occupiedLoadingSlots.ContainsKey(slotIndex))
+                    return slotIndex;
+            }
+            return -1;
+        }
+
+        private void ReserveLoadingSlot(GameEntity visit, int slotIndex,
+            int ownerEntityId)
+        {
+            if (slotIndex < 0 || slotIndex >= visit.Slots.Length)
+            {
+                throw new InvalidOperationException(
+                    $"Entity {ownerEntityId} reserves invalid loading slot " +
+                    $"{slotIndex} for visit {visit.EntityId}.");
+            }
+            if (!_occupiedLoadingSlots.TryAdd(slotIndex, ownerEntityId))
+            {
+                throw new InvalidOperationException(
+                    $"Customer visit {visit.EntityId} loading slot {slotIndex} is " +
+                    "occupied or reserved twice.");
+            }
+        }
+
+        private int CountLinkedProducts(GameEntity line)
+        {
+            int count = 0;
+            foreach (GameEntity product in
+                     _gameContext.GetEntitiesWithOrderLineEntityId(line.EntityId))
+            {
+                ValidateLinkedProduct(line, product);
+                count++;
+            }
+            return count;
+        }
+
+        private int CountReservedProducts(GameEntity line)
+        {
+            int count = 0;
+            foreach (GameEntity product in
+                     _gameContext.GetEntitiesWithReservedOrderLineEntityId(
+                         line.EntityId))
+            {
+                if (product.isDestructed || !product.isProduct ||
+                    !product.isInStock || !product.hasEntityId ||
+                    !product.hasProductType ||
+                    product.ProductType != line.ProductType ||
+                    !product.hasStorageZoneEntityId ||
+                    product.StorageZoneEntityId != line.StorageZoneEntityId ||
+                    !product.hasReservedStorageSlotIndex)
+                {
+                    throw new InvalidOperationException(
+                        $"Order line {line.EntityId} has an invalid product reservation.");
+                }
+                count++;
+            }
+            return count;
+        }
+
+        private static void ValidateLinkedProduct(GameEntity line,
+            GameEntity product)
+        {
+            if (product.isDestructed || !product.isProduct ||
+                !product.isLoaded || !product.hasEntityId ||
+                !product.hasProductType ||
+                product.ProductType != line.ProductType ||
+                !product.hasOrderLineEntityId ||
+                product.OrderLineEntityId != line.EntityId ||
+                !product.hasLoadingSlotIndex)
+            {
+                throw new InvalidOperationException(
+                    $"Order line {line.EntityId} has an invalid linked product.");
             }
         }
 

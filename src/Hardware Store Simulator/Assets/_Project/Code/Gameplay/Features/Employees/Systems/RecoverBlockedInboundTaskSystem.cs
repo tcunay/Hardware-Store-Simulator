@@ -7,14 +7,14 @@ using HardwareStore.Gameplay.Localization;
 
 namespace HardwareStore.Gameplay.Features.Employees.Systems
 {
-    public sealed class RecoverBlockedWarehouseTaskSystem : IExecuteSystem
+    public sealed class RecoverBlockedInboundTaskSystem : IExecuteSystem
     {
         private readonly GameContext _gameContext;
         private readonly IWorkerNavigationService _navigation;
         private readonly IGameEventFactory _events;
         private readonly IGroup<GameEntity> _tasks;
 
-        public RecoverBlockedWarehouseTaskSystem(GameContext gameContext,
+        public RecoverBlockedInboundTaskSystem(GameContext gameContext,
             IWorkerNavigationService navigation, IGameEventFactory events)
         {
             _gameContext = gameContext;
@@ -27,7 +27,9 @@ namespace HardwareStore.Gameplay.Features.Employees.Systems
                     GameMatcher.WarehouseTaskProductEntityId,
                     GameMatcher.WarehouseTaskStep,
                     GameMatcher.WarehouseTaskBlockReason)
-                .NoneOf(GameMatcher.Destructed));
+                .NoneOf(
+                    GameMatcher.StockToCustomerLoadingTask,
+                    GameMatcher.Destructed));
         }
 
         public void Execute()
@@ -37,17 +39,23 @@ namespace HardwareStore.Gameplay.Features.Employees.Systems
                 if (task.WarehouseTaskStep != WarehouseTaskStepId.Blocked ||
                     (!task.hasAssignedWorkerEntityId &&
                      !task.hasWarehouseTaskReservedStorageSlotIndex))
+                {
                     continue;
+                }
                 if (task.WarehouseTaskBlockReason == WarehouseTaskBlockReasonId.None)
+                {
                     throw new InvalidOperationException(
                         $"Blocked warehouse task {task.EntityId} has no reason.");
+                }
 
                 GameEntity product = _gameContext.GetEntityWithEntityId(
                     task.WarehouseTaskProductEntityId);
                 if (product == null || !product.isProduct || product.isDestructed ||
                     !product.hasProductType)
+                {
                     throw new InvalidOperationException(
                         $"Blocked warehouse task {task.EntityId} lost its product.");
+                }
 
                 int workerEntityId = task.hasAssignedWorkerEntityId
                     ? task.AssignedWorkerEntityId
@@ -58,12 +66,16 @@ namespace HardwareStore.Gameplay.Features.Employees.Systems
                 if (worker != null && !worker.isDestructed)
                 {
                     if (!worker.isWarehouseWorker || !worker.hasNavigationAgent)
+                    {
                         throw new InvalidOperationException(
-                            $"Task {task.EntityId} references invalid worker {workerEntityId}.");
+                            $"Task {task.EntityId} references invalid worker " +
+                            $"{workerEntityId}.");
+                    }
                     _navigation.Stop(worker.NavigationAgent);
                     worker.isHandsOccupied = false;
                     worker.isCarryingProduct = false;
-                    worker.ReplaceWarehouseWorkerStatus(WarehouseWorkerStatusId.Blocked);
+                    worker.ReplaceWarehouseWorkerStatus(
+                        WarehouseWorkerStatusId.Blocked);
                 }
 
                 RestoreProductToDeliverySlot(product, workerEntityId);
@@ -82,11 +94,14 @@ namespace HardwareStore.Gameplay.Features.Employees.Systems
         {
             if (product.hasCarrierEntityId)
             {
-                if (workerEntityId == 0 || product.CarrierEntityId != workerEntityId ||
+                if (workerEntityId == 0 ||
+                    product.CarrierEntityId != workerEntityId ||
                     !product.hasReservedDeliverySlotIndex ||
                     product.hasDeliverySlotIndex)
+                {
                     throw new InvalidOperationException(
                         $"Blocked product {product.EntityId} has invalid carry reservation.");
+                }
 
                 int slotIndex = product.ReservedDeliverySlotIndex;
                 product.RemoveCarrierEntityId();

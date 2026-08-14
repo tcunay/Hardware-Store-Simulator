@@ -26,6 +26,7 @@ namespace HardwareStore.Gameplay.Features.Employees.Systems
                     GameMatcher.CarryAnchor,
                     GameMatcher.WarehouseWorkerPickupPosition,
                     GameMatcher.WarehouseWorkerStoragePosition,
+                    GameMatcher.WarehouseWorkerCustomerLoadingPosition,
                     GameMatcher.WarehouseWorkerStatus)
                 .NoneOf(GameMatcher.Destructed));
         }
