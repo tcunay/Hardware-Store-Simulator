@@ -681,6 +681,21 @@ namespace HardwareStore.Editor
                 "Customer Queue",
                 traffic.transform,
                 queuePoses);
+            Pose[] queueAbandonExitRoute =
+            {
+                new(new Vector3(-8f, 0.02f, 0.55f),
+                    Quaternion.Euler(0f, 180f, 0f)),
+                new(new Vector3(-8f, 0.02f, -0.75f),
+                    Quaternion.Euler(0f, 180f, 0f)),
+                new(new Vector3(-8f, 0.02f, -2.05f),
+                    Quaternion.Euler(0f, 180f, 0f)),
+                new(new Vector3(-8f, 0.02f, -3f),
+                    Quaternion.Euler(0f, 180f, 0f))
+            };
+            Transform[] queueAbandonExitWaypoints = CreateWaypointTransforms(
+                "Customer Queue Abandon Exit Route",
+                traffic.transform,
+                queueAbandonExitRoute);
 
             Pose[] loadingDepartureRoute =
             {
@@ -744,6 +759,16 @@ namespace HardwareStore.Editor
                         Quaternion.Euler(0f, 180f, 0f)),
                     loadingDepartureRoute[0]
                 };
+                Pose[] vehicleParkingDepartureRoute =
+                {
+                    parkingPose,
+                    new(new Vector3(parkingX, 0.02f, -26.5f), Quaternion.identity),
+                    new(new Vector3(parkingX, 0.02f, -30f), Quaternion.identity),
+                    new(new Vector3(1.5f, 0.02f, -30f),
+                        Quaternion.Euler(0f, 90f, 0f)),
+                    new(new Vector3(1.5f, 0.02f, -35f),
+                        Quaternion.Euler(0f, 180f, 0f))
+                };
                 Pose[] customerApproachRoute =
                 {
                     customerDoorPose,
@@ -757,8 +782,7 @@ namespace HardwareStore.Editor
                 Pose[] customerReturnRoute =
                 {
                     queuePoses[0],
-                    new(new Vector3(-7.25f, 0.02f, -3f),
-                        Quaternion.Euler(0f, 180f, 0f)),
+                    queueAbandonExitRoute[^1],
                     new(new Vector3(-7.25f, 0.02f, -14.6f),
                         Quaternion.Euler(0f, 180f, 0f)),
                     new(new Vector3(-7.25f, 0.02f, -17.15f),
@@ -784,6 +808,10 @@ namespace HardwareStore.Editor
                         spotObject.transform,
                         vehicleToLoadingRoute),
                     CreateWaypointTransforms(
+                        "Vehicle Parking Departure Route",
+                        spotObject.transform,
+                        vehicleParkingDepartureRoute),
+                    CreateWaypointTransforms(
                         "Customer Approach Route",
                         spotObject.transform,
                         customerApproachRoute),
@@ -796,7 +824,11 @@ namespace HardwareStore.Editor
 
             CustomerFlowLayoutMarker marker =
                 traffic.AddComponent<CustomerFlowLayoutMarker>();
-            marker.Configure(spotMarkers, queueWaypoints, loadingDepartureWaypoints);
+            marker.Configure(
+                spotMarkers,
+                queueWaypoints,
+                queueAbandonExitWaypoints,
+                loadingDepartureWaypoints);
             return marker;
         }
 
@@ -1247,28 +1279,78 @@ namespace HardwareStore.Editor
                 body.interpolation = RigidbodyInterpolation.None;
                 body.collisionDetectionMode = CollisionDetectionMode.ContinuousSpeculative;
 
-                CreateCube("Torso", customer.transform, new Vector3(0f, 1.18f, 0f),
+                GameObject torso = CreateCube(
+                    "Torso", customer.transform, new Vector3(0f, 1.18f, 0f),
                     new Vector3(0.62f, 0.78f, 0.34f), jacket, false, true);
-                CreateCube("Work Vest", customer.transform, new Vector3(0f, 1.2f, -0.18f),
+                GameObject vest = CreateCube(
+                    "Work Vest", customer.transform, new Vector3(0f, 1.2f, -0.18f),
                     new Vector3(0.66f, 0.54f, 0.05f), workwear, false, true);
-                CreateCube("Head", customer.transform, new Vector3(0f, 1.82f, 0f),
+                GameObject head = CreateCube(
+                    "Head", customer.transform, new Vector3(0f, 1.82f, 0f),
                     new Vector3(0.38f, 0.38f, 0.38f), jacket, false, true);
-                CreateCube("Left Arm", customer.transform, new Vector3(-0.42f, 1.18f, 0f),
+
+                GameObject leftShoulder = CreateEmpty("Left Shoulder", customer.transform);
+                leftShoulder.transform.localPosition = new Vector3(-0.42f, 1.46f, 0f);
+                GameObject leftArm = CreateCube(
+                    "Left Arm", leftShoulder.transform, new Vector3(0f, -0.28f, 0f),
                     new Vector3(0.16f, 0.72f, 0.18f), jacket, false, true);
-                CreateCube("Right Arm", customer.transform, new Vector3(0.42f, 1.18f, 0f),
+                GameObject rightShoulder = CreateEmpty("Right Shoulder", customer.transform);
+                rightShoulder.transform.localPosition = new Vector3(0.42f, 1.46f, 0f);
+                GameObject rightArm = CreateCube(
+                    "Right Arm", rightShoulder.transform, new Vector3(0f, -0.28f, 0f),
                     new Vector3(0.16f, 0.72f, 0.18f), jacket, false, true);
-                CreateCube("Left Leg", customer.transform, new Vector3(-0.17f, 0.48f, 0f),
+
+                GameObject leftLeg = CreateCube(
+                    "Left Leg", customer.transform, new Vector3(-0.17f, 0.48f, 0f),
                     new Vector3(0.22f, 0.72f, 0.24f), workwear, false, true);
-                CreateCube("Right Leg", customer.transform, new Vector3(0.17f, 0.48f, 0f),
+                GameObject rightLeg = CreateCube(
+                    "Right Leg", customer.transform, new Vector3(0.17f, 0.48f, 0f),
                     new Vector3(0.22f, 0.72f, 0.24f), workwear, false, true);
-                CreateCube("Left Shoe", customer.transform, new Vector3(-0.17f, 0.11f, 0.08f),
+                GameObject leftShoe = CreateCube(
+                    "Left Shoe", customer.transform, new Vector3(-0.17f, 0.11f, 0.08f),
                     new Vector3(0.24f, 0.14f, 0.4f), shoes, false, true);
-                CreateCube("Right Shoe", customer.transform, new Vector3(0.17f, 0.11f, 0.08f),
+                GameObject rightShoe = CreateCube(
+                    "Right Shoe", customer.transform, new Vector3(0.17f, 0.11f, 0.08f),
                     new Vector3(0.24f, 0.14f, 0.4f), shoes, false, true);
+
+                GameObject warningObject = CreateEmpty(
+                    "Dissatisfaction Label", customer.transform);
+                warningObject.transform.localPosition = new Vector3(0f, 2.35f, 0f);
+                TextMesh warningLabel = warningObject.AddComponent<TextMesh>();
+                warningLabel.text = RussianPreviewLocalization.Resolve(
+                    LocalizedTexts.Text(LocalizationKey.WorldCustomerDissatisfied));
+                warningLabel.anchor = TextAnchor.MiddleCenter;
+                warningLabel.alignment = TextAlignment.Center;
+                warningLabel.characterSize = 0.045f;
+                warningLabel.fontSize = 64;
+                warningLabel.fontStyle = FontStyle.Bold;
+                warningLabel.color = new Color(1f, 0.08f, 0.04f, 1f);
+                warningObject.SetActive(false);
+
+                Renderer[] moodRenderers =
+                {
+                    torso.GetComponent<Renderer>(),
+                    vest.GetComponent<Renderer>(),
+                    head.GetComponent<Renderer>(),
+                    leftArm.GetComponent<Renderer>(),
+                    rightArm.GetComponent<Renderer>(),
+                    leftLeg.GetComponent<Renderer>(),
+                    rightLeg.GetComponent<Renderer>(),
+                    leftShoe.GetComponent<Renderer>(),
+                    rightShoe.GetComponent<Renderer>()
+                };
 
                 customer.AddComponent<EntityBehaviour>();
                 customer.AddComponent<TransformRegistrar>();
                 customer.AddComponent<RigidbodyRegistrar>();
+                CustomerDissatisfactionView moodView =
+                    customer.AddComponent<CustomerDissatisfactionView>();
+                moodView.Configure(
+                    moodRenderers,
+                    leftShoulder.transform,
+                    rightShoulder.transform,
+                    warningLabel);
+                customer.AddComponent<CustomerDissatisfactionViewRegistrar>();
 
                 GameObject prefab = PrefabUtility.SaveAsPrefabAsset(customer, CustomerPrefabPath);
                 if (prefab == null)
@@ -1982,7 +2064,9 @@ namespace HardwareStore.Editor
                     new CustomerArrivalSchedulePoint(17 * 60, 28f),
                     new CustomerArrivalSchedulePoint(19 * 60, 45f),
                     new CustomerArrivalSchedulePoint(20 * 60, 70f)
-                });
+                },
+                defaultPatienceDuration: 120f,
+                patienceWarningThreshold: 30f);
             EditorUtility.SetDirty(customerFlowConfig);
 
             SerializedObject warehouseWorker = new(warehouseWorkerConfig);

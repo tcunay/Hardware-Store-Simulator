@@ -46,6 +46,7 @@ namespace HardwareStore.Gameplay.Factories
 
             CustomerParkingSpotSceneLayout[] parkingSpots = layout.ParkingSpots;
             Pose[] queuePoses = layout.QueuePoses;
+            Pose[] queueAbandonExitRoute = layout.QueueAbandonExitRoute;
             Pose[] loadingDepartureRoute = layout.LoadingDepartureRoute;
             int capacity = _staticData.CustomerFlow.ParkingCapacity;
             if (parkingSpots == null || parkingSpots.Length != capacity)
@@ -58,6 +59,9 @@ namespace HardwareStore.Gameplay.Factories
                 loadingDepartureRoute,
                 nameof(layout.LoadingDepartureRoute));
             ValidatePoses(queuePoses, nameof(layout.QueuePoses));
+            Pose[] abandonExitRoute = CloneAndValidateQueueAbandonExitRoute(
+                queuePoses,
+                queueAbandonExitRoute);
 
             var spotsByIndex = new CustomerParkingSpotSceneLayout[capacity];
             for (int index = 0; index < parkingSpots.Length; index++)
@@ -77,7 +81,14 @@ namespace HardwareStore.Gameplay.Factories
             }
 
             for (int index = 0; index < capacity; index++)
-                CreateParkingSpot(store, spotsByIndex[index], queuePoses, departure);
+            {
+                CreateParkingSpot(
+                    store,
+                    spotsByIndex[index],
+                    queuePoses,
+                    abandonExitRoute,
+                    departure);
+            }
 
             for (int index = 0; index < queuePoses.Length; index++)
             {
@@ -86,6 +97,8 @@ namespace HardwareStore.Gameplay.Factories
                     .AddQueueSpotIndex(index)
                     .AddWorldPosition(queuePoses[index].position)
                     .AddWorldRotation(queuePoses[index].rotation)
+                    .AddCustomerQueueAbandonRoute(
+                        CreateQueueAbandonRouteSlice(abandonExitRoute, index))
                     .With(x => x.isCustomerQueueSpot = true);
             }
 
@@ -100,7 +113,8 @@ namespace HardwareStore.Gameplay.Factories
         }
 
         private void CreateParkingSpot(GameEntity store,
-            CustomerParkingSpotSceneLayout spot, Pose[] queuePoses, Pose[] departure)
+            CustomerParkingSpotSceneLayout spot, Pose[] queuePoses,
+            Pose[] queueAbandonExitRoute, Pose[] departure)
         {
             Pose[] arrival = CloneAndValidateRoute(
                 spot.VehicleArrivalRoute,
@@ -108,6 +122,9 @@ namespace HardwareStore.Gameplay.Factories
             Pose[] toLoading = CloneAndValidateRoute(
                 spot.VehicleToLoadingRoute,
                 $"parking[{spot.Index}].{nameof(spot.VehicleToLoadingRoute)}");
+            Pose[] parkingDeparture = CloneAndValidateRoute(
+                spot.VehicleParkingDepartureRoute,
+                $"parking[{spot.Index}].{nameof(spot.VehicleParkingDepartureRoute)}");
             Pose[] approach = CloneAndValidateRoute(
                 spot.CustomerApproachRoute,
                 $"parking[{spot.Index}].{nameof(spot.CustomerApproachRoute)}");
@@ -117,12 +134,16 @@ namespace HardwareStore.Gameplay.Factories
 
             RequireContinuous(arrival[^1], toLoading[0],
                 $"parking {spot.Index} arrival and loading routes");
+            RequireContinuous(arrival[^1], parkingDeparture[0],
+                $"parking {spot.Index} arrival and parking-departure routes");
             RequireContinuous(toLoading[^1], departure[0],
                 $"parking {spot.Index} loading and departure routes");
             RequireContinuous(approach[^1], queuePoses[^1],
                 $"parking {spot.Index} approach and queue tail");
             RequireContinuous(customerReturn[0], queuePoses[0],
                 $"parking {spot.Index} return and queue head");
+            RequireContinuous(queueAbandonExitRoute[^1], customerReturn[1],
+                $"parking {spot.Index} abandon exit and customer return routes");
             RequireContinuous(approach[0], customerReturn[^1],
                 $"parking {spot.Index} customer door routes");
 
@@ -131,9 +152,50 @@ namespace HardwareStore.Gameplay.Factories
                 .AddParkingSpotIndex(spot.Index)
                 .AddCustomerVehicleArrivalRoute(arrival)
                 .AddCustomerVehicleToLoadingRoute(toLoading)
+                .AddCustomerVehicleParkingDepartureRoute(parkingDeparture)
                 .AddCustomerApproachRoute(approach)
                 .AddCustomerReturnRoute(customerReturn)
                 .With(x => x.isCustomerParkingSpot = true);
+        }
+
+        private static Pose[] CloneAndValidateQueueAbandonExitRoute(
+            Pose[] queuePoses,
+            Pose[] route)
+        {
+            if (route == null || route.Length != queuePoses.Length + 1)
+                throw new InvalidOperationException(
+                    "Customer queue abandon exit route must contain one lateral exit pose " +
+                    "per queue pose followed by one shared return-route join pose.");
+            ValidatePoses(route, nameof(CustomerFlowSceneLayout.QueueAbandonExitRoute));
+
+            Vector3 exitOffset = route[0].position - queuePoses[0].position;
+            if (!IsFinite(exitOffset) || exitOffset.sqrMagnitude < 0.000001f ||
+                Mathf.Abs(exitOffset.y) > PositionTolerance)
+            {
+                throw new InvalidOperationException(
+                    "Customer queue abandon exits must define a non-zero lateral offset " +
+                    "on the queue walking plane.");
+            }
+            for (int index = 1; index < queuePoses.Length; index++)
+            {
+                Vector3 actualOffset = route[index].position - queuePoses[index].position;
+                if (Vector3.Distance(actualOffset, exitOffset) > PositionTolerance)
+                {
+                    throw new InvalidOperationException(
+                        $"Customer queue abandon exit {index} is not aligned with its " +
+                        "queue pose.");
+                }
+            }
+
+            return (Pose[])route.Clone();
+        }
+
+        private static Pose[] CreateQueueAbandonRouteSlice(Pose[] route, int queueSpotIndex)
+        {
+            int length = route.Length - queueSpotIndex;
+            var slice = new Pose[length];
+            Array.Copy(route, queueSpotIndex, slice, 0, length);
+            return slice;
         }
 
         private static Pose[] CloneAndValidateRoute(Pose[] route, string owner)

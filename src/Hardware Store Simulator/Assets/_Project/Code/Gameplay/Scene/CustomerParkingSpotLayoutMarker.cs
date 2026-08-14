@@ -10,6 +10,7 @@ namespace HardwareStore.Gameplay.Scene
         [SerializeField, Min(0)] private int _index;
         [SerializeField] private Transform[] _vehicleArrivalRoute;
         [SerializeField] private Transform[] _vehicleToLoadingRoute;
+        [SerializeField] private Transform[] _vehicleParkingDepartureRoute;
         [SerializeField] private Transform[] _customerApproachRoute;
         [SerializeField] private Transform[] _customerReturnRoute;
 
@@ -20,6 +21,9 @@ namespace HardwareStore.Gameplay.Scene
                 _index,
                 CreateRouteSnapshot(_vehicleArrivalRoute, nameof(_vehicleArrivalRoute)),
                 CreateRouteSnapshot(_vehicleToLoadingRoute, nameof(_vehicleToLoadingRoute)),
+                CreateRouteSnapshot(
+                    _vehicleParkingDepartureRoute,
+                    nameof(_vehicleParkingDepartureRoute)),
                 CreateRouteSnapshot(_customerApproachRoute, nameof(_customerApproachRoute)),
                 CreateRouteSnapshot(_customerReturnRoute, nameof(_customerReturnRoute)));
 
@@ -27,6 +31,7 @@ namespace HardwareStore.Gameplay.Scene
             int index,
             Transform[] vehicleArrivalRoute,
             Transform[] vehicleToLoadingRoute,
+            Transform[] vehicleParkingDepartureRoute,
             Transform[] customerApproachRoute,
             Transform[] customerReturnRoute)
         {
@@ -35,11 +40,16 @@ namespace HardwareStore.Gameplay.Scene
 
             ValidateRoute(vehicleArrivalRoute, nameof(vehicleArrivalRoute));
             ValidateRoute(vehicleToLoadingRoute, nameof(vehicleToLoadingRoute));
+            ValidateRoute(
+                vehicleParkingDepartureRoute,
+                nameof(vehicleParkingDepartureRoute));
             ValidateRoute(customerApproachRoute, nameof(customerApproachRoute));
             ValidateRoute(customerReturnRoute, nameof(customerReturnRoute));
             _index = index;
             _vehicleArrivalRoute = (Transform[])vehicleArrivalRoute.Clone();
             _vehicleToLoadingRoute = (Transform[])vehicleToLoadingRoute.Clone();
+            _vehicleParkingDepartureRoute =
+                (Transform[])vehicleParkingDepartureRoute.Clone();
             _customerApproachRoute = (Transform[])customerApproachRoute.Clone();
             _customerReturnRoute = (Transform[])customerReturnRoute.Clone();
         }

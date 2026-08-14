@@ -171,12 +171,24 @@ namespace HardwareStore.Gameplay.Features.Presentation.Systems
         {
             for (int index = 0; index < visits.Length; index++)
             {
-                if (!visits[index].isOrderRewarded)
+                if (!IsAbandoning(visits[index]) &&
+                    !visits[index].isOrderRewarded)
                     return visits[index];
             }
 
-            return visits.Length == 0 ? null : visits[0];
+            for (int index = 0; index < visits.Length; index++)
+            {
+                if (!IsAbandoning(visits[index]))
+                    return visits[index];
+            }
+
+            return null;
         }
+
+        private static bool IsAbandoning(GameEntity visit) =>
+            visit.isCustomerVisitAbandoning ||
+            visit.isCustomerVisitWaitingForAbandonDeparture ||
+            visit.isCustomerVisitAbandonDeparting;
 
         private static CustomerFlowSnapshot CreateCustomerFlowSnapshot(
             GameEntity[] visits)
@@ -202,7 +214,10 @@ namespace HardwareStore.Gameplay.Features.Presentation.Systems
                     loadingPipelineCount = checked(loadingPipelineCount + 1);
                 }
                 else if (visit.isCustomerVisitCompleted ||
-                         visit.isCustomerVisitDeparting)
+                         visit.isCustomerVisitDeparting ||
+                         visit.isCustomerVisitAbandoning ||
+                         visit.isCustomerVisitWaitingForAbandonDeparture ||
+                         visit.isCustomerVisitAbandonDeparting)
                 {
                     leavingCount = checked(leavingCount + 1);
                 }
@@ -369,6 +384,36 @@ namespace HardwareStore.Gameplay.Features.Presentation.Systems
                     $"Customer visit {visit.EntityId} has an order that does not match " +
                     "its lifecycle state.");
             }
+            bool lifecycleRequiresPatience =
+                visit.isCustomerVisitArriving ||
+                visit.isCustomerVisitQueued ||
+                visit.isCustomerVisitConsulting;
+            if (visit.hasCustomerPatienceRemaining != lifecycleRequiresPatience)
+            {
+                throw new InvalidOperationException(
+                    $"Customer visit {visit.EntityId} has patience that does not match " +
+                    "its lifecycle state.");
+            }
+            if (lifecycleRequiresPatience)
+            {
+                float remaining = visit.CustomerPatienceRemaining;
+                if (float.IsNaN(remaining) || float.IsInfinity(remaining) ||
+                    remaining <= 0f)
+                {
+                    throw new InvalidOperationException(
+                        $"Customer visit {visit.EntityId} has invalid patience " +
+                        $"remaining {remaining}.");
+                }
+            }
+            if (visit.isCustomerPatienceWarningIssued &&
+                (!visit.hasCustomerPatienceRemaining ||
+                 (!visit.isCustomerVisitQueued &&
+                  !visit.isCustomerVisitConsulting)))
+            {
+                throw new InvalidOperationException(
+                    $"Customer visit {visit.EntityId} has a patience warning marker " +
+                    "outside its waiting lifecycle.");
+            }
             bool lifecycleRequiresReward =
                 visit.isCustomerVisitCompleted || visit.isCustomerVisitDeparting;
             if (visit.isOrderRewarded != lifecycleRequiresReward)
@@ -450,7 +495,10 @@ namespace HardwareStore.Gameplay.Features.Presentation.Systems
                 (customerVisit.isCustomerVisitLoading ? 1 : 0) +
                 (customerVisit.isCustomerVisitCompleted ? 1 : 0) +
                 (customerVisit.isCustomerVisitReturning ? 1 : 0) +
-                (customerVisit.isCustomerVisitDeparting ? 1 : 0);
+                (customerVisit.isCustomerVisitDeparting ? 1 : 0) +
+                (customerVisit.isCustomerVisitAbandoning ? 1 : 0) +
+                (customerVisit.isCustomerVisitWaitingForAbandonDeparture ? 1 : 0) +
+                (customerVisit.isCustomerVisitAbandonDeparting ? 1 : 0);
             if (lifecycleStateCount != 1)
                 throw new InvalidOperationException(
                     $"Customer visit {customerVisit.EntityId} must have exactly one " +

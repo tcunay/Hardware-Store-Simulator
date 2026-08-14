@@ -27,3 +27,5 @@ MonoBehaviour:
     _delay: 45
   - _minute: 1200
     _delay: 70
+  _defaultPatienceDuration: 120
+  _patienceWarningThreshold: 30

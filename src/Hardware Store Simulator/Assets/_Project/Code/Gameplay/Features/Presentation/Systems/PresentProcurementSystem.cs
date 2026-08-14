@@ -388,6 +388,9 @@ namespace HardwareStore.Gameplay.Features.Presentation.Systems
             if (visit.isCustomerVisitCompleted) lifecycleCount++;
             if (visit.isCustomerVisitReturning) lifecycleCount++;
             if (visit.isCustomerVisitDeparting) lifecycleCount++;
+            if (visit.isCustomerVisitAbandoning) lifecycleCount++;
+            if (visit.isCustomerVisitWaitingForAbandonDeparture) lifecycleCount++;
+            if (visit.isCustomerVisitAbandonDeparting) lifecycleCount++;
             if (lifecycleCount != 1)
             {
                 throw new InvalidOperationException(

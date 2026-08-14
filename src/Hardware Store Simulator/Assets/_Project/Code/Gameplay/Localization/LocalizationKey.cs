@@ -95,6 +95,7 @@ namespace HardwareStore.Gameplay.Localization
         HudWarehouseWorkerBlocked = 1060,
         HudWarehouseWorkerOffShift = 1061,
         HudCustomerFlow = 1062,
+        HudDayReportLostCustomers = 1063,
         ProcurementStatusNotRequired = 1100,
         ProcurementStatusStockSufficient = 1101,
         ProcurementStatusInsufficientStorage = 1102,
@@ -196,6 +197,7 @@ namespace HardwareStore.Gameplay.Localization
         PromptWarehouseWorkerWageWouldBlockProjects = 2095,
         PromptCloseStoreWarehouseWorkerBusy = 2096,
         PromptCounterNextCustomerApproaching = 2097,
+        PromptCustomerLeftImpatient = 2098,
 
         NotificationAcceptCurrentDeliveryFirst = 3000,
         NotificationWaitForCustomer = 3001,
@@ -235,6 +237,8 @@ namespace HardwareStore.Gameplay.Localization
         NotificationWarehouseWorkerHired = 3038,
         NotificationWarehouseWorkerShiftPaid = 3039,
         NotificationWarehouseWorkerTaskBlocked = 3040,
+        NotificationCustomerPatienceLow = 3041,
+        NotificationCustomerLeftImpatient = 3042,
 
         WorldOrderCounter = 4000,
         WorldProcurement = 4001,
@@ -246,6 +250,7 @@ namespace HardwareStore.Gameplay.Localization
         WorldBoardProductLabel = 4007,
         WorldTrolleyUpgrade = 4008,
         WorldStoreControlTerminal = 4009,
-        WorldCustomerParking = 4010
+        WorldCustomerParking = 4010,
+        WorldCustomerDissatisfied = 4011
     }
 }

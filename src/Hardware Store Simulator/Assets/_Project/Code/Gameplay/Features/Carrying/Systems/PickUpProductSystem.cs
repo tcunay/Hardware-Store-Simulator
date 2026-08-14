@@ -214,7 +214,10 @@ namespace HardwareStore.Gameplay.Features.Carrying.Systems
                 (visit.isCustomerVisitLoading ? 1 : 0) +
                 (visit.isCustomerVisitCompleted ? 1 : 0) +
                 (visit.isCustomerVisitReturning ? 1 : 0) +
-                (visit.isCustomerVisitDeparting ? 1 : 0);
+                (visit.isCustomerVisitDeparting ? 1 : 0) +
+                (visit.isCustomerVisitAbandoning ? 1 : 0) +
+                (visit.isCustomerVisitWaitingForAbandonDeparture ? 1 : 0) +
+                (visit.isCustomerVisitAbandonDeparting ? 1 : 0);
             if (lifecycleCount != 1)
             {
                 throw new InvalidOperationException(

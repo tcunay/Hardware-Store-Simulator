@@ -54,6 +54,7 @@ namespace HardwareStore.Gameplay.Factories
         {
             if (visit == null || !visit.isCustomerVisit || !visit.isCustomerVehicle ||
                 !visit.isCustomerVisitQueued || !visit.hasEntityId ||
+                !visit.hasCustomerPatienceRemaining ||
                 !visit.hasReservedCustomerParkingSpotEntityId || visit.hasRoute ||
                 visit.hasRouteWaypointIndex || visit.isRouteCompleted || visit.isDestructed)
             {

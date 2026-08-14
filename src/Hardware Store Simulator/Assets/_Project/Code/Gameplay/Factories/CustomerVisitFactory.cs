@@ -58,6 +58,8 @@ namespace HardwareStore.Gameplay.Factories
                 .AddStorageZoneEntityId(store.StorageZoneEntityId)
                 .AddCustomerProjectType(projectType)
                 .AddCustomerArrivalSequence(arrivalSequence)
+                .AddCustomerPatienceRemaining(
+                    _staticData.CustomerFlow.DefaultPatienceDuration)
                 .AddReservedCustomerParkingSpotEntityId(parkingSpot.EntityId)
                 .AddReservedCustomerTrafficLaneEntityId(trafficLane.EntityId)
                 .AddRoute(arrival)
@@ -104,6 +106,7 @@ namespace HardwareStore.Gameplay.Factories
                 !parkingSpot.hasParkingSpotIndex ||
                 !parkingSpot.hasCustomerVehicleArrivalRoute ||
                 !parkingSpot.hasCustomerVehicleToLoadingRoute ||
+                !parkingSpot.hasCustomerVehicleParkingDepartureRoute ||
                 !parkingSpot.hasCustomerApproachRoute ||
                 !parkingSpot.hasCustomerReturnRoute ||
                 parkingSpot.CustomerParkingSpotStoreEntityId != store.EntityId)
@@ -113,6 +116,8 @@ namespace HardwareStore.Gameplay.Factories
             }
             if (parkingSpot.CustomerVehicleArrivalRoute == null ||
                 parkingSpot.CustomerVehicleArrivalRoute.Length < 2 ||
+                parkingSpot.CustomerVehicleParkingDepartureRoute == null ||
+                parkingSpot.CustomerVehicleParkingDepartureRoute.Length < 2 ||
                 _gameContext.GetEntityWithReservedCustomerParkingSpotEntityId(
                     parkingSpot.EntityId) != null)
             {

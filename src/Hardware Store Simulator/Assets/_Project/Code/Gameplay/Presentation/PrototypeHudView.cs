@@ -327,39 +327,45 @@ namespace HardwareStore.Gameplay.Presentation
                     LocalizationKey.HudDayReportOrders,
                     report.CompletedOrderCount),
                 _bodyStyle);
+            GUI.Label(
+                new Rect(panel.x + 52f, panel.y + 124f, panel.width - 104f, 32f),
+                Resolve(
+                    LocalizationKey.HudDayReportLostCustomers,
+                    report.LostCustomerCount),
+                _bodyStyle);
 
             GUI.Label(
-                new Rect(panel.x + 52f, panel.y + 144f, panel.width - 104f, 32f),
+                new Rect(panel.x + 52f, panel.y + 166f, panel.width - 104f, 32f),
                 Resolve(LocalizationKey.HudDayReportRevenue, report.Revenue),
                 _bodyStyle);
             GUI.Label(
-                new Rect(panel.x + 52f, panel.y + 184f, panel.width - 104f, 32f),
+                new Rect(panel.x + 52f, panel.y + 206f, panel.width - 104f, 32f),
                 Resolve(
                     LocalizationKey.HudDayReportProcurementExpenses,
                     report.ProcurementExpenses),
                 _bodyStyle);
             GUI.Label(
-                new Rect(panel.x + 52f, panel.y + 224f, panel.width - 104f, 32f),
+                new Rect(panel.x + 52f, panel.y + 246f, panel.width - 104f, 32f),
                 Resolve(
                     LocalizationKey.HudDayReportUpgradeExpenses,
                     report.UpgradeExpenses),
                 _bodyStyle);
             GUI.Label(
-                new Rect(panel.x + 52f, panel.y + 264f, panel.width - 104f, 32f),
+                new Rect(panel.x + 52f, panel.y + 286f, panel.width - 104f, 32f),
                 Resolve(
                     LocalizationKey.HudDayReportPayrollExpenses,
                     report.PayrollExpenses),
                 _bodyStyle);
 
             DrawPanel(
-                new Rect(panel.x + 48f, panel.y + 318f, panel.width - 96f, 2f),
+                new Rect(panel.x + 48f, panel.y + 340f, panel.width - 96f, 2f),
                 new Color(0.28f, 0.31f, 0.34f, 1f));
             Color previous = GUI.color;
             GUI.color = report.NetCashFlow >= 0
                 ? new Color(1f, 0.7f, 0.25f)
                 : new Color(1f, 0.35f, 0.28f);
             GUI.Label(
-                new Rect(panel.x + 52f, panel.y + 342f, panel.width - 104f, 38f),
+                new Rect(panel.x + 52f, panel.y + 364f, panel.width - 104f, 38f),
                 Resolve(
                     LocalizationKey.HudDayReportNetCashFlow,
                     report.NetCashFlow),
@@ -367,14 +373,14 @@ namespace HardwareStore.Gameplay.Presentation
             GUI.color = previous;
 
             GUI.Label(
-                new Rect(panel.x + 52f, panel.y + 404f, panel.width - 104f, 32f),
+                new Rect(panel.x + 52f, panel.y + 426f, panel.width - 104f, 32f),
                 Resolve(
                     LocalizationKey.HudDayReportBalance,
                     report.OpeningBalance,
                     report.ClosingBalance),
                 _bodyStyle);
             GUI.Label(
-                new Rect(panel.x + 52f, panel.y + 444f, panel.width - 104f, 32f),
+                new Rect(panel.x + 52f, panel.y + 466f, panel.width - 104f, 32f),
                 Resolve(
                     LocalizationKey.HudDayReportStock,
                     report.StorageProductCount),

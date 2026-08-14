@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using Entitas;
 using HardwareStore.Gameplay.Configs;
 using HardwareStore.Gameplay.StaticData;
+using UnityEngine;
 
 namespace HardwareStore.Gameplay.Features.Customers.Systems
 {
@@ -13,6 +14,7 @@ namespace HardwareStore.Gameplay.Features.Customers.Systems
         private readonly IGroup<GameEntity> _stores;
         private readonly List<GameEntity> _storeBuffer = new(1);
         private readonly List<GameEntity> _queueVisits = new(4);
+        private readonly List<GameEntity> _queueSpots = new(4);
         private readonly HashSet<int> _arrivalSequences = new();
 
         public ValidateCustomerFlowStateSystem(GameContext gameContext,
@@ -35,9 +37,10 @@ namespace HardwareStore.Gameplay.Features.Customers.Systems
 
         private void ValidateStore(GameEntity store)
         {
-            if (store.NextCustomerArrivalSequence < 0)
+            if (store.NextCustomerArrivalSequence < 0 ||
+                !store.hasDayLostCustomerCount || store.DayLostCustomerCount < 0)
                 throw new InvalidOperationException(
-                    $"Store {store.EntityId} has invalid next customer sequence.");
+                    $"Store {store.EntityId} has invalid customer-day state.");
             int parkingCount =
                 _gameContext.GetEntitiesWithCustomerParkingSpotStoreEntityId(
                     store.EntityId).Count;
@@ -52,6 +55,7 @@ namespace HardwareStore.Gameplay.Features.Customers.Systems
                     $"{_config.ParkingCapacity} parking and queue spots, found " +
                     $"{parkingCount} and {queueSpotCount}.");
             }
+            ValidateQueueSpots(store);
             ValidateBay(store);
             ValidateTrafficLane(store);
 
@@ -112,7 +116,10 @@ namespace HardwareStore.Gameplay.Features.Customers.Systems
                 (visit.isCustomerVisitMovingToLoadingBay ? 1 : 0) +
                 (visit.isCustomerVisitLoading ? 1 : 0) +
                 (visit.isCustomerVisitCompleted ? 1 : 0) +
-                (visit.isCustomerVisitDeparting ? 1 : 0);
+                (visit.isCustomerVisitDeparting ? 1 : 0) +
+                (visit.isCustomerVisitAbandoning ? 1 : 0) +
+                (visit.isCustomerVisitWaitingForAbandonDeparture ? 1 : 0) +
+                (visit.isCustomerVisitAbandonDeparting ? 1 : 0);
             if (lifecycleCount != 1)
                 throw new InvalidOperationException(
                     $"Customer visit {visit.EntityId} must have exactly one lifecycle state.");
@@ -122,7 +129,10 @@ namespace HardwareStore.Gameplay.Features.Customers.Systems
                                   visit.isCustomerVisitConsulting ||
                                   visit.isCustomerVisitReturning ||
                                   visit.isCustomerVisitWaitingForLoadingBay ||
-                                  visit.isCustomerVisitMovingToLoadingBay;
+                                  visit.isCustomerVisitMovingToLoadingBay ||
+                                  visit.isCustomerVisitAbandoning ||
+                                  visit.isCustomerVisitWaitingForAbandonDeparture ||
+                                  visit.isCustomerVisitAbandonDeparting;
             if (visit.hasReservedCustomerParkingSpotEntityId != expectsParking)
                 throw new InvalidOperationException(
                     $"Customer visit {visit.EntityId} has invalid parking ownership.");
@@ -131,7 +141,8 @@ namespace HardwareStore.Gameplay.Features.Customers.Systems
 
             bool expectsLane = visit.isCustomerVisitArriving ||
                                visit.isCustomerVisitMovingToLoadingBay ||
-                               visit.isCustomerVisitDeparting;
+                               visit.isCustomerVisitDeparting ||
+                               visit.isCustomerVisitAbandonDeparting;
             if (visit.hasReservedCustomerTrafficLaneEntityId != expectsLane)
                 throw new InvalidOperationException(
                     $"Customer visit {visit.EntityId} has invalid traffic-lane ownership.");
@@ -162,6 +173,7 @@ namespace HardwareStore.Gameplay.Features.Customers.Systems
             if (visit.isOrder != expectsOrder)
                 throw new InvalidOperationException(
                     $"Customer visit {visit.EntityId} has invalid order lifecycle.");
+            ValidatePatience(visit);
             if (visit.isInteractable != visit.isCustomerVisitLoading)
                 throw new InvalidOperationException(
                     $"Customer vehicle {visit.EntityId} must be interactable only while loading.");
@@ -173,7 +185,8 @@ namespace HardwareStore.Gameplay.Features.Customers.Systems
 
             bool vehicleMoving = visit.isCustomerVisitArriving ||
                                  visit.isCustomerVisitMovingToLoadingBay ||
-                                 visit.isCustomerVisitDeparting;
+                                 visit.isCustomerVisitDeparting ||
+                                 visit.isCustomerVisitAbandonDeparting;
             if (visit.hasRoute != vehicleMoving ||
                 visit.hasRouteWaypointIndex != vehicleMoving || visit.isRouteCompleted)
             {
@@ -185,7 +198,8 @@ namespace HardwareStore.Gameplay.Features.Customers.Systems
                 _gameContext.GetEntityWithCustomerActorVisitEntityId(visit.EntityId);
             bool expectsActor = visit.isCustomerVisitQueued ||
                                 visit.isCustomerVisitConsulting ||
-                                visit.isCustomerVisitReturning;
+                                visit.isCustomerVisitReturning ||
+                                visit.isCustomerVisitAbandoning;
             if ((actor != null) != expectsActor)
                 throw new InvalidOperationException(
                     $"Customer visit {visit.EntityId} has invalid actor lifetime.");
@@ -202,6 +216,15 @@ namespace HardwareStore.Gameplay.Features.Customers.Systems
                 throw new InvalidOperationException(
                     $"Customer visit {visit.EntityId} has an invalid actor.");
             }
+            int actorLifecycleCount =
+                (actor.isCustomerApproachingCounter ? 1 : 0) +
+                (actor.isCustomerWaitingInQueue ? 1 : 0) +
+                (actor.isCustomerWaitingAtCounter ? 1 : 0) +
+                (actor.isCustomerReturningToVehicle ? 1 : 0) +
+                (actor.isCustomerAbandonReturningToVehicle ? 1 : 0);
+            if (actorLifecycleCount != 1)
+                throw new InvalidOperationException(
+                    $"Customer actor {actor.EntityId} must have exactly one lifecycle state.");
             if (visit.isCustomerVisitQueued)
             {
                 if (!actor.hasReservedCustomerQueueSpotEntityId ||
@@ -225,8 +248,23 @@ namespace HardwareStore.Gameplay.Features.Customers.Systems
                 ValidateQueueRelation(visit, actor);
                 return;
             }
+            if (visit.isCustomerVisitAbandoning)
+            {
+                if (actor.hasReservedCustomerQueueSpotEntityId ||
+                    !actor.isCustomerAbandonReturningToVehicle ||
+                    actor.isCustomerReturningToVehicle ||
+                    actor.hasCustomerReturnRoute ||
+                    !actor.hasRoute || !actor.hasRouteWaypointIndex ||
+                    actor.isRouteCompleted)
+                {
+                    throw new InvalidOperationException(
+                        $"Abandoning customer {actor.EntityId} has invalid return state.");
+                }
+                return;
+            }
             if (actor.hasReservedCustomerQueueSpotEntityId ||
                 !actor.isCustomerReturningToVehicle ||
+                actor.isCustomerAbandonReturningToVehicle ||
                 !actor.hasRoute || !actor.hasRouteWaypointIndex || actor.isRouteCompleted)
             {
                 throw new InvalidOperationException(
@@ -258,6 +296,95 @@ namespace HardwareStore.Gameplay.Features.Customers.Systems
             }
         }
 
+        private void ValidateQueueSpots(GameEntity store)
+        {
+            _queueSpots.Clear();
+            foreach (GameEntity spot in
+                     _gameContext.GetEntitiesWithCustomerQueueSpotStoreEntityId(
+                         store.EntityId))
+            {
+                if (spot == null || spot.isDestructed || !spot.isCustomerQueueSpot ||
+                    !spot.hasEntityId || !spot.hasQueueSpotIndex ||
+                    !spot.hasWorldPosition || !spot.hasWorldRotation ||
+                    !spot.hasCustomerQueueAbandonRoute)
+                {
+                    throw new InvalidOperationException(
+                        $"Store {store.EntityId} owns an invalid queue spot.");
+                }
+                _queueSpots.Add(spot);
+            }
+            _queueSpots.Sort((left, right) =>
+                left.QueueSpotIndex.CompareTo(right.QueueSpotIndex));
+
+            Vector3 expectedExitOffset = default;
+            for (int index = 0; index < _queueSpots.Count; index++)
+            {
+                GameEntity spot = _queueSpots[index];
+                if (spot.QueueSpotIndex != index)
+                {
+                    throw new InvalidOperationException(
+                        $"Store {store.EntityId} has an invalid queue spot at index {index}.");
+                }
+
+                Pose[] route = spot.CustomerQueueAbandonRoute;
+                int expectedLength = _config.ParkingCapacity - index + 1;
+                if (route == null || route.Length != expectedLength)
+                {
+                    throw new InvalidOperationException(
+                        $"Queue spot {spot.EntityId} must own an authored abandon-route " +
+                        $"slice of length {expectedLength}.");
+                }
+                for (int routeIndex = 0; routeIndex < route.Length; routeIndex++)
+                {
+                    if (!IsFinite(route[routeIndex]))
+                    {
+                        throw new InvalidOperationException(
+                            $"Queue spot {spot.EntityId} has a non-finite abandon-route " +
+                            $"pose {routeIndex}.");
+                    }
+                }
+
+                Vector3 exitOffset = route[0].position - spot.WorldPosition;
+                if (exitOffset.sqrMagnitude < 0.000001f ||
+                    Mathf.Abs(exitOffset.y) > 0.05f ||
+                    (index > 0 &&
+                     Vector3.Distance(exitOffset, expectedExitOffset) > 0.05f))
+                {
+                    throw new InvalidOperationException(
+                        $"Queue spot {spot.EntityId} has a misaligned abandon exit.");
+                }
+                if (index == 0)
+                    expectedExitOffset = exitOffset;
+
+                if (index == 0)
+                    continue;
+                Pose[] previousRoute =
+                    _queueSpots[index - 1].CustomerQueueAbandonRoute;
+                for (int routeIndex = 0; routeIndex < route.Length; routeIndex++)
+                {
+                    if (!Matches(previousRoute[routeIndex + 1], route[routeIndex]))
+                    {
+                        throw new InvalidOperationException(
+                            $"Queue spot {spot.EntityId} does not own the expected nested " +
+                            "abandon-route slice.");
+                    }
+                }
+            }
+        }
+
+        private static bool IsFinite(Pose pose) =>
+            IsFinite(pose.position.x) && IsFinite(pose.position.y) &&
+            IsFinite(pose.position.z) && IsFinite(pose.rotation.x) &&
+            IsFinite(pose.rotation.y) && IsFinite(pose.rotation.z) &&
+            IsFinite(pose.rotation.w);
+
+        private static bool IsFinite(float value) =>
+            !float.IsNaN(value) && !float.IsInfinity(value);
+
+        private static bool Matches(Pose first, Pose second) =>
+            Vector3.Distance(first.position, second.position) <= 0.05f &&
+            Quaternion.Angle(first.rotation, second.rotation) <= 0.1f;
+
         private void ValidateParkingRelation(GameEntity store, GameEntity visit)
         {
             GameEntity parkingSpot = _gameContext.GetEntityWithEntityId(
@@ -265,12 +392,47 @@ namespace HardwareStore.Gameplay.Features.Customers.Systems
             if (parkingSpot == null || parkingSpot.isDestructed ||
                 !parkingSpot.isCustomerParkingSpot ||
                 !parkingSpot.hasCustomerParkingSpotStoreEntityId ||
+                !parkingSpot.hasCustomerVehicleParkingDepartureRoute ||
+                parkingSpot.CustomerVehicleParkingDepartureRoute == null ||
+                parkingSpot.CustomerVehicleParkingDepartureRoute.Length < 2 ||
                 parkingSpot.CustomerParkingSpotStoreEntityId != store.EntityId ||
                 _gameContext.GetEntityWithReservedCustomerParkingSpotEntityId(
                     parkingSpot.EntityId) != visit)
             {
                 throw new InvalidOperationException(
                     $"Customer visit {visit.EntityId} references an invalid parking spot.");
+            }
+        }
+
+        private void ValidatePatience(GameEntity visit)
+        {
+            bool expectsPatience = visit.isCustomerVisitArriving ||
+                                   visit.isCustomerVisitQueued ||
+                                   visit.isCustomerVisitConsulting;
+            if (visit.hasCustomerPatienceRemaining != expectsPatience)
+                throw new InvalidOperationException(
+                    $"Customer visit {visit.EntityId} has invalid patience ownership.");
+            if (!expectsPatience)
+            {
+                if (visit.isCustomerPatienceWarningIssued)
+                    throw new InvalidOperationException(
+                        $"Customer visit {visit.EntityId} retains a stale patience warning.");
+                return;
+            }
+
+            float remaining = visit.CustomerPatienceRemaining;
+            if (float.IsNaN(remaining) || float.IsInfinity(remaining) || remaining < 0f ||
+                (visit.isCustomerVisitArriving &&
+                 remaining != _config.DefaultPatienceDuration))
+            {
+                throw new InvalidOperationException(
+                    $"Customer visit {visit.EntityId} has invalid patience {remaining}.");
+            }
+            if (visit.isCustomerPatienceWarningIssued &&
+                (remaining <= 0f || remaining > _config.PatienceWarningThreshold))
+            {
+                throw new InvalidOperationException(
+                    $"Customer visit {visit.EntityId} has an invalid patience warning state.");
             }
         }
 

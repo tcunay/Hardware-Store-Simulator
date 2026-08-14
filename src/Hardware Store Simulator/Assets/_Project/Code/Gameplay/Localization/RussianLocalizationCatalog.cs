@@ -151,6 +151,8 @@ namespace HardwareStore.Gameplay.Localization
                 "Грузчик: смена не оплачена"),
             E(LocalizationKey.HudCustomerFlow,
                 "Клиенты: {0} • очередь: {1} • ждут погрузки: {2} • уезжают: {3}", 4),
+            E(LocalizationKey.HudDayReportLostCustomers,
+                "Ушли из-за ожидания: {0}", 1),
             E(LocalizationKey.ProcurementStatusNotRequired,
                 "Не требуется для текущего заказа"),
             E(LocalizationKey.ProcurementStatusStockSufficient,
@@ -341,6 +343,8 @@ namespace HardwareStore.Gameplay.Localization
                 "Грузчик ещё выполняет задачу — дождитесь окончания смены"),
             E(LocalizationKey.PromptCounterNextCustomerApproaching,
                 "Следующий клиент подходит • в очереди {0}", 1),
+            E(LocalizationKey.PromptCustomerLeftImpatient,
+                "Клиент ушёл из-за ожидания — машина покидает парковку"),
 
             E(LocalizationKey.NotificationAcceptCurrentDeliveryFirst,
                 "Сначала примите текущую поставку на склад"),
@@ -417,6 +421,10 @@ namespace HardwareStore.Gameplay.Localization
                 "Смена грузчика оплачена • −{0:N0} ₽", 1),
             E(LocalizationKey.NotificationWarehouseWorkerTaskBlocked,
                 "Грузчик не может выполнить задачу • товар: {0}", 1),
+            E(LocalizationKey.NotificationCustomerPatienceLow,
+                "Клиент недоволен — он может уйти"),
+            E(LocalizationKey.NotificationCustomerLeftImpatient,
+                "Клиент ушёл из-за долгого ожидания"),
 
             E(LocalizationKey.WorldOrderCounter, "ЗАКАЗ КЛИЕНТА"),
             E(LocalizationKey.WorldProcurement, "ЗАКУПКИ"),
@@ -433,7 +441,9 @@ namespace HardwareStore.Gameplay.Localization
             E(LocalizationKey.WorldStoreControlTerminal,
                 "УПРАВЛЕНИЕ МАГАЗИНОМ"),
             E(LocalizationKey.WorldCustomerParking,
-                "ПАРКОВКА КЛИЕНТОВ")
+                "ПАРКОВКА КЛИЕНТОВ"),
+            E(LocalizationKey.WorldCustomerDissatisfied,
+                "НЕДОВОЛЕН • МОЖЕТ УЙТИ")
         };
 
         private static readonly IReadOnlyList<LocalizationEntry> ReadOnlyEntries =

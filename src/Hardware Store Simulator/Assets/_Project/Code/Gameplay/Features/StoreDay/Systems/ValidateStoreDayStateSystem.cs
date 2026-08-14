@@ -30,6 +30,7 @@ namespace HardwareStore.Gameplay.Features.StoreDay.Systems
                     GameMatcher.DayUpgradeExpenses,
                     GameMatcher.DayPayrollExpenses,
                     GameMatcher.DayCompletedOrderCount,
+                    GameMatcher.DayLostCustomerCount,
                     GameMatcher.StoreControlTerminalEntityId)
                 .NoneOf(GameMatcher.Destructed));
             _reportPlayers = gameContext.GetGroup(GameMatcher.AllOf(
@@ -65,7 +66,8 @@ namespace HardwareStore.Gameplay.Features.StoreDay.Systems
                 store.DayOpeningBalance < 0 || store.DayRevenue < 0 ||
                 store.DayProcurementExpenses < 0 || store.DayUpgradeExpenses < 0 ||
                 store.DayPayrollExpenses < 0 ||
-                store.DayCompletedOrderCount < 0)
+                store.DayCompletedOrderCount < 0 ||
+                store.DayLostCustomerCount < 0)
             {
                 throw new InvalidOperationException(
                     $"Store {store.EntityId} has invalid day-cycle financial values.");
@@ -227,7 +229,10 @@ namespace HardwareStore.Gameplay.Features.StoreDay.Systems
                 (visit.isCustomerVisitLoading ? 1 : 0) +
                 (visit.isCustomerVisitCompleted ? 1 : 0) +
                 (visit.isCustomerVisitReturning ? 1 : 0) +
-                (visit.isCustomerVisitDeparting ? 1 : 0);
+                (visit.isCustomerVisitDeparting ? 1 : 0) +
+                (visit.isCustomerVisitAbandoning ? 1 : 0) +
+                (visit.isCustomerVisitWaitingForAbandonDeparture ? 1 : 0) +
+                (visit.isCustomerVisitAbandonDeparting ? 1 : 0);
             if (lifecycleCount != 1)
             {
                 throw new InvalidOperationException(

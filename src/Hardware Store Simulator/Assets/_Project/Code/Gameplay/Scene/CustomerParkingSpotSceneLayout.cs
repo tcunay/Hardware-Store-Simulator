@@ -7,6 +7,7 @@ namespace HardwareStore.Gameplay.Scene
     {
         private readonly Pose[] _vehicleArrivalRoute;
         private readonly Pose[] _vehicleToLoadingRoute;
+        private readonly Pose[] _vehicleParkingDepartureRoute;
         private readonly Pose[] _customerApproachRoute;
         private readonly Pose[] _customerReturnRoute;
 
@@ -14,6 +15,7 @@ namespace HardwareStore.Gameplay.Scene
             int index,
             Pose[] vehicleArrivalRoute,
             Pose[] vehicleToLoadingRoute,
+            Pose[] vehicleParkingDepartureRoute,
             Pose[] customerApproachRoute,
             Pose[] customerReturnRoute)
         {
@@ -27,6 +29,9 @@ namespace HardwareStore.Gameplay.Scene
             _vehicleToLoadingRoute = CloneRoute(
                 vehicleToLoadingRoute,
                 nameof(vehicleToLoadingRoute));
+            _vehicleParkingDepartureRoute = CloneRoute(
+                vehicleParkingDepartureRoute,
+                nameof(vehicleParkingDepartureRoute));
             _customerApproachRoute = CloneRoute(
                 customerApproachRoute,
                 nameof(customerApproachRoute));
@@ -38,6 +43,8 @@ namespace HardwareStore.Gameplay.Scene
         public int Index { get; }
         public Pose[] VehicleArrivalRoute => (Pose[])_vehicleArrivalRoute.Clone();
         public Pose[] VehicleToLoadingRoute => (Pose[])_vehicleToLoadingRoute.Clone();
+        public Pose[] VehicleParkingDepartureRoute =>
+            (Pose[])_vehicleParkingDepartureRoute.Clone();
         public Pose[] CustomerApproachRoute => (Pose[])_customerApproachRoute.Clone();
         public Pose[] CustomerReturnRoute => (Pose[])_customerReturnRoute.Clone();
 
@@ -46,6 +53,7 @@ namespace HardwareStore.Gameplay.Scene
                 Index,
                 VehicleArrivalRoute,
                 VehicleToLoadingRoute,
+                VehicleParkingDepartureRoute,
                 CustomerApproachRoute,
                 CustomerReturnRoute);
 

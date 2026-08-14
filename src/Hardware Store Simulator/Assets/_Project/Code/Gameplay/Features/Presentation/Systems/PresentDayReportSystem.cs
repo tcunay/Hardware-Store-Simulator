@@ -63,7 +63,8 @@ namespace HardwareStore.Gameplay.Features.Presentation.Systems
                 !playerStore.hasDayRevenue || !playerStore.hasDayProcurementExpenses ||
                 !playerStore.hasDayUpgradeExpenses ||
                 !playerStore.hasDayPayrollExpenses ||
-                !playerStore.hasDayCompletedOrderCount || !playerStore.hasMoney ||
+                !playerStore.hasDayCompletedOrderCount ||
+                !playerStore.hasDayLostCustomerCount || !playerStore.hasMoney ||
                 !playerStore.hasStorageZoneEntityId)
             {
                 throw new InvalidOperationException(
@@ -88,6 +89,7 @@ namespace HardwareStore.Gameplay.Features.Presentation.Systems
                 playerStore.DayPayrollExpenses,
                 playerStore.Money,
                 playerStore.DayCompletedOrderCount,
+                playerStore.DayLostCustomerCount,
                 storage.StorageProductCount));
         }
     }

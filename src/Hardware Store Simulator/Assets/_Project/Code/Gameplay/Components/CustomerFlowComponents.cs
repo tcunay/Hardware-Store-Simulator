@@ -27,6 +27,8 @@ namespace HardwareStore.Gameplay.Components
 
     [Game] public class CustomerVehicleArrivalRoute : IComponent { public Pose[] Value; }
     [Game] public class CustomerVehicleToLoadingRoute : IComponent { public Pose[] Value; }
+    [Game] public class CustomerVehicleParkingDepartureRoute : IComponent { public Pose[] Value; }
     [Game] public class CustomerApproachRoute : IComponent { public Pose[] Value; }
+    [Game] public class CustomerQueueAbandonRoute : IComponent { public Pose[] Value; }
     [Game] public class CustomerLoadingDepartureRoute : IComponent { public Pose[] Value; }
 }

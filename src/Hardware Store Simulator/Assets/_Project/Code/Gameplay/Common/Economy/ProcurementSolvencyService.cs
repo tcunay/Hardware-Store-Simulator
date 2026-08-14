@@ -352,18 +352,38 @@ namespace HardwareStore.Gameplay.Common.Economy
                         $"sequence {visit.CustomerArrivalSequence}.");
                 }
 
-                previousArrivalSequence = visit.CustomerArrivalSequence;
                 int projectIndex = GetProjectIndex(visit.CustomerProjectType);
-                if (previousProjectIndex >= 0 &&
-                    projectIndex != NextSequenceIndex(previousProjectIndex))
+                if (previousProjectIndex >= 0)
                 {
-                    throw new InvalidOperationException(
-                        $"Customer visit {visit.EntityId} project " +
-                        $"{visit.CustomerProjectType} breaks the store {store.EntityId} " +
-                        "arrival sequence.");
+                    int arrivalSequenceDelta =
+                        visit.CustomerArrivalSequence - previousArrivalSequence;
+                    if (arrivalSequenceDelta <= 0)
+                    {
+                        throw new InvalidOperationException(
+                            $"Store {store.EntityId} customer arrival sequences must be " +
+                            "strictly increasing.");
+                    }
+
+                    int expectedProjectIndex = AdvanceSequenceIndex(
+                        previousProjectIndex,
+                        arrivalSequenceDelta);
+                    if (projectIndex != expectedProjectIndex)
+                    {
+                        throw new InvalidOperationException(
+                            $"Customer visit {visit.EntityId} project " +
+                            $"{visit.CustomerProjectType} breaks the store " +
+                            $"{store.EntityId} arrival sequence across a gap of " +
+                            $"{arrivalSequenceDelta} visits.");
+                    }
                 }
 
+                previousArrivalSequence = visit.CustomerArrivalSequence;
                 previousProjectIndex = projectIndex;
+                if (IsAbandonedPreOrderVisit(visit))
+                {
+                    ValidateAbandonedPreOrderVisit(visit);
+                    continue;
+                }
                 if (visit.isOrderRewarded)
                 {
                     if (!visit.isOrder ||
@@ -403,13 +423,28 @@ namespace HardwareStore.Gameplay.Common.Economy
                 protectedDemands.Add(ProtectedDemand.ProjectForecast(visit));
             }
 
-            if (previousProjectIndex >= 0 &&
-                store.NextProjectSequenceIndex != NextSequenceIndex(previousProjectIndex))
+            if (previousProjectIndex >= 0)
             {
-                throw new InvalidOperationException(
-                    $"Store {store.EntityId} next project sequence index " +
-                    $"{store.NextProjectSequenceIndex} does not follow its latest active " +
-                    "customer visit.");
+                int remainingArrivalSequenceCount =
+                    store.NextCustomerArrivalSequence - previousArrivalSequence;
+                if (remainingArrivalSequenceCount <= 0)
+                {
+                    throw new InvalidOperationException(
+                        $"Store {store.EntityId} next customer arrival sequence must follow " +
+                        "its latest active visit.");
+                }
+
+                int expectedNextProjectIndex = AdvanceSequenceIndex(
+                    previousProjectIndex,
+                    remainingArrivalSequenceCount);
+                if (store.NextProjectSequenceIndex != expectedNextProjectIndex)
+                {
+                    throw new InvalidOperationException(
+                        $"Store {store.EntityId} next project sequence index " +
+                        $"{store.NextProjectSequenceIndex} does not account for all " +
+                        $"{remainingArrivalSequenceCount} arrivals since its latest " +
+                        "active customer visit.");
+                }
             }
 
             DemandSummary summary = protectedDemands.Count > 0
@@ -809,10 +844,36 @@ namespace HardwareStore.Gameplay.Common.Economy
             if (visit.isCustomerVisitCompleted) lifecycleCount++;
             if (visit.isCustomerVisitReturning) lifecycleCount++;
             if (visit.isCustomerVisitDeparting) lifecycleCount++;
+            if (visit.isCustomerVisitAbandoning) lifecycleCount++;
+            if (visit.isCustomerVisitWaitingForAbandonDeparture) lifecycleCount++;
+            if (visit.isCustomerVisitAbandonDeparting) lifecycleCount++;
             if (lifecycleCount != 1)
             {
                 throw new InvalidOperationException(
                     $"Customer visit {visit.EntityId} must have exactly one lifecycle marker.");
+            }
+        }
+
+        private static bool IsAbandonedPreOrderVisit(GameEntity visit) =>
+            visit.isCustomerVisitAbandoning ||
+            visit.isCustomerVisitWaitingForAbandonDeparture ||
+            visit.isCustomerVisitAbandonDeparting;
+
+        private void ValidateAbandonedPreOrderVisit(GameEntity visit)
+        {
+            if (visit.isOrder || visit.isOrderRewarded ||
+                visit.isOrderContentReleased || visit.hasOrderReward ||
+                visit.hasCustomerPatienceRemaining ||
+                visit.isCustomerPatienceWarningIssued ||
+                visit.hasServingOrderCounterEntityId ||
+                visit.hasReservedCustomerLoadingBayEntityId ||
+                _gameContext.GetEntitiesWithConsultationOfferVisitEntityId(
+                    visit.EntityId).Count != 0 ||
+                _gameContext.GetEntitiesWithOrderEntityId(visit.EntityId).Count != 0)
+            {
+                throw new InvalidOperationException(
+                    $"Abandoned customer visit {visit.EntityId} retains protected-demand " +
+                    "state.");
             }
         }
 
@@ -839,9 +900,17 @@ namespace HardwareStore.Gameplay.Common.Economy
         }
 
         private int NextSequenceIndex(int sequenceIndex)
+            => AdvanceSequenceIndex(sequenceIndex, 1);
+
+        private int AdvanceSequenceIndex(int sequenceIndex, int stepCount)
         {
             ValidateSequenceIndex(sequenceIndex);
-            return (sequenceIndex + 1) % _staticData.ProjectTypes.Count;
+            if (stepCount <= 0)
+                throw new ArgumentOutOfRangeException(nameof(stepCount));
+
+            int boundedStepCount = stepCount % _staticData.ProjectTypes.Count;
+            return (int)(((long)sequenceIndex + boundedStepCount) %
+                         _staticData.ProjectTypes.Count);
         }
 
         private sealed class ProjectionState

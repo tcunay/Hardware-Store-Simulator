@@ -20,18 +20,38 @@ namespace HardwareStore.Gameplay.Configs
             new(20 * 60, 70f)
         };
 
+        [Header("Patience")]
+        [SerializeField, Min(0.01f)] private float _defaultPatienceDuration = 120f;
+        [SerializeField, Min(0.01f)] private float _patienceWarningThreshold = 30f;
+
         public int ParkingCapacity => _parkingCapacity;
         public float FirstArrivalDelay => _firstArrivalDelay;
         public IReadOnlyList<CustomerArrivalSchedulePoint> ArrivalSchedule => _arrivalSchedule;
+        public float DefaultPatienceDuration => _defaultPatienceDuration;
+        public float PatienceWarningThreshold => _patienceWarningThreshold;
 
         public void Configure(int parkingCapacity, float firstArrivalDelay,
             CustomerArrivalSchedulePoint[] arrivalSchedule)
+        {
+            Configure(
+                parkingCapacity,
+                firstArrivalDelay,
+                arrivalSchedule,
+                120f,
+                30f);
+        }
+
+        public void Configure(int parkingCapacity, float firstArrivalDelay,
+            CustomerArrivalSchedulePoint[] arrivalSchedule,
+            float defaultPatienceDuration, float patienceWarningThreshold)
         {
             _parkingCapacity = parkingCapacity;
             _firstArrivalDelay = firstArrivalDelay;
             _arrivalSchedule = arrivalSchedule == null
                 ? null
                 : (CustomerArrivalSchedulePoint[])arrivalSchedule.Clone();
+            _defaultPatienceDuration = defaultPatienceDuration;
+            _patienceWarningThreshold = patienceWarningThreshold;
             Validate();
         }
 
@@ -43,6 +63,20 @@ namespace HardwareStore.Gameplay.Configs
                 _firstArrivalDelay,
                 owner,
                 nameof(FirstArrivalDelay));
+            ConfigValidation.RequirePositive(
+                _defaultPatienceDuration,
+                owner,
+                nameof(DefaultPatienceDuration));
+            ConfigValidation.RequirePositive(
+                _patienceWarningThreshold,
+                owner,
+                nameof(PatienceWarningThreshold));
+            if (_patienceWarningThreshold >= _defaultPatienceDuration)
+            {
+                throw new InvalidOperationException(
+                    $"{owner}.{nameof(PatienceWarningThreshold)} must be lower than " +
+                    $"{nameof(DefaultPatienceDuration)}.");
+            }
             if (_arrivalSchedule == null || _arrivalSchedule.Length < 2)
                 throw new InvalidOperationException(
                     $"{owner}.{nameof(ArrivalSchedule)} must contain at least two points.");

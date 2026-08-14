@@ -52,7 +52,7 @@ namespace HardwareStore.Gameplay.Features.StoreDay.Systems
                 !store.hasDayOpeningBalance || !store.hasDayRevenue ||
                 !store.hasDayProcurementExpenses || !store.hasDayUpgradeExpenses ||
                 !store.hasDayPayrollExpenses ||
-                !store.hasDayCompletedOrderCount ||
+                !store.hasDayCompletedOrderCount || !store.hasDayLostCustomerCount ||
                 !player.hasStoreEntityId || player.StoreEntityId != store.EntityId ||
                 player.isHandsOccupied || player.hasConsultationVisitEntityId ||
                 player.hasProcurementTerminalEntityId)
@@ -77,7 +77,8 @@ namespace HardwareStore.Gameplay.Features.StoreDay.Systems
                 store.DayOpeningBalance < 0 || store.DayRevenue < 0 ||
                 store.DayProcurementExpenses < 0 || store.DayUpgradeExpenses < 0 ||
                 store.DayPayrollExpenses < 0 ||
-                store.DayCompletedOrderCount < 0 || expectedMoney != store.Money)
+                store.DayCompletedOrderCount < 0 ||
+                store.DayLostCustomerCount < 0 || expectedMoney != store.Money)
             {
                 throw new InvalidOperationException(
                     $"Store {store.EntityId} cannot advance an invalid day ledger.");
@@ -94,6 +95,7 @@ namespace HardwareStore.Gameplay.Features.StoreDay.Systems
             store.ReplaceDayUpgradeExpenses(0);
             store.ReplaceDayPayrollExpenses(0);
             store.ReplaceDayCompletedOrderCount(0);
+            store.ReplaceDayLostCustomerCount(0);
             store.isDayReportOpen = false;
             store.isStorePreparing = true;
 

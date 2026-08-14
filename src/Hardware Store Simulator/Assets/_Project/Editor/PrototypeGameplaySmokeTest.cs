@@ -31,9 +31,11 @@ using HardwareStore.Gameplay.Features.StoreDay;
 using HardwareStore.Gameplay.Features.StoreDay.Systems;
 using HardwareStore.Gameplay.Features.StoreSceneBindings.Systems;
 using HardwareStore.Gameplay.Features.Trolley.Systems;
+using HardwareStore.Gameplay.Factories;
 using HardwareStore.Gameplay.Localization;
 using HardwareStore.Gameplay.Presentation;
 using HardwareStore.Gameplay.StaticData;
+using HardwareStore.Gameplay.Views;
 using HardwareStore.Infrastructure.States.GameStates;
 using HardwareStore.Infrastructure.States.StateMachine;
 using HardwareStore.Infrastructure.Systems;
@@ -87,6 +89,7 @@ namespace HardwareStore.Editor
             scenario.Store.ReplaceDayUpgradeExpenses(200);
             scenario.Store.ReplaceDayPayrollExpenses(200);
             scenario.Store.ReplaceDayCompletedOrderCount(2);
+            scenario.Store.ReplaceDayLostCustomerCount(3);
             scenario.Store.ReplaceMoney(900);
             Require(scenario.Store.Money ==
                     scenario.Store.DayOpeningBalance + scenario.Store.DayRevenue -
@@ -192,6 +195,46 @@ namespace HardwareStore.Editor
             Debug.Log(
                 "[Hardware Store] Customer queue visual check prepared: three parked vehicles, " +
                 "one customer at the counter and two customers in the visible FIFO queue.");
+        }
+
+        [MenuItem("Tools/Hardware Store/Prepare Dissatisfied Customer Visual Check")]
+        public static void PrepareDissatisfiedCustomerVisualCheck()
+        {
+            Runtime runtime = ResolveRuntime();
+            Scenario scenario = ResolveFreshScenario(runtime);
+            OpenStoreForSmoke(runtime, scenario);
+            CustomerVisit visit = SpawnAndParkCustomer(runtime, scenario);
+            visit.Entity.ReplaceCustomerPatienceRemaining(
+                runtime.StaticData.CustomerFlow.PatienceWarningThreshold + 1f);
+            new TickCustomerPatienceSystem(
+                    runtime.Game,
+                    new FixedTimeService(2f),
+                    runtime.StaticData,
+                    new GameEventFactory())
+                .Execute();
+            runtime.Systems.Create<PresentCustomerDissatisfactionSystem>().Execute();
+            runtime.Systems.Create<PresentCustomerPatienceEventsSystem>().Execute();
+            RequireCustomerDissatisfactionVisual(
+                visit.Actor,
+                expectedDissatisfied: true,
+                "The dissatisfied-customer visual check did not activate its prefab mood.");
+
+            Selection.activeGameObject = visit.ActorView.gameObject;
+            SceneView sceneView = SceneView.lastActiveSceneView;
+            if (sceneView != null)
+            {
+                sceneView.LookAt(
+                    visit.Actor.Transform.position + Vector3.up * 1.15f,
+                    Quaternion.Euler(8f, 180f, 0f),
+                    2.2f,
+                    false,
+                    true);
+                sceneView.Repaint();
+            }
+
+            Debug.Log(
+                "[Hardware Store] Dissatisfied customer visual check prepared: the selected " +
+                "customer is framed close-up with red tint, raised arms and warning label.");
         }
 
         [MenuItem("Tools/Hardware Store/Run Customer Queue Smoke Test")]
@@ -421,6 +464,520 @@ namespace HardwareStore.Editor
                 "time schedule and closing drain guard.");
         }
 
+        [MenuItem("Tools/Hardware Store/Run Customer Patience Smoke Test")]
+        public static void RunCustomerPatienceSmokeTest()
+        {
+            Runtime runtime = ResolveRuntime();
+            Scenario scenario = ResolveFreshScenario(runtime);
+            OpenStoreForSmoke(runtime, scenario);
+            CustomerVisit[] visits = PrepareThreeCustomerQueue(runtime, scenario);
+
+            ValidateCustomerPatienceTickAndModal(runtime, scenario, visits);
+            AbandonQueuedCustomerAndValidateDeparture(
+                runtime,
+                scenario,
+                visits[1],
+                visits[2]);
+            CustomerVisit fourth = SpawnCustomerToQueue(
+                runtime,
+                scenario,
+                promoteAtCounter: false);
+            AcceptModalCustomerAndValidateNoPatience(
+                runtime,
+                scenario,
+                visits[0]);
+            AbandonConsultingCustomerAndPromoteFollower(
+                runtime,
+                scenario,
+                visits[2],
+                fourth);
+            OpenConsultation(runtime, scenario, fourth.Entity);
+            AcceptModalCustomerAndValidateNoPatience(
+                runtime,
+                scenario,
+                fourth);
+            ValidatePatienceDayReportAndStartNextDay(runtime, scenario);
+
+            Debug.Log(
+                "[Hardware Store] Customer patience smoke passed: queued/consulting timers, " +
+                "same-frame modal protection, one-shot warning, FIFO abandonment, actor and " +
+                "parking departure, lane wait, accepted-order cutoff, report and Day 2 reset.");
+        }
+
+        private static void ValidateCustomerPatienceTickAndModal(
+            Runtime runtime,
+            Scenario scenario,
+            CustomerVisit[] visits)
+        {
+            GameEntity consulting = visits[0].Entity;
+            GameEntity queued = visits[1].Entity;
+            float initialPatience = runtime.StaticData.CustomerFlow.DefaultPatienceDuration;
+            var events = new GameEventFactory();
+
+            new TickCustomerPatienceSystem(
+                    runtime.Game,
+                    new FixedTimeService(10f),
+                    runtime.StaticData,
+                    events)
+                .Execute();
+            Require(Mathf.Approximately(consulting.CustomerPatienceRemaining, 110f) &&
+                    Mathf.Approximately(queued.CustomerPatienceRemaining, 110f) &&
+                    Mathf.Approximately(
+                        visits[2].Entity.CustomerPatienceRemaining,
+                        110f),
+                "Queued and consulting customer patience did not tick together.");
+
+            OpenConsultation(runtime, scenario, consulting);
+            float consultingBeforePause = consulting.CustomerPatienceRemaining;
+            new TickCustomerPatienceSystem(
+                    runtime.Game,
+                    new FixedTimeService(5f),
+                    runtime.StaticData,
+                    events)
+                .Execute();
+            Require(Mathf.Approximately(
+                        consulting.CustomerPatienceRemaining,
+                        consultingBeforePause) &&
+                    Mathf.Approximately(queued.CustomerPatienceRemaining, 105f),
+                "The active consultation modal did not pause only its related customer.");
+            CancelConsultation(runtime, scenario, consulting);
+
+            consulting.ReplaceCustomerPatienceRemaining(0.25f);
+            scenario.Player.ReplaceFocusedEntityId(scenario.OrderCounter.EntityId);
+            RequestInteraction(scenario.Player, scenario.OrderCounter);
+            runtime.Systems.Create<ConsultationFeature>().Execute();
+            new TickCustomerPatienceSystem(
+                    runtime.Game,
+                    new FixedTimeService(1f),
+                    runtime.StaticData,
+                    events)
+                .Execute();
+            runtime.Systems.Create<BeginCustomerAbandonmentSystem>().Execute();
+            Require(scenario.Player.isModalOpen &&
+                    scenario.Player.ConsultationVisitEntityId == consulting.EntityId &&
+                    consulting.isCustomerVisitConsulting &&
+                    !consulting.isCustomerVisitAbandoning &&
+                    Mathf.Approximately(
+                        consulting.CustomerPatienceRemaining,
+                        0.25f),
+                "Opening consultation in the same frame did not win over patience expiry.");
+            consulting.isCustomerPatienceWarningIssued = true;
+            runtime.Systems.Create<PresentCustomerDissatisfactionSystem>().Execute();
+            RequireCustomerDissatisfactionVisual(
+                visits[0].Actor,
+                expectedDissatisfied: true,
+                "A warned consulting customer did not expose dissatisfaction before " +
+                "acceptance.");
+
+            queued.ReplaceCustomerPatienceRemaining(
+                runtime.StaticData.CustomerFlow.PatienceWarningThreshold + 1f);
+            new TickCustomerPatienceSystem(
+                    runtime.Game,
+                    new FixedTimeService(2f),
+                    runtime.StaticData,
+                    events)
+                .Execute();
+            GameEntity[] warningEvents = runtime.Game
+                .GetGroup(GameMatcher.AllOf(
+                    GameMatcher.CustomerPatienceWarningEvent,
+                    GameMatcher.CustomerEventVisitEntityId))
+                .GetEntities();
+            Require(queued.isCustomerPatienceWarningIssued &&
+                    Mathf.Approximately(queued.CustomerPatienceRemaining, 29f) &&
+                    warningEvents.Length == 1 &&
+                    warningEvents[0].CustomerEventVisitEntityId == queued.EntityId,
+                "Crossing the patience threshold did not emit one warning event.");
+            runtime.Systems.Create<PresentCustomerDissatisfactionSystem>().Execute();
+            RequireCustomerDissatisfactionVisual(
+                visits[1].Actor,
+                expectedDissatisfied: true,
+                "A patience warning did not immediately tint the customer, raise both arms " +
+                "and show its localized world label.");
+            var warningCapture = new CaptureNotificationService();
+            new PresentCustomerPatienceEventsSystem(runtime.Game, warningCapture).Execute();
+            Require(warningCapture.Message?.Key ==
+                        LocalizationKey.NotificationCustomerPatienceLow &&
+                    runtime.Localization.Resolve(warningCapture.Message) ==
+                    "Клиент недоволен — он может уйти" &&
+                    runtime.Game.GetGroup(GameMatcher.CustomerPatienceWarningEvent).count == 0,
+                "The patience warning bridge did not present and consume its exact event.");
+            new TickCustomerPatienceSystem(
+                    runtime.Game,
+                    new FixedTimeService(1f),
+                    runtime.StaticData,
+                    events)
+                .Execute();
+            Require(runtime.Game.GetGroup(GameMatcher.CustomerPatienceWarningEvent).count == 0,
+                "A warned customer emitted the same patience warning twice.");
+
+            queued.ReplaceCustomerPatienceRemaining(1f);
+            visits[2].Entity.ReplaceCustomerPatienceRemaining(initialPatience);
+            CleanupEvents(runtime);
+        }
+
+        private static void AbandonQueuedCustomerAndValidateDeparture(
+            Runtime runtime,
+            Scenario scenario,
+            CustomerVisit abandoned,
+            CustomerVisit follower)
+        {
+            GameEntity visit = abandoned.Entity;
+            GameEntity actor = abandoned.Actor;
+            GameEntity followerActor = follower.Actor;
+            int visitId = visit.EntityId;
+            int actorId = actor.EntityId;
+            int parkingSpotId = visit.ReservedCustomerParkingSpotEntityId;
+            GameEntity abandonedQueueSpot = runtime.Game.GetEntityWithEntityId(
+                actor.ReservedCustomerQueueSpotEntityId);
+            Require(abandonedQueueSpot != null &&
+                    abandonedQueueSpot.isCustomerQueueSpot &&
+                    abandonedQueueSpot.hasCustomerQueueAbandonRoute &&
+                    actor.hasCustomerReturnRoute,
+                "The queued abandonment smoke requires authored queue-exit and return routes.");
+            Pose actorStart = new(actor.Rigidbody.position, actor.Rigidbody.rotation);
+            Pose[] queueAbandonRoute =
+                (Pose[])abandonedQueueSpot.CustomerQueueAbandonRoute.Clone();
+            Pose[] customerReturnRoute = (Pose[])actor.CustomerReturnRoute.Clone();
+            var expectedActorRoute = new Pose[
+                1 + queueAbandonRoute.Length + customerReturnRoute.Length - 2];
+            expectedActorRoute[0] = actorStart;
+            Array.Copy(
+                queueAbandonRoute,
+                0,
+                expectedActorRoute,
+                1,
+                queueAbandonRoute.Length);
+            Array.Copy(
+                customerReturnRoute,
+                2,
+                expectedActorRoute,
+                1 + queueAbandonRoute.Length,
+                customerReturnRoute.Length - 2);
+            int queueSpotBefore = QueueSpotIndex(runtime.Game, followerActor);
+            GameEntity[] offers = GetConsultationOffers(runtime.Game, visit);
+            GameEntity[] offerLines = offers
+                .SelectMany(offer => GetConsultationOfferLines(runtime.Game, offer))
+                .ToArray();
+
+            new TickCustomerPatienceSystem(
+                    runtime.Game,
+                    new FixedTimeService(1f),
+                    runtime.StaticData,
+                    new GameEventFactory())
+                .Execute();
+            runtime.Systems.Create<BeginCustomerAbandonmentSystem>().Execute();
+            runtime.Systems.Create<AdvanceCustomerQueueSystem>().Execute();
+            runtime.Systems.Create<PresentCustomerDissatisfactionSystem>().Execute();
+            Require(visit.isCustomerVisitAbandoning &&
+                    !visit.isCustomerVisitQueued &&
+                    !visit.isCustomerVisitConsulting &&
+                    !visit.isOrder &&
+                    !visit.hasCustomerPatienceRemaining &&
+                    !visit.hasServingOrderCounterEntityId &&
+                    !visit.hasReservedCustomerLoadingBayEntityId &&
+                    actor.isCustomerAbandonReturningToVehicle &&
+                    actor.hasRoute &&
+                    actor.Route.Length == expectedActorRoute.Length &&
+                    actor.Route.Select((pose, index) =>
+                            PoseMatches(pose, expectedActorRoute[index]))
+                        .All(matches => matches) &&
+                    actor.RouteWaypointIndex == 1 &&
+                    !actor.hasReservedCustomerQueueSpotEntityId &&
+                    follower.Entity.isCustomerVisitQueued &&
+                    followerActor.isCustomerApproachingCounter &&
+                    queueSpotBefore == 2 &&
+                    QueueSpotIndex(runtime.Game, followerActor) == 1 &&
+                    scenario.Store.DayLostCustomerCount == 1 &&
+                    offers.All(offer => offer.isDestructed &&
+                                                !offer.hasConsultationOfferVisitEntityId) &&
+                    offerLines.All(line => line.isDestructed &&
+                                              !line.hasConsultationOfferEntityId),
+                "An expired middle customer did not leave without order/bay state or compact " +
+                "the FIFO queue exactly once.");
+            RequireCustomerDissatisfactionVisual(
+                actor,
+                expectedDissatisfied: true,
+                "An abandoning customer cleared its visible dissatisfaction before returning " +
+                "to the vehicle.");
+
+            var abandonmentCapture = new CaptureNotificationService();
+            new PresentCustomerPatienceEventsSystem(
+                    runtime.Game,
+                    abandonmentCapture)
+                .Execute();
+            Require(abandonmentCapture.Message?.Key ==
+                        LocalizationKey.NotificationCustomerLeftImpatient &&
+                    runtime.Game.GetGroup(GameMatcher.CustomerAbandonedEvent).count == 0,
+                "The abandonment bridge did not present and consume the leave event.");
+            runtime.Systems.Create<CleanupDestructedEntitiesSystem>().Cleanup();
+
+            ForceRouteEndpoint(runtime, actor);
+            runtime.Systems.Create<CompleteCustomerAbandonReturnSystem>().Execute();
+            Require(visit.isCustomerVisitWaitingForAbandonDeparture &&
+                    actor.isDestructed &&
+                    !actor.hasCustomerActorVisitEntityId &&
+                    runtime.Game.GetEntityWithCustomerActorVisitEntityId(visitId) == null,
+                "The abandoned customer actor did not return to its parked vehicle.");
+            runtime.Systems.Create<CleanupDestructedViewsSystem>().Cleanup();
+            runtime.Systems.Create<CleanupDestructedEntitiesSystem>().Cleanup();
+            Require(runtime.Game.GetEntityWithEntityId(actorId) == null &&
+                    !abandoned.ActorView.HasEntity,
+                "The abandoned customer actor survived the Destructed cleanup pipeline.");
+
+            GameEntity trafficLane = runtime.Game
+                .GetEntityWithCustomerTrafficLaneStoreEntityId(scenario.Store.EntityId);
+            GameEntity laneBlocker = follower.Entity;
+            laneBlocker.AddReservedCustomerTrafficLaneEntityId(trafficLane.EntityId);
+            runtime.Systems.Create<BeginCustomerAbandonDepartureSystem>().Execute();
+            Require(visit.isCustomerVisitWaitingForAbandonDeparture &&
+                    !visit.isCustomerVisitAbandonDeparting &&
+                    !visit.hasRoute &&
+                    !visit.hasReservedCustomerTrafficLaneEntityId,
+                "An impatient vehicle entered the occupied shared traffic lane.");
+            laneBlocker.RemoveReservedCustomerTrafficLaneEntityId();
+
+            runtime.Systems.Create<BeginCustomerAbandonDepartureSystem>().Execute();
+            Pose[] expectedDeparture = runtime.Game.GetEntityWithEntityId(parkingSpotId)
+                .CustomerVehicleParkingDepartureRoute;
+            Require(visit.isCustomerVisitAbandonDeparting &&
+                    visit.hasReservedCustomerTrafficLaneEntityId &&
+                    visit.hasRoute &&
+                    visit.Route.Length == 5 &&
+                    visit.Route.Select((pose, index) =>
+                            PoseMatches(pose, expectedDeparture[index]))
+                        .All(matches => matches),
+                "The impatient vehicle did not acquire the lane with its authored parking " +
+                "departure route.");
+            ForceRouteEndpoint(runtime, visit);
+            runtime.Systems.Create<CompleteCustomerAbandonDepartureSystem>().Execute();
+            Require(visit.isDestructed &&
+                    !visit.hasCustomerVisitStoreEntityId &&
+                    !visit.hasReservedCustomerParkingSpotEntityId &&
+                    !visit.hasReservedCustomerTrafficLaneEntityId &&
+                    runtime.Game.GetEntityWithReservedCustomerParkingSpotEntityId(
+                        parkingSpotId) == null &&
+                    runtime.Game.GetEntityWithReservedCustomerTrafficLaneEntityId(
+                        trafficLane.EntityId) == null,
+                "The impatient vehicle did not release parking and lane ownership on exit.");
+            runtime.Systems.Create<CleanupDestructedViewsSystem>().Cleanup();
+            runtime.Systems.Create<CleanupDestructedEntitiesSystem>().Cleanup();
+            Require(runtime.Game.GetEntityWithEntityId(visitId) == null &&
+                    !abandoned.View.HasEntity,
+                "The impatient vehicle survived its full Destructed cleanup pipeline.");
+
+            ProcurementPurchaseEvaluation first = runtime.ProcurementSolvency.EvaluatePurchase(
+                scenario.ProcurementTerminal.EntityId,
+                ProductTypeId.CementBag);
+            ProcurementPurchaseEvaluation second = runtime.ProcurementSolvency.EvaluatePurchase(
+                scenario.ProcurementTerminal.EntityId,
+                ProductTypeId.CementBag);
+            Require(first.Availability == second.Availability &&
+                    first.DemandKind == second.DemandKind &&
+                    first.ProjectType == second.ProjectType &&
+                    first.DemandVisitEntityId == second.DemandVisitEntityId &&
+                    first.DeliveryProductCount == second.DeliveryProductCount &&
+                    first.DeliveryCost == second.DeliveryCost &&
+                    first.MoneyAfterPurchase == second.MoneyAfterPurchase,
+                "Procurement solvency became non-deterministic after an abandoned arrival " +
+                "created a sequence gap.");
+        }
+
+        private static void AcceptModalCustomerAndValidateNoPatience(
+            Runtime runtime,
+            Scenario scenario,
+            CustomerVisit accepted)
+        {
+            GameEntity visit = accepted.Entity;
+            Require(scenario.Player.isModalOpen &&
+                    scenario.Player.hasConsultationVisitEntityId &&
+                    scenario.Player.ConsultationVisitEntityId == visit.EntityId &&
+                    visit.isCustomerVisitConsulting &&
+                    visit.hasCustomerPatienceRemaining,
+                "The accepted-customer phase requires the protected open consultation.");
+            if (visit.isCustomerPatienceWarningIssued)
+            {
+                RequireCustomerDissatisfactionVisual(
+                    accepted.Actor,
+                    expectedDissatisfied: true,
+                    "The accepted-customer reset regression requires a visibly dissatisfied " +
+                    "actor before confirmation.");
+            }
+            GameEntity selectedOffer = SelectedConsultationOffer(runtime.Game, visit);
+            CustomerProjectOfferDefinition selectedDefinition = runtime.StaticData
+                .GetProject(visit.CustomerProjectType)
+                .Offers[selectedOffer.OfferIndex];
+            GameEntity[] orderLines = ConfirmConsultation(
+                runtime,
+                scenario,
+                visit,
+                selectedDefinition);
+            Require(visit.isOrder &&
+                    visit.isCustomerVisitLoading &&
+                    !visit.hasCustomerPatienceRemaining &&
+                    !visit.isCustomerPatienceWarningIssued,
+                "An accepted order retained patience or entered a non-loading lifecycle.");
+
+            GameEntity[] loadedProducts = CreateSyntheticLoadedProducts(runtime, orderLines);
+            foreach (GameEntity line in orderLines)
+                line.ReplaceLoadedProductCount(line.RequiredProductCount);
+            visit.isCustomerVisitLoading = false;
+            visit.isCustomerVisitCompleted = true;
+            visit.isOrderRewarded = true;
+            DepartAndCleanupCustomer(
+                runtime,
+                scenario,
+                accepted,
+                orderLines,
+                loadedProducts);
+        }
+
+        private static void AbandonConsultingCustomerAndPromoteFollower(
+            Runtime runtime,
+            Scenario scenario,
+            CustomerVisit abandoned,
+            CustomerVisit follower)
+        {
+            GameEntity visit = abandoned.Entity;
+            GameEntity actor = abandoned.Actor;
+            GameEntity followerVisit = follower.Entity;
+            GameEntity followerActor = follower.Actor;
+            int visitId = visit.EntityId;
+            int actorId = actor.EntityId;
+            int parkingSpotId = visit.ReservedCustomerParkingSpotEntityId;
+            Require(visit.isCustomerVisitQueued &&
+                    !visit.isOrder &&
+                    visit.hasCustomerPatienceRemaining &&
+                    followerVisit.isCustomerVisitQueued &&
+                    !followerVisit.isOrder &&
+                    !scenario.Player.isModalOpen,
+                "The consulting abandonment branch requires two unaccepted queued customers.");
+
+            ForceRouteEndpoint(runtime, actor);
+            ForceRouteEndpoint(runtime, followerActor);
+            runtime.Systems.Create<CompleteCustomerApproachSystem>().Execute();
+            runtime.Systems.Create<PromoteCustomerAtCounterSystem>().Execute();
+            Require(visit.isCustomerVisitConsulting &&
+                    visit.hasServingOrderCounterEntityId &&
+                    followerVisit.isCustomerVisitQueued &&
+                    QueueSpotIndex(runtime.Game, followerActor) == 1,
+                "The oldest remaining customer did not become the consulting FIFO head.");
+            OpenConsultation(runtime, scenario, visit);
+            CancelConsultation(runtime, scenario, visit);
+            Require(visit.isCustomerVisitConsulting &&
+                    !scenario.Player.isModalOpen,
+                "Cancelling the modal did not return the customer to exposed consulting " +
+                "patience.");
+
+            visit.ReplaceCustomerPatienceRemaining(1f);
+            new TickCustomerPatienceSystem(
+                    runtime.Game,
+                    new FixedTimeService(1f),
+                    runtime.StaticData,
+                    new GameEventFactory())
+                .Execute();
+            runtime.Systems.Create<BeginCustomerAbandonmentSystem>().Execute();
+            runtime.Systems.Create<AdvanceCustomerQueueSystem>().Execute();
+            Require(visit.isCustomerVisitAbandoning &&
+                    scenario.Store.DayLostCustomerCount == 2 &&
+                    !visit.isOrder &&
+                    !visit.hasServingOrderCounterEntityId &&
+                    !visit.hasReservedCustomerLoadingBayEntityId &&
+                    followerVisit.isCustomerVisitQueued &&
+                    followerActor.isCustomerApproachingCounter &&
+                    QueueSpotIndex(runtime.Game, followerActor) == 0,
+                "The cancelled consulting customer did not release its counter and advance " +
+                "the FIFO follower.");
+            ForceRouteEndpoint(runtime, followerActor);
+            runtime.Systems.Create<CompleteCustomerApproachSystem>().Execute();
+            runtime.Systems.Create<PromoteCustomerAtCounterSystem>().Execute();
+            Require(followerVisit.isCustomerVisitConsulting &&
+                    followerVisit.hasServingOrderCounterEntityId &&
+                    followerActor.isCustomerWaitingAtCounter,
+                "The FIFO follower did not claim the counter after consulting abandonment.");
+            var notificationCapture = new CaptureNotificationService();
+            new PresentCustomerPatienceEventsSystem(
+                    runtime.Game,
+                    notificationCapture)
+                .Execute();
+            Require(notificationCapture.Message?.Key ==
+                    LocalizationKey.NotificationCustomerLeftImpatient,
+                "The last impatient customer did not emit its leave notification.");
+            runtime.Systems.Create<CleanupDestructedEntitiesSystem>().Cleanup();
+
+            ForceRouteEndpoint(runtime, actor);
+            runtime.Systems.Create<CompleteCustomerAbandonReturnSystem>().Execute();
+            runtime.Systems.Create<CleanupDestructedViewsSystem>().Cleanup();
+            runtime.Systems.Create<CleanupDestructedEntitiesSystem>().Cleanup();
+            Require(runtime.Game.GetEntityWithEntityId(actorId) == null &&
+                    visit.isCustomerVisitWaitingForAbandonDeparture,
+                "The consulting impatient actor did not finish returning to the vehicle.");
+
+            runtime.Systems.Create<BeginCustomerAbandonDepartureSystem>().Execute();
+            Require(visit.isCustomerVisitAbandonDeparting &&
+                    visit.Route.Length == 5,
+                "The consulting impatient vehicle did not start its parking departure.");
+            ForceRouteEndpoint(runtime, visit);
+            runtime.Systems.Create<CompleteCustomerAbandonDepartureSystem>().Execute();
+            runtime.Systems.Create<CleanupDestructedViewsSystem>().Cleanup();
+            runtime.Systems.Create<CleanupDestructedEntitiesSystem>().Cleanup();
+            Require(runtime.Game.GetEntityWithEntityId(visitId) == null &&
+                    runtime.Game.GetEntityWithReservedCustomerParkingSpotEntityId(
+                        parkingSpotId) == null &&
+                    !abandoned.ActorView.HasEntity &&
+                    !abandoned.View.HasEntity &&
+                    FindCustomerVisits(runtime.Game, scenario.Store.EntityId)
+                        .SequenceEqual(new[] { followerVisit }),
+                "The consulting impatient customer retained an entity, view or parking " +
+                "relation, or damaged its promoted follower.");
+            runtime.Systems.Create<ValidateCustomerFlowStateSystem>().Execute();
+        }
+
+        private static void ValidatePatienceDayReportAndStartNextDay(
+            Runtime runtime,
+            Scenario scenario)
+        {
+            Require(scenario.Store.isStoreOpen &&
+                    scenario.Store.DayLostCustomerCount == 2 &&
+                    HasNoCustomerVisits(runtime.Game, scenario.Store.EntityId),
+                "The patience report requires two lost customers and an otherwise empty store.");
+            new TickStoreDayClockSystem(
+                    runtime.Game,
+                    runtime.StaticData,
+                    new FixedTimeService(runtime.StaticData.StoreDay.DayDurationSeconds))
+                .Execute();
+            runtime.Systems.Create<ReachStoreClosingTimeSystem>().Execute();
+            CleanupEvents(runtime);
+            Require(scenario.Store.isStoreClosing &&
+                    !scenario.Store.hasCustomerCooldownRemaining,
+                "The empty patience scenario did not enter closing at 20:00.");
+
+            RequestInteraction(scenario.Player, scenario.StoreControlTerminal);
+            runtime.Systems.Create<OpenDayReportSystem>().Execute();
+            CleanupEvents(runtime);
+            var capture = new CaptureHudService();
+            new PresentHudSystem(runtime.Game, runtime.StaticData, capture).Execute();
+            new PresentDayReportSystem(runtime.Game, capture).Execute();
+            Require(capture.DayReport.HasValue &&
+                    capture.DayReport.Value.DayNumber == 1 &&
+                    capture.DayReport.Value.LostCustomerCount == 2 &&
+                    capture.DayReport.Value.CompletedOrderCount == 0 &&
+                    capture.DayReport.Value.ClosingBalance == scenario.Store.Money,
+                "The Day 1 report did not include the exact lost-customer total.");
+
+            scenario.Input.isConfirmPressed = true;
+            runtime.Systems.Create<StoreDayFeature>().Execute();
+            runtime.Systems.Create<CleanupInputRequestsSystem>().Cleanup();
+            Require(scenario.Store.DayNumber == 2 &&
+                    scenario.Store.isStorePreparing &&
+                    !scenario.Store.isDayReportOpen &&
+                    scenario.Store.DayLostCustomerCount == 0 &&
+                    scenario.Store.DayCompletedOrderCount == 0 &&
+                    !scenario.Player.isModalOpen &&
+                    !scenario.Player.hasDayReportStoreEntityId,
+                "Day 2 did not reset the daily lost-customer total and report modal.");
+            runtime.Systems.Create<ValidateStoreDayStateSystem>().Execute();
+        }
+
         [MenuItem("Tools/Hardware Store/Prepare Procurement Visual Check")]
         public static void PrepareProcurementVisualCheck()
         {
@@ -600,6 +1157,18 @@ namespace HardwareStore.Editor
                 "A fresh store must begin with the first configured project type.");
             Require(runtime.StaticData.CustomerVehicle.CargoCapacity == 3,
                 "The mixed-order smoke requires a three-slot customer vehicle.");
+            Require(runtime.StaticData.CustomerFlow.ParkingCapacity == 3 &&
+                    Mathf.Approximately(
+                        runtime.StaticData.CustomerFlow.FirstArrivalDelay,
+                        10f) &&
+                    Mathf.Approximately(
+                        runtime.StaticData.CustomerFlow.DefaultPatienceDuration,
+                        120f) &&
+                    Mathf.Approximately(
+                        runtime.StaticData.CustomerFlow.PatienceWarningThreshold,
+                        30f),
+                "The customer-flow smoke requires the frozen 3/10/120/30 pacing and " +
+                "patience values.");
             Require(Mathf.Approximately(
                     runtime.StaticData.ProductRecovery.MinimumWorldY,
                     -10f),
@@ -1784,6 +2353,7 @@ namespace HardwareStore.Editor
                 GameMatcher.DayUpgradeExpenses,
                 GameMatcher.DayPayrollExpenses,
                 GameMatcher.DayCompletedOrderCount,
+                GameMatcher.DayLostCustomerCount,
                 GameMatcher.StorePreparing,
                 GameMatcher.StoreSceneBindingsValidated)), "store");
             GameEntity orderCounter = RequireSingle(runtime.Game.GetGroup(GameMatcher.AllOf(
@@ -1873,6 +2443,68 @@ namespace HardwareStore.Editor
                     trafficLane != null && trafficLane.isCustomerTrafficLane,
                 "The store does not expose the configured parking, FIFO queue, loading bay " +
                 "and shared traffic lane resources.");
+            Pose[] expectedQueueAbandonExitRoute =
+            {
+                new(new Vector3(-8f, 0.02f, 0.55f),
+                    Quaternion.Euler(0f, 180f, 0f)),
+                new(new Vector3(-8f, 0.02f, -0.75f),
+                    Quaternion.Euler(0f, 180f, 0f)),
+                new(new Vector3(-8f, 0.02f, -2.05f),
+                    Quaternion.Euler(0f, 180f, 0f)),
+                new(new Vector3(-8f, 0.02f, -3f),
+                    Quaternion.Euler(0f, 180f, 0f))
+            };
+            foreach (GameEntity queueSpot in queueSpots)
+            {
+                Pose[] expectedSlice = expectedQueueAbandonExitRoute
+                    .Skip(queueSpot.QueueSpotIndex)
+                    .ToArray();
+                Require(queueSpot.hasCustomerQueueAbandonRoute &&
+                        queueSpot.CustomerQueueAbandonRoute.Length ==
+                        expectedSlice.Length &&
+                        queueSpot.CustomerQueueAbandonRoute
+                            .Select((pose, index) => PoseMatches(
+                                pose,
+                                expectedSlice[index]))
+                            .All(matches => matches),
+                    $"Queue spot {queueSpot.QueueSpotIndex} did not materialize the exact " +
+                    "authored abandonment-route slice.");
+            }
+            Require(!ReferenceEquals(
+                        queueSpots[0].CustomerQueueAbandonRoute,
+                        queueSpots[1].CustomerQueueAbandonRoute) &&
+                    !ReferenceEquals(
+                        queueSpots[0].CustomerQueueAbandonRoute,
+                        queueSpots[2].CustomerQueueAbandonRoute) &&
+                    !ReferenceEquals(
+                        queueSpots[1].CustomerQueueAbandonRoute,
+                        queueSpots[2].CustomerQueueAbandonRoute),
+                "Queue spots must own independent abandonment-route slices.");
+            foreach (GameEntity parkingSpot in parkingSpots)
+            {
+                float parkingX = new[] { -10.8f, -7.4f, -4f }[
+                    parkingSpot.ParkingSpotIndex];
+                Pose[] expectedParkingDepartureRoute =
+                {
+                    new(new Vector3(parkingX, 0.02f, -21.5f), Quaternion.identity),
+                    new(new Vector3(parkingX, 0.02f, -26.5f), Quaternion.identity),
+                    new(new Vector3(parkingX, 0.02f, -30f), Quaternion.identity),
+                    new(new Vector3(1.5f, 0.02f, -30f),
+                        Quaternion.Euler(0f, 90f, 0f)),
+                    new(new Vector3(1.5f, 0.02f, -35f),
+                        Quaternion.Euler(0f, 180f, 0f))
+                };
+                Require(parkingSpot.hasCustomerVehicleParkingDepartureRoute &&
+                        parkingSpot.CustomerVehicleParkingDepartureRoute.Length ==
+                        expectedParkingDepartureRoute.Length &&
+                        parkingSpot.CustomerVehicleParkingDepartureRoute
+                            .Select((pose, index) => PoseMatches(
+                                pose,
+                                expectedParkingDepartureRoute[index]))
+                            .All(matches => matches),
+                    $"Parking spot {parkingSpot.ParkingSpotIndex} did not materialize its " +
+                    "exact impatient-customer vehicle departure route.");
+            }
             Require(!orderCounter.hasSceneViewKey &&
                     !procurementTerminal.hasSceneViewKey &&
                     !storageZone.hasSceneViewKey &&
@@ -1892,7 +2524,8 @@ namespace HardwareStore.Editor
                     store.DayProcurementExpenses == 0 &&
                     store.DayUpgradeExpenses == 0 &&
                     store.DayPayrollExpenses == 0 &&
-                    store.DayCompletedOrderCount == 0,
+                    store.DayCompletedOrderCount == 0 &&
+                    store.DayLostCustomerCount == 0,
                 "The smoke test must start on Day 1 in the 08:00 preparation phase " +
                 "with a zeroed ledger and no customer schedule.");
             Require(runtime.Game.GetEntityWithDeliveryProcurementTerminalEntityId(
@@ -1982,6 +2615,36 @@ namespace HardwareStore.Editor
                 panel.y + phaseTopOffset,
                 panel.width - horizontalPadding * 2f,
                 phaseHeight);
+            string customerFlowText = runtime.Localization.Resolve(
+                LocalizedTexts.Text(
+                    LocalizationKey.HudCustomerFlow,
+                    3,
+                    3,
+                    0,
+                    0));
+            var customerFlowStyle = new GUIStyle(EditorStyles.label)
+            {
+                fontSize = 16,
+                wordWrap = true,
+                alignment = TextAnchor.UpperLeft
+            };
+            Rect statusPanel = new(24f, 24f, 740f, 212f);
+            Rect customerFlowLabel = new(42f, 106f, 700f, 46f);
+            float customerFlowHeight = customerFlowStyle.CalcHeight(
+                new GUIContent(customerFlowText),
+                customerFlowLabel.width);
+            float reportPanelWidth = Mathf.Min(780f, canvasWidth - 48f);
+            float reportPanelHeight = Mathf.Min(650f, canvasHeight - 64f);
+            Rect reportPanel = new(
+                (canvasWidth - reportPanelWidth) * 0.5f,
+                (canvasHeight - reportPanelHeight) * 0.5f,
+                reportPanelWidth,
+                reportPanelHeight);
+            Rect lostCustomerRow = new(
+                reportPanel.x + 52f,
+                reportPanel.y + 124f,
+                reportPanel.width - 104f,
+                32f);
 
             Require(Mathf.Approximately(scale, 0.8f) &&
                     Mathf.Approximately(canvasWidth, 1600f) &&
@@ -1992,9 +2655,20 @@ namespace HardwareStore.Editor
                     panel.xMax <= canvasWidth - 24f &&
                     panel.yMax <= canvasHeight &&
                     phase.x >= panel.x && phase.y >= panel.y &&
-                    phase.xMax <= panel.xMax && phase.yMax <= panel.yMax,
-                "The long closing phase does not fit completely inside the top-right " +
-                "day-clock panel at 1280x720.");
+                    phase.xMax <= panel.xMax && phase.yMax <= panel.yMax &&
+                    !customerFlowText.Contains("\n", StringComparison.Ordinal) &&
+                    !customerFlowText.Contains(" с", StringComparison.Ordinal) &&
+                    customerFlowHeight <= customerFlowLabel.height &&
+                    statusPanel.Contains(customerFlowLabel.min) &&
+                    statusPanel.Contains(customerFlowLabel.max) &&
+                    !statusPanel.Overlaps(panel) &&
+                    reportPanel.x >= 0f && reportPanel.y >= 0f &&
+                    reportPanel.xMax <= canvasWidth &&
+                    reportPanel.yMax <= canvasHeight &&
+                    reportPanel.Contains(lostCustomerRow.min) &&
+                    reportPanel.Contains(lostCustomerRow.max),
+                "The closing phase, countdown-free customer HUD or lost-customer report " +
+                "row does not fit at 1280x720.");
         }
 
         private static void ValidateNewDayFadeContract()
@@ -2386,6 +3060,11 @@ namespace HardwareStore.Editor
                     visit.hasReservedCustomerParkingSpotEntityId &&
                     visit.hasReservedCustomerTrafficLaneEntityId &&
                     visit.hasCustomerProjectType &&
+                    visit.hasCustomerPatienceRemaining &&
+                    Mathf.Approximately(
+                        visit.CustomerPatienceRemaining,
+                        runtime.StaticData.CustomerFlow.DefaultPatienceDuration) &&
+                    !visit.isCustomerPatienceWarningIssued &&
                     !visit.hasProductType &&
                     !visit.hasRequiredProductCount &&
                     !visit.hasAvailableProductCount &&
@@ -2497,6 +3176,11 @@ namespace HardwareStore.Editor
                 $"customer actor {actor.EntityId}");
             Require(actor.hasTransform && actor.hasRigidbody && actor.Rigidbody.isKinematic,
                 "The customer actor view did not register route-movement data.");
+            RequireCustomerDissatisfactionVisual(
+                actor,
+                expectedDissatisfied: false,
+                "A freshly bound customer actor did not begin with neutral color, arms and " +
+                "hidden mood label.");
 
             ForceRouteEndpoint(runtime, actor);
             runtime.Systems.Create<CompleteCustomerApproachSystem>().Execute();
@@ -2545,6 +3229,7 @@ namespace HardwareStore.Editor
             GameEntity visit)
         {
             Require(visit.isCustomerVisitConsulting && !visit.isOrder &&
+                    visit.hasCustomerPatienceRemaining &&
                     !scenario.Player.isModalOpen &&
                     !scenario.Player.hasConsultationVisitEntityId &&
                     !scenario.Player.hasProcurementTerminalEntityId,
@@ -2555,8 +3240,15 @@ namespace HardwareStore.Editor
 
             scenario.Player.ReplaceFocusedEntityId(scenario.OrderCounter.EntityId);
             ExecuteInteractionPrompts(runtime);
-            Require(scenario.Player.isFocusInteractionAvailable,
-                "The consulting customer does not expose an order-counter interaction.");
+            Require(scenario.Player.isFocusInteractionAvailable &&
+                    PromptMatches(
+                        runtime,
+                        scenario.Player,
+                        LocalizedTexts.Text(
+                            LocalizationKey.PromptDiscussProject,
+                            LocalizedTexts.ProjectTitle(visit.CustomerProjectType))),
+                "The consulting customer does not expose its localized project at the order " +
+                "counter.");
             RequestInteraction(scenario.Player, scenario.OrderCounter);
             runtime.Systems.Create<ConsultationFeature>().Execute();
 
@@ -2706,8 +3398,12 @@ namespace HardwareStore.Editor
 
             scenario.Input.isConfirmPressed = true;
             runtime.Systems.Create<ConsultationFeature>().Execute();
+            runtime.Systems.Create<FinalizeAcceptedCustomerPatienceSystem>().Execute();
+            runtime.Systems.Create<PresentCustomerDissatisfactionSystem>().Execute();
 
             GameEntity[] orderLines = GetOrderLines(runtime.Game, visit);
+            GameEntity returningActor =
+                runtime.Game.GetEntityWithCustomerActorVisitEntityId(visit.EntityId);
 
             Require(!scenario.Player.isModalOpen &&
                     !scenario.Player.hasConsultationVisitEntityId &&
@@ -2715,6 +3411,8 @@ namespace HardwareStore.Editor
                     visit.isOrder &&
                     visit.isCustomerVisitReturning &&
                     !visit.isCustomerVisitConsulting &&
+                    !visit.hasCustomerPatienceRemaining &&
+                    !visit.isCustomerPatienceWarningIssued &&
                     !visit.hasServingOrderCounterEntityId &&
                     !visit.hasProductType &&
                     !visit.hasRequiredProductCount &&
@@ -2729,12 +3427,15 @@ namespace HardwareStore.Editor
                                            !line.hasConsultationOfferEntityId),
                 "Confirming an offer did not create its order graph and release the service " +
                 "counter in the same Enter action.");
-            GameEntity returningActor =
-                runtime.Game.GetEntityWithCustomerActorVisitEntityId(visit.EntityId);
             Require(returningActor != null &&
                     returningActor.isCustomerWaitingAtCounter &&
                     !returningActor.hasReservedCustomerQueueSpotEntityId,
                 "Confirming an offer did not release the actor's FIFO queue reservation.");
+            RequireCustomerDissatisfactionVisual(
+                returningActor,
+                expectedDissatisfied: false,
+                "Accepting a dissatisfied customer did not immediately restore its neutral " +
+                "color, arms and hidden world label.");
             for (int lineIndex = 0; lineIndex < orderLines.Length; lineIndex++)
             {
                 CustomerProjectLineDefinition expectedLine = expectedOffer.Lines[lineIndex];
@@ -3027,6 +3728,92 @@ namespace HardwareStore.Editor
             runtime.Systems.Create<MoveRouteSystem>().Execute();
             Require(routeMover.isRouteCompleted,
                 $"Route mover {routeMover.EntityId} did not complete its forced route.");
+        }
+
+        private static bool PoseMatches(Pose actual, Pose expected) =>
+            Vector3.Distance(actual.position, expected.position) < 0.001f &&
+            Quaternion.Angle(actual.rotation, expected.rotation) < 0.01f;
+
+        private static void RequireCustomerDissatisfactionVisual(
+            GameEntity actor,
+            bool expectedDissatisfied,
+            string message)
+        {
+            Require(actor != null && actor.isCustomer && !actor.isDestructed &&
+                    actor.hasCustomerDissatisfactionView,
+                message + " The actor has no bound dissatisfaction view.");
+            var moodView = actor.CustomerDissatisfactionView;
+            Renderer[] renderers = moodView.Renderers;
+            TextMesh label = moodView.WorldLabel;
+            int baseColorId = Shader.PropertyToID("_BaseColor");
+            bool colorsMatch = renderers.Length == 9;
+            foreach (Renderer bodyRenderer in renderers)
+            {
+                Material[] materials = bodyRenderer.sharedMaterials;
+                colorsMatch &= materials.Length > 0;
+                for (int materialIndex = 0;
+                     materialIndex < materials.Length;
+                     materialIndex++)
+                {
+                    Material material = materials[materialIndex];
+                    var propertyBlock = new MaterialPropertyBlock();
+                    bodyRenderer.GetPropertyBlock(propertyBlock, materialIndex);
+                    Color baseColor = material.GetColor(baseColorId);
+                    Color expectedColor = expectedDissatisfied
+                        ? Color.Lerp(
+                            baseColor,
+                            Color.red,
+                            CustomerDissatisfactionView.DissatisfiedColorBlend)
+                        : baseColor;
+                    Color actualColor = propertyBlock.GetColor(baseColorId);
+                    colorsMatch &= Mathf.Abs(actualColor.r - expectedColor.r) < 0.001f &&
+                                   Mathf.Abs(actualColor.g - expectedColor.g) < 0.001f &&
+                                   Mathf.Abs(actualColor.b - expectedColor.b) < 0.001f &&
+                                   Mathf.Abs(actualColor.a - expectedColor.a) < 0.001f;
+                }
+            }
+
+            Quaternion expectedLeft = expectedDissatisfied
+                ? Quaternion.Euler(
+                    0f,
+                    0f,
+                    -CustomerDissatisfactionView.RaisedArmAngle)
+                : Quaternion.identity;
+            Quaternion expectedRight = expectedDissatisfied
+                ? Quaternion.Euler(
+                    0f,
+                    0f,
+                    CustomerDissatisfactionView.RaisedArmAngle)
+                : Quaternion.identity;
+            float armTolerance = expectedDissatisfied
+                ? CustomerDissatisfactionView.ArmWaveAmplitude + 0.1f
+                : 0.01f;
+            bool armsMatch =
+                Quaternion.Angle(
+                    moodView.LeftShoulder.localRotation,
+                    expectedLeft) <= armTolerance &&
+                Quaternion.Angle(
+                    moodView.RightShoulder.localRotation,
+                    expectedRight) <= armTolerance;
+            bool labelMatches = expectedDissatisfied
+                ? label.gameObject.activeSelf &&
+                  label.text == "НЕДОВОЛЕН • МОЖЕТ УЙТИ" &&
+                  label.color.r >= 0.95f &&
+                  label.color.g <= 0.1f &&
+                  label.color.b <= 0.1f &&
+                  Vector3.Dot(
+                      label.transform.forward,
+                      (label.transform.position -
+                       Camera.main.transform.position).normalized) > 0.999f
+                : !label.gameObject.activeSelf &&
+                  string.IsNullOrEmpty(label.text) &&
+                  Quaternion.Angle(
+                      label.transform.localRotation,
+                      Quaternion.identity) < 0.01f;
+
+            Require(moodView.IsDissatisfied == expectedDissatisfied &&
+                    colorsMatch && armsMatch && labelMatches,
+                message);
         }
 
         private static void ValidateReverseLoadingMovement(
@@ -6280,6 +7067,7 @@ namespace HardwareStore.Editor
                     report.OpeningBalance + report.NetCashFlow ==
                     report.ClosingBalance &&
                     report.CompletedOrderCount == expectedCompletedOrders &&
+                    report.LostCustomerCount == 0 &&
                     report.StorageProductCount == expectedStock,
                 "The day report does not reconcile orders, revenue, expenses, cash flow, " +
                 "balance and stock.");
@@ -6327,6 +7115,7 @@ namespace HardwareStore.Editor
                     scenario.Store.DayUpgradeExpenses == 0 &&
                     scenario.Store.DayPayrollExpenses == 0 &&
                     scenario.Store.DayCompletedOrderCount == 0 &&
+                    scenario.Store.DayLostCustomerCount == 0 &&
                     !scenario.Store.hasCustomerCooldownRemaining &&
                     !scenario.Player.isModalOpen &&
                     !scenario.Player.hasDayReportStoreEntityId,
@@ -6487,6 +7276,45 @@ namespace HardwareStore.Editor
                         LocalizationKey.NotificationTrolleyPurchaseWouldBlockProjects)) ==
                     "Покупка тележки отменена: деньги нужны для ближайших проектов",
                 "Russian project-reserve localization changed or gained arguments.");
+            string patienceProjectTitle = localization.Resolve(
+                LocalizedTexts.ProjectTitle(CustomerProjectTypeId.CementFoundation));
+            Require(localization.Resolve(LocalizedTexts.Text(
+                        LocalizationKey.HudCustomerFlow,
+                        3,
+                        3,
+                        0,
+                        0)) ==
+                    "Клиенты: 3 • очередь: 3 • ждут погрузки: 0 • уезжают: 0" &&
+                    localization.Resolve(LocalizedTexts.Text(
+                        LocalizationKey.PromptCounterNextCustomerApproaching,
+                        2)) ==
+                    "Следующий клиент подходит • в очереди 2" &&
+                    localization.Resolve(LocalizedTexts.Text(
+                        LocalizationKey.PromptDiscussProject,
+                        LocalizedTexts.ProjectTitle(
+                            CustomerProjectTypeId.CementFoundation))) ==
+                    $"E — обсудить проект • {patienceProjectTitle}" &&
+                    localization.Resolve(LocalizedTexts.Text(
+                        LocalizationKey.PromptFreeHandsForConsultation)) ==
+                    "Освободите руки перед консультацией" &&
+                    localization.Resolve(LocalizedTexts.Text(
+                        LocalizationKey.PromptCustomerLeftImpatient)) ==
+                    "Клиент ушёл из-за ожидания — машина покидает парковку" &&
+                    localization.Resolve(LocalizedTexts.Text(
+                        LocalizationKey.HudDayReportLostCustomers,
+                        2)) ==
+                    "Ушли из-за ожидания: 2" &&
+                    localization.Resolve(LocalizedTexts.Text(
+                        LocalizationKey.NotificationCustomerPatienceLow)) ==
+                    "Клиент недоволен — он может уйти" &&
+                    localization.Resolve(LocalizedTexts.Text(
+                        LocalizationKey.NotificationCustomerLeftImpatient)) ==
+                    "Клиент ушёл из-за долгого ожидания" &&
+                    localization.Resolve(LocalizedTexts.Text(
+                        LocalizationKey.WorldCustomerDissatisfied)) ==
+                    "НЕДОВОЛЕН • МОЖЕТ УЙТИ",
+                "Russian customer-mood HUD, prompt, report, notification or world-label " +
+                "localization changed content or argument arity.");
         }
 
         private static ILocalizationService CreateRussianLocalization()
@@ -6754,6 +7582,14 @@ namespace HardwareStore.Editor
 
             public void PresentProcurement(ProcurementSnapshot? snapshot) =>
                 Procurement = snapshot;
+        }
+
+        private sealed class CaptureNotificationService : INotificationService
+        {
+            public LocalizedText Message { get; private set; }
+
+            public void Show(LocalizedText message) =>
+                Message = message ?? throw new ArgumentNullException(nameof(message));
         }
 
         private readonly struct Scenario

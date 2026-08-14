@@ -128,6 +128,7 @@ namespace HardwareStore.Gameplay.Features.Customers.Systems
             if (parkingSpot == null || parkingSpot.isDestructed ||
                 !parkingSpot.isCustomerParkingSpot || !parkingSpot.hasEntityId ||
                 !parkingSpot.hasCustomerParkingSpotStoreEntityId ||
+                !parkingSpot.hasCustomerVehicleParkingDepartureRoute ||
                 parkingSpot.CustomerParkingSpotStoreEntityId !=
                 visit.CustomerVisitStoreEntityId)
             {

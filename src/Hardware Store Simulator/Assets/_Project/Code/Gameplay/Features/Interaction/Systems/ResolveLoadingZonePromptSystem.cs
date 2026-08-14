@@ -54,6 +54,17 @@ namespace HardwareStore.Gameplay.Features.Interaction.Systems
                     continue;
                 }
 
+                if (loadingZone.isCustomerVisitAbandoning ||
+                    loadingZone.isCustomerVisitWaitingForAbandonDeparture ||
+                    loadingZone.isCustomerVisitAbandonDeparting)
+                {
+                    player.SetInteractionPrompt(
+                        LocalizedTexts.Text(
+                            LocalizationKey.PromptCustomerLeftImpatient),
+                        false);
+                    continue;
+                }
+
                 if (loadingZone.isCustomerVisitReturning)
                 {
                     player.SetInteractionPrompt(
@@ -224,7 +235,10 @@ namespace HardwareStore.Gameplay.Features.Interaction.Systems
                 (visit.isCustomerVisitLoading ? 1 : 0) +
                 (visit.isCustomerVisitCompleted ? 1 : 0) +
                 (visit.isCustomerVisitReturning ? 1 : 0) +
-                (visit.isCustomerVisitDeparting ? 1 : 0);
+                (visit.isCustomerVisitDeparting ? 1 : 0) +
+                (visit.isCustomerVisitAbandoning ? 1 : 0) +
+                (visit.isCustomerVisitWaitingForAbandonDeparture ? 1 : 0) +
+                (visit.isCustomerVisitAbandonDeparting ? 1 : 0);
             if (lifecycleCount != 1)
             {
                 throw new InvalidOperationException(

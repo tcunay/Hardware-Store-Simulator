@@ -10,6 +10,7 @@ namespace HardwareStore.Gameplay.Scene
     {
         [SerializeField] private CustomerParkingSpotLayoutMarker[] _parkingSpots;
         [SerializeField] private Transform[] _queuePoses;
+        [SerializeField] private Transform[] _queueAbandonExitRoute;
         [SerializeField] private Transform[] _loadingDepartureRoute;
 
         public CustomerFlowSceneLayout Layout => CreateSnapshot();
@@ -17,16 +18,19 @@ namespace HardwareStore.Gameplay.Scene
         public void Configure(
             CustomerParkingSpotLayoutMarker[] parkingSpots,
             Transform[] queuePoses,
+            Transform[] queueAbandonExitRoute,
             Transform[] loadingDepartureRoute)
         {
             ValidateParkingSpots(parkingSpots);
             ValidateWaypoints(queuePoses, nameof(queuePoses), minimumCount: 1);
+            ValidateQueueAbandonExitRoute(queuePoses, queueAbandonExitRoute);
             ValidateWaypoints(
                 loadingDepartureRoute,
                 nameof(loadingDepartureRoute),
                 minimumCount: 2);
             _parkingSpots = (CustomerParkingSpotLayoutMarker[])parkingSpots.Clone();
             _queuePoses = (Transform[])queuePoses.Clone();
+            _queueAbandonExitRoute = (Transform[])queueAbandonExitRoute.Clone();
             _loadingDepartureRoute = (Transform[])loadingDepartureRoute.Clone();
         }
 
@@ -34,6 +38,7 @@ namespace HardwareStore.Gameplay.Scene
         {
             ValidateParkingSpots(_parkingSpots);
             ValidateWaypoints(_queuePoses, nameof(_queuePoses), minimumCount: 1);
+            ValidateQueueAbandonExitRoute(_queuePoses, _queueAbandonExitRoute);
             ValidateWaypoints(
                 _loadingDepartureRoute,
                 nameof(_loadingDepartureRoute),
@@ -46,7 +51,25 @@ namespace HardwareStore.Gameplay.Scene
             return new CustomerFlowSceneLayout(
                 parkingSpots,
                 CreatePoseSnapshot(_queuePoses),
+                CreatePoseSnapshot(_queueAbandonExitRoute),
                 CreatePoseSnapshot(_loadingDepartureRoute));
+        }
+
+        private static void ValidateQueueAbandonExitRoute(
+            Transform[] queuePoses,
+            Transform[] queueAbandonExitRoute)
+        {
+            ValidateWaypoints(
+                queueAbandonExitRoute,
+                nameof(queueAbandonExitRoute),
+                minimumCount: 2);
+            if (queueAbandonExitRoute.Length != queuePoses.Length + 1)
+            {
+                throw new ArgumentException(
+                    "A customer queue abandon exit route must contain one lateral exit " +
+                    "waypoint per queue pose followed by one shared join waypoint.",
+                    nameof(queueAbandonExitRoute));
+            }
         }
 
         private static void ValidateParkingSpots(

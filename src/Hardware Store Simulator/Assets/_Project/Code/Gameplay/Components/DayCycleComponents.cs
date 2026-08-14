@@ -16,6 +16,7 @@ namespace HardwareStore.Gameplay.Components
     [Game] public class DayUpgradeExpenses : IComponent { public int Value; }
     [Game] public class DayPayrollExpenses : IComponent { public int Value; }
     [Game] public class DayCompletedOrderCount : IComponent { public int Value; }
+    [Game] public class DayLostCustomerCount : IComponent { public int Value; }
     [Game] public class StoreControlTerminalEntityId : IComponent { public int Value; }
     [Game] public class DayReportStoreEntityId : IComponent { [PrimaryEntityIndex] public int Value; }
 }

@@ -15,6 +15,7 @@ using HardwareStore.Gameplay.Components;
 using HardwareStore.Gameplay.Configs;
 using HardwareStore.Gameplay.Factories;
 using HardwareStore.Gameplay.Features.Customers.Systems;
+using HardwareStore.Gameplay.Features.Presentation.Systems;
 using HardwareStore.Gameplay.Localization;
 using HardwareStore.Gameplay.Presentation;
 using HardwareStore.Gameplay.Registrars;
@@ -243,7 +244,7 @@ namespace HardwareStore.Editor
             ValidateStoreDayArchitecture(runtimeTypes, componentTypes);
             ValidateEntityViewBindingBoundary(runtimeTypes, componentTypes);
             ValidateEntityIndices(runtimeTypes, componentTypes);
-            ValidateCustomerQueueArchitecture(runtimeTypes);
+            ValidateCustomerQueueArchitecture(runtimeTypes, componentTypes);
             ValidateContextAwareInteractionFocus();
             ValidateProductRecoveryArchitecture(runtimeTypes, componentTypes);
             ValidateCollisionSafeProductDrop(runtimeTypes, componentTypes);
@@ -549,6 +550,7 @@ namespace HardwareStore.Editor
                 typeof(DayUpgradeExpenses),
                 typeof(DayPayrollExpenses),
                 typeof(DayCompletedOrderCount),
+                typeof(DayLostCustomerCount),
                 typeof(StoreControlTerminalEntityId),
                 typeof(DayReportStoreEntityId)
             };
@@ -564,8 +566,9 @@ namespace HardwareStore.Editor
                 runtimeTypes,
                 "GetEntityWithDayReportStoreEntityId",
                 typeof(GameEntity));
-            Require(GameComponentsLookup.componentTypes.Length == 222,
-                "The customer-queue slice must expose the exact 222-component generated Game " +
+            Require(GameComponentsLookup.componentTypes.Length == 235,
+                "The customer-dissatisfaction slice must expose the exact 235-component " +
+                "generated Game " +
                 "registry.");
 
             Type featureType = runtimeTypes.SingleOrDefault(type =>
@@ -628,6 +631,7 @@ namespace HardwareStore.Editor
                 "AddDayUpgradeExpenses(0)",
                 "AddDayPayrollExpenses(0)",
                 "AddDayCompletedOrderCount(0)",
+                "AddDayLostCustomerCount(0)",
                 "isStorePreparing = true",
                 "CreateStoreControlTerminal(store.EntityId)",
                 "AddStoreControlTerminalEntityId(storeControlTerminal.EntityId)");
@@ -751,6 +755,7 @@ namespace HardwareStore.Editor
                 "store.ReplaceDayUpgradeExpenses(0)",
                 "store.ReplaceDayPayrollExpenses(0)",
                 "store.ReplaceDayCompletedOrderCount(0)",
+                "store.ReplaceDayLostCustomerCount(0)",
                 "store.isStorePreparing = true",
                 "player.RemoveDayReportStoreEntityId()");
             Require(!startNextDaySource.Contains("ReplaceMoney", StringComparison.Ordinal) &&
@@ -869,6 +874,7 @@ namespace HardwareStore.Editor
                 (nameof(DayReportSnapshot.NetCashFlow), typeof(int)),
                 (nameof(DayReportSnapshot.ClosingBalance), typeof(int)),
                 (nameof(DayReportSnapshot.CompletedOrderCount), typeof(int)),
+                (nameof(DayReportSnapshot.LostCustomerCount), typeof(int)),
                 (nameof(DayReportSnapshot.StorageProductCount), typeof(int)));
             Require(typeof(DayClockSnapshot).GetConstructor(new[]
                     {
@@ -876,7 +882,7 @@ namespace HardwareStore.Editor
                     }) != null &&
                     typeof(DayNightSnapshot).GetConstructor(new[] { typeof(float) }) != null &&
                     typeof(DayReportSnapshot).GetConstructor(Enumerable.Repeat(
-                        typeof(int), 9).ToArray()) != null,
+                        typeof(int), 10).ToArray()) != null,
                 "Store day presentation snapshots must expose their exact immutable constructors.");
             Require(typeof(HudSnapshot).GetProperty(nameof(HudSnapshot.DayClock))
                         ?.PropertyType == typeof(DayClockSnapshot),
@@ -1006,15 +1012,25 @@ namespace HardwareStore.Editor
                 typeof(IStoreSceneData),
                 nameof(IStoreSceneData.GetCustomerFlowLayout),
                 typeof(CustomerFlowSceneLayout));
+            RequireMethod(
+                typeof(CustomerFlowLayoutMarker),
+                nameof(CustomerFlowLayoutMarker.Configure),
+                typeof(void),
+                typeof(CustomerParkingSpotLayoutMarker[]),
+                typeof(Transform[]),
+                typeof(Transform[]),
+                typeof(Transform[]));
             Require(typeof(CustomerFlowSceneLayout).GetConstructor(new[]
                     {
                         typeof(CustomerParkingSpotSceneLayout[]),
+                        typeof(Pose[]),
                         typeof(Pose[]),
                         typeof(Pose[])
                     }) != null &&
                     typeof(CustomerParkingSpotSceneLayout).GetConstructor(new[]
                     {
                         typeof(int),
+                        typeof(Pose[]),
                         typeof(Pose[]),
                         typeof(Pose[]),
                         typeof(Pose[]),
@@ -1050,8 +1066,12 @@ namespace HardwareStore.Editor
                 "const float horizontalPadding = 16f",
                 "_promptStyle.CalcHeight(",
                 "float panelHeight = phaseTopOffset + phaseHeight + 10f",
+                "new Rect(42f, 106f, 700f, 46f)",
+                "LocalizationKey.HudCustomerFlow",
+                "_snapshot.CustomerFlow.TotalActiveCount",
                 "float panelWidth = Mathf.Min(780f, _canvasWidth - 48f)",
                 "float panelHeight = Mathf.Min(650f, _canvasHeight - 64f)",
+                "LocalizationKey.HudDayReportLostCustomers",
                 "ShouldStartNewDayFade(_snapshot.DayClock, snapshot.DayClock)",
                 "_newDayFadeStartedAt = Time.unscaledTime",
                 "previous.Phase == StoreDayPhase.Report",
@@ -1089,6 +1109,7 @@ namespace HardwareStore.Editor
                 "GameMatcher.StoreEntityId",
                 "player.hasDayReportStoreEntityId",
                 "playerStore.isDayReportOpen",
+                "playerStore.DayLostCustomerCount",
                 "new DayReportSnapshot(",
                 "_hud.PresentDayReport(null)");
 
@@ -1096,14 +1117,30 @@ namespace HardwareStore.Editor
                     (int)LocalizationKey.HudDayReportContinue == 1052 &&
                     (int)LocalizationKey.HudObjectivePreparing == 1053 &&
                     (int)LocalizationKey.HudObjectiveClosing == 1054 &&
+                    (int)LocalizationKey.HudDayReportLostCustomers == 1063 &&
                     (int)LocalizationKey.PromptOpenStore == 2081 &&
                     (int)LocalizationKey.PromptCloseStoreForReport == 2085 &&
                     (int)LocalizationKey.PromptCounterOpenStoreAtControlTerminal == 2086 &&
                     (int)LocalizationKey.PromptCounterFinishDayAtControlTerminal == 2087 &&
+                    (int)LocalizationKey.PromptCustomerLeftImpatient == 2098 &&
                     (int)LocalizationKey.NotificationStoreOpened == 3035 &&
                     (int)LocalizationKey.NotificationStoreClosingTime == 3036 &&
-                    (int)LocalizationKey.WorldStoreControlTerminal == 4009,
+                    (int)LocalizationKey.NotificationCustomerPatienceLow == 3041 &&
+                    (int)LocalizationKey.NotificationCustomerLeftImpatient == 3042 &&
+                    (int)LocalizationKey.WorldStoreControlTerminal == 4009 &&
+                    (int)LocalizationKey.WorldCustomerDissatisfied == 4011,
                 "Store-day localization keys must preserve their assigned stable ranges and values.");
+            var removedPatienceCountdownKeys = new HashSet<string>
+            {
+                "HudCustomerFlowWithPatience",
+                "PromptCounterNextCustomerApproachingWithPatience",
+                "PromptDiscussProjectWithPatience",
+                "PromptCounterBlockedWithPatience"
+            };
+            Require(Enum.GetNames(typeof(LocalizationKey))
+                    .All(name => !removedPatienceCountdownKeys.Contains(name)),
+                "Numeric customer-patience HUD and prompt localization keys must remain " +
+                "removed; dissatisfaction is communicated through the actor view.");
         }
 
         private static void ValidateEntityViewBindingBoundary(Type[] runtimeTypes,
@@ -1284,6 +1321,7 @@ namespace HardwareStore.Editor
                 typeof(CustomerWaitingInQueue),
                 typeof(CustomerWaitingAtCounter),
                 typeof(CustomerReturningToVehicle),
+                typeof(CustomerAbandonReturningToVehicle),
                 typeof(CustomerReturnRoute)
             };
             foreach (Type actorComponent in customerActorComponents)
@@ -1325,6 +1363,8 @@ namespace HardwareStore.Editor
                 typeof(NextCustomerArrivalSequence),
                 typeof(CustomerVehicleArrivalRoute),
                 typeof(CustomerVehicleToLoadingRoute),
+                typeof(CustomerVehicleParkingDepartureRoute),
+                typeof(CustomerQueueAbandonRoute),
                 typeof(CustomerApproachRoute),
                 typeof(CustomerLoadingDepartureRoute)
             };
@@ -1605,6 +1645,11 @@ namespace HardwareStore.Editor
                 "AddQueueSpotIndex",
                 "AddCustomerVehicleArrivalRoute",
                 "AddCustomerVehicleToLoadingRoute",
+                "AddCustomerVehicleParkingDepartureRoute",
+                "AddCustomerQueueAbandonRoute",
+                "QueueAbandonExitRoute",
+                "CreateQueueAbandonRouteSlice(abandonExitRoute, index)",
+                "route.Length - queueSpotIndex",
                 "AddCustomerApproachRoute",
                 "AddCustomerReturnRoute",
                 "AddCustomerLoadingDepartureRoute",
@@ -1623,6 +1668,7 @@ namespace HardwareStore.Editor
                 "AddReservedCustomerParkingSpotEntityId",
                 "AddReservedCustomerTrafficLaneEntityId",
                 "AddCustomerProjectType",
+                "AddCustomerPatienceRemaining(",
                 "_consultationOffers.CreateOffers");
             Require(!customerVisitFactorySource.Contains(
                         "AddCustomerProjectTitle",
@@ -1814,15 +1860,80 @@ namespace HardwareStore.Editor
                 "isDestructed = true");
         }
 
-        private static void ValidateCustomerQueueArchitecture(Type[] runtimeTypes)
+        private static void ValidateCustomerQueueArchitecture(
+            Type[] runtimeTypes,
+            IEnumerable<Type> componentTypes)
         {
+            var discoveredComponents = new HashSet<Type>(componentTypes);
+            Type[] patienceComponents =
+            {
+                typeof(CustomerVisitAbandoning),
+                typeof(CustomerVisitWaitingForAbandonDeparture),
+                typeof(CustomerVisitAbandonDeparting),
+                typeof(CustomerAbandonReturningToVehicle),
+                typeof(CustomerPatienceWarningIssued),
+                typeof(CustomerPatienceWarningEvent),
+                typeof(CustomerAbandonedEvent),
+                typeof(CustomerEventVisitEntityId),
+                typeof(CustomerPatienceRemaining),
+                typeof(CustomerDissatisfactionViewComponent)
+            };
+            foreach (Type component in patienceComponents)
+            {
+                Require(discoveredComponents.Contains(component),
+                    $"Customer patience requires the {component.Name} Game component.");
+            }
+            RequireMethod(
+                typeof(CustomerDissatisfactionView),
+                nameof(CustomerDissatisfactionView.Configure),
+                typeof(void),
+                typeof(Renderer[]),
+                typeof(Transform),
+                typeof(Transform),
+                typeof(TextMesh));
+            RequireMethod(
+                typeof(CustomerDissatisfactionView),
+                nameof(CustomerDissatisfactionView.SetDissatisfied),
+                typeof(void),
+                typeof(bool),
+                typeof(string));
+            Require(typeof(CustomerDissatisfactionView).GetProperty(
+                        nameof(CustomerDissatisfactionView.IsDissatisfied))?.PropertyType ==
+                    typeof(bool) &&
+                    typeof(CustomerDissatisfactionView).GetProperty(
+                        nameof(CustomerDissatisfactionView.Renderers))?.PropertyType ==
+                    typeof(Renderer[]) &&
+                    typeof(CustomerDissatisfactionView).GetProperty(
+                        nameof(CustomerDissatisfactionView.LeftShoulder))?.PropertyType ==
+                    typeof(Transform) &&
+                    typeof(CustomerDissatisfactionView).GetProperty(
+                        nameof(CustomerDissatisfactionView.RightShoulder))?.PropertyType ==
+                    typeof(Transform) &&
+                    typeof(CustomerDissatisfactionView).GetProperty(
+                        nameof(CustomerDissatisfactionView.WorldLabel))?.PropertyType ==
+                    typeof(TextMesh),
+                "Customer dissatisfaction presentation must expose its exact read-only " +
+                "prefab boundary.");
+            Require(typeof(EntityComponentRegistrar).IsAssignableFrom(
+                        typeof(CustomerDissatisfactionViewRegistrar)),
+                $"{nameof(CustomerDissatisfactionViewRegistrar)} must register the generic " +
+                "customer mood view component.");
+            Require(typeof(IExecuteSystem).IsAssignableFrom(
+                        typeof(PresentCustomerDissatisfactionSystem)),
+                $"{nameof(PresentCustomerDissatisfactionSystem)} must remain an executable " +
+                "presentation system.");
+
             string[] systemNames =
             {
                 "TickCustomerCooldownSystem",
+                "FinalizeAcceptedCustomerPatienceSystem",
+                "TickCustomerPatienceSystem",
+                "BeginCustomerAbandonmentSystem",
                 "BeginCustomerVehicleDepartureDelaySystem",
                 "TickCustomerVehicleDepartureDelaySystem",
                 "ReserveCustomerLoadingBaySystem",
                 "BeginCustomerVehicleDepartureSystem",
+                "BeginCustomerAbandonDepartureSystem",
                 "BeginCustomerReturnSystem",
                 "AdvanceCustomerQueueSystem",
                 "MoveCustomerVehicleToLoadingBaySystem",
@@ -1830,9 +1941,11 @@ namespace HardwareStore.Editor
                 "MoveRouteSystem",
                 "ReleaseDepartedOrderContentSystem",
                 "CompleteCustomerVehicleDepartureSystem",
+                "CompleteCustomerAbandonDepartureSystem",
                 "CompleteCustomerLoadingBayArrivalSystem",
                 "CompleteCustomerVehicleArrivalSystem",
                 "CompleteCustomerReturnSystem",
+                "CompleteCustomerAbandonReturnSystem",
                 "CompleteCustomerApproachSystem",
                 "PromoteCustomerAtCounterSystem",
                 "ValidateCustomerFlowStateSystem"
@@ -1872,6 +1985,90 @@ namespace HardwareStore.Editor
                 "store.ReplaceCustomerCooldownRemaining(nextDelay)",
                 "A due customer attempt must reschedule after either spawning or finding " +
                 "customer infrastructure occupied.");
+
+            string tickPatienceSource = ReadRuntimeSource(
+                "Gameplay", "Features", "Customers", "Systems",
+                "TickCustomerPatienceSystem.cs");
+            string finalizePatienceSource = ReadRuntimeSource(
+                "Gameplay", "Features", "Customers", "Systems",
+                "FinalizeAcceptedCustomerPatienceSystem.cs");
+            string beginAbandonmentSource = ReadRuntimeSource(
+                "Gameplay", "Features", "Customers", "Systems",
+                "BeginCustomerAbandonmentSystem.cs");
+            string completeAbandonReturnSource = ReadRuntimeSource(
+                "Gameplay", "Features", "Customers", "Systems",
+                "CompleteCustomerAbandonReturnSystem.cs");
+            string beginAbandonDepartureSource = ReadRuntimeSource(
+                "Gameplay", "Features", "Customers", "Systems",
+                "BeginCustomerAbandonDepartureSystem.cs");
+            string completeAbandonDepartureSource = ReadRuntimeSource(
+                "Gameplay", "Features", "Customers", "Systems",
+                "CompleteCustomerAbandonDepartureSystem.cs");
+            RequireSourceContains(tickPatienceSource,
+                "GameMatcher.CustomerPatienceRemaining",
+                "GameMatcher.CustomerVisitQueued",
+                "GameMatcher.CustomerVisitConsulting",
+                "GameMatcher.ModalOpen",
+                "GameMatcher.ConsultationVisitEntityId",
+                "Math.Max(0f, previous - deltaTime)",
+                "_events.EmitCustomerPatienceWarning(visit.EntityId)");
+            RequireSourceContains(finalizePatienceSource,
+                "GameMatcher.Order",
+                "visit.isCustomerVisitReturning",
+                "visit.RemoveCustomerPatienceRemaining()",
+                "visit.isCustomerPatienceWarningIssued = false");
+            RequireSourceContains(beginAbandonmentSource,
+                "remaining > 0f || HasActiveConsultationModal(visit)",
+                "CustomerArrivalSequence",
+                "queueSpot.hasCustomerQueueAbandonRoute",
+                "CreateAbandonReturnRoute(actor, queueSpot)",
+                "Pose[] queueExit = queueSpot.CustomerQueueAbandonRoute",
+                "Array.Copy(queueExit, 0, route, 1, queueExit.Length)",
+                "customerReturn.Length - 2",
+                "RequireMatchingJoin(",
+                "actor.RemoveReservedCustomerQueueSpotEntityId()",
+                "actor.isCustomerAbandonReturningToVehicle = true",
+                "visit.isCustomerVisitAbandoning = true",
+                "visit.RemoveServingOrderCounterEntityId()",
+                "visit.RemoveCustomerPatienceRemaining()",
+                "store.ReplaceDayLostCustomerCount(nextLostCount)",
+                "_events.EmitCustomerAbandoned(visit.EntityId)");
+            Require(!beginAbandonmentSource.Contains("ExitCorridor", StringComparison.Ordinal) &&
+                    !beginAbandonmentSource.Contains("new Vector3(", StringComparison.Ordinal),
+                "Customer abandonment must follow the authored queue-exit component without " +
+                "hard-coded world-space corridor coordinates.");
+            RequireSourceContains(completeAbandonReturnSource,
+                "GameMatcher.CustomerAbandonReturningToVehicle",
+                "customer.RemoveCustomerActorVisitEntityId()",
+                "customer.isDestructed = true",
+                "visit.isCustomerVisitWaitingForAbandonDeparture = true");
+            RequireSourceContains(beginAbandonDepartureSource,
+                "GameMatcher.CustomerVisitWaitingForAbandonDeparture",
+                "GetEntityWithReservedCustomerTrafficLaneEntityId",
+                "CustomerVehicleParkingDepartureRoute",
+                "AddReservedCustomerTrafficLaneEntityId",
+                "isCustomerVisitAbandonDeparting = true");
+            RequireSourceContains(completeAbandonDepartureSource,
+                "GameMatcher.CustomerVisitAbandonDeparting",
+                "RemoveCustomerVisitStoreEntityId",
+                "RemoveReservedCustomerParkingSpotEntityId",
+                "RemoveReservedCustomerTrafficLaneEntityId",
+                "isDestructed = true");
+            RequireSourceOrder(
+                featureSource,
+                "Create<FinalizeAcceptedCustomerPatienceSystem>()",
+                "Create<TickCustomerPatienceSystem>()",
+                "Accepted consultations must finalize before waiting-customer patience ticks.");
+            RequireSourceOrder(
+                featureSource,
+                "Create<TickCustomerPatienceSystem>()",
+                "Create<BeginCustomerAbandonmentSystem>()",
+                "Patience must reach zero before abandonment is resolved in the same frame.");
+            RequireSourceOrder(
+                featureSource,
+                "Create<BeginCustomerAbandonmentSystem>()",
+                "Create<AdvanceCustomerQueueSystem>()",
+                "Expired customers must release queue ownership before FIFO compaction.");
 
             string completeParkingArrivalSource = ReadRuntimeSource(
                 "Gameplay", "Features", "Customers", "Systems",
@@ -2027,6 +2224,10 @@ namespace HardwareStore.Editor
                 "ValidateBayRelation",
                 "ValidateLaneRelation",
                 "ValidateCounterRelation",
+                "ValidateQueueSpots",
+                "spot.hasCustomerQueueAbandonRoute",
+                "_config.ParkingCapacity - index + 1",
+                "previousRoute[routeIndex + 1]",
                 "ValidateFifoQueue",
                 "spot.QueueSpotIndex != expectedIndex");
 
@@ -2067,8 +2268,11 @@ namespace HardwareStore.Editor
                 (nameof(CustomerFlowSnapshot.ConsultingCount), typeof(int)),
                 (nameof(CustomerFlowSnapshot.LoadingPipelineCount), typeof(int)),
                 (nameof(CustomerFlowSnapshot.LeavingCount), typeof(int)));
-            Require(typeof(CustomerFlowSnapshot).GetConstructor(Enumerable.Repeat(
-                        typeof(int), 6).ToArray()) != null &&
+            Require(typeof(CustomerFlowSnapshot).GetConstructor(new[]
+                    {
+                        typeof(int), typeof(int), typeof(int), typeof(int),
+                        typeof(int), typeof(int)
+                    }) != null &&
                     typeof(HudSnapshot).GetProperty(nameof(HudSnapshot.CustomerFlow))
                         ?.PropertyType == typeof(CustomerFlowSnapshot),
                 "HUD must expose one immutable aggregate snapshot for the full customer queue.");
@@ -2089,6 +2293,100 @@ namespace HardwareStore.Editor
                 "_snapshot.CustomerFlow.QueuedCount",
                 "_snapshot.CustomerFlow.LoadingPipelineCount",
                 "_snapshot.CustomerFlow.LeavingCount");
+            Require(!presentHudSource.Contains(
+                        "minimumWaitingPatience",
+                        StringComparison.Ordinal) &&
+                    !hudViewSource.Contains(
+                        "HudCustomerFlowWithPatience",
+                        StringComparison.Ordinal) &&
+                    !hudViewSource.Contains(
+                        "MinimumWaitingPatienceSeconds",
+                        StringComparison.Ordinal),
+                "HUD presentation must not expose numeric customer patience countdowns.");
+
+            string presentationFeatureSource = ReadRuntimeSource(
+                "Gameplay", "Features", "Presentation", "PresentationFeature.cs");
+            string patienceEventsSource = ReadRuntimeSource(
+                "Gameplay", "Features", "Presentation", "Systems",
+                "PresentCustomerPatienceEventsSystem.cs");
+            string dissatisfactionViewSource = ReadRuntimeSource(
+                "Gameplay", "Views", "CustomerDissatisfactionView.cs");
+            string dissatisfactionRegistrarSource = ReadRuntimeSource(
+                "Gameplay", "Registrars", "CustomerDissatisfactionViewRegistrar.cs");
+            string dissatisfactionSystemSource = ReadRuntimeSource(
+                "Gameplay", "Features", "Presentation", "Systems",
+                "PresentCustomerDissatisfactionSystem.cs");
+            RequireSourceContains(patienceEventsSource,
+                "GameMatcher.CustomerPatienceWarningEvent",
+                "GameMatcher.CustomerAbandonedEvent",
+                "GameMatcher.CustomerEventVisitEntityId",
+                "_gameContext.GetEntityWithEntityId(",
+                "visit.CustomerPatienceRemaining",
+                "LocalizationKey.NotificationCustomerPatienceLow",
+                "LocalizationKey.NotificationCustomerLeftImpatient",
+                "_notifications.Show(",
+                "warningEvent.Destroy()",
+                "abandonedEvent.Destroy()");
+            Require(!patienceEventsSource.Contains("Math.Ceiling", StringComparison.Ordinal),
+                "Customer patience notifications must communicate mood without a numeric " +
+                "countdown.");
+            RequireSourceContains(dissatisfactionViewSource,
+                "DissatisfiedColorBlend = 0.55f",
+                "RaisedArmAngle = 145f",
+                "ArmWaveAmplitude = 12f",
+                "ArmWaveAngularSpeed = 7f",
+                "Color.Lerp(",
+                "Color.red",
+                "SetPropertyBlock(propertyBlock, materialIndex)",
+                "Time.unscaledTime * ArmWaveAngularSpeed",
+                "-RaisedArmAngle + waveAngle",
+                "RaisedArmAngle - waveAngle",
+                "Camera.main",
+                "FaceWorldLabelTowardCamera()",
+                "Quaternion.LookRotation(",
+                "RestoreWorldLabelRotation()",
+                "_worldLabel.gameObject.SetActive(true)",
+                "_worldLabel.gameObject.SetActive(false)",
+                "RestoreArmPose()");
+            Require(!dissatisfactionViewSource.Contains(
+                        ".material",
+                        StringComparison.Ordinal),
+                "Customer mood tinting must use cached material property blocks without " +
+                "instantiating renderer materials.");
+            RequireSourceContains(dissatisfactionRegistrarSource,
+                "Entity.AddCustomerDissatisfactionView(",
+                "GetComponent<CustomerDissatisfactionView>()",
+                "Entity.RemoveCustomerDissatisfactionView()");
+            RequireSourceContains(dissatisfactionSystemSource,
+                "GameMatcher.CustomerActorVisitEntityId",
+                "GameMatcher.CustomerDissatisfactionView",
+                "LocalizationKey.WorldCustomerDissatisfied",
+                "visit.isCustomerVisitQueued || visit.isCustomerVisitConsulting",
+                "visit.isCustomerVisitReturning",
+                "visit.isCustomerVisitAbandoning",
+                "waiting && visit.isCustomerPatienceWarningIssued",
+                "view.SetDissatisfied(dissatisfied, _worldLabel)");
+            RequireSourceOrder(
+                presentationFeatureSource,
+                "Create<PresentInteractionHighlightsSystem>()",
+                "Create<PresentCustomerDissatisfactionSystem>()",
+                "Customer mood must update after world highlights.");
+            RequireSourceOrder(
+                presentationFeatureSource,
+                "Create<PresentCustomerDissatisfactionSystem>()",
+                "Create<PresentHudSystem>()",
+                "Customer mood must update before the HUD snapshot is presented.");
+            RequireSourceOrder(
+                presentationFeatureSource,
+                "Create<PresentCustomerDissatisfactionSystem>()",
+                "Create<PresentCustomerPatienceEventsSystem>()",
+                "Customer mood must become visible before patience notifications are consumed.");
+            RequireSourceOrder(
+                presentationFeatureSource,
+                "Create<PresentCustomerPatienceEventsSystem>()",
+                "Create<PresentNotificationsSystem>()",
+                "Customer patience events must reach the direct HUD notification bridge " +
+                "before queued generic notifications.");
         }
 
         private static void ValidateContextAwareInteractionFocus()
@@ -3879,6 +4177,15 @@ namespace HardwareStore.Editor
                 typeof(int),
                 typeof(float),
                 typeof(CustomerArrivalSchedulePoint[]));
+            RequireMethod(
+                typeof(CustomerFlowConfig),
+                nameof(CustomerFlowConfig.Configure),
+                typeof(void),
+                typeof(int),
+                typeof(float),
+                typeof(CustomerArrivalSchedulePoint[]),
+                typeof(float),
+                typeof(float));
             Require(typeof(CustomerArrivalSchedulePoint).GetConstructor(new[]
                     {
                         typeof(int),
@@ -3890,7 +4197,13 @@ namespace HardwareStore.Editor
                 "Gameplay", "Configs", nameof(CustomerFlowConfig) + ".cs");
             RequireSourceContains(
                 customerFlowConfigSource,
+                "private float _defaultPatienceDuration = 120f",
+                "private float _patienceWarningThreshold = 30f",
+                "public float DefaultPatienceDuration => _defaultPatienceDuration",
+                "public float PatienceWarningThreshold => _patienceWarningThreshold",
                 "(CustomerArrivalSchedulePoint[])arrivalSchedule.Clone()",
+                "ConfigValidation.RequirePositive(",
+                "_patienceWarningThreshold >= _defaultPatienceDuration",
                 "Validate();");
             Require(typeof(ICustomerArrivalSchedule).IsAssignableFrom(
                         typeof(CustomerArrivalSchedule)),
@@ -4178,7 +4491,9 @@ namespace HardwareStore.Editor
                 "ResolveOrderCounterPromptSystem.cs");
             RequireSourceContains(consultationCounterPromptSource,
                 "GetEntityWithServingOrderCounterEntityId",
-                "CountQueuedCustomerVisits(",
+                "_gameContext.CountQueuedCustomerVisits(",
+                "LocalizationKey.PromptCounterNextCustomerApproaching",
+                "ValidateConsultingVisit(customerVisit, orderCounter)",
                 "isCustomerVisitConsulting",
                 "visit.isOrder");
 
@@ -4679,6 +4994,14 @@ namespace HardwareStore.Editor
                 "GetEntitiesWithCustomerVisitStoreEntityId(",
                 "OrderBy(visit => visit.CustomerArrivalSequence)",
                 "new List<ProtectedDemand>(visits.Length)",
+                "int arrivalSequenceDelta =",
+                "AdvanceSequenceIndex(",
+                "previousProjectIndex,",
+                "arrivalSequenceDelta);",
+                "int remainingArrivalSequenceCount =",
+                "remainingArrivalSequenceCount);",
+                "if (stepCount <= 0)",
+                "stepCount % _staticData.ProjectTypes.Count",
                 "ProtectedDemand.ConfirmedOrder(",
                 "CollectRemainingOrderRequirements(visit, stock)",
                 "ProtectedDemand.ProjectForecast(visit)",
@@ -4707,6 +5030,18 @@ namespace HardwareStore.Editor
                 "OrderBy(visit => visit.CustomerArrivalSequence)",
                 "new List<ProtectedDemand>(visits.Length)",
                 "Protected demand projection must preserve FIFO visit order.");
+            RequireSourceOrder(
+                solvencySource,
+                "int arrivalSequenceDelta =",
+                "AdvanceSequenceIndex(",
+                "Project sequence validation must advance by the positive gap between " +
+                "surviving customer arrival sequences.");
+            RequireSourceOrder(
+                solvencySource,
+                "int remainingArrivalSequenceCount =",
+                "int expectedNextProjectIndex = AdvanceSequenceIndex(",
+                "The next store project must account for destroyed visits after the latest " +
+                "surviving customer arrival.");
             RequireSourceOrder(
                 solvencySource,
                 "ProtectedDemand.ConfirmedOrder(",
@@ -5476,9 +5811,11 @@ namespace HardwareStore.Editor
             Require(customerVehicleConfig.CargoCapacity == 3,
                 $"{CustomerVehicleConfigPath} must expose exactly three customer cargo slots.");
             Require(customerFlowConfig.ParkingCapacity == 3 &&
-                    Mathf.Approximately(customerFlowConfig.FirstArrivalDelay, 10f),
-                $"{CustomerFlowConfigPath} must author three parking spots and a ten-second " +
-                "first-arrival delay.");
+                    Mathf.Approximately(customerFlowConfig.FirstArrivalDelay, 10f) &&
+                    Mathf.Approximately(customerFlowConfig.DefaultPatienceDuration, 120f) &&
+                    Mathf.Approximately(customerFlowConfig.PatienceWarningThreshold, 30f),
+                $"{CustomerFlowConfigPath} must author three parking spots, a ten-second " +
+                "first-arrival delay, 120 seconds of patience and a 30-second warning.");
             CustomerArrivalSchedulePoint[] expectedArrivalSchedule =
             {
                 new(8 * 60, 45f),
@@ -5679,6 +6016,14 @@ namespace HardwareStore.Editor
                 RequireExactlyOneInPrefab<TransformRegistrar>(customerPrefab, CustomerPrefabPath);
             RigidbodyRegistrar[] customerActorRigidbodyRegistrars =
                 RequireExactlyOneInPrefab<RigidbodyRegistrar>(customerPrefab, CustomerPrefabPath);
+            CustomerDissatisfactionView[] customerMoodViews =
+                RequireExactlyOneInPrefab<CustomerDissatisfactionView>(
+                    customerPrefab,
+                    CustomerPrefabPath);
+            CustomerDissatisfactionViewRegistrar[] customerMoodRegistrars =
+                RequireExactlyOneInPrefab<CustomerDissatisfactionViewRegistrar>(
+                    customerPrefab,
+                    CustomerPrefabPath);
             Rigidbody[] customerActorRigidbodies =
                 RequireExactlyOneInPrefab<Rigidbody>(customerPrefab, CustomerPrefabPath);
             EntityComponentRegistrar[] customerActorRegistrars =
@@ -5692,25 +6037,89 @@ namespace HardwareStore.Editor
                     customerActorViews[0].gameObject == customerPrefab &&
                     customerActorTransforms[0].gameObject == customerPrefab &&
                     customerActorRigidbodyRegistrars[0].gameObject == customerPrefab &&
+                    customerMoodViews[0].gameObject == customerPrefab &&
+                    customerMoodRegistrars[0].gameObject == customerPrefab &&
                     customerActorRigidbodies[0].gameObject == customerPrefab,
-                $"{CustomerPrefabPath} must use only the generic EntityBehaviour, Transform and " +
-                "Rigidbody boundary on its root.");
+                $"{CustomerPrefabPath} must keep its generic entity, transform, Rigidbody and " +
+                "customer-mood boundaries on the root.");
             var expectedCustomerActorRegistrarTypes = new HashSet<Type>
             {
                 typeof(TransformRegistrar),
-                typeof(RigidbodyRegistrar)
+                typeof(RigidbodyRegistrar),
+                typeof(CustomerDissatisfactionViewRegistrar)
             };
             Require(customerActorRegistrars.Length == expectedCustomerActorRegistrarTypes.Count &&
                     new HashSet<Type>(customerActorRegistrars.Select(registrar => registrar.GetType()))
                         .SetEquals(expectedCustomerActorRegistrarTypes),
-                $"{CustomerPrefabPath} must contain exactly the generic Transform and Rigidbody " +
-                "registrars.");
+                $"{CustomerPrefabPath} must contain exactly the generic Transform, Rigidbody " +
+                "and customer-dissatisfaction view registrars.");
             Require(customerActorColliders.Length == 0 &&
                     customerPrefab.GetComponentsInChildren<InteractionView>(true).Length == 0 &&
                     customerPrefab.GetComponentsInChildren<CollidersRegistrar>(true).Length == 0,
                 $"{CustomerPrefabPath} must not expose interaction or collider gameplay adapters.");
-            Require(customerActorRenderers.Length >= 8,
-                $"{CustomerPrefabPath} must contain a visible low-poly customer silhouette.");
+            CustomerDissatisfactionView moodView = customerMoodViews[0];
+            Renderer[] moodRenderers = moodView.Renderers;
+            Transform leftShoulder = moodView.LeftShoulder;
+            Transform rightShoulder = moodView.RightShoulder;
+            TextMesh moodLabel = moodView.WorldLabel;
+            Renderer moodLabelRenderer = moodLabel.GetComponent<Renderer>();
+            Renderer[] bodyRenderers = customerActorRenderers
+                .Where(renderer => renderer != moodLabelRenderer)
+                .ToArray();
+            Require(customerActorRenderers.Length == 10 &&
+                    bodyRenderers.Length == 9 &&
+                    moodRenderers.Length == bodyRenderers.Length &&
+                    new HashSet<Renderer>(moodRenderers).SetEquals(bodyRenderers) &&
+                    !moodRenderers.Contains(moodLabelRenderer),
+                $"{CustomerPrefabPath} must tint exactly its nine low-poly body renderers " +
+                "without tinting the world label renderer.");
+            Renderer preservedMoodRenderer = moodRenderers[0];
+            moodRenderers[0] = null;
+            Require(moodView.Renderers[0] == preservedMoodRenderer,
+                $"{nameof(CustomerDissatisfactionView.Renderers)} must return a defensive " +
+                "array clone.");
+            Transform leftArm = leftShoulder.Find("Left Arm");
+            Transform rightArm = rightShoulder.Find("Right Arm");
+            Require(leftShoulder.name == "Left Shoulder" &&
+                    rightShoulder.name == "Right Shoulder" &&
+                    leftShoulder.parent == customerPrefab.transform &&
+                    rightShoulder.parent == customerPrefab.transform &&
+                    leftArm != null && leftArm.parent == leftShoulder &&
+                    rightArm != null && rightArm.parent == rightShoulder &&
+                    Vector3.Distance(
+                        leftShoulder.localPosition,
+                        new Vector3(-0.42f, 1.46f, 0f)) < 0.001f &&
+                    Vector3.Distance(
+                        rightShoulder.localPosition,
+                        new Vector3(0.42f, 1.46f, 0f)) < 0.001f &&
+                    Quaternion.Angle(leftShoulder.localRotation, Quaternion.identity) < 0.01f &&
+                    Quaternion.Angle(rightShoulder.localRotation, Quaternion.identity) < 0.01f &&
+                    Vector3.Distance(
+                        leftArm.localPosition,
+                        new Vector3(0f, -0.28f, 0f)) < 0.001f &&
+                    Vector3.Distance(
+                        rightArm.localPosition,
+                        new Vector3(0f, -0.28f, 0f)) < 0.001f,
+                $"{CustomerPrefabPath} must expose neutral shoulder pivots above their arm " +
+                "mesh children so dissatisfaction can raise and animate both arms.");
+            Require(moodLabel.name == "Dissatisfaction Label" &&
+                    moodLabel.transform.parent == customerPrefab.transform &&
+                    Vector3.Distance(
+                        moodLabel.transform.localPosition,
+                        new Vector3(0f, 2.35f, 0f)) < 0.001f &&
+                    moodLabel.anchor == TextAnchor.MiddleCenter &&
+                    moodLabel.alignment == TextAlignment.Center &&
+                    moodLabel.fontStyle == FontStyle.Bold &&
+                    moodLabel.fontSize == 64 &&
+                    Mathf.Approximately(moodLabel.characterSize, 0.045f) &&
+                    moodLabel.color.r >= 0.95f &&
+                    moodLabel.color.g <= 0.1f &&
+                    moodLabel.color.b <= 0.1f &&
+                    moodLabel.text == "НЕДОВОЛЕН • МОЖЕТ УЙТИ" &&
+                    !moodLabel.gameObject.activeSelf &&
+                    !moodView.IsDissatisfied,
+                $"{CustomerPrefabPath} must author one initially hidden red localized " +
+                "dissatisfaction label above the customer.");
             Rigidbody customerActorBody = customerActorRigidbodies[0];
             Require(customerActorBody.isKinematic && !customerActorBody.useGravity &&
                     customerActorBody.interpolation == RigidbodyInterpolation.None,
@@ -6518,6 +6927,8 @@ namespace HardwareStore.Editor
                 CustomerParkingSpotSceneLayout[] parkingLayouts =
                     customerFlowLayout.ParkingSpots;
                 Pose[] queuePoses = customerFlowLayout.QueuePoses;
+                Pose[] queueAbandonExitRoute =
+                    customerFlowLayout.QueueAbandonExitRoute;
                 Pose[] loadingDepartureRoute =
                     customerFlowLayout.LoadingDepartureRoute;
                 Require(parkingLayouts.Length == 3 &&
@@ -6531,6 +6942,14 @@ namespace HardwareStore.Editor
                         preservedQueueHead),
                     "Customer-flow queue snapshots must not expose their internal pose array.");
                 queuePoses = customerFlowLayout.QueuePoses;
+                Pose preservedQueueAbandonExit = queueAbandonExitRoute[0];
+                queueAbandonExitRoute[0] = default;
+                Require(PoseMatches(
+                        customerFlowLayout.QueueAbandonExitRoute[0],
+                        preservedQueueAbandonExit),
+                    "Customer-flow queue-abandon snapshots must not expose their internal " +
+                    "pose array.");
+                queueAbandonExitRoute = customerFlowLayout.QueueAbandonExitRoute;
                 Pose preservedArrivalStart =
                     parkingLayouts[0].VehicleArrivalRoute[0];
                 Pose[] mutableArrival = parkingLayouts[0].VehicleArrivalRoute;
@@ -6543,6 +6962,17 @@ namespace HardwareStore.Editor
                     "Customer-flow parking snapshots must deep-clone their layout and route " +
                     "arrays.");
                 parkingLayouts = customerFlowLayout.ParkingSpots;
+                Pose preservedParkingDepartureEnd =
+                    parkingLayouts[0].VehicleParkingDepartureRoute[^1];
+                Pose[] mutableParkingDeparture =
+                    parkingLayouts[0].VehicleParkingDepartureRoute;
+                mutableParkingDeparture[^1] = default;
+                Require(PoseMatches(
+                        customerFlowLayout.ParkingSpots[0]
+                            .VehicleParkingDepartureRoute[^1],
+                        preservedParkingDepartureEnd),
+                    "Customer-flow parking snapshots must clone the authored abandonment " +
+                    "departure route.");
                 Require(queuePoses.Length == 3 &&
                         Vector3.Distance(queuePoses[0].position,
                             new Vector3(-7.25f, 0.02f, 0.55f)) < 0.001f &&
@@ -6558,6 +6988,23 @@ namespace HardwareStore.Editor
                             queuePoses[index].position) >= 1.1f,
                         "Customer queue poses must retain safe pedestrian spacing.");
                 }
+                Pose[] expectedQueueAbandonExitRoute =
+                {
+                    new(new Vector3(-8f, 0.02f, 0.55f),
+                        Quaternion.Euler(0f, 180f, 0f)),
+                    new(new Vector3(-8f, 0.02f, -0.75f),
+                        Quaternion.Euler(0f, 180f, 0f)),
+                    new(new Vector3(-8f, 0.02f, -2.05f),
+                        Quaternion.Euler(0f, 180f, 0f)),
+                    new(new Vector3(-8f, 0.02f, -3f),
+                        Quaternion.Euler(0f, 180f, 0f))
+                };
+                Require(queueAbandonExitRoute.Length == queuePoses.Length + 1 &&
+                        queueAbandonExitRoute.Select((pose, index) =>
+                                PoseMatches(pose, expectedQueueAbandonExitRoute[index]))
+                            .All(matches => matches),
+                    "Customer queue abandonment must use the exact authored lateral exits " +
+                    "and shared return-route join instead of runtime world coordinates.");
 
                 Vector3[] expectedParkingPositions =
                 {
@@ -6605,9 +7052,12 @@ namespace HardwareStore.Editor
                 {
                     Pose[] arrivalRoute = parkingLayout.VehicleArrivalRoute;
                     Pose[] toLoadingRoute = parkingLayout.VehicleToLoadingRoute;
+                    Pose[] parkingDepartureRoute =
+                        parkingLayout.VehicleParkingDepartureRoute;
                     Pose[] approachRoute = parkingLayout.CustomerApproachRoute;
                     Pose[] returnRoute = parkingLayout.CustomerReturnRoute;
                     Require(arrivalRoute.Length == 5 && toLoadingRoute.Length == 10 &&
+                            parkingDepartureRoute.Length == 5 &&
                             approachRoute.Length == 6 && returnRoute.Length == 6,
                         $"Customer parking spot {parkingLayout.Index} has invalid route lengths.");
                     Require(PoseMatches(arrivalRoute[^1], toLoadingRoute[0]) &&
@@ -6656,14 +7106,45 @@ namespace HardwareStore.Editor
                         $"Customer parking spot {parkingLayout.Index} must maneuver outside " +
                         "the fence, enter through the vehicle gate, turn in the yard and " +
                         "reverse into the loading bay.");
+                    Pose[] expectedParkingDepartureRoute =
+                    {
+                        new(expectedParkingPositions[parkingLayout.Index],
+                            Quaternion.identity),
+                        new(new Vector3(
+                                expectedParkingPositions[parkingLayout.Index].x,
+                                0.02f,
+                                -26.5f),
+                            Quaternion.identity),
+                        new(new Vector3(
+                                expectedParkingPositions[parkingLayout.Index].x,
+                                0.02f,
+                                -30f),
+                            Quaternion.identity),
+                        new(new Vector3(1.5f, 0.02f, -30f),
+                            Quaternion.Euler(0f, 90f, 0f)),
+                        new(new Vector3(1.5f, 0.02f, -35f),
+                            Quaternion.Euler(0f, 180f, 0f))
+                    };
+                    Require(PoseMatches(arrivalRoute[^1], parkingDepartureRoute[0]) &&
+                            parkingDepartureRoute.Select((pose, index) =>
+                                    PoseMatches(
+                                        pose,
+                                        expectedParkingDepartureRoute[index]))
+                                .All(matches => matches),
+                        $"Customer parking spot {parkingLayout.Index} must expose its exact " +
+                        "authored exterior departure route for an impatient customer.");
                     Require(PoseMatches(toLoadingRoute[^1], loadingDepartureRoute[0]),
                         $"Customer parking spot {parkingLayout.Index} must enter the shared " +
                         "loading bay without a pose discontinuity.");
                     Require(PoseMatches(approachRoute[^1], queuePoses[^1]) &&
                             PoseMatches(returnRoute[0], queuePoses[0]) &&
+                            PoseMatches(
+                                returnRoute[1],
+                                queueAbandonExitRoute[^1]) &&
                             PoseMatches(returnRoute[^1], approachRoute[0]),
                         $"Customer parking spot {parkingLayout.Index} pedestrian routes must " +
-                        "connect door, queue tail and counter service poses.");
+                        "connect door, queue tail, authored abandon exit and counter service " +
+                        "poses.");
                     Require(Vector3.Distance(
                                 approachRoute[2].position,
                                 new Vector3(-7.25f, 0.02f, -17.15f)) < 0.001f &&

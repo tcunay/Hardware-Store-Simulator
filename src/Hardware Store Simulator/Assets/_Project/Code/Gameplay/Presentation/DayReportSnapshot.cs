@@ -6,7 +6,8 @@ namespace HardwareStore.Gameplay.Presentation
     {
         public DayReportSnapshot(int dayNumber, int openingBalance, int revenue,
             int procurementExpenses, int upgradeExpenses, int payrollExpenses,
-            int closingBalance, int completedOrderCount, int storageProductCount)
+            int closingBalance, int completedOrderCount, int lostCustomerCount,
+            int storageProductCount)
         {
             if (dayNumber <= 0)
                 throw new ArgumentOutOfRangeException(nameof(dayNumber));
@@ -24,6 +25,8 @@ namespace HardwareStore.Gameplay.Presentation
                 throw new ArgumentOutOfRangeException(nameof(closingBalance));
             if (completedOrderCount < 0)
                 throw new ArgumentOutOfRangeException(nameof(completedOrderCount));
+            if (lostCustomerCount < 0)
+                throw new ArgumentOutOfRangeException(nameof(lostCustomerCount));
             if (storageProductCount < 0)
                 throw new ArgumentOutOfRangeException(nameof(storageProductCount));
 
@@ -47,6 +50,7 @@ namespace HardwareStore.Gameplay.Presentation
             NetCashFlow = (int)netCashFlow;
             ClosingBalance = closingBalance;
             CompletedOrderCount = completedOrderCount;
+            LostCustomerCount = lostCustomerCount;
             StorageProductCount = storageProductCount;
         }
 
@@ -59,6 +63,7 @@ namespace HardwareStore.Gameplay.Presentation
         public int NetCashFlow { get; }
         public int ClosingBalance { get; }
         public int CompletedOrderCount { get; }
+        public int LostCustomerCount { get; }
         public int StorageProductCount { get; }
     }
 }
