@@ -13,7 +13,10 @@ namespace HardwareStore.Gameplay.Components
         MovingToPickup,
         MovingToStorage,
         MovingToCustomerLoading,
-        Blocked
+        Blocked,
+        MovingToWorkerTrolley,
+        MovingWorkerTrolleyToCustomerLoading,
+        ReturningWorkerTrolley
     }
 
     public enum WarehouseTaskStepId
@@ -22,7 +25,9 @@ namespace HardwareStore.Gameplay.Components
         MovingToPickup,
         MovingToStorage,
         MovingToCustomerLoading,
-        Blocked
+        Blocked,
+        MovingToWorkerTrolley,
+        MovingWorkerTrolleyToCustomerLoading
     }
 
     public enum WarehouseTaskBlockReasonId
@@ -33,7 +38,10 @@ namespace HardwareStore.Gameplay.Components
         NoStoragePath,
         NoCustomerLoadingPath,
         TimedOut,
-        WorkerMissing
+        WorkerMissing,
+        NoWorkerTrolleyPath,
+        WorkerTrolleyObstructed,
+        WorkerTrolleyMissing
     }
 
     [Game] public class WarehouseWorker : IComponent { }
@@ -41,6 +49,7 @@ namespace HardwareStore.Gameplay.Components
     [Game] public class WarehouseTask : IComponent { }
     [Game] public class InboundToStorageTask : IComponent { }
     [Game] public class StockToCustomerLoadingTask : IComponent { }
+    [Game] public class WorkerTrolleyCustomerLoadingRun : IComponent { }
     [Game] public class WarehouseWorkerStoreEntityId : IComponent { [PrimaryEntityIndex] public int Value; }
     [Game] public class WarehouseWorkerStatus : IComponent { public WarehouseWorkerStatusId Value; }
     [Game] public class WarehouseWorkerPickupPosition : IComponent { public Vector3 Value; }
@@ -55,9 +64,11 @@ namespace HardwareStore.Gameplay.Components
     [Game] public class WarehouseTaskCustomerVisitEntityId : IComponent { [EntityIndex] public int Value; }
     [Game] public class WarehouseTaskOrderLineEntityId : IComponent { [EntityIndex] public int Value; }
     [Game] public class WarehouseTaskProductEntityId : IComponent { [PrimaryEntityIndex] public int Value; }
+    [Game] public class WarehouseTaskWorkerTrolleyEntityId : IComponent { [PrimaryEntityIndex] public int Value; }
     [Game] public class AssignedWorkerEntityId : IComponent { [PrimaryEntityIndex] public int Value; }
     [Game] public class WarehouseTaskReservedStorageSlotIndex : IComponent { public int Value; }
     [Game] public class WarehouseTaskReservedLoadingSlotIndex : IComponent { public int Value; }
+    [Game] public class WarehouseRunProductCount : IComponent { public int Value; }
     [Game] public class WarehouseTaskStep : IComponent { public WarehouseTaskStepId Value; }
     [Game] public class WarehouseTaskBlockReason : IComponent { public WarehouseTaskBlockReasonId Value; }
     [Game] public class WarehouseTaskTimeoutRemaining : IComponent { public float Value; }

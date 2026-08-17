@@ -16,19 +16,22 @@ namespace HardwareStore.Gameplay.Features.Employees.Systems
         private readonly IStoreSceneData _sceneData;
         private readonly WarehouseWorkerConfig _config;
         private readonly IWarehouseWorkerFactory _workers;
+        private readonly IWarehouseWorkerTrolleyFactory _workerTrolleys;
         private readonly IEconomySolvencyService _solvency;
         private readonly IGameEventFactory _events;
         private readonly IGroup<GameEntity> _requests;
 
         public HireWarehouseWorkerSystem(GameContext gameContext,
             IStoreSceneData sceneData, IStaticDataService staticData,
-            IWarehouseWorkerFactory workers, IEconomySolvencyService solvency,
-            IGameEventFactory events)
+            IWarehouseWorkerFactory workers,
+            IWarehouseWorkerTrolleyFactory workerTrolleys,
+            IEconomySolvencyService solvency, IGameEventFactory events)
         {
             _gameContext = gameContext;
             _sceneData = sceneData;
             _config = staticData.WarehouseWorker;
             _workers = workers;
+            _workerTrolleys = workerTrolleys;
             _solvency = solvency;
             _events = events;
             _requests = gameContext.GetGroup(GameMatcher.AllOf(
@@ -56,6 +59,8 @@ namespace HardwareStore.Gameplay.Features.Employees.Systems
                 if (!store.isStoreOpen || player.isModalOpen || player.isHandsOccupied ||
                     !store.isWarehouseWorkerHiringUnlocked ||
                     _gameContext.GetEntityWithWarehouseWorkerStoreEntityId(
+                        store.EntityId) != null ||
+                    _gameContext.GetEntityWithWorkerTrolleyStoreEntityId(
                         store.EntityId) != null)
                 {
                     continue;
@@ -100,6 +105,13 @@ namespace HardwareStore.Gameplay.Features.Employees.Systems
                         "Warehouse worker factory returned invalid initial state.");
                 }
 
+                GameEntity workerTrolley = _workerTrolleys.Create(
+                    store.EntityId,
+                    _sceneData.GetSpawnPoint(SpawnPointId.WarehouseWorkerTrolley),
+                    _sceneData.GetSpawnPoint(
+                        SpawnPointId.WarehouseWorkerTrolleyCustomerLoadingAccess));
+                ValidateWorkerTrolley(workerTrolley, store.EntityId);
+
                 store.ReplaceMoney(moneyAfterHire);
                 store.ReplaceDayUpgradeExpenses(upgradeExpensesAfterHire);
                 worker.AddWorkerPaidDayNumber(store.DayNumber);
@@ -109,6 +121,30 @@ namespace HardwareStore.Gameplay.Features.Employees.Systems
                     LocalizationKey.NotificationWarehouseWorkerHired,
                     _config.HirePrice,
                     _config.DailyWage));
+            }
+        }
+
+        private void ValidateWorkerTrolley(GameEntity trolley, int storeEntityId)
+        {
+            if (trolley == null || trolley.isDestructed ||
+                !trolley.isWorkerTrolley || trolley.isPlatformTrolley ||
+                trolley.isInteractable || !trolley.hasEntityId ||
+                !trolley.hasWorkerTrolleyStoreEntityId ||
+                trolley.WorkerTrolleyStoreEntityId != storeEntityId ||
+                !trolley.hasTrolleyCapacity ||
+                trolley.TrolleyCapacity != _config.TrolleyCapacity ||
+                !trolley.hasOccupiedTrolleySlotCount ||
+                trolley.OccupiedTrolleySlotCount != 0 ||
+                !trolley.hasTrolleyFollowDistance ||
+                trolley.TrolleyFollowDistance != _config.TrolleyFollowDistance ||
+                !trolley.hasWorkerTrolleyHomePosition ||
+                !trolley.hasWorkerTrolleyHomeRotation ||
+                !trolley.hasWorkerTrolleyCustomerLoadingPosition ||
+                !trolley.hasWorkerTrolleyCustomerLoadingRotation ||
+                trolley.hasTrolleyPusherEntityId)
+            {
+                throw new InvalidOperationException(
+                    "Warehouse worker trolley factory returned invalid initial state.");
             }
         }
 

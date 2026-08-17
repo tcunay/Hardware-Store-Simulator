@@ -8,7 +8,9 @@ namespace HardwareStore.Gameplay.Components
         WarehouseWorker,
         WarehouseWorkerDeliveryAccess,
         WarehouseWorkerStorageAccess,
-        WarehouseWorkerCustomerLoadingAccess
+        WarehouseWorkerCustomerLoadingAccess,
+        WarehouseWorkerTrolley,
+        WarehouseWorkerTrolleyCustomerLoadingAccess
     }
 
     public enum SceneViewId

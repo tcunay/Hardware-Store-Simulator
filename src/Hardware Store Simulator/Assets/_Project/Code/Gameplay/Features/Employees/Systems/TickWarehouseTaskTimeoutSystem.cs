@@ -29,8 +29,10 @@ namespace HardwareStore.Gameplay.Features.Employees.Systems
         {
             foreach (GameEntity task in _tasks)
             {
-                if (task.isInboundToStorageTask ==
-                    task.isStockToCustomerLoadingTask)
+                int roleCount = (task.isInboundToStorageTask ? 1 : 0) +
+                                (task.isStockToCustomerLoadingTask ? 1 : 0) +
+                                (task.isWorkerTrolleyCustomerLoadingRun ? 1 : 0);
+                if (roleCount != 1)
                 {
                     throw new InvalidOperationException(
                         $"Warehouse task {task.EntityId} must have exactly one task role.");

@@ -22,10 +22,47 @@ namespace HardwareStore.Gameplay.Common.Physics
             Vector3 targetPosition, Quaternion targetRotation,
             out Pose resolvedPose)
         {
-            BoxCollider hull = ValidateAndGetHull(
-                trolleyBody, trolleyColliders, sourceController);
-            ValidatePose(targetPosition, targetRotation, "target trolley");
+            if (sourceController == null)
+                throw new ArgumentNullException(nameof(sourceController));
+            if (!sourceController.enabled ||
+                !sourceController.gameObject.activeInHierarchy)
+                throw new InvalidOperationException(
+                    "Trolley motion requires an active source CharacterController.");
             ValidateStepOffset(sourceController);
+            float stepHeight = sourceController.stepOffset;
+            return TryResolveMove(
+                trolleyBody, trolleyColliders, sourceController.transform,
+                sourceController, stepHeight, targetPosition,
+                targetRotation, out resolvedPose);
+        }
+
+        public bool TryResolveMove(Rigidbody trolleyBody,
+            Collider[] trolleyColliders, Transform sourceTransform,
+            float stepHeight, Vector3 targetPosition,
+            Quaternion targetRotation, out Pose resolvedPose)
+        {
+            if (sourceTransform == null)
+                throw new ArgumentNullException(nameof(sourceTransform));
+            if (!sourceTransform.gameObject.activeInHierarchy)
+                throw new InvalidOperationException(
+                    "Trolley motion requires an active source Transform.");
+            if (!IsFinite(stepHeight) || stepHeight < 0f)
+                throw new InvalidOperationException(
+                    "Trolley motion step height must be finite and non-negative.");
+            return TryResolveMove(
+                trolleyBody, trolleyColliders, sourceTransform, null,
+                stepHeight, targetPosition, targetRotation, out resolvedPose);
+        }
+
+        private bool TryResolveMove(Rigidbody trolleyBody,
+            Collider[] trolleyColliders, Transform sourceTransform,
+            Collider sourceCollider, float stepHeight,
+            Vector3 targetPosition, Quaternion targetRotation,
+            out Pose resolvedPose)
+        {
+            BoxCollider hull = ValidateAndGetHull(
+                trolleyBody, trolleyColliders, sourceTransform);
+            ValidatePose(targetPosition, targetRotation, "target trolley");
 
             Transform trolleyTransform = trolleyBody.transform;
             ValidatePose(trolleyTransform.position, trolleyTransform.rotation,
@@ -51,15 +88,17 @@ namespace HardwareStore.Gameplay.Common.Physics
                     currentPose,
                     targetPose,
                     trolleyTransform,
-                    sourceController))
+                    sourceTransform,
+                    sourceCollider))
             {
                 resolvedPose = targetPose;
                 return true;
             }
 
             float rise = targetPosition.y - currentPose.position.y;
-            float stepHeight = sourceController.stepOffset;
             if (Mathf.Abs(rise) > stepHeight + PoseTolerance)
+                return false;
+            if (stepHeight <= PoseTolerance)
                 return false;
 
             // Use the pusher's authored step limit, but sweep every leg so the
@@ -80,21 +119,24 @@ namespace HardwareStore.Gameplay.Common.Physics
                     currentPose,
                     raisedPose,
                     trolleyTransform,
-                    sourceController) ||
+                    sourceTransform,
+                    sourceCollider) ||
                 !IsPathClear(
                     hull,
                     geometry,
                     raisedPose,
                     raisedTargetPose,
                     trolleyTransform,
-                    sourceController) ||
+                    sourceTransform,
+                    sourceCollider) ||
                 !IsPathClear(
                     hull,
                     geometry,
                     raisedTargetPose,
                     targetPose,
                     trolleyTransform,
-                    sourceController))
+                    sourceTransform,
+                    sourceCollider))
             {
                 return false;
             }
@@ -105,7 +147,7 @@ namespace HardwareStore.Gameplay.Common.Physics
 
         private bool IsPathClear(BoxCollider hull, HullGeometry geometry,
             Pose startPose, Pose targetPose, Transform trolleyTransform,
-            CharacterController sourceController)
+            Transform sourceTransform, Collider sourceCollider)
         {
             HullPose startHullPose = geometry.Resolve(startPose);
             HullPose targetHullPose = geometry.Resolve(targetPose);
@@ -122,7 +164,8 @@ namespace HardwareStore.Gameplay.Common.Physics
                     displacement / distance,
                     distance,
                     trolleyTransform,
-                    sourceController))
+                    sourceTransform,
+                    sourceCollider))
             {
                 return false;
             }
@@ -133,7 +176,8 @@ namespace HardwareStore.Gameplay.Common.Physics
                     targetHullPose,
                     geometry.HalfExtents,
                     trolleyTransform,
-                    sourceController))
+                    sourceTransform,
+                    sourceCollider))
             {
                 return false;
             }
@@ -143,13 +187,15 @@ namespace HardwareStore.Gameplay.Common.Physics
                 targetHullPose,
                 geometry.HalfExtents,
                 trolleyTransform,
-                sourceController,
+                sourceTransform,
+                sourceCollider,
                 "target overlap");
         }
 
         private bool HasBlockingSweep(BoxCollider hull, HullPose origin,
             Vector3 halfExtents, Vector3 direction, float distance,
-            Transform trolleyTransform, CharacterController sourceController)
+            Transform trolleyTransform, Transform sourceTransform,
+            Collider sourceCollider)
         {
             int hitCount = UnityEngine.Physics.BoxCastNonAlloc(
                 origin.Center,
@@ -172,7 +218,8 @@ namespace HardwareStore.Gameplay.Common.Physics
                     throw new InvalidOperationException(
                         "Trolley box cast returned a missing collider.");
                 }
-                if (ShouldIgnore(hit, trolleyTransform, sourceController))
+                if (ShouldIgnore(hit, trolleyTransform, sourceTransform,
+                        sourceCollider))
                     continue;
 
                 float hitDistance = _sweepHits[index].distance;
@@ -214,7 +261,8 @@ namespace HardwareStore.Gameplay.Common.Physics
 
         private bool HasBlockingRotationPath(BoxCollider hull,
             HullPose currentPose, HullPose targetPose, Vector3 halfExtents,
-            Transform trolleyTransform, CharacterController sourceController)
+            Transform trolleyTransform, Transform sourceTransform,
+            Collider sourceCollider)
         {
             float rotationAngle = Quaternion.Angle(
                 currentPose.Rotation, targetPose.Rotation);
@@ -227,7 +275,8 @@ namespace HardwareStore.Gameplay.Common.Physics
                         HullPose.Lerp(currentPose, targetPose, progress),
                         halfExtents,
                         trolleyTransform,
-                        sourceController,
+                        sourceTransform,
+                        sourceCollider,
                         "rotation-path overlap"))
                 {
                     return true;
@@ -239,7 +288,8 @@ namespace HardwareStore.Gameplay.Common.Physics
 
         private bool HasBlockingOverlap(BoxCollider hull, HullPose pose,
             Vector3 halfExtents, Transform trolleyTransform,
-            CharacterController sourceController, string operation)
+            Transform sourceTransform, Collider sourceCollider,
+            string operation)
         {
             int hitCount = UnityEngine.Physics.OverlapBoxNonAlloc(
                 pose.Center,
@@ -258,7 +308,8 @@ namespace HardwareStore.Gameplay.Common.Physics
                     throw new InvalidOperationException(
                         $"Trolley {operation} returned a missing collider.");
                 }
-                if (!ShouldIgnore(hit, trolleyTransform, sourceController) &&
+                if (!ShouldIgnore(hit, trolleyTransform, sourceTransform,
+                        sourceCollider) &&
                     PenetrationDepth(hull, pose, hit) > PenetrationTolerance)
                 {
                     return true;
@@ -328,24 +379,24 @@ namespace HardwareStore.Gameplay.Common.Physics
         }
 
         private static BoxCollider ValidateAndGetHull(Rigidbody trolleyBody,
-            Collider[] trolleyColliders, CharacterController sourceController)
+            Collider[] trolleyColliders, Transform sourceTransform)
         {
             if (trolleyBody == null)
                 throw new ArgumentNullException(nameof(trolleyBody));
             if (trolleyColliders == null)
                 throw new ArgumentNullException(nameof(trolleyColliders));
-            if (sourceController == null)
-                throw new ArgumentNullException(nameof(sourceController));
+            if (sourceTransform == null)
+                throw new ArgumentNullException(nameof(sourceTransform));
             if (!trolleyBody.gameObject.activeInHierarchy || !trolleyBody.isKinematic ||
                 trolleyBody.useGravity || !trolleyBody.detectCollisions)
             {
                 throw new InvalidOperationException(
                     "Trolley motion requires an active collision-enabled kinematic Rigidbody.");
             }
-            if (!sourceController.enabled || !sourceController.gameObject.activeInHierarchy)
+            if (!sourceTransform.gameObject.activeInHierarchy)
             {
                 throw new InvalidOperationException(
-                    "Trolley motion requires an active source CharacterController.");
+                    "Trolley motion requires an active source Transform.");
             }
 
             Vector3 rootScale = trolleyBody.transform.lossyScale;
@@ -425,9 +476,11 @@ namespace HardwareStore.Gameplay.Common.Physics
         }
 
         private static bool ShouldIgnore(Collider candidate,
-            Transform trolleyTransform, CharacterController sourceController) =>
+            Transform trolleyTransform, Transform sourceTransform,
+            Collider sourceCollider) =>
             IsInHierarchy(candidate.transform, trolleyTransform) ||
-            candidate == sourceController;
+            IsInHierarchy(candidate.transform, sourceTransform) ||
+            candidate == sourceCollider;
 
         private static bool IsInHierarchy(Transform candidate, Transform root) =>
             candidate == root || candidate.IsChildOf(root);

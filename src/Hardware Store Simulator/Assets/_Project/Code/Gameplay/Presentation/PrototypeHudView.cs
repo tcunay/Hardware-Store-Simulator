@@ -749,6 +749,14 @@ namespace HardwareStore.Gameplay.Presentation
                 WarehouseWorkerStatusId.MovingToCustomerLoading => Resolve(
                     LocalizationKey.HudWarehouseWorkerMovingToCustomerLoading,
                     LocalizedTexts.ProductName(snapshot.ProductType.Value)),
+                WarehouseWorkerStatusId.MovingToWorkerTrolley => Resolve(
+                    LocalizationKey.HudWarehouseWorkerMovingToWorkerTrolley),
+                WarehouseWorkerStatusId.MovingWorkerTrolleyToCustomerLoading =>
+                    Resolve(
+                        LocalizationKey.HudWarehouseWorkerMovingWorkerTrolleyToCustomerLoading,
+                        snapshot.BatchProductCount.Value),
+                WarehouseWorkerStatusId.ReturningWorkerTrolley => Resolve(
+                    LocalizationKey.HudWarehouseWorkerReturningWorkerTrolley),
                 WarehouseWorkerStatusId.Blocked =>
                     Resolve(LocalizationKey.HudWarehouseWorkerBlocked),
                 _ => throw new ArgumentOutOfRangeException()

@@ -88,6 +88,8 @@ namespace HardwareStore.Infrastructure.Installers
             Container.Bind<IDeliveryFactory>().To<DeliveryFactory>().AsSingle();
             Container.Bind<IPlatformTrolleyFactory>().To<PlatformTrolleyFactory>().AsSingle();
             Container.Bind<IWarehouseWorkerFactory>().To<WarehouseWorkerFactory>().AsSingle();
+            Container.Bind<IWarehouseWorkerTrolleyFactory>()
+                .To<WarehouseWorkerTrolleyFactory>().AsSingle();
             Container.Bind<IWarehouseTaskFactory>().To<WarehouseTaskFactory>().AsSingle();
             Container.Bind<IInteractionTargetFactory>().To<InteractionTargetFactory>().AsSingle();
             Container.Bind<IGameEventFactory>().To<GameEventFactory>().AsSingle();

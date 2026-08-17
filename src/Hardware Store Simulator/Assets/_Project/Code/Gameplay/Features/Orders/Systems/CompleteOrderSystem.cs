@@ -83,9 +83,15 @@ namespace HardwareStore.Gameplay.Features.Orders.Systems
             {
                 if (task.isDestructed)
                     continue;
+                if (task.isWorkerTrolleyCustomerLoadingRun)
+                {
+                    ValidateRecoveredTrolleyRun(visit, task);
+                    continue;
+                }
                 if (!task.isWarehouseTask ||
                     !task.isStockToCustomerLoadingTask ||
-                    task.isInboundToStorageTask || !task.hasEntityId ||
+                    task.isInboundToStorageTask ||
+                    task.isWorkerTrolleyCustomerLoadingRun || !task.hasEntityId ||
                     !task.hasWarehouseTaskOrderLineEntityId ||
                     !task.hasWarehouseTaskStep ||
                     !task.hasWarehouseTaskBlockReason)
@@ -115,6 +121,48 @@ namespace HardwareStore.Gameplay.Features.Orders.Systems
             }
 
             return blockedTaskPendingCleanup;
+        }
+
+        private void ValidateRecoveredTrolleyRun(GameEntity visit,
+            GameEntity run)
+        {
+            if (!run.isWarehouseTask || run.isInboundToStorageTask ||
+                run.isStockToCustomerLoadingTask || !run.hasEntityId ||
+                !run.hasWarehouseTaskCustomerVisitEntityId ||
+                run.WarehouseTaskCustomerVisitEntityId != visit.EntityId ||
+                !run.hasWarehouseTaskWorkerTrolleyEntityId ||
+                !run.hasWarehouseRunProductCount ||
+                !run.hasWarehouseTaskStep ||
+                run.WarehouseTaskStep != WarehouseTaskStepId.Blocked ||
+                !run.hasWarehouseTaskBlockReason ||
+                run.WarehouseTaskBlockReason == WarehouseTaskBlockReasonId.None ||
+                run.hasAssignedWorkerEntityId ||
+                run.hasWarehouseTaskProductEntityId ||
+                run.hasWarehouseTaskOrderLineEntityId ||
+                run.hasWarehouseTaskReservedLoadingSlotIndex)
+                throw new InvalidOperationException(
+                    $"Customer visit {visit.EntityId} completed with active trolley run " +
+                    $"{run.EntityId}.");
+
+            foreach (GameEntity product in
+                     _gameContext.GetEntitiesWithWarehouseRunEntityId(run.EntityId))
+            {
+                if (product.isDestructed || !product.isProduct ||
+                    !product.isInStock || product.isInboundProduct ||
+                    product.isLoaded || !product.isInteractable ||
+                    !product.hasStorageZoneEntityId ||
+                    !product.hasStorageSlotIndex ||
+                    product.hasReservedStorageSlotIndex ||
+                    product.hasReservedOrderLineEntityId ||
+                    product.hasReservedCustomerLoadingSlotIndex ||
+                    product.hasWorkerTrolleyEntityId ||
+                    product.hasWorkerTrolleySlotIndex ||
+                    product.hasCarrierEntityId || product.hasOrderLineEntityId ||
+                    product.hasLoadingSlotIndex)
+                    throw new InvalidOperationException(
+                        $"Completed visit {visit.EntityId} has unrecovered trolley-run " +
+                        $"product {product.EntityId}.");
+            }
         }
 
         private static void ValidateOrderLine(GameEntity visit, GameEntity line)

@@ -39,7 +39,6 @@ namespace HardwareStore.Gameplay.Features.Employees.Systems
                     GameMatcher.WarehouseTask,
                     GameMatcher.EntityId,
                     GameMatcher.WarehouseTaskStoreEntityId,
-                    GameMatcher.WarehouseTaskProductEntityId,
                     GameMatcher.WarehouseTaskStep,
                     GameMatcher.WarehouseTaskBlockReason,
                     GameMatcher.WarehouseTaskTimeoutRemaining)
@@ -52,8 +51,10 @@ namespace HardwareStore.Gameplay.Features.Employees.Systems
             {
                 bool storageFull = worker.WarehouseWorkerStatus ==
                     WarehouseWorkerStatusId.StorageFull;
+                bool returningTrolley = worker.WarehouseWorkerStatus ==
+                    WarehouseWorkerStatusId.ReturningWorkerTrolley;
                 if (worker.WarehouseWorkerStatus != WarehouseWorkerStatusId.Idle &&
-                    !storageFull)
+                    !storageFull && !returningTrolley)
                     continue;
                 if (_gameContext.GetEntityWithAssignedWorkerEntityId(
                         worker.EntityId) != null)
@@ -71,20 +72,29 @@ namespace HardwareStore.Gameplay.Features.Employees.Systems
                 GameEntity selected = FindTask(store.EntityId);
                 if (selected == null)
                     continue;
-                if (storageFull && !selected.isStockToCustomerLoadingTask)
+                if (returningTrolley &&
+                    !selected.isWorkerTrolleyCustomerLoadingRun)
+                {
+                    continue;
+                }
+                if (storageFull && !selected.isStockToCustomerLoadingTask &&
+                    !selected.isWorkerTrolleyCustomerLoadingRun)
                     continue;
                 if (storageFull)
                     worker.ReplaceWarehouseWorkerStatus(WarehouseWorkerStatusId.Idle);
 
                 selected.AddAssignedWorkerEntityId(worker.EntityId);
-                selected.ReplaceWarehouseTaskStep(
-                    WarehouseTaskStepId.MovingToPickup);
+                bool trolleyRun = selected.isWorkerTrolleyCustomerLoadingRun;
+                selected.ReplaceWarehouseTaskStep(trolleyRun
+                    ? WarehouseTaskStepId.MovingToWorkerTrolley
+                    : WarehouseTaskStepId.MovingToPickup);
                 selected.ReplaceWarehouseTaskBlockReason(
                     WarehouseTaskBlockReasonId.None);
                 selected.ReplaceWarehouseTaskTimeoutRemaining(
                     _config.TaskTimeout);
-                worker.ReplaceWarehouseWorkerStatus(
-                    WarehouseWorkerStatusId.MovingToPickup);
+                worker.ReplaceWarehouseWorkerStatus(trolleyRun
+                    ? WarehouseWorkerStatusId.MovingToWorkerTrolley
+                    : WarehouseWorkerStatusId.MovingToPickup);
             }
         }
 
@@ -110,8 +120,10 @@ namespace HardwareStore.Gameplay.Features.Employees.Systems
 
         private static int ComparePriority(GameEntity left, GameEntity right)
         {
-            int leftPriority = left.isStockToCustomerLoadingTask ? 0 : 1;
-            int rightPriority = right.isStockToCustomerLoadingTask ? 0 : 1;
+            int leftPriority = left.isStockToCustomerLoadingTask ||
+                               left.isWorkerTrolleyCustomerLoadingRun ? 0 : 1;
+            int rightPriority = right.isStockToCustomerLoadingTask ||
+                                right.isWorkerTrolleyCustomerLoadingRun ? 0 : 1;
             int priorityComparison = leftPriority.CompareTo(rightPriority);
             return priorityComparison != 0
                 ? priorityComparison
@@ -120,10 +132,29 @@ namespace HardwareStore.Gameplay.Features.Employees.Systems
 
         private static void ValidateRole(GameEntity task)
         {
-            if (task.isInboundToStorageTask == task.isStockToCustomerLoadingTask)
+            int roleCount = (task.isInboundToStorageTask ? 1 : 0) +
+                            (task.isStockToCustomerLoadingTask ? 1 : 0) +
+                            (task.isWorkerTrolleyCustomerLoadingRun ? 1 : 0);
+            if (roleCount != 1)
             {
                 throw new InvalidOperationException(
                     $"Warehouse task {task.EntityId} must have exactly one task role.");
+            }
+            if (task.isWorkerTrolleyCustomerLoadingRun)
+            {
+                if (task.hasWarehouseTaskProductEntityId ||
+                    !task.hasWarehouseTaskCustomerVisitEntityId ||
+                    !task.hasWarehouseTaskWorkerTrolleyEntityId ||
+                    !task.hasWarehouseRunProductCount)
+                {
+                    throw new InvalidOperationException(
+                        $"Worker-trolley run {task.EntityId} has invalid relations.");
+                }
+            }
+            else if (!task.hasWarehouseTaskProductEntityId)
+            {
+                throw new InvalidOperationException(
+                    $"Warehouse task {task.EntityId} has no product relation.");
             }
         }
 

@@ -45,14 +45,20 @@ namespace HardwareStore.Gameplay.Features.Carrying.Systems
                     continue;
 
                 if (product.isInStock)
+                {
+                    ReleaseBlockedRunHandoff(product, reservedOrderLine);
                     ReserveStoragePlacement(product, reservedOrderLine);
+                }
 
                 ReserveDeliverySlot(product);
                 ReleaseTrolleySlot(product);
                 ReleaseLoosePose(product);
                 if (product.hasDeliverySlotIndex || product.hasStorageSlotIndex ||
                     product.hasOrderLineEntityId || product.hasLoadingSlotIndex ||
-                    product.hasTrolleyEntityId || product.hasTrolleySlotIndex)
+                    product.hasTrolleyEntityId || product.hasTrolleySlotIndex ||
+                    product.hasWorkerTrolleyEntityId ||
+                    product.hasWorkerTrolleySlotIndex ||
+                    product.hasWarehouseRunEntityId)
                 {
                     throw new InvalidOperationException(
                         $"Product {product.EntityId} contains stale slot placement state.");
@@ -311,6 +317,35 @@ namespace HardwareStore.Gameplay.Features.Carrying.Systems
                 product.RemoveDeliverySlotIndex();
                 product.AddReservedDeliverySlotIndex(slotIndex);
             }
+        }
+
+        private void ReleaseBlockedRunHandoff(GameEntity product,
+            GameEntity orderLine)
+        {
+            if (!product.hasWarehouseRunEntityId)
+                return;
+            GameEntity run = _gameContext.GetEntityWithEntityId(
+                product.WarehouseRunEntityId);
+            if (run == null || run.isDestructed || !run.isWarehouseTask ||
+                !run.isWorkerTrolleyCustomerLoadingRun ||
+                !run.hasWarehouseTaskStep ||
+                run.WarehouseTaskStep != WarehouseTaskStepId.Blocked ||
+                !run.hasWarehouseTaskBlockReason ||
+                run.WarehouseTaskBlockReason == WarehouseTaskBlockReasonId.None ||
+                run.hasAssignedWorkerEntityId ||
+                !run.hasWarehouseTaskCustomerVisitEntityId ||
+                !orderLine.hasOrderEntityId ||
+                orderLine.OrderEntityId !=
+                run.WarehouseTaskCustomerVisitEntityId ||
+                product.hasReservedStorageSlotIndex ||
+                product.hasReservedOrderLineEntityId ||
+                product.hasReservedCustomerLoadingSlotIndex ||
+                product.hasWorkerTrolleyEntityId ||
+                product.hasWorkerTrolleySlotIndex ||
+                !product.hasStorageSlotIndex || !product.isInteractable)
+                throw new InvalidOperationException(
+                    $"Product {product.EntityId} has invalid blocked-run handoff.");
+            product.RemoveWarehouseRunEntityId();
         }
 
         private static void ReserveStoragePlacement(

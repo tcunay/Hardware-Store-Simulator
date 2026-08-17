@@ -39,6 +39,8 @@ namespace HardwareStore.Editor
             "Assets/_Project/Prefabs/Gameplay/Customer.prefab";
         private const string WarehouseWorkerPrefabPath =
             "Assets/_Project/Prefabs/Gameplay/WarehouseWorker.prefab";
+        private const string WarehouseWorkerTrolleyPrefabPath =
+            "Assets/_Project/Prefabs/Gameplay/WarehouseWorkerTrolley.prefab";
         private const string PlatformTrolleyPrefabPath =
             "Assets/_Project/Prefabs/Gameplay/PlatformTrolley.prefab";
         private const string WarehouseWorkerNavMeshAssetName = "NavMesh-Navigation";
@@ -162,6 +164,12 @@ namespace HardwareStore.Editor
                 brandBlue,
                 yellow,
                 darkMetal);
+            EnsureWarehouseWorkerTrolleyPrefab(
+                warehouseWorkerConfig,
+                brandBlue,
+                yellow,
+                darkMetal,
+                timber);
             EnsurePlatformTrolleyPrefab(
                 platformTrolleyConfig,
                 brandOrange,
@@ -210,7 +218,9 @@ namespace HardwareStore.Editor
             (SpawnPointMarker workerIdlePoint,
                     SpawnPointMarker workerDeliveryAccessPoint,
                     SpawnPointMarker workerStorageAccessPoint,
-                    SpawnPointMarker workerCustomerLoadingAccessPoint) =
+                    SpawnPointMarker workerCustomerLoadingAccessPoint,
+                    SpawnPointMarker workerTrolleyHomePoint,
+                    SpawnPointMarker workerTrolleyCustomerLoadingAccessPoint) =
                 BuildWarehouseWorkerAccessPoints(environment.transform);
 
             SpawnPointMarker playerSpawnPoint = BuildPlayerSpawnPoint();
@@ -230,7 +240,9 @@ namespace HardwareStore.Editor
                     workerIdlePoint,
                     workerDeliveryAccessPoint,
                     workerStorageAccessPoint,
-                    workerCustomerLoadingAccessPoint
+                    workerCustomerLoadingAccessPoint,
+                    workerTrolleyHomePoint,
+                    workerTrolleyCustomerLoadingAccessPoint
                 },
                 Array.Empty<SceneRouteMarker>(),
                 customerFlowLayout,
@@ -255,7 +267,10 @@ namespace HardwareStore.Editor
                 workerIdlePoint,
                 workerDeliveryAccessPoint,
                 workerStorageAccessPoint,
-                workerCustomerLoadingAccessPoint);
+                workerCustomerLoadingAccessPoint,
+                workerTrolleyHomePoint,
+                workerTrolleyCustomerLoadingAccessPoint,
+                warehouseWorkerConfig.TrolleyFollowDistance);
             EditorSceneManager.MarkSceneDirty(scene);
             if (!EditorSceneManager.SaveScene(scene, ScenePath))
                 throw new InvalidOperationException($"Could not save prototype scene to {ScenePath}.");
@@ -906,7 +921,9 @@ namespace HardwareStore.Editor
 
         private static (SpawnPointMarker Idle, SpawnPointMarker DeliveryAccess,
                 SpawnPointMarker StorageAccess,
-                SpawnPointMarker CustomerLoadingAccess)
+                SpawnPointMarker CustomerLoadingAccess,
+                SpawnPointMarker WorkerTrolleyHome,
+                SpawnPointMarker WorkerTrolleyCustomerLoadingAccess)
             BuildWarehouseWorkerAccessPoints(Transform parent)
         {
             GameObject root = CreateEmpty("Warehouse Worker Access Points", parent);
@@ -914,8 +931,8 @@ namespace HardwareStore.Editor
                 "Warehouse Worker Idle",
                 root.transform,
                 SpawnPointId.WarehouseWorker,
-                new Vector3(7.75f, 0.02f, 2.45f),
-                Quaternion.Euler(0f, -90f, 0f));
+                new Vector3(2.3f, 0.02f, 1.95f),
+                Quaternion.Euler(0f, 90f, 0f));
             SpawnPointMarker deliveryAccess = CreateSpawnPoint(
                 "Warehouse Worker Delivery Access",
                 root.transform,
@@ -934,7 +951,20 @@ namespace HardwareStore.Editor
                 SpawnPointId.WarehouseWorkerCustomerLoadingAccess,
                 new Vector3(6f, 0.02f, 1.62f),
                 Quaternion.Euler(0f, 180f, 0f));
-            return (idle, deliveryAccess, storageAccess, customerLoadingAccess);
+            SpawnPointMarker workerTrolleyHome = CreateSpawnPoint(
+                "Warehouse Worker Trolley Home",
+                root.transform,
+                SpawnPointId.WarehouseWorkerTrolley,
+                new Vector3(4f, 0.02f, 1.95f),
+                Quaternion.Euler(0f, 90f, 0f));
+            SpawnPointMarker workerTrolleyCustomerLoadingAccess = CreateSpawnPoint(
+                "Warehouse Worker Trolley Customer Loading Access",
+                root.transform,
+                SpawnPointId.WarehouseWorkerTrolleyCustomerLoadingAccess,
+                new Vector3(6f, 0.02f, 1.95f),
+                Quaternion.Euler(0f, 90f, 0f));
+            return (idle, deliveryAccess, storageAccess, customerLoadingAccess,
+                workerTrolleyHome, workerTrolleyCustomerLoadingAccess);
         }
 
         private static SpawnPointMarker CreateSpawnPoint(
@@ -1471,6 +1501,123 @@ namespace HardwareStore.Editor
             }
         }
 
+        private static void EnsureWarehouseWorkerTrolleyPrefab(
+            WarehouseWorkerConfig config,
+            Material workwearBlue,
+            Material safetyYellow,
+            Material darkMetal,
+            Material timber)
+        {
+            GameObject trolley = CreateEmpty("Warehouse Worker Trolley");
+
+            try
+            {
+                trolley.transform.SetLocalPositionAndRotation(Vector3.zero, Quaternion.identity);
+                trolley.transform.localScale = Vector3.one;
+                trolley.SetActive(true);
+
+                Rigidbody body = trolley.AddComponent<Rigidbody>();
+                body.mass = 45f;
+                body.isKinematic = true;
+                body.useGravity = false;
+                body.interpolation = RigidbodyInterpolation.None;
+                body.collisionDetectionMode =
+                    CollisionDetectionMode.ContinuousSpeculative;
+
+                CreateCube(
+                    "Deck", trolley.transform, new Vector3(0f, 0.42f, 0f),
+                    new Vector3(1.9f, 0.18f, 2.4f), workwearBlue, false, true);
+                CreateCube(
+                    "Deck Inlay", trolley.transform, new Vector3(0f, 0.53f, 0f),
+                    new Vector3(1.62f, 0.05f, 2.08f), timber, false, true);
+                CreateCube(
+                    "Left Rail", trolley.transform, new Vector3(-0.9f, 0.68f, 0f),
+                    new Vector3(0.1f, 0.52f, 2.35f), safetyYellow, false, true);
+                CreateCube(
+                    "Right Rail", trolley.transform, new Vector3(0.9f, 0.68f, 0f),
+                    new Vector3(0.1f, 0.52f, 2.35f), safetyYellow, false, true);
+                CreateCube(
+                    "Left Handle Upright", trolley.transform,
+                    new Vector3(-0.72f, 1.12f, -1.12f),
+                    new Vector3(0.1f, 1.35f, 0.1f), darkMetal, false, true);
+                CreateCube(
+                    "Right Handle Upright", trolley.transform,
+                    new Vector3(0.72f, 1.12f, -1.12f),
+                    new Vector3(0.1f, 1.35f, 0.1f), darkMetal, false, true);
+                CreateCube(
+                    "Handle", trolley.transform, new Vector3(0f, 1.76f, -1.12f),
+                    new Vector3(1.55f, 0.12f, 0.12f), safetyYellow, false, true);
+
+                CreateLocalWheel(
+                    "Front Left Wheel", trolley.transform,
+                    new Vector3(-0.82f, 0.23f, 0.76f), darkMetal);
+                CreateLocalWheel(
+                    "Front Right Wheel", trolley.transform,
+                    new Vector3(0.82f, 0.23f, 0.76f), darkMetal);
+                CreateLocalWheel(
+                    "Rear Left Wheel", trolley.transform,
+                    new Vector3(-0.82f, 0.23f, -0.76f), darkMetal);
+                CreateLocalWheel(
+                    "Rear Right Wheel", trolley.transform,
+                    new Vector3(0.82f, 0.23f, -0.76f), darkMetal);
+
+                GameObject bodyColliderObject = CreateEmpty(
+                    "Body Collider", trolley.transform);
+                int ignoreRaycastLayer = LayerMask.NameToLayer("Ignore Raycast");
+                if (ignoreRaycastLayer < 0)
+                {
+                    throw new InvalidOperationException(
+                        "Required Ignore Raycast layer is missing.");
+                }
+                bodyColliderObject.layer = ignoreRaycastLayer;
+                BoxCollider bodyCollider = bodyColliderObject.AddComponent<BoxCollider>();
+                bodyCollider.center = new Vector3(0f, 0.27f, 0.15f);
+                bodyCollider.size = new Vector3(2f, 0.5f, 2.1f);
+
+                GameObject slotsRoot = CreateEmpty("Cargo Slots", trolley.transform);
+                var slots = new Transform[config.TrolleyCapacity];
+                for (int index = 0; index < slots.Length; index++)
+                {
+                    GameObject slot = CreateEmpty(
+                        $"Cargo Slot {index + 1}", slotsRoot.transform);
+                    slot.transform.localPosition =
+                        new Vector3(0f, 0.66f, -0.66f + index * 0.66f);
+                    slots[index] = slot.transform;
+                }
+
+                trolley.AddComponent<EntityBehaviour>();
+                trolley.AddComponent<TransformRegistrar>();
+                trolley.AddComponent<RigidbodyRegistrar>();
+                trolley.AddComponent<CollidersRegistrar>();
+                SlotsRegistrar slotsRegistrar = trolley.AddComponent<SlotsRegistrar>();
+                slotsRegistrar.Configure(slots);
+
+                GameObject prefab = PrefabUtility.SaveAsPrefabAsset(
+                    trolley, WarehouseWorkerTrolleyPrefabPath);
+                if (prefab == null)
+                {
+                    throw new InvalidOperationException(
+                        $"Could not create warehouse worker trolley prefab at " +
+                        $"{WarehouseWorkerTrolleyPrefabPath}.");
+                }
+
+                EntityBehaviour prefabView = prefab.GetComponent<EntityBehaviour>() ??
+                                             throw new InvalidOperationException(
+                                                 $"Warehouse worker trolley prefab at " +
+                                                 $"{WarehouseWorkerTrolleyPrefabPath} has no " +
+                                                 "EntityBehaviour root.");
+                SerializedObject serializedConfig = new(config);
+                RequireSerializedProperty(serializedConfig, "_trolleyViewPrefab")
+                    .objectReferenceValue = prefabView;
+                serializedConfig.ApplyModifiedPropertiesWithoutUndo();
+                EditorUtility.SetDirty(config);
+            }
+            finally
+            {
+                Object.DestroyImmediate(trolley);
+            }
+        }
+
         private static void EnsurePlatformTrolleyPrefab(
             PlatformTrolleyConfig config,
             Material brandOrange,
@@ -1739,18 +1886,57 @@ namespace HardwareStore.Editor
         private static void BakeAndValidateNavigation(
             NavMeshSurface surface,
             CustomerFlowLayoutMarker customerFlowLayout,
-            params SpawnPointMarker[] accessPoints)
+            SpawnPointMarker idlePoint,
+            SpawnPointMarker deliveryAccessPoint,
+            SpawnPointMarker storageAccessPoint,
+            SpawnPointMarker customerLoadingAccessPoint,
+            SpawnPointMarker workerTrolleyHomePoint,
+            SpawnPointMarker workerTrolleyCustomerLoadingAccessPoint,
+            float workerTrolleyFollowDistance)
         {
             if (surface == null)
                 throw new ArgumentNullException(nameof(surface));
             if (customerFlowLayout == null)
                 throw new ArgumentNullException(nameof(customerFlowLayout));
-            if (accessPoints == null || accessPoints.Length != 4 ||
-                accessPoints.Any(point => point == null))
+            SpawnPointMarker[] authoredPoints =
+            {
+                idlePoint,
+                deliveryAccessPoint,
+                storageAccessPoint,
+                customerLoadingAccessPoint,
+                workerTrolleyHomePoint,
+                workerTrolleyCustomerLoadingAccessPoint
+            };
+            if (authoredPoints.Any(point => point == null))
             {
                 throw new ArgumentException(
-                    "Warehouse worker navigation requires exactly four access points.",
-                    nameof(accessPoints));
+                    "Warehouse worker navigation requires every authored access point.");
+            }
+            if (float.IsNaN(workerTrolleyFollowDistance) ||
+                float.IsInfinity(workerTrolleyFollowDistance) ||
+                workerTrolleyFollowDistance <= 0f)
+            {
+                throw new ArgumentOutOfRangeException(
+                    nameof(workerTrolleyFollowDistance));
+            }
+
+            Pose trolleyHomePose = workerTrolleyHomePoint.Pose;
+            Pose trolleyCustomerLoadingPose =
+                workerTrolleyCustomerLoadingAccessPoint.Pose;
+            Pose trolleyHomePusherPose = ResolveWorkerTrolleyPusherPose(
+                trolleyHomePose, workerTrolleyFollowDistance);
+            Pose trolleyCustomerLoadingPusherPose = ResolveWorkerTrolleyPusherPose(
+                trolleyCustomerLoadingPose, workerTrolleyFollowDistance);
+            if (Vector3.Distance(
+                    idlePoint.transform.position,
+                    trolleyHomePusherPose.position) > 0.001f ||
+                Quaternion.Angle(
+                    idlePoint.transform.rotation,
+                    trolleyHomePusherPose.rotation) > 0.01f)
+            {
+                throw new InvalidOperationException(
+                    "Warehouse worker idle pose must align with the authored worker-trolley " +
+                    "home pusher pose.");
             }
 
             NavMeshData persistedData =
@@ -1779,14 +1965,24 @@ namespace HardwareStore.Editor
 
             EditorUtility.SetDirty(surface);
 
-            var sampledPositions = new Vector3[accessPoints.Length];
-            for (int index = 0; index < accessPoints.Length; index++)
+            (string Name, Vector3 Position)[] workerAccessPoints =
             {
-                Vector3 point = accessPoints[index].transform.position;
+                (idlePoint.name, idlePoint.transform.position),
+                (deliveryAccessPoint.name, deliveryAccessPoint.transform.position),
+                (storageAccessPoint.name, storageAccessPoint.transform.position),
+                (customerLoadingAccessPoint.name,
+                    customerLoadingAccessPoint.transform.position),
+                (workerTrolleyCustomerLoadingAccessPoint.name + " Pusher",
+                    trolleyCustomerLoadingPusherPose.position)
+            };
+            var sampledPositions = new Vector3[workerAccessPoints.Length];
+            for (int index = 0; index < workerAccessPoints.Length; index++)
+            {
+                Vector3 point = workerAccessPoints[index].Position;
                 if (!NavMesh.SamplePosition(point, out NavMeshHit hit, 2f, NavMesh.AllAreas))
                 {
                     throw new InvalidOperationException(
-                        $"Warehouse worker access point '{accessPoints[index].name}' " +
+                        $"Warehouse worker access point '{workerAccessPoints[index].Name}' " +
                         $"at {point} is not on the baked NavMesh.");
                 }
 
@@ -1812,14 +2008,22 @@ namespace HardwareStore.Editor
                     {
                         throw new InvalidOperationException(
                             $"Warehouse worker NavMesh path is incomplete from " +
-                            $"'{accessPoints[originIndex].name}' to " +
-                            $"'{accessPoints[destinationIndex].name}'.");
+                            $"'{workerAccessPoints[originIndex].Name}' to " +
+                            $"'{workerAccessPoints[destinationIndex].Name}'.");
                     }
                 }
             }
 
             ValidateCustomerFlowNavigation(customerFlowLayout.Layout);
         }
+
+        private static Pose ResolveWorkerTrolleyPusherPose(
+            Pose trolleyPose,
+            float followDistance) =>
+            new(
+                trolleyPose.position -
+                trolleyPose.rotation * Vector3.forward * followDistance,
+                trolleyPose.rotation);
 
         private static void ValidateCustomerFlowNavigation(
             CustomerFlowSceneLayout layout)
@@ -2090,6 +2294,8 @@ namespace HardwareStore.Editor
             RequireSerializedProperty(warehouseWorker, "_stoppingDistance").floatValue = 0.2f;
             RequireSerializedProperty(warehouseWorker, "_navigationSampleRadius").floatValue = 2f;
             RequireSerializedProperty(warehouseWorker, "_taskTimeout").floatValue = 20f;
+            RequireSerializedProperty(warehouseWorker, "_trolleyCapacity").intValue = 3;
+            RequireSerializedProperty(warehouseWorker, "_trolleyFollowDistance").floatValue = 1.7f;
             warehouseWorker.ApplyModifiedPropertiesWithoutUndo();
             EditorUtility.SetDirty(warehouseWorkerConfig);
 

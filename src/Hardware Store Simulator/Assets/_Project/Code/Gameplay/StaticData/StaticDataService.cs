@@ -216,6 +216,13 @@ namespace HardwareStore.Gameplay.StaticData
                     $"{nameof(WarehouseWorkerConfig)}.{nameof(WarehouseWorkerConfig.MovementSpeed)} " +
                     "must be slower than player walking speed.");
             }
+            if (warehouseWorker.TrolleyCapacity != customerVehicle.CargoCapacity)
+            {
+                throw new InvalidOperationException(
+                    $"{nameof(WarehouseWorkerConfig)}.{nameof(WarehouseWorkerConfig.TrolleyCapacity)} " +
+                    $"must match {nameof(CustomerVehicleConfig)}." +
+                    $"{nameof(CustomerVehicleConfig.CargoCapacity)}.");
+            }
 
             foreach (CustomerProjectTypeId projectType in projectTypes)
                 ValidateProject(projects[projectType], customerVehicle, products);

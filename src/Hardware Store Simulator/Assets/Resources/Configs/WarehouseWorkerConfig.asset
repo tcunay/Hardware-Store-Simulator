@@ -13,6 +13,7 @@ MonoBehaviour:
   m_Name: WarehouseWorkerConfig
   m_EditorClassIdentifier: Assembly-CSharp::HardwareStore.Gameplay.Configs.WarehouseWorkerConfig
   _viewPrefab: {fileID: 3186660101609175016, guid: 9060f1b5cab474a0f9611b6dfd0c43ec, type: 3}
+  _trolleyViewPrefab: {fileID: 60925531861176407, guid: 075d1fc7a74bd48b7a7b0b1fbebdb1e5, type: 3}
   _requiredCompletedOrderCount: 4
   _hirePrice: 400
   _dailyWage: 100
@@ -22,3 +23,5 @@ MonoBehaviour:
   _stoppingDistance: 0.2
   _navigationSampleRadius: 2
   _taskTimeout: 20
+  _trolleyCapacity: 3
+  _trolleyFollowDistance: 1.7

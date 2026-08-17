@@ -259,7 +259,10 @@ namespace HardwareStore.Gameplay.Features.Presentation.Systems
             bool requiresTaskProduct = status is WarehouseWorkerStatusId.MovingToPickup or
                 WarehouseWorkerStatusId.MovingToStorage or
                 WarehouseWorkerStatusId.MovingToCustomerLoading;
-            if (!requiresTaskProduct)
+            bool requiresWorkerTrolleyRun = status is
+                WarehouseWorkerStatusId.MovingToWorkerTrolley or
+                WarehouseWorkerStatusId.MovingWorkerTrolleyToCustomerLoading;
+            if (!requiresTaskProduct && !requiresWorkerTrolleyRun)
             {
                 if (task != null)
                 {
@@ -269,6 +272,30 @@ namespace HardwareStore.Gameplay.Features.Presentation.Systems
                 }
 
                 return new WarehouseWorkerStatusSnapshot(status, null);
+            }
+
+            if (requiresWorkerTrolleyRun)
+            {
+                if (task == null || task.isDestructed ||
+                    !task.isWarehouseTask ||
+                    !task.isWorkerTrolleyCustomerLoadingRun ||
+                    task.isInboundToStorageTask ||
+                    task.isStockToCustomerLoadingTask ||
+                    !task.hasAssignedWorkerEntityId ||
+                    task.AssignedWorkerEntityId != worker.EntityId ||
+                    !task.hasWarehouseRunProductCount ||
+                    task.WarehouseRunProductCount < 2 ||
+                    task.WarehouseRunProductCount >
+                    _staticData.WarehouseWorker.TrolleyCapacity)
+                    throw new InvalidOperationException(
+                        $"Moving warehouse worker {worker.EntityId} has no valid " +
+                        "worker-trolley run.");
+                int? batchProductCount = status ==
+                    WarehouseWorkerStatusId.MovingWorkerTrolleyToCustomerLoading
+                    ? task.WarehouseRunProductCount
+                    : null;
+                return new WarehouseWorkerStatusSnapshot(
+                    status, null, batchProductCount);
             }
 
             if (task == null || !task.isWarehouseTask || task.isDestructed ||

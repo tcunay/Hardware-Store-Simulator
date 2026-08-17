@@ -104,6 +104,17 @@ namespace HardwareStore.Gameplay.Features.Carrying.Systems
                     ReserveLoadingSlot(visit, product.LoadingSlotIndex,
                         product.EntityId);
                 }
+                foreach (GameEntity product in
+                         _gameContext.GetEntitiesWithReservedOrderLineEntityId(
+                             line.EntityId))
+                {
+                    if (!product.hasReservedCustomerLoadingSlotIndex)
+                        continue;
+                    ValidateBatchReservation(visit, line, product);
+                    ReserveLoadingSlot(visit,
+                        product.ReservedCustomerLoadingSlotIndex,
+                        product.EntityId);
+                }
             }
             foreach (GameEntity task in
                      _gameContext.GetEntitiesWithWarehouseTaskCustomerVisitEntityId(
@@ -202,6 +213,32 @@ namespace HardwareStore.Gameplay.Features.Carrying.Systems
                 throw new InvalidOperationException(
                     $"Order line {line.EntityId} has an invalid linked product.");
             }
+        }
+
+        private void ValidateBatchReservation(GameEntity visit,
+            GameEntity line, GameEntity product)
+        {
+            if (product.isDestructed || !product.isProduct ||
+                !product.isInStock || product.isInboundProduct ||
+                product.isLoaded || product.isInteractable ||
+                !product.hasEntityId || !product.hasProductType ||
+                product.ProductType != line.ProductType ||
+                !product.hasStorageZoneEntityId ||
+                product.StorageZoneEntityId != line.StorageZoneEntityId ||
+                !product.hasReservedStorageSlotIndex ||
+                !product.hasReservedOrderLineEntityId ||
+                product.ReservedOrderLineEntityId != line.EntityId ||
+                !product.hasWarehouseRunEntityId)
+                throw new InvalidOperationException(
+                    $"Order line {line.EntityId} has an invalid batch reservation.");
+            GameEntity run = _gameContext.GetEntityWithEntityId(
+                product.WarehouseRunEntityId);
+            if (run == null || run.isDestructed || !run.isWarehouseTask ||
+                !run.isWorkerTrolleyCustomerLoadingRun ||
+                !run.hasWarehouseTaskCustomerVisitEntityId ||
+                run.WarehouseTaskCustomerVisitEntityId != visit.EntityId)
+                throw new InvalidOperationException(
+                    $"Batch product {product.EntityId} has an invalid trolley run.");
         }
 
         private void ValidateLoadingVisit(GameEntity visit, int storeEntityId)

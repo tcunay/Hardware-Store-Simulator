@@ -9,6 +9,7 @@ namespace HardwareStore.Gameplay.Configs
     {
         [Header("View")]
         [SerializeField] private EntityBehaviour _viewPrefab;
+        [SerializeField] private EntityBehaviour _trolleyViewPrefab;
 
         [Header("Progression")]
         [SerializeField, Min(1)] private int _requiredCompletedOrderCount = 4;
@@ -25,7 +26,12 @@ namespace HardwareStore.Gameplay.Configs
         [Header("Recovery")]
         [SerializeField, Min(0.01f)] private float _taskTimeout = 20f;
 
+        [Header("Worker Trolley")]
+        [SerializeField, Min(2)] private int _trolleyCapacity = 3;
+        [SerializeField, Min(0.01f)] private float _trolleyFollowDistance = 1.7f;
+
         public EntityBehaviour ViewPrefab => _viewPrefab;
+        public EntityBehaviour TrolleyViewPrefab => _trolleyViewPrefab;
         public int RequiredCompletedOrderCount => _requiredCompletedOrderCount;
         public int HirePrice => _hirePrice;
         public int DailyWage => _dailyWage;
@@ -35,11 +41,17 @@ namespace HardwareStore.Gameplay.Configs
         public float StoppingDistance => _stoppingDistance;
         public float NavigationSampleRadius => _navigationSampleRadius;
         public float TaskTimeout => _taskTimeout;
+        public int TrolleyCapacity => _trolleyCapacity;
+        public float TrolleyFollowDistance => _trolleyFollowDistance;
 
         public void Validate()
         {
             const string owner = nameof(WarehouseWorkerConfig);
             ConfigValidation.RequireReference(_viewPrefab, owner, nameof(ViewPrefab));
+            ConfigValidation.RequireReference(
+                _trolleyViewPrefab,
+                owner,
+                nameof(TrolleyViewPrefab));
             ConfigValidation.RequirePositive(
                 _requiredCompletedOrderCount,
                 owner,
@@ -58,6 +70,19 @@ namespace HardwareStore.Gameplay.Configs
                 owner,
                 nameof(NavigationSampleRadius));
             ConfigValidation.RequirePositive(_taskTimeout, owner, nameof(TaskTimeout));
+            ConfigValidation.RequirePositive(
+                _trolleyCapacity,
+                owner,
+                nameof(TrolleyCapacity));
+            if (_trolleyCapacity < 2)
+            {
+                throw new System.InvalidOperationException(
+                    $"{owner}.{nameof(TrolleyCapacity)} must be at least 2.");
+            }
+            ConfigValidation.RequirePositive(
+                _trolleyFollowDistance,
+                owner,
+                nameof(TrolleyFollowDistance));
         }
     }
 }

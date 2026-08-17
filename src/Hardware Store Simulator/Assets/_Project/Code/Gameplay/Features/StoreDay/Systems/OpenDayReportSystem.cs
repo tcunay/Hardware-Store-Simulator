@@ -138,8 +138,32 @@ namespace HardwareStore.Gameplay.Features.StoreDay.Systems
                     $"Store {store.EntityId} references an invalid warehouse worker.");
             }
 
+            if (IsTasklessEmptyTrolleyReturn(worker))
+                return false;
             return worker.isHandsOccupied || worker.isCarryingProduct ||
                    _gameContext.GetEntityWithCarrierEntityId(worker.EntityId) != null;
+        }
+
+        private bool IsTasklessEmptyTrolleyReturn(GameEntity worker)
+        {
+            if (!worker.hasWarehouseWorkerStatus ||
+                worker.WarehouseWorkerStatus !=
+                WarehouseWorkerStatusId.ReturningWorkerTrolley)
+                return false;
+            GameEntity trolley =
+                _gameContext.GetEntityWithTrolleyPusherEntityId(worker.EntityId);
+            if (trolley == null || trolley.isDestructed ||
+                !trolley.isWorkerTrolley || !worker.isHandsOccupied ||
+                !worker.isPushingWorkerTrolley || worker.isCarryingProduct ||
+                !trolley.hasOccupiedTrolleySlotCount ||
+                trolley.OccupiedTrolleySlotCount != 0 ||
+                _gameContext.GetEntitiesWithWorkerTrolleyEntityId(
+                    trolley.EntityId).Count != 0 ||
+                _gameContext.GetEntityWithAssignedWorkerEntityId(
+                    worker.EntityId) != null)
+                throw new InvalidOperationException(
+                    $"Worker {worker.EntityId} has invalid trolley-return state.");
+            return true;
         }
     }
 }

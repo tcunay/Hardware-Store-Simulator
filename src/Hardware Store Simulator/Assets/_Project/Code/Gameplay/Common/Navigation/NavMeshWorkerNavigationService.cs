@@ -44,6 +44,9 @@ namespace HardwareStore.Gameplay.Common.Navigation
             return agent.SetPath(_path);
         }
 
+        public void SetAutomaticRotation(NavMeshAgent agent, bool enabled) =>
+            agent.updateRotation = enabled;
+
         public WorkerNavigationStateId GetState(NavMeshAgent agent)
         {
             if (!agent.isOnNavMesh || agent.pathStatus == NavMeshPathStatus.PathInvalid)

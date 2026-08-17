@@ -8,5 +8,8 @@ namespace HardwareStore.Gameplay.Factories
         GameEntity CreateStockToCustomerLoading(int storeEntityId,
             int productEntityId, int customerVisitEntityId,
             int orderLineEntityId, int reservedLoadingSlotIndex);
+
+        GameEntity CreateWorkerTrolleyCustomerLoadingRun(int storeEntityId,
+            int customerVisitEntityId, int workerTrolleyEntityId);
     }
 }

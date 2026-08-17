@@ -18,6 +18,7 @@ namespace HardwareStore.Gameplay.Common.Navigation
             float sampleRadius);
         bool TrySetDestination(NavMeshAgent agent, Vector3 destination,
             float sampleRadius);
+        void SetAutomaticRotation(NavMeshAgent agent, bool enabled);
         WorkerNavigationStateId GetState(NavMeshAgent agent);
         bool HasReachedDestination(NavMeshAgent agent, Vector3 currentPosition,
             Vector3 destination, float fallbackTolerance);

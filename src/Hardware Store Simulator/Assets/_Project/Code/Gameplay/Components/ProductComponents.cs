@@ -17,7 +17,9 @@ namespace HardwareStore.Gameplay.Components
     [Game] public class LoadingSlotIndex : IComponent { public int Value; }
     [Game] public class ReservedDeliverySlotIndex : IComponent { public int Value; }
     [Game] public class ReservedStorageSlotIndex : IComponent { public int Value; }
+    [Game] public class ReservedCustomerLoadingSlotIndex : IComponent { public int Value; }
     [Game] public class ReservedOrderLineEntityId : IComponent { [EntityIndex] public int Value; }
+    [Game] public class WarehouseRunEntityId : IComponent { [EntityIndex] public int Value; }
     [Game] public class ProductType : IComponent { public ProductTypeId Value; }
     [Game] public class ProductMass : IComponent { public float Value; }
     [Game] public class CarryMovementSpeed : IComponent { public float Value; }

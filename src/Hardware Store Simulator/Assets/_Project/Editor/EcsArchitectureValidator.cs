@@ -90,6 +90,8 @@ namespace HardwareStore.Editor
             "Assets/_Project/Prefabs/Gameplay/PlatformTrolley.prefab";
         private const string WarehouseWorkerPrefabPath =
             "Assets/_Project/Prefabs/Gameplay/WarehouseWorker.prefab";
+        private const string WarehouseWorkerTrolleyPrefabPath =
+            "Assets/_Project/Prefabs/Gameplay/WarehouseWorkerTrolley.prefab";
         private const string WarehouseWorkerNavMeshPath =
             "Assets/Scenes/Prototype_Yard/NavMesh-Navigation.asset";
         private const int RequiredStorageSlotCapacity = 9;
@@ -566,9 +568,9 @@ namespace HardwareStore.Editor
                 runtimeTypes,
                 "GetEntityWithDayReportStoreEntityId",
                 typeof(GameEntity));
-            Require(GameComponentsLookup.componentTypes.Length == 241,
-                "The customer-loading warehouse-worker slice must expose the exact " +
-                "241-component " +
+            Require(GameComponentsLookup.componentTypes.Length == 255,
+                "The worker-trolley warehouse-worker slice must expose the exact " +
+                "255-component " +
                 "generated Game " +
                 "registry.");
 
@@ -737,6 +739,12 @@ namespace HardwareStore.Editor
                 "store.isStoreClosing",
                 "StoreDayCustomerVisitGuard.CountActiveVisits(",
                 "task.WarehouseTaskStep != WarehouseTaskStepId.Blocked",
+                "if (IsTasklessEmptyTrolleyReturn(worker))",
+                "WarehouseWorkerStatusId.ReturningWorkerTrolley",
+                "GetEntityWithTrolleyPusherEntityId(worker.EntityId)",
+                "trolley.OccupiedTrolleySlotCount != 0",
+                "GetEntitiesWithWorkerTrolleyEntityId(",
+                "GetEntityWithAssignedWorkerEntityId(",
                 "worker.isHandsOccupied || worker.isCarryingProduct",
                 "GetEntityWithCarrierEntityId(worker.EntityId)",
                 "player.isModalOpen || player.isHandsOccupied",
@@ -930,6 +938,11 @@ namespace HardwareStore.Editor
                 "LocalizationKey.PromptCloseStoreHandsOccupied",
                 "LocalizationKey.PromptCloseStoreForReport",
                 "CountActiveCustomerVisits(store.EntityId)",
+                "IsTasklessEmptyTrolleyReturn(worker, workerTask)",
+                "WarehouseWorkerStatusId.ReturningWorkerTrolley",
+                "GetEntityWithTrolleyPusherEntityId(worker.EntityId)",
+                "trolley.OccupiedTrolleySlotCount != 0",
+                "GetEntitiesWithWorkerTrolleyEntityId(",
                 "player.isHandsOccupied");
             string orderCounterPromptSource = ReadRuntimeSource(
                 "Gameplay", "Features", "Interaction", "Systems",
@@ -2844,7 +2857,9 @@ namespace HardwareStore.Editor
                 "ValidatePlayerHandlingStateSystem",
                 "ValidatePlatformTrolleyStateSystem",
                 "FollowPushedTrolleySystem",
-                "ApplyTrolleyProductPlacementSystem"
+                "FollowWorkerTrolleySystem",
+                "ApplyTrolleyProductPlacementSystem",
+                "ApplyWorkerTrolleyProductPlacementSystem"
             };
             foreach (string systemName in executableSystemNames)
             {
@@ -3018,8 +3033,17 @@ namespace HardwareStore.Editor
                 "Gameplay", "Features", "Trolley", "TrolleyMovementFeature.cs");
             Require(CountOccurrences(
                         trolleyMovementFeatureSource,
-                        "Add(systems.Create<FollowPushedTrolleySystem>())") == 1,
-                "TrolleyMovementFeature must own exactly one follow system.");
+                        "Add(systems.Create<FollowPushedTrolleySystem>())") == 1 &&
+                    CountOccurrences(
+                        trolleyMovementFeatureSource,
+                        "Add(systems.Create<FollowWorkerTrolleySystem>())") == 1,
+                "TrolleyMovementFeature must own exactly one player and one worker follow " +
+                "system.");
+            RequireSourceOrder(
+                trolleyMovementFeatureSource,
+                "Create<FollowPushedTrolleySystem>()",
+                "Create<FollowWorkerTrolleySystem>()",
+                "Player and worker trolleys must retain their explicit follow order.");
             string storeFeatureSource = ReadRuntimeSource("Gameplay", "StoreFeature.cs");
             RequireSourceOrder(
                 storeFeatureSource,
@@ -3210,6 +3234,37 @@ namespace HardwareStore.Editor
                 "_motion.TryResolveMove(",
                 "trolley.Transform.SetPositionAndRotation(",
                 "Trolley movement must pass its collision query before mutating Transform pose.");
+            string followWorkerTrolleySource = ReadRuntimeSource(
+                "Gameplay", "Features", "Trolley", "Systems",
+                "FollowWorkerTrolleySystem.cs");
+            RequireSourceContains(followWorkerTrolleySource,
+                "GameMatcher.WorkerTrolley",
+                "GameMatcher.TrolleyPusherEntityId",
+                "workerTransform.forward * trolley.TrolleyFollowDistance",
+                "_navigation.SetAutomaticRotation(",
+                "_motion.TryResolveMove(",
+                "trolley.Colliders",
+                "out Pose resolvedPose",
+                "trolley.Rigidbody.position = resolvedPose.position",
+                "trolley.Transform.SetPositionAndRotation(",
+                "GetEntityWithWarehouseTaskWorkerTrolleyEntityId(",
+                "WarehouseTaskBlockReasonId.WorkerTrolleyObstructed",
+                "WarehouseWorkerStatusId.ReturningWorkerTrolley",
+                "enabled: true",
+                "NormalizeEmptyReturn(worker, trolley)");
+            Require(!followWorkerTrolleySource.Contains(
+                    ".updateRotation", StringComparison.Ordinal),
+                "Worker-trolley following must keep NavMesh rotation control behind the " +
+                "worker navigation service.");
+            Require(CountOccurrences(followWorkerTrolleySource,
+                        "enabled: true") == 1,
+                "Obstructed taskless trolley return must restore automatic worker rotation " +
+                "exactly once when it detaches.");
+            RequireSourceOrder(
+                followWorkerTrolleySource,
+                "_motion.TryResolveMove(",
+                "trolley.Rigidbody.position = resolvedPose.position",
+                "Worker-trolley movement must resolve collisions before mutating pose.");
             Require(typeof(ITrolleyMotionService).IsAssignableFrom(
                     typeof(TrolleyMotionService)),
                 $"{nameof(TrolleyMotionService)} must implement " +
@@ -3221,6 +3276,17 @@ namespace HardwareStore.Editor
                 typeof(Rigidbody),
                 typeof(Collider[]),
                 typeof(CharacterController),
+                typeof(Vector3),
+                typeof(Quaternion),
+                typeof(Pose).MakeByRefType());
+            RequireMethod(
+                typeof(ITrolleyMotionService),
+                nameof(ITrolleyMotionService.TryResolveMove),
+                typeof(bool),
+                typeof(Rigidbody),
+                typeof(Collider[]),
+                typeof(Transform),
+                typeof(float),
                 typeof(Vector3),
                 typeof(Quaternion),
                 typeof(Pose).MakeByRefType());
@@ -3250,7 +3316,7 @@ namespace HardwareStore.Editor
                 "UnityEngine.Physics.AllLayers",
                 "QueryTriggerInteraction.Ignore",
                 "enabledSolidColliderCount != 1",
-                "candidate == sourceController",
+                "candidate == sourceCollider",
                 "EnsureBufferWasNotSaturated(");
             RequireSourceOrder(
                 trolleyMotionSource,
@@ -3326,6 +3392,8 @@ namespace HardwareStore.Editor
             Type[] requiredComponents =
             {
                 typeof(WarehouseWorker),
+                typeof(WorkerTrolley),
+                typeof(PushingWorkerTrolley),
                 typeof(WorkerShiftActive),
                 typeof(WarehouseWorkerHiringUnlocked),
                 typeof(WorkerPaidDayNumber),
@@ -3341,14 +3409,26 @@ namespace HardwareStore.Editor
                 typeof(WarehouseTask),
                 typeof(InboundToStorageTask),
                 typeof(StockToCustomerLoadingTask),
+                typeof(WorkerTrolleyCustomerLoadingRun),
+                typeof(WorkerTrolleyStoreEntityId),
+                typeof(WorkerTrolleyEntityId),
+                typeof(WorkerTrolleySlotIndex),
+                typeof(WorkerTrolleyHomePosition),
+                typeof(WorkerTrolleyHomeRotation),
+                typeof(WorkerTrolleyCustomerLoadingPosition),
+                typeof(WorkerTrolleyCustomerLoadingRotation),
                 typeof(WarehouseTaskStoreEntityId),
                 typeof(WarehouseTaskStorageZoneEntityId),
                 typeof(WarehouseTaskProductEntityId),
+                typeof(WarehouseTaskWorkerTrolleyEntityId),
                 typeof(WarehouseTaskCustomerVisitEntityId),
                 typeof(WarehouseTaskOrderLineEntityId),
                 typeof(AssignedWorkerEntityId),
                 typeof(WarehouseTaskReservedStorageSlotIndex),
                 typeof(WarehouseTaskReservedLoadingSlotIndex),
+                typeof(ReservedCustomerLoadingSlotIndex),
+                typeof(WarehouseRunEntityId),
+                typeof(WarehouseRunProductCount),
                 typeof(WarehouseTaskStep),
                 typeof(WarehouseTaskBlockReason),
                 typeof(WarehouseTaskTimeoutRemaining),
@@ -3359,9 +3439,16 @@ namespace HardwareStore.Editor
                 Require(discoveredComponents.Contains(component),
                     $"Warehouse-worker gameplay requires the {component.Name} Game component.");
             }
+            Require(!componentTypes.Any(type =>
+                    type.Name.Contains("WorkerTrolleyPushPoint", StringComparison.Ordinal)),
+                "Worker-trolley approach must derive from root pose and follow distance, not " +
+                "a dedicated push-point ECS component.");
 
             RequireComponentIndexAttribute(
                 typeof(WarehouseWorkerStoreEntityId),
+                "Entitas.CodeGeneration.Attributes.PrimaryEntityIndexAttribute");
+            RequireComponentIndexAttribute(
+                typeof(WorkerTrolleyStoreEntityId),
                 "Entitas.CodeGeneration.Attributes.PrimaryEntityIndexAttribute");
             RequireComponentIndexAttribute(
                 typeof(WarehouseTaskProductEntityId),
@@ -3369,6 +3456,15 @@ namespace HardwareStore.Editor
             RequireComponentIndexAttribute(
                 typeof(AssignedWorkerEntityId),
                 "Entitas.CodeGeneration.Attributes.PrimaryEntityIndexAttribute");
+            RequireComponentIndexAttribute(
+                typeof(WarehouseTaskWorkerTrolleyEntityId),
+                "Entitas.CodeGeneration.Attributes.PrimaryEntityIndexAttribute");
+            RequireComponentIndexAttribute(
+                typeof(WorkerTrolleyEntityId),
+                "Entitas.CodeGeneration.Attributes.EntityIndexAttribute");
+            RequireComponentIndexAttribute(
+                typeof(WarehouseRunEntityId),
+                "Entitas.CodeGeneration.Attributes.EntityIndexAttribute");
             RequireComponentIndexAttribute(
                 typeof(WarehouseTaskCustomerVisitEntityId),
                 "Entitas.CodeGeneration.Attributes.EntityIndexAttribute");
@@ -3381,12 +3477,28 @@ namespace HardwareStore.Editor
                 typeof(GameEntity));
             RequireGeneratedIndexApi(
                 runtimeTypes,
+                "GetEntityWithWorkerTrolleyStoreEntityId",
+                typeof(GameEntity));
+            RequireGeneratedIndexApi(
+                runtimeTypes,
                 "GetEntityWithWarehouseTaskProductEntityId",
                 typeof(GameEntity));
             RequireGeneratedIndexApi(
                 runtimeTypes,
                 "GetEntityWithAssignedWorkerEntityId",
                 typeof(GameEntity));
+            RequireGeneratedIndexApi(
+                runtimeTypes,
+                "GetEntityWithWarehouseTaskWorkerTrolleyEntityId",
+                typeof(GameEntity));
+            RequireGeneratedIndexApi(
+                runtimeTypes,
+                "GetEntitiesWithWorkerTrolleyEntityId",
+                typeof(HashSet<GameEntity>));
+            RequireGeneratedIndexApi(
+                runtimeTypes,
+                "GetEntitiesWithWarehouseRunEntityId",
+                typeof(HashSet<GameEntity>));
             RequireGeneratedIndexApi(
                 runtimeTypes,
                 "GetEntitiesWithWarehouseTaskCustomerVisitEntityId",
@@ -3416,16 +3528,23 @@ namespace HardwareStore.Editor
             {
                 "ConfigureWarehouseWorkerNavigationSystem",
                 "CleanupBlockedWarehouseTaskSystem",
+                "CleanupBlockedWorkerTrolleyRunSystem",
                 "GenerateCustomerLoadingTaskSystem",
                 "GenerateInboundStorageTaskSystem",
                 "AssignWarehouseTaskSystem",
                 "TickWarehouseTaskTimeoutSystem",
                 "ExecuteInboundStorageTaskSystem",
                 "ExecuteCustomerLoadingTaskSystem",
+                "ExecuteWorkerTrolleyRunSystem",
+                "ReturnWorkerTrolleySystem",
                 "DetectOrphanedWarehouseTaskSystem",
+                "DetectOrphanedWorkerTrolleyRunSystem",
                 "RecoverBlockedInboundTaskSystem",
                 "RecoverBlockedCustomerLoadingTaskSystem",
-                "ValidateWarehouseWorkerStateSystem"
+                "RecoverBlockedWorkerTrolleyRunSystem",
+                "RefreshWorkerTrolleyOccupiedSlotCountSystem",
+                "ValidateWarehouseWorkerStateSystem",
+                "ValidateWorkerTrolleyStateSystem"
             };
             foreach (string systemName in employeeSystems.Take(employeeSystems.Length - 1)
                          .Concat(workerSystems))
@@ -3468,7 +3587,14 @@ namespace HardwareStore.Editor
                 "private float _stoppingDistance = 0.2f",
                 "private float _navigationSampleRadius = 2f",
                 "private float _taskTimeout = 20f",
+                "private EntityBehaviour _trolleyViewPrefab",
+                "private int _trolleyCapacity = 3",
+                "private float _trolleyFollowDistance = 1.7f",
                 "public EntityBehaviour ViewPrefab => _viewPrefab",
+                "public EntityBehaviour TrolleyViewPrefab => _trolleyViewPrefab",
+                "public int TrolleyCapacity => _trolleyCapacity",
+                "public float TrolleyFollowDistance => _trolleyFollowDistance",
+                "nameof(TrolleyCapacity)} must be at least 2",
                 "ConfigValidation.RequireReference",
                 "ConfigValidation.RequirePositive");
             string staticDataSource = ReadRuntimeSource(
@@ -3486,6 +3612,10 @@ namespace HardwareStore.Editor
                     typeof(WarehouseTaskFactory)),
                 $"{nameof(WarehouseTaskFactory)} must implement " +
                 $"{nameof(IWarehouseTaskFactory)}.");
+            Require(typeof(IWarehouseWorkerTrolleyFactory).IsAssignableFrom(
+                    typeof(WarehouseWorkerTrolleyFactory)),
+                $"{nameof(WarehouseWorkerTrolleyFactory)} must implement " +
+                $"{nameof(IWarehouseWorkerTrolleyFactory)}.");
             RequireMethod(
                 typeof(IWarehouseWorkerFactory),
                 nameof(IWarehouseWorkerFactory.Create),
@@ -3512,6 +3642,20 @@ namespace HardwareStore.Editor
                 typeof(int),
                 typeof(int),
                 typeof(int));
+            RequireMethod(
+                typeof(IWarehouseTaskFactory),
+                nameof(IWarehouseTaskFactory.CreateWorkerTrolleyCustomerLoadingRun),
+                typeof(GameEntity),
+                typeof(int),
+                typeof(int),
+                typeof(int));
+            RequireMethod(
+                typeof(IWarehouseWorkerTrolleyFactory),
+                nameof(IWarehouseWorkerTrolleyFactory.Create),
+                typeof(GameEntity),
+                typeof(int),
+                typeof(Pose),
+                typeof(Pose));
             string workerFactorySource = ReadRuntimeSource(
                 "Gameplay", "Factories", nameof(WarehouseWorkerFactory) + ".cs");
             RequireSourceContains(workerFactorySource,
@@ -3542,18 +3686,52 @@ namespace HardwareStore.Editor
                 "AddWarehouseTaskOrderLineEntityId(orderLineEntityId)",
                 "AddWarehouseTaskReservedLoadingSlotIndex(",
                 "reservedLoadingSlotIndex",
-                "isStockToCustomerLoadingTask = true");
+                "isStockToCustomerLoadingTask = true",
+                "CreateWorkerTrolleyCustomerLoadingRun",
+                "AddWarehouseTaskCustomerVisitEntityId(customerVisitEntityId)",
+                "AddWarehouseTaskWorkerTrolleyEntityId(workerTrolleyEntityId)",
+                "isWorkerTrolleyCustomerLoadingRun = true");
+            string workerTrolleyFactorySource = ReadRuntimeSource(
+                "Gameplay", "Factories", nameof(WarehouseWorkerTrolleyFactory) + ".cs");
+            RequireSourceContains(workerTrolleyFactorySource,
+                "CreateEntity.Empty(_identifiers.Next())",
+                "AddViewPrefab(config.TrolleyViewPrefab)",
+                "AddSpawnPosition(homePose.position)",
+                "AddSpawnRotation(homePose.rotation)",
+                "AddWorkerTrolleyStoreEntityId(storeEntityId)",
+                "AddTrolleyCapacity(config.TrolleyCapacity)",
+                "AddOccupiedTrolleySlotCount(0)",
+                "AddTrolleyFollowDistance(config.TrolleyFollowDistance)",
+                "AddWorkerTrolleyHomePosition(homePose.position)",
+                "AddWorkerTrolleyHomeRotation(homePose.rotation)",
+                "AddWorkerTrolleyCustomerLoadingPosition(",
+                "customerLoadingPose.position",
+                "AddWorkerTrolleyCustomerLoadingRotation(",
+                "customerLoadingPose.rotation",
+                "isWorkerTrolley = true");
             Require(!workerFactorySource.Contains("SetEntity", StringComparison.Ordinal) &&
                     !workerFactorySource.Contains("CreateView", StringComparison.Ordinal) &&
-                    !taskFactorySource.Contains("SetEntity", StringComparison.Ordinal),
+                    !taskFactorySource.Contains("SetEntity", StringComparison.Ordinal) &&
+                    !workerTrolleyFactorySource.Contains(
+                        "SetEntity", StringComparison.Ordinal) &&
+                    !workerTrolleyFactorySource.Contains(
+                        "CreateView", StringComparison.Ordinal),
                 "Warehouse-worker factories must remain entity-first.");
+            Require(!workerTrolleyFactorySource.Contains(
+                        "isPlatformTrolley = true", StringComparison.Ordinal) &&
+                    !workerTrolleyFactorySource.Contains(
+                        "isInteractable = true", StringComparison.Ordinal),
+                "The worker-trolley factory must not grant the player PlatformTrolley or " +
+                "Interactable roles.");
 
             string bootstrapSource = ReadRuntimeSource(
                 "Infrastructure", "Installers", nameof(BootstrapInstaller) + ".cs");
             RequireSourceContains(bootstrapSource,
                 "Bind<IWorkerNavigationService>().To<NavMeshWorkerNavigationService>().AsSingle()",
                 "Bind<IWarehouseWorkerFactory>().To<WarehouseWorkerFactory>().AsSingle()",
-                "Bind<IWarehouseTaskFactory>().To<WarehouseTaskFactory>().AsSingle()");
+                "Bind<IWarehouseTaskFactory>().To<WarehouseTaskFactory>().AsSingle()",
+                "Bind<IWarehouseWorkerTrolleyFactory>()",
+                ".To<WarehouseWorkerTrolleyFactory>().AsSingle()");
             Require(typeof(IWorkerNavigationService).IsAssignableFrom(
                     typeof(NavMeshWorkerNavigationService)),
                 $"{nameof(NavMeshWorkerNavigationService)} must implement " +
@@ -3574,6 +3752,12 @@ namespace HardwareStore.Editor
                 typeof(float));
             RequireMethod(
                 typeof(IWorkerNavigationService),
+                nameof(IWorkerNavigationService.SetAutomaticRotation),
+                typeof(void),
+                typeof(NavMeshAgent),
+                typeof(bool));
+            RequireMethod(
+                typeof(IWorkerNavigationService),
                 nameof(IWorkerNavigationService.HasReachedDestination),
                 typeof(bool),
                 typeof(NavMeshAgent),
@@ -3589,6 +3773,8 @@ namespace HardwareStore.Editor
                 "agent.CalculatePath(hit.position, _path)",
                 "_path.status != NavMeshPathStatus.PathComplete",
                 "agent.SetPath(_path)",
+                "public void SetAutomaticRotation(NavMeshAgent agent, bool enabled)",
+                "agent.updateRotation = enabled",
                 "GetState(agent) != WorkerNavigationStateId.Reached",
                 "currentPosition - destination",
                 "agent.ResetPath()");
@@ -3644,12 +3830,22 @@ namespace HardwareStore.Editor
                 "HireWarehouseWorkerSystem.cs");
             RequireSourceContains(hireSource,
                 "GetEntityWithWarehouseWorkerStoreEntityId(",
+                "GetEntityWithWorkerTrolleyStoreEntityId(",
                 "_solvency.EvaluateDebit(",
                 "_workers.Create(",
+                "_workerTrolleys.Create(",
                 "GetSpawnPoint(SpawnPointId.WarehouseWorker)",
                 "GetSpawnPoint(SpawnPointId.WarehouseWorkerDeliveryAccess)",
                 "GetSpawnPoint(SpawnPointId.WarehouseWorkerStorageAccess)",
                 "SpawnPointId.WarehouseWorkerCustomerLoadingAccess",
+                "GetSpawnPoint(SpawnPointId.WarehouseWorkerTrolley)",
+                "SpawnPointId.WarehouseWorkerTrolleyCustomerLoadingAccess",
+                "!trolley.isWorkerTrolley || trolley.isPlatformTrolley",
+                "trolley.isInteractable",
+                "trolley.TrolleyCapacity != _config.TrolleyCapacity",
+                "trolley.OccupiedTrolleySlotCount != 0",
+                "trolley.TrolleyFollowDistance != _config.TrolleyFollowDistance",
+                "trolley.hasTrolleyPusherEntityId",
                 "store.ReplaceDayUpgradeExpenses(upgradeExpensesAfterHire)",
                 "worker.isWorkerShiftActive = true");
             RequireSourceOrder(
@@ -3657,6 +3853,16 @@ namespace HardwareStore.Editor
                 "GetEntityWithWarehouseWorkerStoreEntityId(",
                 "_workers.Create(",
                 "Repeated hire must be rejected before creating another worker.");
+            RequireSourceOrder(
+                hireSource,
+                "GetEntityWithWarehouseWorkerStoreEntityId(",
+                "_workerTrolleys.Create(",
+                "Repeated hire must be rejected before creating another worker trolley.");
+            RequireSourceOrder(
+                hireSource,
+                "_workerTrolleys.Create(",
+                "store.ReplaceMoney(moneyAfterHire)",
+                "The bundled worker trolley must be validated before the hire debit commits.");
             string paySource = ReadRuntimeSource(
                 "Gameplay", "Features", "Employees", "Systems",
                 "PayWarehouseWorkerShiftSystem.cs");
@@ -3681,6 +3887,10 @@ namespace HardwareStore.Editor
                 "LocalizationKey.PromptWarehouseWorkerActive",
                 "LocalizationKey.PromptPayWarehouseWorkerShift",
                 "LocalizationKey.PromptCloseStoreWarehouseWorkerBusy",
+                "IsTasklessEmptyTrolleyReturn(worker, workerTask)",
+                "WarehouseWorkerStatusId.ReturningWorkerTrolley",
+                "GetEntityWithTrolleyPusherEntityId(worker.EntityId)",
+                "GetEntitiesWithWorkerTrolleyEntityId(",
                 "_solvency.EvaluateDebit(");
             string reportSource = ReadRuntimeSource(
                 "Gameplay", "Features", "StoreDay", "Systems",
@@ -3690,6 +3900,12 @@ namespace HardwareStore.Editor
                 "WarehouseTaskStepId.Blocked",
                 "HasActiveWarehouseWork(store)",
                 "task.WarehouseTaskStep != WarehouseTaskStepId.Blocked",
+                "IsTasklessEmptyTrolleyReturn(worker)",
+                "WarehouseWorkerStatusId.ReturningWorkerTrolley",
+                "GetEntityWithTrolleyPusherEntityId(worker.EntityId)",
+                "trolley.OccupiedTrolleySlotCount != 0",
+                "GetEntitiesWithWorkerTrolleyEntityId(",
+                "GetEntityWithAssignedWorkerEntityId(",
                 "worker.isHandsOccupied || worker.isCarryingProduct",
                 "GetEntityWithCarrierEntityId(worker.EntityId)");
 
@@ -3715,33 +3931,62 @@ namespace HardwareStore.Editor
             RequireSourceContains(generateCustomerLoadingTaskSource,
                 "GetEntityWithReservedCustomerLoadingBayEntityId(",
                 "visit.isCustomerVisitLoading",
-                "line.LineIndex < selectedLine.LineIndex",
+                "_orderLines.Sort(CompareOrderLines)",
+                "left.LineIndex.CompareTo(right.LineIndex)",
                 "left.StorageSlotIndex.CompareTo(",
                 "HasValidPlayerRequest(product.EntityId, storeEntityId)",
+                "int playerClaimCount = ClaimPendingPlayerRequests(",
+                "remaining -= playerClaimCount",
+                "!source.isHandsOccupied",
+                "_selectedProductIds.Add(product.EntityId)",
                 "GameMatcher.LooseProduct",
                 "GameMatcher.CarrierEntityId",
                 "GameMatcher.TrolleyEntityId",
+                "GameMatcher.WorkerTrolleyEntityId",
+                "GameMatcher.ReservedCustomerLoadingSlotIndex",
+                "GameMatcher.WarehouseRunEntityId",
                 "product.RemoveStorageSlotIndex()",
                 "product.AddReservedStorageSlotIndex(storageSlotIndex)",
-                "product.AddReservedOrderLineEntityId(line.EntityId)",
+                "product.AddReservedOrderLineEntityId(candidate.Line.EntityId)",
+                "if (_batchCandidates.Count >= 2)",
+                "else if (_batchCandidates.Count == 1 && !returning)",
+                "_tasksFactory.CreateWorkerTrolleyCustomerLoadingRun(",
+                "run.AddWarehouseRunProductCount(_batchCandidates.Count)",
+                "product.AddReservedCustomerLoadingSlotIndex(",
+                "product.AddWarehouseRunEntityId(run.EntityId)",
                 "_tasksFactory.CreateStockToCustomerLoading(",
+                "WarehouseWorkerStatusId.ReturningWorkerTrolley",
+                "HasActiveTask(store.EntityId)",
                 "WarehouseWorkerStatusId.StorageFull",
                 "WarehouseWorkerStatusId.Idle",
                 "!store.isStoreOpen && !store.isStoreClosing");
+            RequireSourceOrder(
+                generateCustomerLoadingTaskSource,
+                "ClaimPendingPlayerRequests(",
+                "_matchingProducts.Clear()",
+                "Pending player shelf claims must consume line quota before worker " +
+                "alternatives are collected.");
             string assignTaskSource = ReadRuntimeSource(
                 "Gameplay", "Features", "Employees", "Systems",
                 "AssignWarehouseTaskSystem.cs");
             RequireSourceContains(assignTaskSource,
-                "left.isStockToCustomerLoadingTask ? 0 : 1",
-                "right.isStockToCustomerLoadingTask ? 0 : 1",
+                "left.isStockToCustomerLoadingTask ||",
+                "left.isWorkerTrolleyCustomerLoadingRun ? 0 : 1",
+                "right.isStockToCustomerLoadingTask ||",
+                "right.isWorkerTrolleyCustomerLoadingRun ? 0 : 1",
                 "left.EntityId.CompareTo(right.EntityId)",
                 "selected.AddAssignedWorkerEntityId(worker.EntityId)",
+                "WarehouseTaskStepId.MovingToWorkerTrolley",
+                "WarehouseWorkerStatusId.MovingToWorkerTrolley",
+                "returningTrolley &&",
+                "!selected.isWorkerTrolleyCustomerLoadingRun",
                 "WarehouseTaskStepId.MovingToPickup",
                 "!store.isStoreOpen && !store.isStoreClosing");
             string tickTaskTimeoutSource = ReadRuntimeSource(
                 "Gameplay", "Features", "Employees", "Systems",
                 "TickWarehouseTaskTimeoutSystem.cs");
             RequireSourceContains(tickTaskTimeoutSource,
+                "task.isWorkerTrolleyCustomerLoadingRun ? 1 : 0",
                 "task.WarehouseTaskTimeoutRemaining",
                 "current - _time.DeltaTime",
                 "WarehouseTaskStepId.Blocked",
@@ -3780,6 +4025,190 @@ namespace HardwareStore.Editor
                 "product.AddLoadingSlotIndex(slotIndex)",
                 "product.isProductLoaded = true",
                 "task.isDestructed = true");
+            string executeWorkerTrolleyRunSource = ReadRuntimeSource(
+                "Gameplay", "Features", "Employees", "Systems",
+                "ExecuteWorkerTrolleyRunSystem.cs");
+            RequireSourceContains(executeWorkerTrolleyRunSource,
+                "GameMatcher.WorkerTrolleyCustomerLoadingRun",
+                "GameMatcher.WarehouseTaskWorkerTrolleyEntityId",
+                "GameMatcher.WarehouseRunProductCount",
+                "WarehouseTaskStepId.MovingToWorkerTrolley",
+                "WarehouseTaskStepId.MovingWorkerTrolleyToCustomerLoading",
+                "_gameContext.GetEntitiesWithWarehouseRunEntityId(run.EntityId)",
+                "_products.Count < 2 || _products.Count > trolley.TrolleyCapacity",
+                "PusherTarget(trolley, cartTarget)",
+                "_navigation.HasReachedDestination(",
+                "_navigation.TrySetDestination(",
+                "_navigation.SetAutomaticRotation(",
+                "enabled: false",
+                "enabled: true",
+                "trolley.AddTrolleyPusherEntityId(worker.EntityId)",
+                "worker.isPushingWorkerTrolley = true",
+                "product.AddWorkerTrolleyEntityId(trolley.EntityId)",
+                "product.AddWorkerTrolleySlotIndex(index)",
+                "trolley.ReplaceOccupiedTrolleySlotCount(_products.Count)",
+                "product.ReservedCustomerLoadingSlotIndex",
+                "product.RemoveWorkerTrolleyEntityId()",
+                "product.RemoveWarehouseRunEntityId()",
+                "product.AddOrderLineEntityId(line.EntityId)",
+                "product.AddLoadingSlotIndex(loadingSlotIndex)",
+                "product.isProductLoaded = true",
+                "trolley.ReplaceOccupiedTrolleySlotCount(0)",
+                "run.RemoveAssignedWorkerEntityId()",
+                "run.isDestructed = true",
+                "WarehouseWorkerStatusId.ReturningWorkerTrolley");
+            Require(!executeWorkerTrolleyRunSource.Contains(
+                        ".isOnNavMesh", StringComparison.Ordinal) &&
+                    !executeWorkerTrolleyRunSource.Contains(
+                        ".hasPath", StringComparison.Ordinal),
+                "The worker-trolley run executor must keep NavMesh state behind the " +
+                "worker navigation service.");
+            string returnWorkerTrolleySource = ReadRuntimeSource(
+                "Gameplay", "Features", "Employees", "Systems",
+                "ReturnWorkerTrolleySystem.cs");
+            RequireSourceContains(returnWorkerTrolleySource,
+                "WarehouseWorkerStatusId.ReturningWorkerTrolley",
+                "GetEntityWithAssignedWorkerEntityId(",
+                "GetEntityWithTrolleyPusherEntityId(worker.EntityId)",
+                "GetEntitiesWithWorkerTrolleyEntityId(",
+                "trolley.OccupiedTrolleySlotCount != 0",
+                "if (store.isDayReportOpen)",
+                "CompleteReturn(worker, trolley, homePose)",
+                "_navigation.TrySetDestination(",
+                "_navigation.SetAutomaticRotation(",
+                "enabled: false",
+                "enabled: true",
+                "trolley.Rigidbody.position = homePose.position",
+                "trolley.RemoveTrolleyPusherEntityId()",
+                "worker.isPushingWorkerTrolley = false",
+                "worker.isHandsOccupied = false",
+                "WarehouseWorkerStatusId.Idle",
+                "WarehouseWorkerStatusId.OffShift");
+            string recoverBlockedWorkerTrolleyRunSource = ReadRuntimeSource(
+                "Gameplay", "Features", "Employees", "Systems",
+                "RecoverBlockedWorkerTrolleyRunSystem.cs");
+            RequireSourceContains(recoverBlockedWorkerTrolleyRunSource,
+                "GameMatcher.WorkerTrolleyCustomerLoadingRun",
+                "WarehouseTaskStepId.Blocked",
+                "GetEntitiesWithWarehouseRunEntityId(run.EntityId)",
+                "_products.Count != run.WarehouseRunProductCount",
+                "product.hasReservedStorageSlotIndex",
+                "product.hasReservedCustomerLoadingSlotIndex",
+                "product.hasWorkerTrolleyEntityId",
+                "int storageSlotIndex = product.ReservedStorageSlotIndex",
+                "product.RemoveWorkerTrolleyEntityId()",
+                "product.RemoveWorkerTrolleySlotIndex()",
+                "product.RemoveReservedStorageSlotIndex()",
+                "product.RemoveReservedOrderLineEntityId()",
+                "product.RemoveReservedCustomerLoadingSlotIndex()",
+                "product.AddStorageSlotIndex(storageSlotIndex)",
+                "product.isInteractable = true",
+                "trolley.ReplaceOccupiedTrolleySlotCount(0)",
+                "trolley.WorkerTrolleyHomePosition",
+                "trolley.RemoveTrolleyPusherEntityId()",
+                "_navigation.SetAutomaticRotation(",
+                "enabled: true",
+                "worker.isPushingWorkerTrolley = false",
+                "WarehouseWorkerStatusId.Blocked",
+                "run.RemoveAssignedWorkerEntityId()");
+            Require(!executeWorkerTrolleyRunSource.Contains(
+                        ".updateRotation", StringComparison.Ordinal) &&
+                    !returnWorkerTrolleySource.Contains(
+                        ".updateRotation", StringComparison.Ordinal) &&
+                    !recoverBlockedWorkerTrolleyRunSource.Contains(
+                        ".updateRotation", StringComparison.Ordinal),
+                "Worker-trolley execute, return and recovery systems must keep NavMesh " +
+                "rotation control behind IWorkerNavigationService.");
+            Require(CountOccurrences(executeWorkerTrolleyRunSource,
+                        "enabled: false") == 1 &&
+                    CountOccurrences(executeWorkerTrolleyRunSource,
+                        "enabled: true") == 1 &&
+                    CountOccurrences(returnWorkerTrolleySource,
+                        "enabled: false") == 1 &&
+                    CountOccurrences(returnWorkerTrolleySource,
+                        "enabled: true") == 2 &&
+                    CountOccurrences(recoverBlockedWorkerTrolleyRunSource,
+                        "enabled: true") == 1,
+                "Worker-trolley preparation/return/recovery must freeze backward-return " +
+                "orientation and restore automatic rotation only at its exact handoff points.");
+            string detectOrphanedWorkerTrolleyRunSource = ReadRuntimeSource(
+                "Gameplay", "Features", "Employees", "Systems",
+                "DetectOrphanedWorkerTrolleyRunSystem.cs");
+            RequireSourceContains(detectOrphanedWorkerTrolleyRunSource,
+                "GameMatcher.WorkerTrolleyCustomerLoadingRun",
+                "GetEntityWithWarehouseWorkerStoreEntityId(",
+                "WarehouseTaskBlockReasonId.WorkerMissing",
+                "run.WarehouseTaskWorkerTrolleyEntityId",
+                "WarehouseTaskBlockReasonId.WorkerTrolleyMissing",
+                "run.WarehouseTaskCustomerVisitEntityId",
+                "WarehouseTaskBlockReasonId.NoCustomerLoadingPath",
+                "run.ReplaceWarehouseTaskStep(WarehouseTaskStepId.Blocked)");
+            string cleanupBlockedWorkerTrolleyRunSource = ReadRuntimeSource(
+                "Gameplay", "Features", "Employees", "Systems",
+                "CleanupBlockedWorkerTrolleyRunSystem.cs");
+            RequireSourceContains(cleanupBlockedWorkerTrolleyRunSource,
+                "GameMatcher.WorkerTrolleyCustomerLoadingRun",
+                "WarehouseTaskStepId.Blocked",
+                "recoveryPending |= product.hasReservedStorageSlotIndex",
+                "product.hasReservedCustomerLoadingSlotIndex",
+                "product.hasWorkerTrolleyEntityId",
+                "ShouldAwaitManualHandoff(run)",
+                "product.RemoveWarehouseRunEntityId()",
+                "run.isDestructed = true",
+                "WarehouseWorkerStatusId.Blocked",
+                "WarehouseWorkerStatusId.Idle",
+                "WarehouseWorkerStatusId.OffShift");
+            string workerTrolleyPlacementSource = ReadRuntimeSource(
+                "Gameplay", "Features", "Products", "Systems",
+                "ApplyWorkerTrolleyProductPlacementSystem.cs");
+            RequireSourceContains(workerTrolleyPlacementSource,
+                "GameMatcher.WorkerTrolleyEntityId",
+                "GameMatcher.WorkerTrolleySlotIndex",
+                "GameMatcher.WarehouseRunEntityId",
+                "GameMatcher.ReservedCustomerLoadingSlotIndex",
+                "trolley.Slots[product.WorkerTrolleySlotIndex]",
+                "ProductPhysicsUtility.ConfigureLockedSlot(",
+                "product.isProductPlacementDirty = false");
+            string productPlacementFeatureSource = ReadRuntimeSource(
+                "Gameplay", "Features", "Products", "ProductPlacementFeature.cs");
+            RequireSourceOrder(
+                productPlacementFeatureSource,
+                "Create<ApplyTrolleyProductPlacementSystem>()",
+                "Create<ApplyWorkerTrolleyProductPlacementSystem>()",
+                "Player-trolley placement must settle before worker-trolley placement.");
+            RequireSourceOrder(
+                productPlacementFeatureSource,
+                "Create<ApplyWorkerTrolleyProductPlacementSystem>()",
+                "Create<ValidateProductPlacementSystem>()",
+                "Worker-trolley placement must settle before placement validation.");
+            string refreshWorkerTrolleySource = ReadRuntimeSource(
+                "Gameplay", "Features", "Employees", "Systems",
+                "RefreshWorkerTrolleyOccupiedSlotCountSystem.cs");
+            RequireSourceContains(refreshWorkerTrolleySource,
+                "new bool[config.TrolleyCapacity]",
+                "GetEntitiesWithWorkerTrolleyEntityId(",
+                "product.WorkerTrolleySlotIndex",
+                "trolley.ReplaceOccupiedTrolleySlotCount(count)");
+            string validateWorkerTrolleySource = ReadRuntimeSource(
+                "Gameplay", "Features", "Employees", "Systems",
+                "ValidateWorkerTrolleyStateSystem.cs");
+            RequireSourceContains(validateWorkerTrolleySource,
+                "GameMatcher.WorkerTrolley",
+                "GameMatcher.WorkerTrolleyStoreEntityId",
+                "GameMatcher.WorkerTrolleyCustomerLoadingPosition",
+                "trolley.isPlatformTrolley || trolley.isInteractable",
+                "trolley.TrolleyCapacity != _config.TrolleyCapacity",
+                "trolley.TrolleyFollowDistance != _config.TrolleyFollowDistance",
+                "GetEntitiesWithWorkerTrolleyEntityId(",
+                "product.WorkerTrolleySlotIndex",
+                "product.hasWarehouseRunEntityId",
+                "product.hasReservedCustomerLoadingSlotIndex",
+                "run.WarehouseTaskWorkerTrolleyEntityId != trolley.EntityId",
+                "trolley.TrolleyPusherEntityId",
+                "worker.isPushingWorkerTrolley",
+                "MovingToWorkerTrolley or",
+                "MovingWorkerTrolleyToCustomerLoading or",
+                "ReturningWorkerTrolley");
             string detectOrphanedTaskSource = ReadRuntimeSource(
                 "Gameplay", "Features", "Employees", "Systems",
                 "DetectOrphanedWarehouseTaskSystem.cs");
@@ -3830,11 +4259,21 @@ namespace HardwareStore.Editor
                 "ValidateWarehouseWorkerStateSystem.cs");
             RequireSourceContains(validateWorkerSource,
                 "moving != (task != null)",
-                "worker.isHandsOccupied != worker.isCarryingProduct",
+                "worker.isCarryingProduct && worker.isPushingWorkerTrolley",
+                "worker.isHandsOccupied !=",
                 "worker.isCarryingProduct != (carried != null)",
-                "task.isInboundToStorageTask == task.isStockToCustomerLoadingTask",
+                "worker.isPushingWorkerTrolley != (pushed != null)",
+                "WarehouseWorkerStatusId.ReturningWorkerTrolley",
+                "task.isWorkerTrolleyCustomerLoadingRun",
+                "ValidateWorkerTrolleyRun(task)",
+                "run.WarehouseRunProductCount < 2",
+                "GetEntitiesWithWarehouseRunEntityId(run.EntityId)",
+                "product.ReservedCustomerLoadingSlotIndex",
+                "product.WorkerTrolleySlotIndex",
                 "ValidateCustomerLoadingTask(task, product)",
                 "WarehouseTaskStepId.MovingToCustomerLoading",
+                "WarehouseTaskStepId.MovingToWorkerTrolley",
+                "WarehouseTaskStepId.MovingWorkerTrolleyToCustomerLoading",
                 "case WarehouseTaskStepId.Blocked:",
                 "task.hasWarehouseTaskReservedStorageSlotIndex",
                 "task.hasWarehouseTaskReservedLoadingSlotIndex",
@@ -3888,6 +4327,23 @@ namespace HardwareStore.Editor
                 "Create<SyncLooseProductPoseSystem>()",
                 "Worker carry following must settle before loose-product pose synchronization.");
 
+            Require(typeof(WarehouseWorkerStatusSnapshot).GetConstructor(new[]
+                    {
+                        typeof(WarehouseWorkerStatusId),
+                        typeof(ProductTypeId?),
+                        typeof(int?)
+                    }) != null,
+                $"{nameof(WarehouseWorkerStatusSnapshot)} must expose direct-product and " +
+                "worker-trolley batch state explicitly.");
+            ValidateSnapshotProperties(
+                typeof(WarehouseWorkerStatusSnapshot),
+                (nameof(WarehouseWorkerStatusSnapshot.Status),
+                    typeof(WarehouseWorkerStatusId)),
+                (nameof(WarehouseWorkerStatusSnapshot.ProductType),
+                    typeof(ProductTypeId?)),
+                (nameof(WarehouseWorkerStatusSnapshot.BatchProductCount),
+                    typeof(int?)));
+            ValidateImmutableSnapshotType(typeof(WarehouseWorkerStatusSnapshot));
             string workerStatusSnapshotSource = ReadRuntimeSource(
                 "Gameplay", "Presentation",
                 nameof(WarehouseWorkerStatusSnapshot) + ".cs");
@@ -3895,19 +4351,31 @@ namespace HardwareStore.Editor
                 "WarehouseWorkerStatusId.MovingToPickup",
                 "WarehouseWorkerStatusId.MovingToStorage",
                 "WarehouseWorkerStatusId.MovingToCustomerLoading",
+                "WarehouseWorkerStatusId.MovingWorkerTrolleyToCustomerLoading",
+                "BatchProductCount",
                 "A moving warehouse worker requires a valid task product.");
             string presentHudSource = ReadRuntimeSource(
                 "Gameplay", "Features", "Presentation", "Systems",
                 "PresentHudSystem.cs");
             RequireSourceContains(presentHudSource,
                 "WarehouseWorkerStatusId.MovingToCustomerLoading",
+                "WarehouseWorkerStatusId.MovingToWorkerTrolley",
+                "WarehouseWorkerStatusId.MovingWorkerTrolleyToCustomerLoading",
+                "task.WarehouseRunProductCount",
                 "new WarehouseWorkerStatusSnapshot(status, product.ProductType)");
             string prototypeHudSource = ReadRuntimeSource(
                 "Gameplay", "Presentation", "PrototypeHudView.cs");
             RequireSourceContains(prototypeHudSource,
                 "WarehouseWorkerStatusId.MovingToCustomerLoading => Resolve(",
                 "LocalizationKey.HudWarehouseWorkerMovingToCustomerLoading",
-                "LocalizedTexts.ProductName(snapshot.ProductType.Value)");
+                "LocalizedTexts.ProductName(snapshot.ProductType.Value)",
+                "WarehouseWorkerStatusId.MovingToWorkerTrolley => Resolve(",
+                "LocalizationKey.HudWarehouseWorkerMovingToWorkerTrolley",
+                "WarehouseWorkerStatusId.MovingWorkerTrolleyToCustomerLoading =>",
+                "LocalizationKey.HudWarehouseWorkerMovingWorkerTrolleyToCustomerLoading",
+                "snapshot.BatchProductCount.Value",
+                "WarehouseWorkerStatusId.ReturningWorkerTrolley => Resolve(",
+                "LocalizationKey.HudWarehouseWorkerReturningWorkerTrolley");
 
             var workerLocalizationArities = new Dictionary<LocalizationKey, int>
             {
@@ -3917,6 +4385,9 @@ namespace HardwareStore.Editor
                 { LocalizationKey.HudWarehouseWorkerMovingToPickup, 1 },
                 { LocalizationKey.HudWarehouseWorkerMovingToStorage, 1 },
                 { LocalizationKey.HudWarehouseWorkerMovingToCustomerLoading, 1 },
+                { LocalizationKey.HudWarehouseWorkerMovingToWorkerTrolley, 0 },
+                { LocalizationKey.HudWarehouseWorkerMovingWorkerTrolleyToCustomerLoading, 1 },
+                { LocalizationKey.HudWarehouseWorkerReturningWorkerTrolley, 0 },
                 { LocalizationKey.HudWarehouseWorkerBlocked, 0 },
                 { LocalizationKey.HudWarehouseWorkerOffShift, 0 },
                 { LocalizationKey.PromptWarehouseWorkerLocked, 2 },
@@ -3946,6 +4417,19 @@ namespace HardwareStore.Editor
                         LocalizationKey.HudWarehouseWorkerMovingToCustomerLoading].Template ==
                     "Грузчик несёт в машину клиента: {0}",
                 "The customer-loading worker HUD status must remain concise and explicit.");
+            Require(localizationEntries[
+                        LocalizationKey.HudWarehouseWorkerMovingToWorkerTrolley].Template ==
+                    "Грузчик готовит тележку к погрузке" &&
+                    localizationEntries[
+                        LocalizationKey
+                            .HudWarehouseWorkerMovingWorkerTrolleyToCustomerLoading]
+                        .Template ==
+                    "Грузчик везёт заказ к машине клиента: {0} товара" &&
+                    localizationEntries[
+                        LocalizationKey.HudWarehouseWorkerReturningWorkerTrolley]
+                        .Template ==
+                    "Грузчик возвращает тележку",
+                "Worker-trolley HUD phases must retain their concise frozen Russian text.");
         }
 
         private static void ValidateLocalizationArchitecture(Type[] runtimeTypes,
@@ -5988,9 +6472,15 @@ namespace HardwareStore.Editor
                     Mathf.Approximately(warehouseWorkerConfig.AngularSpeed, 720f) &&
                     Mathf.Approximately(warehouseWorkerConfig.StoppingDistance, 0.2f) &&
                     Mathf.Approximately(warehouseWorkerConfig.NavigationSampleRadius, 2f) &&
-                    Mathf.Approximately(warehouseWorkerConfig.TaskTimeout, 20f),
+                    Mathf.Approximately(warehouseWorkerConfig.TaskTimeout, 20f) &&
+                    warehouseWorkerConfig.TrolleyCapacity == 3 &&
+                    Mathf.Approximately(
+                        warehouseWorkerConfig.TrolleyFollowDistance,
+                        1.7f) &&
+                    warehouseWorkerConfig.TrolleyCapacity ==
+                    customerVehicleConfig.CargoCapacity,
                 $"{WarehouseWorkerConfigPath} must author the frozen worker progression, " +
-                "economy, navigation and recovery values.");
+                "economy, navigation, recovery and bundled trolley values.");
             Require(deliveryConfigs.All(config => economyConfig.InitialMoney >= config.TotalCost),
                 "Initial money must cover either configured inbound delivery.");
             Require(!Mathf.Approximately(cementProductConfig.Mass, boardProductConfig.Mass) &&
@@ -6425,6 +6915,153 @@ namespace HardwareStore.Editor
             Require(warehouseWorkerConfig.ViewPrefab == workerViews[0],
                 $"{WarehouseWorkerConfigPath} must reference the EntityBehaviour root from " +
                 $"{WarehouseWorkerPrefabPath}.");
+
+            GameObject workerTrolleyPrefab =
+                RequireAsset<GameObject>(WarehouseWorkerTrolleyPrefabPath);
+            ValidatePrefabRoot(
+                workerTrolleyPrefab,
+                WarehouseWorkerTrolleyPrefabPath,
+                requireUnitScale: true);
+            EntityBehaviour[] workerTrolleyViews =
+                RequireExactlyOneInPrefab<EntityBehaviour>(
+                    workerTrolleyPrefab,
+                    WarehouseWorkerTrolleyPrefabPath);
+            TransformRegistrar[] workerTrolleyTransforms =
+                RequireExactlyOneInPrefab<TransformRegistrar>(
+                    workerTrolleyPrefab,
+                    WarehouseWorkerTrolleyPrefabPath);
+            RigidbodyRegistrar[] workerTrolleyRigidbodyRegistrars =
+                RequireExactlyOneInPrefab<RigidbodyRegistrar>(
+                    workerTrolleyPrefab,
+                    WarehouseWorkerTrolleyPrefabPath);
+            CollidersRegistrar[] workerTrolleyColliderRegistrars =
+                RequireExactlyOneInPrefab<CollidersRegistrar>(
+                    workerTrolleyPrefab,
+                    WarehouseWorkerTrolleyPrefabPath);
+            SlotsRegistrar[] workerTrolleySlotRegistrars =
+                RequireExactlyOneInPrefab<SlotsRegistrar>(
+                    workerTrolleyPrefab,
+                    WarehouseWorkerTrolleyPrefabPath);
+            Rigidbody[] workerTrolleyRigidbodies =
+                RequireExactlyOneInPrefab<Rigidbody>(
+                    workerTrolleyPrefab,
+                    WarehouseWorkerTrolleyPrefabPath);
+            EntityComponentRegistrar[] workerTrolleyRegistrars =
+                workerTrolleyPrefab.GetComponentsInChildren<EntityComponentRegistrar>(true);
+            Collider[] workerTrolleyColliders =
+                workerTrolleyPrefab.GetComponentsInChildren<Collider>(true);
+            Renderer[] workerTrolleyRenderers =
+                workerTrolleyPrefab.GetComponentsInChildren<Renderer>(true);
+            Transform[] workerTrolleySlots = ReadSlots(
+                workerTrolleySlotRegistrars[0],
+                WarehouseWorkerTrolleyPrefabPath);
+
+            var expectedWorkerTrolleyRegistrarTypes = new HashSet<Type>
+            {
+                typeof(TransformRegistrar),
+                typeof(RigidbodyRegistrar),
+                typeof(CollidersRegistrar),
+                typeof(SlotsRegistrar)
+            };
+            Require(workerTrolleyViews[0].GetType() == typeof(EntityBehaviour) &&
+                    workerTrolleyViews[0].gameObject == workerTrolleyPrefab &&
+                    workerTrolleyTransforms[0].gameObject == workerTrolleyPrefab &&
+                    workerTrolleyRigidbodyRegistrars[0].gameObject ==
+                    workerTrolleyPrefab &&
+                    workerTrolleyColliderRegistrars[0].gameObject ==
+                    workerTrolleyPrefab &&
+                    workerTrolleySlotRegistrars[0].gameObject == workerTrolleyPrefab &&
+                    workerTrolleyRigidbodies[0].gameObject == workerTrolleyPrefab,
+                $"{WarehouseWorkerTrolleyPrefabPath} must expose one generic view root " +
+                "with its Rigidbody and registrars on that root.");
+            Require(workerTrolleyRegistrars.Length ==
+                        expectedWorkerTrolleyRegistrarTypes.Count &&
+                    new HashSet<Type>(workerTrolleyRegistrars.Select(
+                            registrar => registrar.GetType()))
+                        .SetEquals(expectedWorkerTrolleyRegistrarTypes),
+                $"{WarehouseWorkerTrolleyPrefabPath} must contain exactly Transform, " +
+                "Rigidbody, Colliders and Slots registrars.");
+            Require(workerTrolleyPrefab.GetComponentsInChildren<InteractionView>(true)
+                        .Length == 0 &&
+                    workerTrolleyPrefab.GetComponentsInChildren<InteractionHighlight>(true)
+                        .Length == 0 &&
+                    workerTrolleyPrefab.GetComponentsInChildren<InteractionViewRegistrar>(true)
+                        .Length == 0 &&
+                    workerTrolleyPrefab.GetComponentsInChildren<NavMeshObstacle>(true)
+                        .Length == 0 &&
+                    workerTrolleyPrefab.GetComponentsInChildren<NavMeshAgent>(true)
+                        .Length == 0 &&
+                    workerTrolleyPrefab.transform.Find("Interaction Area") == null &&
+                    workerTrolleyPrefab.transform.Find("Push Point") == null,
+                $"{WarehouseWorkerTrolleyPrefabPath} must not expose a player-focusable " +
+                "interaction view, highlight, trigger, navigation component or authored " +
+                "push point.");
+            Require(workerTrolleySlots.Length == warehouseWorkerConfig.TrolleyCapacity &&
+                    workerTrolleySlots.Length == 3 &&
+                    workerTrolleySlots.Select((slot, index) =>
+                            slot.name == $"Cargo Slot {index + 1}" &&
+                            slot.IsChildOf(workerTrolleyPrefab.transform) &&
+                            Vector3.Distance(
+                                slot.localPosition,
+                                new Vector3(0f, 0.66f, -0.66f + index * 0.66f)) <
+                            0.001f)
+                        .All(matches => matches) &&
+                    workerTrolleySlots.Distinct().Count() == workerTrolleySlots.Length,
+                $"{WarehouseWorkerTrolleyPrefabPath} must expose three exact unique cargo " +
+                "slots matching WarehouseWorkerConfig.");
+            Transform workerTrolleyBodyTransform =
+                workerTrolleyPrefab.transform.Find("Body Collider");
+            BoxCollider workerTrolleyBodyCollider =
+                workerTrolleyBodyTransform?.GetComponent<BoxCollider>();
+            Require(workerTrolleyColliders.Length == 1 &&
+                    workerTrolleyBodyCollider != null &&
+                    workerTrolleyBodyCollider.enabled &&
+                    !workerTrolleyBodyCollider.isTrigger &&
+                    workerTrolleyBodyCollider.gameObject.layer == ignoreRaycastLayer &&
+                    Vector3.Distance(
+                        workerTrolleyBodyCollider.center,
+                        new Vector3(0f, 0.27f, 0.15f)) < 0.001f &&
+                    Vector3.Distance(
+                        workerTrolleyBodyCollider.size,
+                        new Vector3(2f, 0.5f, 2.1f)) < 0.001f,
+                $"{WarehouseWorkerTrolleyPrefabPath} must expose only its exact solid " +
+                "Ignore Raycast body hull.");
+            Rigidbody workerTrolleyBody = workerTrolleyRigidbodies[0];
+            Require(Mathf.Approximately(workerTrolleyBody.mass, 45f) &&
+                    workerTrolleyBody.isKinematic && !workerTrolleyBody.useGravity &&
+                    workerTrolleyBody.interpolation == RigidbodyInterpolation.None &&
+                    workerTrolleyBody.collisionDetectionMode ==
+                    CollisionDetectionMode.ContinuousSpeculative,
+                $"{WarehouseWorkerTrolleyPrefabPath} must use its exact deterministic " +
+                "kinematic Rigidbody contract.");
+            Require(workerTrolleyPrefab.transform.Find("Deck") != null &&
+                    workerTrolleyPrefab.transform.Find("Deck Inlay") != null &&
+                    workerTrolleyPrefab.transform.Find("Handle") != null &&
+                    workerTrolleyPrefab.GetComponentsInChildren<Transform>(true)
+                        .Count(candidate => candidate.name.EndsWith(
+                            "Wheel", StringComparison.Ordinal)) == 4 &&
+                    workerTrolleyRenderers.Single(renderer => renderer.name == "Deck")
+                        .sharedMaterial.name == "BrandBlue" &&
+                    workerTrolleyRenderers.Single(renderer =>
+                            renderer.name == "Deck Inlay")
+                        .sharedMaterial.name == "Timber" &&
+                    workerTrolleyRenderers.Count(renderer =>
+                        renderer.name is "Left Rail" or "Right Rail" or "Handle") == 3 &&
+                    workerTrolleyRenderers.Where(renderer =>
+                            renderer.name is "Left Rail" or "Right Rail" or "Handle")
+                        .All(renderer => renderer.sharedMaterial.name == "SafetyYellow") &&
+                    workerTrolleyRenderers.Where(renderer => renderer.name.EndsWith(
+                            "Wheel", StringComparison.Ordinal))
+                        .All(renderer => renderer.sharedMaterial.name == "DarkMetal"),
+                $"{WarehouseWorkerTrolleyPrefabPath} must visibly match the worker's " +
+                "blue/yellow safety palette with one deck, handle and four wheels.");
+            Require(warehouseWorkerConfig.TrolleyViewPrefab == workerTrolleyViews[0],
+                $"{WarehouseWorkerConfigPath} must reference the EntityBehaviour root from " +
+                $"{WarehouseWorkerTrolleyPrefabPath}.");
+            Require(!ContainsPrefabInstance(workerTrolleyPrefab, cementProductPrefab) &&
+                    !ContainsPrefabInstance(workerTrolleyPrefab, boardProductPrefab),
+                $"{WarehouseWorkerTrolleyPrefabPath} must be empty before runtime cargo " +
+                "placement.");
 
             GameObject trolleyPrefab = RequireAsset<GameObject>(PlatformTrolleyPrefabPath);
             ValidatePrefabRoot(trolleyPrefab, PlatformTrolleyPrefabPath, requireUnitScale: true);
@@ -7031,10 +7668,13 @@ namespace HardwareStore.Editor
                     "the player view is instantiated from its prefab at runtime.");
                 GameObject cementProductPrefab = RequireAsset<GameObject>(CementProductPrefabPath);
                 GameObject boardProductPrefab = RequireAsset<GameObject>(BoardProductPrefabPath);
+                GameObject workerTrolleyPrefab =
+                    RequireAsset<GameObject>(WarehouseWorkerTrolleyPrefabPath);
                 Require(!ContainsPrefabInstance(scene, cementProductPrefab) &&
-                        !ContainsPrefabInstance(scene, boardProductPrefab),
-                    $"{PrototypeScenePath} must not contain product prefab instances; " +
-                    "delivery cargo is spawned at runtime.");
+                        !ContainsPrefabInstance(scene, boardProductPrefab) &&
+                        !ContainsPrefabInstance(scene, workerTrolleyPrefab),
+                    $"{PrototypeScenePath} must not contain product or worker-trolley prefab " +
+                    "instances; both are spawned at runtime.");
 
                 var expectedSpawnIds = new HashSet<SpawnPointId>
                 {
@@ -7044,7 +7684,9 @@ namespace HardwareStore.Editor
                     SpawnPointId.WarehouseWorker,
                     SpawnPointId.WarehouseWorkerDeliveryAccess,
                     SpawnPointId.WarehouseWorkerStorageAccess,
-                    SpawnPointId.WarehouseWorkerCustomerLoadingAccess
+                    SpawnPointId.WarehouseWorkerCustomerLoadingAccess,
+                    SpawnPointId.WarehouseWorkerTrolley,
+                    SpawnPointId.WarehouseWorkerTrolleyCustomerLoadingAccess
                 };
                 var actualSpawnIds = new HashSet<SpawnPointId>(spawnPoints.Select(marker => marker.Id));
                 Require(spawnPoints.Length == expectedSpawnIds.Count && actualSpawnIds.SetEquals(expectedSpawnIds),
@@ -7078,16 +7720,21 @@ namespace HardwareStore.Editor
                     spawnPoints.Single(marker =>
                         marker.Id == SpawnPointId.WarehouseWorkerCustomerLoadingAccess)
                 };
+                SpawnPointMarker workerTrolleyHome = spawnPoints.Single(marker =>
+                    marker.Id == SpawnPointId.WarehouseWorkerTrolley);
+                SpawnPointMarker workerTrolleyCustomerLoadingAccess =
+                    spawnPoints.Single(marker => marker.Id ==
+                        SpawnPointId.WarehouseWorkerTrolleyCustomerLoadingAccess);
                 Vector3[] expectedWorkerPositions =
                 {
-                    new(7.75f, 0.02f, 2.45f),
+                    new(2.3f, 0.02f, 1.95f),
                     new(9.15f, 0.02f, -9.85f),
                     new(5f, 0.02f, 2.45f),
                     new(6f, 0.02f, 1.62f)
                 };
                 Quaternion[] expectedWorkerRotations =
                 {
-                    Quaternion.Euler(0f, -90f, 0f),
+                    Quaternion.Euler(0f, 90f, 0f),
                     Quaternion.Euler(0f, 90f, 0f),
                     Quaternion.identity,
                     Quaternion.Euler(0f, 180f, 0f)
@@ -7108,15 +7755,67 @@ namespace HardwareStore.Editor
                             "Warehouse Worker Access Points"),
                     "Warehouse-worker idle, inbound, storage and customer-loading access " +
                     "markers must preserve their exact safe yard-level poses.");
-                var sampledWorkerPoints = new Vector3[workerAccessPoints.Length];
-                for (int index = 0; index < workerAccessPoints.Length; index++)
+
+                Pose expectedWorkerTrolleyHome = new(
+                    new Vector3(4f, 0.02f, 1.95f),
+                    Quaternion.Euler(0f, 90f, 0f));
+                Pose expectedWorkerTrolleyCustomerLoading = new(
+                    new Vector3(6f, 0.02f, 1.95f),
+                    Quaternion.Euler(0f, 90f, 0f));
+                Require(PoseMatches(workerTrolleyHome.Pose, expectedWorkerTrolleyHome) &&
+                        PoseMatches(
+                            workerTrolleyCustomerLoadingAccess.Pose,
+                            expectedWorkerTrolleyCustomerLoading) &&
+                        workerTrolleyHome.name == "Warehouse Worker Trolley Home" &&
+                        workerTrolleyCustomerLoadingAccess.name ==
+                        "Warehouse Worker Trolley Customer Loading Access" &&
+                        workerTrolleyHome.transform.parent != null &&
+                        workerTrolleyCustomerLoadingAccess.transform.parent ==
+                        workerTrolleyHome.transform.parent &&
+                        workerTrolleyHome.transform.parent.name ==
+                        "Warehouse Worker Access Points",
+                    "Worker-trolley home and customer-loading root markers must preserve " +
+                    "their exact runtime-only cart poses under the worker access root.");
+                WarehouseWorkerConfig sceneWarehouseWorkerConfig =
+                    RequireAsset<WarehouseWorkerConfig>(WarehouseWorkerConfigPath);
+                Pose homePusherPose = ResolveWorkerTrolleyPusherPose(
+                    workerTrolleyHome.Pose,
+                    sceneWarehouseWorkerConfig.TrolleyFollowDistance);
+                Pose customerLoadingPusherPose = ResolveWorkerTrolleyPusherPose(
+                    workerTrolleyCustomerLoadingAccess.Pose,
+                    sceneWarehouseWorkerConfig.TrolleyFollowDistance);
+                Require(PoseMatches(workerAccessPoints[0].Pose, homePusherPose) &&
+                        Vector3.Distance(
+                            homePusherPose.position,
+                            new Vector3(2.3f, 0.02f, 1.95f)) < 0.001f &&
+                        Vector3.Distance(
+                            customerLoadingPusherPose.position,
+                            new Vector3(4.3f, 0.02f, 1.95f)) < 0.001f,
+                    "Worker trolley pusher poses must derive from the two cart-root poses " +
+                    "with the authored 1.7m follow distance.");
+
+                (string Name, Vector3 Position)[] navigationAccessPoints =
+                {
+                    (workerAccessPoints[0].Id.ToString(),
+                        workerAccessPoints[0].transform.position),
+                    (workerAccessPoints[1].Id.ToString(),
+                        workerAccessPoints[1].transform.position),
+                    (workerAccessPoints[2].Id.ToString(),
+                        workerAccessPoints[2].transform.position),
+                    (workerAccessPoints[3].Id.ToString(),
+                        workerAccessPoints[3].transform.position),
+                    ("WarehouseWorkerTrolleyCustomerLoadingPusher",
+                        customerLoadingPusherPose.position)
+                };
+                var sampledWorkerPoints = new Vector3[navigationAccessPoints.Length];
+                for (int index = 0; index < navigationAccessPoints.Length; index++)
                 {
                     Require(NavMesh.SamplePosition(
-                            workerAccessPoints[index].transform.position,
+                            navigationAccessPoints[index].Position,
                             out NavMeshHit hit,
                             2f,
                             NavMesh.AllAreas),
-                        $"Worker access point {workerAccessPoints[index].Id} must sample onto " +
+                        $"Worker access point {navigationAccessPoints[index].Name} must sample onto " +
                         "the authored NavMesh.");
                     sampledWorkerPoints[index] = hit.position;
                 }
@@ -7137,8 +7836,8 @@ namespace HardwareStore.Editor
                             workerPath);
                         Require(foundPath &&
                                 workerPath.status == NavMeshPathStatus.PathComplete,
-                            $"Worker path from {workerAccessPoints[origin].Id} to " +
-                            $"{workerAccessPoints[destination].Id} must be complete.");
+                            $"Worker path from {navigationAccessPoints[origin].Name} to " +
+                            $"{navigationAccessPoints[destination].Name} must be complete.");
                     }
                 }
 
@@ -7291,16 +7990,72 @@ namespace HardwareStore.Editor
                     $"{carriedProductWorldPosition} with the rear-facing vehicle Loading " +
                     $"Target {customerLoadingTargetWorldPosition} within 0.03m.");
                 const float storagePadSouthEdgeZ = 3.25f;
-                const float trolleyBodyDepth = 2.1f;
                 const float rearFacingVehicleMaxZOffset = 3.2f;
-                float trolleyPassageClearance =
-                    storagePadSouthEdgeZ - trolleyBodyDepth -
-                    (loadingDepartureRoute[0].position.z +
-                     rearFacingVehicleMaxZOffset);
-                Require(trolleyPassageClearance >= 0.25f,
-                    $"The rear-facing customer vehicle must leave at least 0.25m for the " +
-                    $"trolley to slide tangent to the Storage Pad; clearance is " +
-                    $"{trolleyPassageClearance:0.###}m.");
+                const float workerTrolleyHullHalfLocalX = 1f;
+                const float workerTrolleyHullHalfLocalZ = 1.05f;
+                const float workerTrolleyHullCenterLocalZ = 0.15f;
+                float workerTrolleyRunMinZ =
+                    expectedWorkerTrolleyHome.position.z -
+                    workerTrolleyHullHalfLocalX;
+                float workerTrolleyRunMaxZ =
+                    expectedWorkerTrolleyHome.position.z +
+                    workerTrolleyHullHalfLocalX;
+                float workerTrolleyHomeMinX =
+                    expectedWorkerTrolleyHome.position.x +
+                    workerTrolleyHullCenterLocalZ -
+                    workerTrolleyHullHalfLocalZ;
+                float workerTrolleyHomeMaxX =
+                    expectedWorkerTrolleyHome.position.x +
+                    workerTrolleyHullCenterLocalZ +
+                    workerTrolleyHullHalfLocalZ;
+                float workerTrolleyLoadingMinX =
+                    expectedWorkerTrolleyCustomerLoading.position.x +
+                    workerTrolleyHullCenterLocalZ -
+                    workerTrolleyHullHalfLocalZ;
+                float workerTrolleyLoadingMaxX =
+                    expectedWorkerTrolleyCustomerLoading.position.x +
+                    workerTrolleyHullCenterLocalZ +
+                    workerTrolleyHullHalfLocalZ;
+                float rearFacingVehicleMaxZ =
+                    loadingDepartureRoute[0].position.z +
+                    rearFacingVehicleMaxZOffset;
+                float workerTrolleyVehicleClearance =
+                    workerTrolleyRunMinZ - rearFacingVehicleMaxZ;
+                float workerTrolleyStorageClearance =
+                    storagePadSouthEdgeZ - workerTrolleyRunMaxZ;
+                NavMeshAgent alignmentWorkerAgent =
+                    alignmentWorkerPrefab.GetComponent<NavMeshAgent>();
+                float directHandAccessClearance =
+                    customerLoadingAccess.transform.position.x -
+                    workerTrolleyHomeMaxX - alignmentWorkerAgent.radius;
+                Vector3 trolleyRun =
+                    expectedWorkerTrolleyCustomerLoading.position -
+                    expectedWorkerTrolleyHome.position;
+                Vector3 trolleyForward =
+                    expectedWorkerTrolleyHome.rotation * Vector3.forward;
+                Require(Mathf.Approximately(
+                            expectedWorkerTrolleyHome.rotation.eulerAngles.y,
+                            expectedWorkerTrolleyCustomerLoading.rotation.eulerAngles.y) &&
+                        Mathf.Approximately(
+                            expectedWorkerTrolleyHome.position.z,
+                            expectedWorkerTrolleyCustomerLoading.position.z) &&
+                        Mathf.Approximately(trolleyRun.magnitude, 2f) &&
+                        Vector3.Dot(trolleyRun.normalized, trolleyForward) >= 0.999f &&
+                        Mathf.Approximately(workerTrolleyHomeMinX, 3.1f) &&
+                        Mathf.Approximately(workerTrolleyHomeMaxX, 5.2f) &&
+                        Mathf.Approximately(workerTrolleyLoadingMinX, 5.1f) &&
+                        Mathf.Approximately(workerTrolleyLoadingMaxX, 7.2f) &&
+                        Mathf.Approximately(workerTrolleyRunMinZ, 0.95f) &&
+                        Mathf.Approximately(workerTrolleyRunMaxZ, 2.95f) &&
+                        Mathf.Approximately(rearFacingVehicleMaxZ, 0.7f) &&
+                        workerTrolleyVehicleClearance >= 0.249f &&
+                        workerTrolleyStorageClearance >= 0.299f &&
+                        directHandAccessClearance >= 0.479f,
+                    "The forward-facing +X worker-trolley run must preserve its exact " +
+                    "home/loading hulls and clearances: " +
+                    $"vehicle {workerTrolleyVehicleClearance:0.###}m, Storage Pad " +
+                    $"{workerTrolleyStorageClearance:0.###}m, direct hand access " +
+                    $"{directHandAccessClearance:0.###}m.");
                 foreach (CustomerParkingSpotSceneLayout parkingLayout in parkingLayouts)
                 {
                     Pose[] arrivalRoute = parkingLayout.VehicleArrivalRoute;
@@ -8189,6 +8944,14 @@ namespace HardwareStore.Editor
         private static bool PoseMatches(Pose first, Pose second) =>
             Vector3.Distance(first.position, second.position) < 0.001f &&
             Quaternion.Angle(first.rotation, second.rotation) < 0.01f;
+
+        private static Pose ResolveWorkerTrolleyPusherPose(
+            Pose trolleyPose,
+            float followDistance) =>
+            new(
+                trolleyPose.position -
+                trolleyPose.rotation * Vector3.forward * followDistance,
+                trolleyPose.rotation);
 
         private static TObject[] ReadObjectArray<TObject>(SerializedObject owner, string propertyName,
             string ownerName) where TObject : UnityEngine.Object

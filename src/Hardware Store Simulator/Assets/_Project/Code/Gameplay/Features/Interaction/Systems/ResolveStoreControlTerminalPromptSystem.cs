@@ -123,8 +123,12 @@ namespace HardwareStore.Gameplay.Features.Interaction.Systems
                 ValidateWorker(worker, store);
                 GameEntity workerTask =
                     _gameContext.GetEntityWithAssignedWorkerEntityId(worker.EntityId);
-                if (workerTask != null || worker.isHandsOccupied ||
+                bool returningEmptyTrolley =
+                    IsTasklessEmptyTrolleyReturn(worker, workerTask);
+                if (!returningEmptyTrolley &&
+                    (workerTask != null || worker.isHandsOccupied ||
                     worker.isCarryingProduct)
+                   )
                 {
                     player.SetInteractionPrompt(
                         LocalizedTexts.Text(
@@ -156,10 +160,11 @@ namespace HardwareStore.Gameplay.Features.Interaction.Systems
             {
                 if (task.isDestructed)
                     continue;
+                int roleCount = (task.isInboundToStorageTask ? 1 : 0) +
+                                (task.isStockToCustomerLoadingTask ? 1 : 0) +
+                                (task.isWorkerTrolleyCustomerLoadingRun ? 1 : 0);
                 if (!task.isWarehouseTask || !task.hasWarehouseTaskStep ||
-                    !task.hasEntityId ||
-                    task.isInboundToStorageTask ==
-                    task.isStockToCustomerLoadingTask)
+                    !task.hasEntityId || roleCount != 1)
                 {
                     throw new InvalidOperationException(
                         $"Store {storeEntityId} has an invalid warehouse task.");
@@ -168,6 +173,27 @@ namespace HardwareStore.Gameplay.Features.Interaction.Systems
                     return true;
             }
             return false;
+        }
+
+        private bool IsTasklessEmptyTrolleyReturn(GameEntity worker,
+            GameEntity workerTask)
+        {
+            if (!worker.hasWarehouseWorkerStatus ||
+                worker.WarehouseWorkerStatus !=
+                WarehouseWorkerStatusId.ReturningWorkerTrolley)
+                return false;
+            GameEntity trolley =
+                _gameContext.GetEntityWithTrolleyPusherEntityId(worker.EntityId);
+            if (workerTask != null || trolley == null || trolley.isDestructed ||
+                !trolley.isWorkerTrolley || !worker.isHandsOccupied ||
+                !worker.isPushingWorkerTrolley || worker.isCarryingProduct ||
+                !trolley.hasOccupiedTrolleySlotCount ||
+                trolley.OccupiedTrolleySlotCount != 0 ||
+                _gameContext.GetEntitiesWithWorkerTrolleyEntityId(
+                    trolley.EntityId).Count != 0)
+                throw new InvalidOperationException(
+                    $"Worker {worker.EntityId} has invalid trolley-return state.");
+            return true;
         }
 
         private void ResolveOpenStorePrompt(GameEntity player, GameEntity store)

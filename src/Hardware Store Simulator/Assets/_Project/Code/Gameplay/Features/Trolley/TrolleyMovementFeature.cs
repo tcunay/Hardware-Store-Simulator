@@ -5,7 +5,10 @@ namespace HardwareStore.Gameplay.Features.Trolley
 {
     public sealed class TrolleyMovementFeature : Feature
     {
-        public TrolleyMovementFeature(ISystemFactory systems) =>
+        public TrolleyMovementFeature(ISystemFactory systems)
+        {
             Add(systems.Create<FollowPushedTrolleySystem>());
+            Add(systems.Create<FollowWorkerTrolleySystem>());
+        }
     }
 }
