@@ -51,6 +51,8 @@ namespace HardwareStore.Gameplay.Features.Interaction.Systems
 
                 GameEntity trolley =
                     _gameContext.GetEntityWithEntityId(player.FocusedEntityId);
+                if (trolley != null && trolley.isWorkerTrolley)
+                    continue;
                 ValidateTrolley(player, trolley);
 
                 if (trolley.hasTrolleyPusherEntityId)

@@ -14,15 +14,13 @@ namespace HardwareStore.Gameplay.Features.Employees.Systems
             _gameContext = gameContext;
             _runs = gameContext.GetGroup(GameMatcher.AllOf(
                     GameMatcher.WarehouseTask,
-                    GameMatcher.WorkerTrolleyCustomerLoadingRun,
                     GameMatcher.EntityId,
                     GameMatcher.WarehouseTaskStoreEntityId,
-                    GameMatcher.WarehouseTaskCustomerVisitEntityId,
                     GameMatcher.WarehouseTaskWorkerTrolleyEntityId,
+                    GameMatcher.WarehouseRunProductCount,
                     GameMatcher.WarehouseTaskStep,
                     GameMatcher.WarehouseTaskBlockReason)
                 .NoneOf(
-                    GameMatcher.InboundToStorageTask,
                     GameMatcher.StockToCustomerLoadingTask,
                     GameMatcher.Destructed));
         }
@@ -31,6 +29,7 @@ namespace HardwareStore.Gameplay.Features.Employees.Systems
         {
             foreach (GameEntity run in _runs)
             {
+                ValidateRunRole(run);
                 if (run.WarehouseTaskStep == WarehouseTaskStepId.Blocked)
                     continue;
                 GameEntity store = _gameContext.GetEntityWithEntityId(
@@ -61,14 +60,44 @@ namespace HardwareStore.Gameplay.Features.Employees.Systems
                     continue;
                 }
 
-                GameEntity visit = _gameContext.GetEntityWithEntityId(
-                    run.WarehouseTaskCustomerVisitEntityId);
-                if (visit == null || visit.isDestructed ||
-                    !visit.isCustomerVisit || !visit.isCustomerVisitLoading ||
-                    !visit.isOrder || !visit.hasCustomerVisitStoreEntityId ||
-                    visit.CustomerVisitStoreEntityId != store.EntityId)
-                    Block(run, WarehouseTaskBlockReasonId.NoCustomerLoadingPath);
+                if (run.isWorkerTrolleyCustomerLoadingRun)
+                {
+                    GameEntity visit = _gameContext.GetEntityWithEntityId(
+                        run.WarehouseTaskCustomerVisitEntityId);
+                    if (visit == null || visit.isDestructed ||
+                        !visit.isCustomerVisit || !visit.isCustomerVisitLoading ||
+                        !visit.isOrder || !visit.hasCustomerVisitStoreEntityId ||
+                        visit.CustomerVisitStoreEntityId != store.EntityId)
+                    {
+                        Block(run,
+                            WarehouseTaskBlockReasonId.NoCustomerLoadingPath);
+                    }
+                    continue;
+                }
+
+                GameEntity storageZone = _gameContext.GetEntityWithEntityId(
+                    run.WarehouseTaskStorageZoneEntityId);
+                if (storageZone == null || storageZone.isDestructed ||
+                    !storageZone.isStorageZone || !storageZone.hasSlots)
+                    Block(run, WarehouseTaskBlockReasonId.NoStoragePath);
             }
+        }
+
+        private static void ValidateRunRole(GameEntity run)
+        {
+            bool outbound = run.isWorkerTrolleyCustomerLoadingRun &&
+                !run.isInboundToStorageTask &&
+                !run.isWorkerTrolleyInboundStorageRun &&
+                run.hasWarehouseTaskCustomerVisitEntityId;
+            bool inbound = run.isWorkerTrolleyInboundStorageRun &&
+                run.isInboundToStorageTask &&
+                !run.isWorkerTrolleyCustomerLoadingRun &&
+                run.hasWarehouseTaskStorageZoneEntityId &&
+                run.hasWarehouseTaskProductEntityId &&
+                run.hasWarehouseTaskReservedStorageSlotIndex;
+            if (outbound == inbound || run.WarehouseRunProductCount < 1)
+                throw new InvalidOperationException(
+                    $"Worker-trolley run {run.EntityId} has an invalid role.");
         }
 
         private static void Block(GameEntity run,

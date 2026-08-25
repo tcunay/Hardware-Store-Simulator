@@ -874,6 +874,10 @@ namespace HardwareStore.Gameplay.Presentation
                     LocalizedTexts.ProductName(snapshot.ProductType.Value)),
                 WarehouseWorkerStatusId.MovingToWorkerTrolley => Resolve(
                     LocalizationKey.HudWarehouseWorkerMovingToWorkerTrolley),
+                WarehouseWorkerStatusId.MovingWorkerTrolleyToPickup => Resolve(
+                    LocalizationKey.HudWarehouseWorkerMovingWorkerTrolleyToPickup),
+                WarehouseWorkerStatusId.MovingWorkerTrolleyToStorage => Resolve(
+                    LocalizationKey.HudWarehouseWorkerMovingWorkerTrolleyToStorage),
                 WarehouseWorkerStatusId.MovingWorkerTrolleyToCustomerLoading =>
                     Resolve(
                         LocalizationKey.HudWarehouseWorkerMovingWorkerTrolleyToCustomerLoading,

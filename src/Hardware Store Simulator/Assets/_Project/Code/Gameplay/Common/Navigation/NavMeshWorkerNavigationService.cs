@@ -34,15 +34,15 @@ namespace HardwareStore.Gameplay.Common.Navigation
         public bool TrySetDestination(NavMeshAgent agent, Vector3 destination,
             float sampleRadius)
         {
-            if (!agent.isOnNavMesh ||
-                !NavMesh.SamplePosition(destination, out NavMeshHit hit,
-                    sampleRadius, agent.areaMask) ||
-                !agent.CalculatePath(hit.position, _path) ||
-                _path.status != NavMeshPathStatus.PathComplete)
+            if (!TryCalculateCompletePath(agent, destination, sampleRadius))
                 return false;
 
             return agent.SetPath(_path);
         }
+
+        public bool CanReach(NavMeshAgent agent, Vector3 destination,
+            float sampleRadius) =>
+            TryCalculateCompletePath(agent, destination, sampleRadius);
 
         public void SetAutomaticRotation(NavMeshAgent agent, bool enabled) =>
             agent.updateRotation = enabled;
@@ -76,5 +76,13 @@ namespace HardwareStore.Gameplay.Common.Navigation
             if (agent.isOnNavMesh && (agent.hasPath || agent.pathPending))
                 agent.ResetPath();
         }
+
+        private bool TryCalculateCompletePath(NavMeshAgent agent,
+            Vector3 destination, float sampleRadius) =>
+            agent.isOnNavMesh &&
+            NavMesh.SamplePosition(destination, out NavMeshHit hit,
+                sampleRadius, agent.areaMask) &&
+            agent.CalculatePath(hit.position, _path) &&
+            _path.status == NavMeshPathStatus.PathComplete;
     }
 }

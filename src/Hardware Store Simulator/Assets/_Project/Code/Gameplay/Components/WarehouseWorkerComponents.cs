@@ -15,6 +15,8 @@ namespace HardwareStore.Gameplay.Components
         MovingToCustomerLoading,
         Blocked,
         MovingToWorkerTrolley,
+        MovingWorkerTrolleyToPickup,
+        MovingWorkerTrolleyToStorage,
         MovingWorkerTrolleyToCustomerLoading,
         ReturningWorkerTrolley
     }
@@ -27,6 +29,8 @@ namespace HardwareStore.Gameplay.Components
         MovingToCustomerLoading,
         Blocked,
         MovingToWorkerTrolley,
+        MovingWorkerTrolleyToPickup,
+        MovingWorkerTrolleyToStorage,
         MovingWorkerTrolleyToCustomerLoading
     }
 
@@ -50,6 +54,7 @@ namespace HardwareStore.Gameplay.Components
     [Game] public class InboundToStorageTask : IComponent { }
     [Game] public class StockToCustomerLoadingTask : IComponent { }
     [Game] public class WorkerTrolleyCustomerLoadingRun : IComponent { }
+    [Game] public class WorkerTrolleyInboundStorageRun : IComponent { }
     [Game] public class WarehouseWorkerStoreEntityId : IComponent { [PrimaryEntityIndex] public int Value; }
     [Game] public class WarehouseWorkerStatus : IComponent { public WarehouseWorkerStatusId Value; }
     [Game] public class WarehouseWorkerPickupPosition : IComponent { public Vector3 Value; }

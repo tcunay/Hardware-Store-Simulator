@@ -699,10 +699,10 @@ namespace HardwareStore.Editor
                 runtimeTypes,
                 "GetEntityWithDayReportStoreEntityId",
                 typeof(GameEntity));
-            Require(GameComponentsLookup.componentTypes.Length == 307 &&
+            Require(GameComponentsLookup.componentTypes.Length == 308 &&
                     InputComponentsLookup.componentTypes.Length == 16,
                 "The mixed-procurement slice must expose the exact generated registry sizes " +
-                "of 307 Game components and 16 Input components.");
+                "of 308 Game components and 16 Input components.");
 
             Type featureType = runtimeTypes.SingleOrDefault(type =>
                 type.Name == "StoreDayFeature");
@@ -1262,6 +1262,8 @@ namespace HardwareStore.Editor
                     (int)LocalizationKey.HudObjectivePreparing == 1053 &&
                     (int)LocalizationKey.HudObjectiveClosing == 1054 &&
                     (int)LocalizationKey.HudDayReportLostCustomers == 1063 &&
+                    (int)LocalizationKey
+                        .HudWarehouseWorkerMovingWorkerTrolleyToPickup == 1086 &&
                     (int)LocalizationKey.PromptOpenStore == 2081 &&
                     (int)LocalizationKey.PromptCloseStoreForReport == 2085 &&
                     (int)LocalizationKey.PromptCounterOpenStoreAtControlTerminal == 2086 &&
@@ -3266,8 +3268,15 @@ namespace HardwareStore.Editor
                 "focusedTarget.hasTrolleyEntityId",
                 "focusedTarget.hasTrolleySlotIndex",
                 "GetEntitiesWithTrolleyEntityId(trolley.EntityId)",
+                "focusedTarget.isWorkerTrolley",
                 "trolley.AddTrolleyPusherEntityId(player.EntityId)",
                 "focusedTarget.isHighlighted = false");
+            RequireSourceOrder(
+                startTrolleySource,
+                "focusedTarget.isWorkerTrolley",
+                "ValidateTrolley(focusedTarget)",
+                "A platform trolley leased by the worker must be rejected before the player " +
+                "push validator consumes its temporary non-interactable state.");
             Require(!startTrolleySource.Contains(
                     "GameMatcher.InteractionRequest", StringComparison.Ordinal),
                 "F trolley attachment must not consume or synthesize an E interaction request.");
@@ -3338,7 +3347,14 @@ namespace HardwareStore.Editor
                 "product.hasTrolleySlotIndex",
                 "LocalizationKey.PromptProductAndTrolleyActions",
                 "bool productActionAvailable = player.isFocusInteractionAvailable",
-                "productActionAvailable");
+                "productActionAvailable",
+                "trolley.isWorkerTrolley");
+            RequireSourceOrder(
+                platformTrolleyPromptSource,
+                "trolley.isWorkerTrolley",
+                "ValidateTrolley(player, trolley)",
+                "A same-frame stale platform-trolley focus must be ignored after the worker " +
+                "leases that trolley.");
 
             string progressionSource = ReadRuntimeSource(
                 "Gameplay", "Features", "Trolley", "Systems",
@@ -3404,9 +3420,16 @@ namespace HardwareStore.Editor
                 "product.hasReservedStorageSlotIndex",
                 "product.hasReservedOrderLineEntityId",
                 "GetEntitiesWithTrolleyEntityId(trolley.EntityId)",
+                "trolley.isWorkerTrolley",
                 "product.AddTrolleyEntityId(trolley.EntityId)",
                 "product.AddTrolleySlotIndex(freeSlotIndex)",
                 "LocalizationKey.NotificationTrolleyFull");
+            RequireSourceOrder(
+                loadTrolleySource,
+                "trolley.isWorkerTrolley",
+                "ValidatePlayer(player, trolley)",
+                "A product interaction captured before the worker lease must not load player " +
+                "cargo onto the leased trolley.");
             Require(!loadTrolleySource.Contains(
                         "RemoveReservedDeliverySlotIndex",
                         StringComparison.Ordinal) &&
@@ -3461,6 +3484,7 @@ namespace HardwareStore.Editor
                 "Gameplay", "Features", "Trolley", "Systems",
                 "FollowPushedTrolleySystem.cs");
             RequireSourceContains(followSource,
+                ".NoneOf(GameMatcher.WorkerTrolley, GameMatcher.Destructed)",
                 "ITrolleyMotionService motion",
                 "playerTransform.forward * trolley.TrolleyFollowDistance",
                 "_motion.TryResolveMove(",
@@ -3471,6 +3495,24 @@ namespace HardwareStore.Editor
                 "trolley.Rigidbody.rotation = resolvedPose.rotation",
                 "resolvedPose.position",
                 "resolvedPose.rotation");
+            string refreshPlatformTrolleySource = ReadRuntimeSource(
+                "Gameplay", "Features", "Trolley", "Systems",
+                "RefreshTrolleyOccupiedSlotCountSystem.cs");
+            RequireSourceContains(refreshPlatformTrolleySource,
+                "GameMatcher.PlatformTrolley",
+                ".NoneOf(GameMatcher.WorkerTrolley, GameMatcher.Destructed)",
+                "GetEntitiesWithTrolleyEntityId(trolley.EntityId)",
+                "trolley.ReplaceOccupiedTrolleySlotCount(occupiedCount)");
+            string validatePlatformTrolleySource = ReadRuntimeSource(
+                "Gameplay", "Features", "Trolley", "Systems",
+                "ValidatePlatformTrolleyStateSystem.cs");
+            RequireSourceContains(validatePlatformTrolleySource,
+                "if (trolley.isWorkerTrolley)",
+                "ValidateWorkerLease(trolley)",
+                "GetEntitiesWithTrolleyEntityId(",
+                "GetEntitiesWithWorkerTrolleyEntityId(",
+                "WarehouseWorkerStatusId.MovingWorkerTrolleyToStorage",
+                "trolley.isInteractable");
             RequireSourceOrder(
                 followSource,
                 "_motion.TryResolveMove(",
@@ -3498,7 +3540,14 @@ namespace HardwareStore.Editor
                 "WarehouseTaskBlockReasonId.WorkerTrolleyObstructed",
                 "WarehouseWorkerStatusId.ReturningWorkerTrolley",
                 "enabled: true",
-                "NormalizeEmptyReturn(worker, trolley)");
+                "NormalizeEmptyReturn(worker, trolley)",
+                "WorkerTrolleyLeaseUtility.ReleaseLease(");
+            RequireSourceOrder(
+                followWorkerTrolleySource,
+                "trolley.RemoveTrolleyPusherEntityId()",
+                "WorkerTrolleyLeaseUtility.ReleaseLease(",
+                "An obstructed empty return must detach the worker before restoring the shared " +
+                "trolley to player ownership.");
             Require(!followWorkerTrolleySource.Contains(
                     ".updateRotation", StringComparison.Ordinal),
                 "Worker-trolley following must keep NavMesh rotation control behind the " +
@@ -3660,6 +3709,7 @@ namespace HardwareStore.Editor
                 typeof(InboundToStorageTask),
                 typeof(StockToCustomerLoadingTask),
                 typeof(WorkerTrolleyCustomerLoadingRun),
+                typeof(WorkerTrolleyInboundStorageRun),
                 typeof(WorkerTrolleyStoreEntityId),
                 typeof(WorkerTrolleyEntityId),
                 typeof(WorkerTrolleySlotIndex),
@@ -3784,6 +3834,7 @@ namespace HardwareStore.Editor
                 "AssignWarehouseTaskSystem",
                 "TickWarehouseTaskTimeoutSystem",
                 "ExecuteInboundStorageTaskSystem",
+                "ExecuteWorkerTrolleyInboundStorageRunSystem",
                 "ExecuteCustomerLoadingTaskSystem",
                 "ExecuteWorkerTrolleyRunSystem",
                 "ReturnWorkerTrolleySystem",
@@ -3900,6 +3951,16 @@ namespace HardwareStore.Editor
                 typeof(int),
                 typeof(int));
             RequireMethod(
+                typeof(IWarehouseTaskFactory),
+                nameof(IWarehouseTaskFactory.CreateWorkerTrolleyInboundStorageRun),
+                typeof(GameEntity),
+                typeof(int),
+                typeof(int),
+                typeof(int),
+                typeof(int),
+                typeof(int),
+                typeof(int));
+            RequireMethod(
                 typeof(IWarehouseWorkerTrolleyFactory),
                 nameof(IWarehouseWorkerTrolleyFactory.Create),
                 typeof(GameEntity),
@@ -3940,7 +4001,10 @@ namespace HardwareStore.Editor
                 "CreateWorkerTrolleyCustomerLoadingRun",
                 "AddWarehouseTaskCustomerVisitEntityId(customerVisitEntityId)",
                 "AddWarehouseTaskWorkerTrolleyEntityId(workerTrolleyEntityId)",
-                "isWorkerTrolleyCustomerLoadingRun = true");
+                "isWorkerTrolleyCustomerLoadingRun = true",
+                "CreateWorkerTrolleyInboundStorageRun",
+                "AddWarehouseRunProductCount(productCount)",
+                "isWorkerTrolleyInboundStorageRun = true");
             string workerTrolleyFactorySource = ReadRuntimeSource(
                 "Gameplay", "Factories", nameof(WarehouseWorkerTrolleyFactory) + ".cs");
             RequireSourceContains(workerTrolleyFactorySource,
@@ -3982,6 +4046,34 @@ namespace HardwareStore.Editor
                 "Bind<IWarehouseTaskFactory>().To<WarehouseTaskFactory>().AsSingle()",
                 "Bind<IWarehouseWorkerTrolleyFactory>()",
                 ".To<WarehouseWorkerTrolleyFactory>().AsSingle()");
+            string workerTrolleyFactoryPath = GetRuntimeSourcePath(
+                "Gameplay", "Factories", nameof(WarehouseWorkerTrolleyFactory) + ".cs");
+            string workerTrolleyFactoryInterfacePath = GetRuntimeSourcePath(
+                "Gameplay", "Factories", nameof(IWarehouseWorkerTrolleyFactory) + ".cs");
+            string bootstrapInstallerPath = GetRuntimeSourcePath(
+                "Infrastructure", "Installers", nameof(BootstrapInstaller) + ".cs");
+            string[] privateTrolleyFactoryConsumers = GetRuntimeSourcePaths()
+                .Where(path =>
+                    !string.Equals(path, workerTrolleyFactoryPath,
+                        StringComparison.Ordinal) &&
+                    !string.Equals(path, workerTrolleyFactoryInterfacePath,
+                        StringComparison.Ordinal) &&
+                    !string.Equals(path, bootstrapInstallerPath,
+                        StringComparison.Ordinal))
+                .Where(path =>
+                {
+                    string source = File.ReadAllText(path);
+                    return source.Contains(
+                               nameof(IWarehouseWorkerTrolleyFactory),
+                               StringComparison.Ordinal) ||
+                           source.Contains(
+                               nameof(WarehouseWorkerTrolleyFactory),
+                               StringComparison.Ordinal);
+                })
+                .ToArray();
+            Require(privateTrolleyFactoryConsumers.Length == 0,
+                "Runtime systems and views must not consume the legacy private worker-trolley " +
+                $"factory; found: {string.Join(", ", privateTrolleyFactoryConsumers)}.");
             Require(typeof(IWorkerNavigationService).IsAssignableFrom(
                     typeof(NavMeshWorkerNavigationService)),
                 $"{nameof(NavMeshWorkerNavigationService)} must implement " +
@@ -3996,6 +4088,13 @@ namespace HardwareStore.Editor
             RequireMethod(
                 typeof(IWorkerNavigationService),
                 nameof(IWorkerNavigationService.TrySetDestination),
+                typeof(bool),
+                typeof(NavMeshAgent),
+                typeof(Vector3),
+                typeof(float));
+            RequireMethod(
+                typeof(IWorkerNavigationService),
+                nameof(IWorkerNavigationService.CanReach),
                 typeof(bool),
                 typeof(NavMeshAgent),
                 typeof(Vector3),
@@ -4020,8 +4119,9 @@ namespace HardwareStore.Editor
             RequireSourceContains(navigationSource,
                 "if (agent.isOnNavMesh)",
                 "NavMesh.SamplePosition(",
+                "public bool CanReach(NavMeshAgent agent, Vector3 destination",
                 "agent.CalculatePath(hit.position, _path)",
-                "_path.status != NavMeshPathStatus.PathComplete",
+                "_path.status == NavMeshPathStatus.PathComplete",
                 "agent.SetPath(_path)",
                 "public void SetAutomaticRotation(NavMeshAgent agent, bool enabled)",
                 "agent.updateRotation = enabled",
@@ -4080,39 +4180,81 @@ namespace HardwareStore.Editor
                 "HireWarehouseWorkerSystem.cs");
             RequireSourceContains(hireSource,
                 "GetEntityWithWarehouseWorkerStoreEntityId(",
-                "GetEntityWithWorkerTrolleyStoreEntityId(",
                 "_solvency.EvaluateDebit(",
                 "_workers.Create(",
-                "_workerTrolleys.Create(",
                 "GetSpawnPoint(SpawnPointId.WarehouseWorker)",
                 "GetSpawnPoint(SpawnPointId.WarehouseWorkerDeliveryAccess)",
                 "GetSpawnPoint(SpawnPointId.WarehouseWorkerStorageAccess)",
                 "SpawnPointId.WarehouseWorkerCustomerLoadingAccess",
-                "GetSpawnPoint(SpawnPointId.WarehouseWorkerTrolley)",
-                "SpawnPointId.WarehouseWorkerTrolleyCustomerLoadingAccess",
-                "!trolley.isWorkerTrolley || trolley.isPlatformTrolley",
-                "trolley.isInteractable",
-                "trolley.TrolleyCapacity != _config.TrolleyCapacity",
-                "trolley.OccupiedTrolleySlotCount != 0",
-                "trolley.TrolleyFollowDistance != _config.TrolleyFollowDistance",
-                "trolley.hasTrolleyPusherEntityId",
                 "store.ReplaceDayUpgradeExpenses(upgradeExpensesAfterHire)",
                 "worker.isWorkerShiftActive = true");
+            Require(!hireSource.Contains(
+                        "IWarehouseWorkerTrolleyFactory", StringComparison.Ordinal) &&
+                    !hireSource.Contains("_workerTrolleys", StringComparison.Ordinal) &&
+                    !hireSource.Contains(
+                        "SpawnPointId.WarehouseWorkerTrolley", StringComparison.Ordinal),
+                "Hiring a warehouse worker must not depend on, create or position a private " +
+                "worker trolley.");
             RequireSourceOrder(
                 hireSource,
                 "GetEntityWithWarehouseWorkerStoreEntityId(",
                 "_workers.Create(",
                 "Repeated hire must be rejected before creating another worker.");
+            string workerTrolleyLeaseSource = ReadRuntimeSource(
+                "Gameplay", "Features", "Employees",
+                "WorkerTrolleyLeaseUtility.cs");
+            RequireSourceContains(workerTrolleyLeaseSource,
+                "public static void BeginLease(",
+                "public static void ReleaseLease(",
+                "public static Pose CreateAccessPose(",
+                "public static Pose CreateStorageAccessPose(",
+                "Quaternion.Euler(0f, 180f, 0f)",
+                "Quaternion.Euler(0f, 105f, 0f)",
+                "Quaternion cartRotation = workerAccessRotation * TurnAround",
+                "public static Vector3 GetPusherPosition(",
+                "trolley.isPlatformTrolley",
+                "trolley.OccupiedTrolleySlotCount != 0",
+                "trolley.hasTrolleyPusherEntityId",
+                "trolley.Transform.position",
+                "trolley.Transform.rotation",
+                "trolley.AddWorkerTrolleyStoreEntityId(storeEntityId)",
+                "trolley.AddWorkerTrolleyHomePosition(trolley.Transform.position)",
+                "trolley.AddWorkerTrolleyHomeRotation(trolley.Transform.rotation)",
+                "trolley.AddWorkerTrolleyCustomerLoadingPosition(",
+                "trolley.AddWorkerTrolleyCustomerLoadingRotation(",
+                "trolley.isWorkerTrolley = true",
+                "trolley.isInteractable = false",
+                "trolley.RemoveWorkerTrolleyStoreEntityId()",
+                "trolley.RemoveWorkerTrolleyHomePosition()",
+                "trolley.RemoveWorkerTrolleyHomeRotation()",
+                "trolley.RemoveWorkerTrolleyCustomerLoadingPosition()",
+                "trolley.RemoveWorkerTrolleyCustomerLoadingRotation()",
+                "trolley.isWorkerTrolley = false",
+                "trolley.isInteractable = true");
             RequireSourceOrder(
-                hireSource,
-                "GetEntityWithWarehouseWorkerStoreEntityId(",
-                "_workerTrolleys.Create(",
-                "Repeated hire must be rejected before creating another worker trolley.");
+                workerTrolleyLeaseSource,
+                "trolley.isInteractable = false",
+                "trolley.AddWorkerTrolleyStoreEntityId(storeEntityId)",
+                "A worker lease must revoke player interaction before publishing its " +
+                "temporary worker ownership.");
             RequireSourceOrder(
-                hireSource,
-                "_workerTrolleys.Create(",
-                "store.ReplaceMoney(moneyAfterHire)",
-                "The bundled worker trolley must be validated before the hire debit commits.");
+                workerTrolleyLeaseSource,
+                "trolley.AddWorkerTrolleyStoreEntityId(storeEntityId)",
+                "trolley.AddWorkerTrolleyHomePosition(trolley.Transform.position)",
+                "A worker lease must establish temporary store ownership before capturing the " +
+                "player's current parked pose as its return home.");
+            RequireSourceOrder(
+                workerTrolleyLeaseSource,
+                "trolley.isWorkerTrolley = false",
+                "trolley.RemoveWorkerTrolleyStoreEntityId()",
+                "A released platform trolley must drop its worker role before removing the " +
+                "temporary indexed ownership relation.");
+            RequireSourceOrder(
+                workerTrolleyLeaseSource,
+                "trolley.RemoveWorkerTrolleyStoreEntityId()",
+                "trolley.isInteractable = true",
+                "A released platform trolley must drop all temporary worker ownership before " +
+                "it becomes player-interactable again.");
             string paySource = ReadRuntimeSource(
                 "Gameplay", "Features", "Employees", "Systems",
                 "PayWarehouseWorkerShiftSystem.cs");
@@ -4163,6 +4305,15 @@ namespace HardwareStore.Editor
                 "Gameplay", "Features", "Employees", "Systems",
                 "GenerateInboundStorageTaskSystem.cs");
             RequireSourceContains(generateTaskSource,
+                "IStoreSceneData sceneData",
+                "IWorkerNavigationService navigation",
+                "WarehouseWorkerStatusId.ReturningWorkerTrolley",
+                "GetLeasedWorkerTrolley(worker, store)",
+                "trolley == null || trolley.isDestructed",
+                "TryGetAvailablePlatformTrolley(worker, store)",
+                "trolley?.TrolleyCapacity ?? 1",
+                "CollectBatchProducts(store, capacity)",
+                "BuildFreeStorageSlots(storageZone)",
                 "FindCustomerPrerequisiteProduct(store)",
                 "prerequisite != null || store.isStoreClosing",
                 "line.LineIndex < selectedLine.LineIndex",
@@ -4173,14 +4324,37 @@ namespace HardwareStore.Editor
                 "left.EntityId.CompareTo(right.EntityId)",
                 "task.WarehouseTaskReservedStorageSlotIndex",
                 "WarehouseWorkerStatusId.StorageFull",
+                "WorkerTrolleyLeaseUtility.BeginLease(",
+                "CreateWorkerTrolleyInboundStorageRun(",
+                "product.AddWarehouseRunEntityId(primary.EntityId)",
+                "_navigation.CanReach(",
+                "WorkerTrolleyLeaseUtility.GetPusherPosition(trolley, homePose)",
                 "_tasksFactory.CreateInboundToStorage(",
                 "product.isInteractable = false");
+            RequireSourceOrder(
+                generateTaskSource,
+                "WorkerTrolleyLeaseUtility.BeginLease(",
+                "CreateTrolleyBatch(worker, store, storageZone, trolley",
+                "Inbound generation must establish the purchased-trolley lease before " +
+                "publishing its batch graph.");
+            RequireSourceOrder(
+                generateTaskSource,
+                "_navigation.CanReach(",
+                "? trolley",
+                "An unreachable purchased trolley must be rejected before inbound task " +
+                "generation chooses between batch and manual work.");
             string generateCustomerLoadingTaskSource = ReadRuntimeSource(
                 "Gameplay", "Features", "Employees", "Systems",
                 "GenerateCustomerLoadingTaskSystem.cs");
             RequireSourceContains(generateCustomerLoadingTaskSource,
                 "GetEntityWithReservedCustomerLoadingBayEntityId(",
                 "visit.isCustomerVisitLoading",
+                "TryGetAvailablePlatformTrolley(worker, store)",
+                "GetLeasedWorkerTrolley(worker, store)",
+                "trolley == null || trolley.isDestructed",
+                "GetEntityWithTrolleyStoreEntityId(store.EntityId)",
+                "GetEntityWithWorkerTrolleyStoreEntityId(store.EntityId)",
+                "trolley?.TrolleyCapacity ?? 1",
                 "_orderLines.Sort(CompareOrderLines)",
                 "left.LineIndex.CompareTo(right.LineIndex)",
                 "left.StorageSlotIndex.CompareTo(",
@@ -4198,8 +4372,11 @@ namespace HardwareStore.Editor
                 "product.RemoveStorageSlotIndex()",
                 "product.AddReservedStorageSlotIndex(storageSlotIndex)",
                 "product.AddReservedOrderLineEntityId(candidate.Line.EntityId)",
-                "if (_batchCandidates.Count >= 2)",
-                "else if (_batchCandidates.Count == 1 && !returning)",
+                "if (_batchCandidates.Count == 0)",
+                "if (trolley != null)",
+                "else if (!returning)",
+                "WorkerTrolleyLeaseUtility.BeginLease(",
+                "SpawnPointId.WarehouseWorkerTrolleyCustomerLoadingAccess",
                 "_tasksFactory.CreateWorkerTrolleyCustomerLoadingRun(",
                 "run.AddWarehouseRunProductCount(_batchCandidates.Count)",
                 "product.AddReservedCustomerLoadingSlotIndex(",
@@ -4210,6 +4387,32 @@ namespace HardwareStore.Editor
                 "WarehouseWorkerStatusId.StorageFull",
                 "WarehouseWorkerStatusId.Idle",
                 "!store.isStoreOpen && !store.isStoreClosing");
+            RequireSourceContains(generateCustomerLoadingTaskSource,
+                "trolley.isPlatformTrolley",
+                "trolley.isInteractable",
+                "trolley.hasTrolleyPusherEntityId",
+                "GetEntitiesWithTrolleyEntityId(",
+                "GetEntitiesWithWorkerTrolleyEntityId(");
+            RequireSourceOrder(
+                generateCustomerLoadingTaskSource,
+                "if (_batchCandidates.Count == 0)",
+                "WorkerTrolleyLeaseUtility.BeginLease(",
+                "The worker must lease a free purchased trolley only after finding at least " +
+                "one product for its run.");
+            RequireSourceOrder(
+                generateCustomerLoadingTaskSource,
+                "WorkerTrolleyLeaseUtility.BeginLease(",
+                "_tasksFactory.CreateWorkerTrolleyCustomerLoadingRun(",
+                "A trolley run must reference the shared platform trolley only after its " +
+                "temporary worker ownership has been established.");
+            Require(CountOccurrences(generateCustomerLoadingTaskSource,
+                        "WorkerTrolleyLeaseUtility.BeginLease(") == 1,
+                "Customer-loading generation must establish exactly one shared-trolley lease " +
+                "at its single run-creation boundary.");
+            Require(!generateCustomerLoadingTaskSource.Contains(
+                        "!trolley.isWorkerTrolley || trolley.isPlatformTrolley",
+                        StringComparison.Ordinal),
+                "Customer loading must not require a privately spawned non-platform trolley.");
             RequireSourceOrder(
                 generateCustomerLoadingTaskSource,
                 "ClaimPendingPlayerRequests(",
@@ -4226,10 +4429,13 @@ namespace HardwareStore.Editor
                 "right.isWorkerTrolleyCustomerLoadingRun ? 0 : 1",
                 "left.EntityId.CompareTo(right.EntityId)",
                 "selected.AddAssignedWorkerEntityId(worker.EntityId)",
+                "IsInboundTrolleyCompanion(task)",
+                "task.isWorkerTrolleyInboundStorageRun",
+                "IsWorkerTrolleyRun(selected)",
                 "WarehouseTaskStepId.MovingToWorkerTrolley",
                 "WarehouseWorkerStatusId.MovingToWorkerTrolley",
                 "returningTrolley &&",
-                "!selected.isWorkerTrolleyCustomerLoadingRun",
+                "!IsWorkerTrolleyRun(selected)",
                 "WarehouseTaskStepId.MovingToPickup",
                 "!store.isStoreOpen && !store.isStoreClosing");
             string tickTaskTimeoutSource = ReadRuntimeSource(
@@ -4246,6 +4452,9 @@ namespace HardwareStore.Editor
                 "ExecuteInboundStorageTaskSystem.cs");
             RequireSourceContains(executeInboundTaskSource,
                 "_tasks.GetEntities(_buffer)",
+                "if (IsWorkerTrolleyBatchTask(task))",
+                "task.isWorkerTrolleyInboundStorageRun",
+                "product.hasWarehouseRunEntityId",
                 "product.RemoveDeliverySlotIndex()",
                 "product.AddReservedDeliverySlotIndex(deliverySlotIndex)",
                 "product.AddCarrierEntityId(worker.EntityId)",
@@ -4255,6 +4464,73 @@ namespace HardwareStore.Editor
                 "product.AddStorageSlotIndex(slotIndex)",
                 "product.isProductStocked = true",
                 "task.isDestructed = true");
+            string executeInboundTrolleyRunSource = ReadRuntimeSource(
+                "Gameplay", "Features", "Employees", "Systems",
+                "ExecuteWorkerTrolleyInboundStorageRunSystem.cs");
+            RequireSourceContains(executeInboundTrolleyRunSource,
+                "GameMatcher.WorkerTrolleyInboundStorageRun",
+                "GameMatcher.InboundToStorageTask",
+                "GameMatcher.WarehouseTaskWorkerTrolleyEntityId",
+                "_occupiedCartSlots = new bool[staticData.PlatformTrolley.Capacity]",
+                "WarehouseTaskStepId.MovingToWorkerTrolley",
+                "WarehouseTaskStepId.MovingWorkerTrolleyToPickup",
+                "WarehouseTaskStepId.MovingWorkerTrolleyToStorage",
+                "WarehouseWorkerStatusId.MovingWorkerTrolleyToPickup",
+                "WorkerTrolleyLeaseUtility.CreateAccessPose(",
+                "WorkerTrolleyLeaseUtility.CreateStorageAccessPose(",
+                "worker.WarehouseWorkerPickupPosition",
+                "worker.WarehouseWorkerStoragePosition",
+                "product.RemoveDeliverySlotIndex()",
+                "product.AddReservedDeliverySlotIndex(deliverySlotIndex)",
+                "product.AddWorkerTrolleyEntityId(trolley.EntityId)",
+                "product.AddWorkerTrolleySlotIndex(index)",
+                "product.RemoveWorkerTrolleyEntityId()",
+                "product.RemoveReservedDeliverySlotIndex()",
+                "product.isInboundProduct = false",
+                "product.isInStock = true",
+                "product.AddStorageSlotIndex(slotIndex)",
+                "product.isProductStocked = true",
+                "task.RemoveWarehouseTaskReservedStorageSlotIndex()",
+                "task.isDestructed = true",
+                "trolley.ReplaceOccupiedTrolleySlotCount(0)",
+                "WarehouseWorkerStatusId.ReturningWorkerTrolley",
+                "(task == run) != task.isWorkerTrolleyInboundStorageRun",
+                "_navigation.HasReachedDestination(",
+                "_navigation.TrySetDestination(");
+            Require(CountOccurrences(executeInboundTrolleyRunSource,
+                        "_occupiedCartSlots = new bool[staticData.PlatformTrolley.Capacity]") ==
+                    1,
+                "Inbound worker-trolley execution must allocate its cart occupancy buffer " +
+                "exactly once from the authored platform capacity.");
+            RequireSourceOrder(
+                executeInboundTrolleyRunSource,
+                "case WarehouseTaskStepId.MovingToWorkerTrolley:",
+                "case WarehouseTaskStepId.MovingWorkerTrolleyToPickup:",
+                "Inbound trolley execution must attach the purchased cart before driving to " +
+                "the delivery pickup.");
+            RequireSourceOrder(
+                executeInboundTrolleyRunSource,
+                "case WarehouseTaskStepId.MovingWorkerTrolleyToPickup:",
+                "case WarehouseTaskStepId.MovingWorkerTrolleyToStorage:",
+                "Inbound trolley execution must load at delivery before driving to storage.");
+            RequireSourceOrder(
+                executeInboundTrolleyRunSource,
+                "product.RemoveDeliverySlotIndex()",
+                "product.AddWorkerTrolleyEntityId(trolley.EntityId)",
+                "Inbound products must leave their delivery slots before becoming trolley " +
+                "cargo.");
+            RequireSourceOrder(
+                executeInboundTrolleyRunSource,
+                "product.RemoveWorkerTrolleyEntityId()",
+                "product.AddStorageSlotIndex(slotIndex)",
+                "Inbound trolley cargo must be detached before publishing its final storage " +
+                "placement.");
+            Require(!executeInboundTrolleyRunSource.Contains(
+                        ".isOnNavMesh", StringComparison.Ordinal) &&
+                    !executeInboundTrolleyRunSource.Contains(
+                        ".hasPath", StringComparison.Ordinal),
+                "Inbound worker-trolley execution must keep NavMesh state behind the worker " +
+                "navigation service.");
             string executeCustomerLoadingTaskSource = ReadRuntimeSource(
                 "Gameplay", "Features", "Employees", "Systems",
                 "ExecuteCustomerLoadingTaskSystem.cs");
@@ -4283,14 +4559,21 @@ namespace HardwareStore.Editor
                 "GameMatcher.WarehouseTaskWorkerTrolleyEntityId",
                 "GameMatcher.WarehouseRunProductCount",
                 "WarehouseTaskStepId.MovingToWorkerTrolley",
+                "WarehouseTaskStepId.MovingWorkerTrolleyToStorage",
                 "WarehouseTaskStepId.MovingWorkerTrolleyToCustomerLoading",
+                "WarehouseWorkerStatusId.MovingWorkerTrolleyToStorage",
+                "worker.WarehouseWorkerStoragePosition",
+                "worker.WarehouseWorkerStorageRotation",
+                "Pose cartTarget = StoragePose(worker, trolley)",
+                "_occupiedCartSlots = new bool[staticData.PlatformTrolley.Capacity]",
+                "_occupiedLoadingSlots = new bool[staticData.CustomerVehicle.CargoCapacity]",
                 "_gameContext.GetEntitiesWithWarehouseRunEntityId(run.EntityId)",
-                "_products.Count < 2 || _products.Count > trolley.TrolleyCapacity",
-                "PusherTarget(trolley, cartTarget)",
+                "_products.Count < 1 || _products.Count > trolley.TrolleyCapacity",
+                "!trolley.isPlatformTrolley",
+                "WorkerTrolleyLeaseUtility.GetPusherPosition(",
                 "_navigation.HasReachedDestination(",
                 "_navigation.TrySetDestination(",
                 "_navigation.SetAutomaticRotation(",
-                "enabled: false",
                 "enabled: true",
                 "trolley.AddTrolleyPusherEntityId(worker.EntityId)",
                 "worker.isPushingWorkerTrolley = true",
@@ -4307,6 +4590,32 @@ namespace HardwareStore.Editor
                 "run.RemoveAssignedWorkerEntityId()",
                 "run.isDestructed = true",
                 "WarehouseWorkerStatusId.ReturningWorkerTrolley");
+            Require(CountOccurrences(executeWorkerTrolleyRunSource,
+                        "_occupiedCartSlots = new bool[staticData.PlatformTrolley.Capacity]") ==
+                    1 &&
+                    CountOccurrences(executeWorkerTrolleyRunSource,
+                        "_occupiedLoadingSlots = new bool[staticData.CustomerVehicle.CargoCapacity]") ==
+                    1,
+                "Worker-trolley cart and customer-loading buffers must derive exactly once " +
+                "from their respective authored capacities.");
+            RequireSourceOrder(
+                executeWorkerTrolleyRunSource,
+                "case WarehouseTaskStepId.MovingToWorkerTrolley:",
+                "case WarehouseTaskStepId.MovingWorkerTrolleyToStorage:",
+                "A worker must first reach and claim the shared trolley before moving it to " +
+                "warehouse storage.");
+            RequireSourceOrder(
+                executeWorkerTrolleyRunSource,
+                "case WarehouseTaskStepId.MovingWorkerTrolleyToStorage:",
+                "case WarehouseTaskStepId.MovingWorkerTrolleyToCustomerLoading:",
+                "The shared trolley must reach warehouse storage before its loaded trip to " +
+                "customer loading begins.");
+            RequireSourceOrder(
+                executeWorkerTrolleyRunSource,
+                "Pose cartTarget = StoragePose(worker, trolley)",
+                "product.AddWorkerTrolleyEntityId(trolley.EntityId)",
+                "Products must not be attached to a remotely parked shared trolley before the " +
+                "worker has driven it to storage.");
             Require(!executeWorkerTrolleyRunSource.Contains(
                         ".isOnNavMesh", StringComparison.Ordinal) &&
                     !executeWorkerTrolleyRunSource.Contains(
@@ -4321,6 +4630,7 @@ namespace HardwareStore.Editor
                 "GetEntityWithAssignedWorkerEntityId(",
                 "GetEntityWithTrolleyPusherEntityId(worker.EntityId)",
                 "GetEntitiesWithWorkerTrolleyEntityId(",
+                "!trolley.isPlatformTrolley",
                 "trolley.OccupiedTrolleySlotCount != 0",
                 "if (store.isDayReportOpen)",
                 "CompleteReturn(worker, trolley, homePose)",
@@ -4330,18 +4640,34 @@ namespace HardwareStore.Editor
                 "enabled: true",
                 "trolley.Rigidbody.position = homePose.position",
                 "trolley.RemoveTrolleyPusherEntityId()",
+                "WorkerTrolleyLeaseUtility.ReleaseLease(",
                 "worker.isPushingWorkerTrolley = false",
                 "worker.isHandsOccupied = false",
                 "WarehouseWorkerStatusId.Idle",
                 "WarehouseWorkerStatusId.OffShift");
+            RequireSourceOrder(
+                returnWorkerTrolleySource,
+                "trolley.RemoveTrolleyPusherEntityId()",
+                "WorkerTrolleyLeaseUtility.ReleaseLease(",
+                "A normal worker return must detach its pusher before releasing the shared " +
+                "trolley back to the player.");
+            string followWorkerTrolleyLeaseSource = ReadRuntimeSource(
+                "Gameplay", "Features", "Trolley", "Systems",
+                "FollowWorkerTrolleySystem.cs");
             string recoverBlockedWorkerTrolleyRunSource = ReadRuntimeSource(
                 "Gameplay", "Features", "Employees", "Systems",
                 "RecoverBlockedWorkerTrolleyRunSystem.cs");
             RequireSourceContains(recoverBlockedWorkerTrolleyRunSource,
-                "GameMatcher.WorkerTrolleyCustomerLoadingRun",
+                "GameMatcher.WarehouseTaskWorkerTrolleyEntityId",
+                "bool inbound = run.isWorkerTrolleyInboundStorageRun",
+                "validInbound = inbound && run.isInboundToStorageTask",
+                "validOutbound = !inbound &&",
                 "WarehouseTaskStepId.Blocked",
                 "GetEntitiesWithWarehouseRunEntityId(run.EntityId)",
                 "_products.Count != run.WarehouseRunProductCount",
+                "_products.Count < 1",
+                "CollectAndValidateInboundProducts(run)",
+                "(task == run) != task.isWorkerTrolleyInboundStorageRun",
                 "product.hasReservedStorageSlotIndex",
                 "product.hasReservedCustomerLoadingSlotIndex",
                 "product.hasWorkerTrolleyEntityId",
@@ -4353,14 +4679,44 @@ namespace HardwareStore.Editor
                 "product.RemoveReservedCustomerLoadingSlotIndex()",
                 "product.AddStorageSlotIndex(storageSlotIndex)",
                 "product.isInteractable = true",
+                "RestoreInboundProduct(product)",
+                "int deliverySlotIndex = product.ReservedDeliverySlotIndex",
+                "product.RemoveReservedDeliverySlotIndex()",
+                "product.AddDeliverySlotIndex(deliverySlotIndex)",
+                "product.RemoveWarehouseRunEntityId()",
+                "DestroyInboundTasks(run)",
+                "task.RemoveWarehouseRunProductCount()",
+                "task.RemoveWarehouseTaskReservedStorageSlotIndex()",
+                "task.isDestructed = true",
                 "trolley.ReplaceOccupiedTrolleySlotCount(0)",
                 "trolley.WorkerTrolleyHomePosition",
                 "trolley.RemoveTrolleyPusherEntityId()",
+                "WorkerTrolleyLeaseUtility.ReleaseLease(",
                 "_navigation.SetAutomaticRotation(",
                 "enabled: true",
                 "worker.isPushingWorkerTrolley = false",
                 "WarehouseWorkerStatusId.Blocked",
+                "ResetInboundWorker(worker)",
+                "worker.isWorkerShiftActive",
+                "WarehouseWorkerStatusId.Idle",
+                "WarehouseWorkerStatusId.OffShift",
+                "if (run.hasWarehouseTaskWorkerTrolleyEntityId)",
+                "run.RemoveWarehouseTaskWorkerTrolleyEntityId()",
                 "run.RemoveAssignedWorkerEntityId()");
+            RequireSourceOrder(
+                recoverBlockedWorkerTrolleyRunSource,
+                "trolley.RemoveTrolleyPusherEntityId()",
+                "WorkerTrolleyLeaseUtility.ReleaseLease(",
+                "Blocked-run recovery must normalize and detach the shared trolley before " +
+                "returning it to player ownership.");
+            Require(CountOccurrences(followWorkerTrolleyLeaseSource,
+                        "WorkerTrolleyLeaseUtility.ReleaseLease(") == 1 &&
+                    CountOccurrences(returnWorkerTrolleySource,
+                        "WorkerTrolleyLeaseUtility.ReleaseLease(") == 1 &&
+                    CountOccurrences(recoverBlockedWorkerTrolleyRunSource,
+                        "WorkerTrolleyLeaseUtility.ReleaseLease(") == 1,
+                "Obstructed return, normal return and blocked-run recovery must each own one " +
+                "explicit shared-trolley release boundary.");
             Require(!executeWorkerTrolleyRunSource.Contains(
                         ".updateRotation", StringComparison.Ordinal) &&
                     !returnWorkerTrolleySource.Contains(
@@ -4370,7 +4726,7 @@ namespace HardwareStore.Editor
                 "Worker-trolley execute, return and recovery systems must keep NavMesh " +
                 "rotation control behind IWorkerNavigationService.");
             Require(CountOccurrences(executeWorkerTrolleyRunSource,
-                        "enabled: false") == 1 &&
+                        "enabled: false") == 0 &&
                     CountOccurrences(executeWorkerTrolleyRunSource,
                         "enabled: true") == 1 &&
                     CountOccurrences(returnWorkerTrolleySource,
@@ -4378,20 +4734,27 @@ namespace HardwareStore.Editor
                     CountOccurrences(returnWorkerTrolleySource,
                         "enabled: true") == 2 &&
                     CountOccurrences(recoverBlockedWorkerTrolleyRunSource,
-                        "enabled: true") == 1,
-                "Worker-trolley preparation/return/recovery must freeze backward-return " +
-                "orientation and restore automatic rotation only at its exact handoff points.");
+                        "enabled: true") == 2,
+                "Worker-trolley storage preparation must restore automatic rotation once, " +
+                "while return and both recovery roles restore it only at their exact handoff " +
+                "points.");
             string detectOrphanedWorkerTrolleyRunSource = ReadRuntimeSource(
                 "Gameplay", "Features", "Employees", "Systems",
                 "DetectOrphanedWorkerTrolleyRunSystem.cs");
             RequireSourceContains(detectOrphanedWorkerTrolleyRunSource,
-                "GameMatcher.WorkerTrolleyCustomerLoadingRun",
+                "GameMatcher.WarehouseTaskWorkerTrolleyEntityId",
+                "ValidateRunRole(run)",
+                "run.isWorkerTrolleyCustomerLoadingRun",
+                "run.isWorkerTrolleyInboundStorageRun",
+                "run.isInboundToStorageTask",
                 "GetEntityWithWarehouseWorkerStoreEntityId(",
                 "WarehouseTaskBlockReasonId.WorkerMissing",
                 "run.WarehouseTaskWorkerTrolleyEntityId",
                 "WarehouseTaskBlockReasonId.WorkerTrolleyMissing",
                 "run.WarehouseTaskCustomerVisitEntityId",
                 "WarehouseTaskBlockReasonId.NoCustomerLoadingPath",
+                "run.WarehouseTaskStorageZoneEntityId",
+                "WarehouseTaskBlockReasonId.NoStoragePath",
                 "run.ReplaceWarehouseTaskStep(WarehouseTaskStepId.Blocked)");
             string cleanupBlockedWorkerTrolleyRunSource = ReadRuntimeSource(
                 "Gameplay", "Features", "Employees", "Systems",
@@ -4404,10 +4767,19 @@ namespace HardwareStore.Editor
                 "product.hasWorkerTrolleyEntityId",
                 "ShouldAwaitManualHandoff(run)",
                 "product.RemoveWarehouseRunEntityId()",
+                "if (run.hasWarehouseTaskWorkerTrolleyEntityId)",
+                "run.RemoveWarehouseTaskWorkerTrolleyEntityId()",
                 "run.isDestructed = true",
                 "WarehouseWorkerStatusId.Blocked",
                 "WarehouseWorkerStatusId.Idle",
                 "WarehouseWorkerStatusId.OffShift");
+            Require(!Regex.IsMatch(
+                    cleanupBlockedWorkerTrolleyRunSource,
+                    @"GameMatcher\.AllOf\s*\([^)]*" +
+                    @"GameMatcher\.WarehouseTaskWorkerTrolleyEntityId",
+                    RegexOptions.Singleline),
+                "Blocked worker-trolley cleanup must remain eligible after recovery clears " +
+                "the trolley relation index.");
             string workerTrolleyPlacementSource = ReadRuntimeSource(
                 "Gameplay", "Features", "Products", "Systems",
                 "ApplyWorkerTrolleyProductPlacementSystem.cs");
@@ -4415,7 +4787,12 @@ namespace HardwareStore.Editor
                 "GameMatcher.WorkerTrolleyEntityId",
                 "GameMatcher.WorkerTrolleySlotIndex",
                 "GameMatcher.WarehouseRunEntityId",
-                "GameMatcher.ReservedCustomerLoadingSlotIndex",
+                "product.hasReservedCustomerLoadingSlotIndex",
+                "run.isWorkerTrolleyInboundStorageRun",
+                "product.hasReservedDeliverySlotIndex",
+                "GetEntityWithWarehouseTaskProductEntityId(",
+                "(task == run) == task.isWorkerTrolleyInboundStorageRun",
+                "!trolley.isPlatformTrolley",
                 "trolley.Slots[product.WorkerTrolleySlotIndex]",
                 "ProductPhysicsUtility.ConfigureLockedSlot(",
                 "product.isProductPlacementDirty = false");
@@ -4435,7 +4812,7 @@ namespace HardwareStore.Editor
                 "Gameplay", "Features", "Employees", "Systems",
                 "RefreshWorkerTrolleyOccupiedSlotCountSystem.cs");
             RequireSourceContains(refreshWorkerTrolleySource,
-                "new bool[config.TrolleyCapacity]",
+                "new bool[staticData.PlatformTrolley.Capacity]",
                 "GetEntitiesWithWorkerTrolleyEntityId(",
                 "product.WorkerTrolleySlotIndex",
                 "trolley.ReplaceOccupiedTrolleySlotCount(count)");
@@ -4444,25 +4821,39 @@ namespace HardwareStore.Editor
                 "ValidateWorkerTrolleyStateSystem.cs");
             RequireSourceContains(validateWorkerTrolleySource,
                 "GameMatcher.WorkerTrolley",
+                "GameMatcher.PlatformTrolley",
+                "GameMatcher.TrolleyStoreEntityId",
                 "GameMatcher.WorkerTrolleyStoreEntityId",
                 "GameMatcher.WorkerTrolleyCustomerLoadingPosition",
-                "trolley.isPlatformTrolley || trolley.isInteractable",
-                "trolley.TrolleyCapacity != _config.TrolleyCapacity",
-                "trolley.TrolleyFollowDistance != _config.TrolleyFollowDistance",
+                "trolley.TrolleyStoreEntityId !=",
+                "trolley.WorkerTrolleyStoreEntityId",
+                "trolley.isInteractable",
+                "trolley.TrolleyCapacity != _config.Capacity",
+                "trolley.TrolleyMovementSpeed != _config.MovementSpeed",
+                "trolley.TrolleyFollowDistance != _config.FollowDistance",
+                "GetEntitiesWithTrolleyEntityId(",
                 "GetEntitiesWithWorkerTrolleyEntityId(",
                 "product.WorkerTrolleySlotIndex",
                 "product.hasWarehouseRunEntityId",
                 "product.hasReservedCustomerLoadingSlotIndex",
+                "run.isWorkerTrolleyInboundStorageRun",
+                "product.hasReservedDeliverySlotIndex",
+                "GetEntityWithWarehouseTaskProductEntityId(",
+                "(task == run) == task.isWorkerTrolleyInboundStorageRun",
                 "run.WarehouseTaskWorkerTrolleyEntityId != trolley.EntityId",
                 "trolley.TrolleyPusherEntityId",
                 "worker.isPushingWorkerTrolley",
                 "MovingToWorkerTrolley or",
+                "MovingWorkerTrolleyToStorage or",
                 "MovingWorkerTrolleyToCustomerLoading or",
                 "ReturningWorkerTrolley");
             string detectOrphanedTaskSource = ReadRuntimeSource(
                 "Gameplay", "Features", "Employees", "Systems",
                 "DetectOrphanedWarehouseTaskSystem.cs");
             RequireSourceContains(detectOrphanedTaskSource,
+                "IsWorkerTrolleyBatchTask(task)",
+                "task.isWorkerTrolleyInboundStorageRun",
+                "product.hasWarehouseRunEntityId",
                 "task.isInboundToStorageTask ==",
                 "task.isStockToCustomerLoadingTask",
                 "worker == null || worker.isDestructed",
@@ -4472,6 +4863,9 @@ namespace HardwareStore.Editor
                 "RecoverBlockedInboundTaskSystem.cs");
             RequireSourceContains(recoverInboundTaskSource,
                 "GameMatcher.InboundToStorageTask",
+                "IsWorkerTrolleyBatchTask(task)",
+                "task.isWorkerTrolleyInboundStorageRun",
+                "product.hasWarehouseRunEntityId",
                 "RestoreProductToDeliverySlot(product, workerEntityId)",
                 "int slotIndex = product.ReservedDeliverySlotIndex",
                 "product.RemoveCarrierEntityId()",
@@ -4498,6 +4892,9 @@ namespace HardwareStore.Editor
                 "Gameplay", "Features", "Employees", "Systems",
                 "CleanupBlockedWarehouseTaskSystem.cs");
             RequireSourceContains(cleanupBlockedTaskSource,
+                "IsWorkerTrolleyBatchTask(task)",
+                "task.isWorkerTrolleyInboundStorageRun",
+                "product.hasWarehouseRunEntityId",
                 "task.isInboundToStorageTask == task.isStockToCustomerLoadingTask",
                 "ShouldAwaitCustomerHandoff(task, product)",
                 "visit.isCustomerVisitLoading",
@@ -4514,20 +4911,41 @@ namespace HardwareStore.Editor
                 "worker.isCarryingProduct != (carried != null)",
                 "worker.isPushingWorkerTrolley != (pushed != null)",
                 "WarehouseWorkerStatusId.ReturningWorkerTrolley",
+                "WarehouseWorkerStatusId.MovingWorkerTrolleyToPickup",
+                "WarehouseWorkerStatusId.MovingWorkerTrolleyToStorage",
                 "task.isWorkerTrolleyCustomerLoadingRun",
+                "task.isWorkerTrolleyInboundStorageRun",
+                "!task.hasWarehouseTaskWorkerTrolleyEntityId &&",
+                "task.WarehouseTaskStep != WarehouseTaskStepId.Blocked",
                 "ValidateWorkerTrolleyRun(task)",
-                "run.WarehouseRunProductCount < 2",
+                "ValidateInboundWorkerTrolleyTask(task, product)",
+                "ValidateInboundWorkerTrolleyRun(run)",
+                "run.isWorkerTrolleyInboundStorageRun",
+                "run.isInboundToStorageTask",
+                "(task == run) != task.isWorkerTrolleyInboundStorageRun",
+                "product.hasReservedDeliverySlotIndex",
+                "bool movingToStorage = run.WarehouseTaskStep ==",
+                "GameEntity trolley = run.hasWarehouseTaskWorkerTrolleyEntityId",
+                "if (!blocked && (!validActiveVisit || !validTrolley) ||",
+                "run.WarehouseRunProductCount < 1",
                 "GetEntitiesWithWarehouseRunEntityId(run.EntityId)",
                 "product.ReservedCustomerLoadingSlotIndex",
                 "product.WorkerTrolleySlotIndex",
                 "ValidateCustomerLoadingTask(task, product)",
                 "WarehouseTaskStepId.MovingToCustomerLoading",
                 "WarehouseTaskStepId.MovingToWorkerTrolley",
+                "WarehouseTaskStepId.MovingWorkerTrolleyToPickup",
+                "WarehouseTaskStepId.MovingWorkerTrolleyToStorage",
                 "WarehouseTaskStepId.MovingWorkerTrolleyToCustomerLoading",
                 "case WarehouseTaskStepId.Blocked:",
                 "task.hasWarehouseTaskReservedStorageSlotIndex",
                 "task.hasWarehouseTaskReservedLoadingSlotIndex",
                 "GetEntitiesWithWarehouseTaskCustomerVisitEntityId(");
+            RequireSourceOrder(
+                validateWorkerSource,
+                "!task.hasWarehouseTaskWorkerTrolleyEntityId &&",
+                "task.WarehouseTaskStep != WarehouseTaskStepId.Blocked",
+                "Only a blocked worker-trolley run may outlive its released trolley relation.");
             string storeInboundSource = ReadRuntimeSource(
                 "Gameplay", "Features", "Delivery", "Systems",
                 "StoreInboundProductSystem.cs");
@@ -4594,6 +5012,29 @@ namespace HardwareStore.Editor
                 (nameof(WarehouseWorkerStatusSnapshot.BatchProductCount),
                     typeof(int?)));
             ValidateImmutableSnapshotType(typeof(WarehouseWorkerStatusSnapshot));
+            var movingSharedTrolleyToStorageSnapshot =
+                new WarehouseWorkerStatusSnapshot(
+                    WarehouseWorkerStatusId.MovingWorkerTrolleyToStorage,
+                    productType: null,
+                    batchProductCount: null);
+            var movingSharedTrolleyToPickupSnapshot =
+                new WarehouseWorkerStatusSnapshot(
+                    WarehouseWorkerStatusId.MovingWorkerTrolleyToPickup,
+                    productType: null,
+                    batchProductCount: null);
+            var movingSingleProductTrolleyToCustomerSnapshot =
+                new WarehouseWorkerStatusSnapshot(
+                    WarehouseWorkerStatusId.MovingWorkerTrolleyToCustomerLoading,
+                    productType: null,
+                    batchProductCount: 1);
+            Require(movingSharedTrolleyToStorageSnapshot.ProductType == null &&
+                    movingSharedTrolleyToStorageSnapshot.BatchProductCount == null &&
+                    movingSharedTrolleyToPickupSnapshot.ProductType == null &&
+                    movingSharedTrolleyToPickupSnapshot.BatchProductCount == null &&
+                    movingSingleProductTrolleyToCustomerSnapshot.ProductType == null &&
+                    movingSingleProductTrolleyToCustomerSnapshot.BatchProductCount == 1,
+                "Worker-trolley presentation must accept the empty storage-transfer phase and " +
+                "a one-product customer run without pretending either is a hand-carry task.");
             string workerStatusSnapshotSource = ReadRuntimeSource(
                 "Gameplay", "Presentation",
                 nameof(WarehouseWorkerStatusSnapshot) + ".cs");
@@ -4602,6 +5043,7 @@ namespace HardwareStore.Editor
                 "WarehouseWorkerStatusId.MovingToStorage",
                 "WarehouseWorkerStatusId.MovingToCustomerLoading",
                 "WarehouseWorkerStatusId.MovingWorkerTrolleyToCustomerLoading",
+                "batchProductCount.Value < 1",
                 "BatchProductCount",
                 "A moving warehouse worker requires a valid task product.");
             string presentHudSource = ReadRuntimeSource(
@@ -4610,8 +5052,13 @@ namespace HardwareStore.Editor
             RequireSourceContains(presentHudSource,
                 "WarehouseWorkerStatusId.MovingToCustomerLoading",
                 "WarehouseWorkerStatusId.MovingToWorkerTrolley",
+                "WarehouseWorkerStatusId.MovingWorkerTrolleyToPickup",
+                "WarehouseWorkerStatusId.MovingWorkerTrolleyToStorage",
                 "WarehouseWorkerStatusId.MovingWorkerTrolleyToCustomerLoading",
-                "task.WarehouseRunProductCount",
+                "task.isWorkerTrolleyCustomerLoadingRun",
+                "task.isWorkerTrolleyInboundStorageRun",
+                "task.WarehouseRunProductCount < 1",
+                "_staticData.PlatformTrolley.Capacity",
                 "new WarehouseWorkerStatusSnapshot(status, product.ProductType)");
             string prototypeHudSource = ReadRuntimeSource(
                 "Gameplay", "Presentation", "PrototypeHudView.cs");
@@ -4621,6 +5068,10 @@ namespace HardwareStore.Editor
                 "LocalizedTexts.ProductName(snapshot.ProductType.Value)",
                 "WarehouseWorkerStatusId.MovingToWorkerTrolley => Resolve(",
                 "LocalizationKey.HudWarehouseWorkerMovingToWorkerTrolley",
+                "WarehouseWorkerStatusId.MovingWorkerTrolleyToPickup => Resolve(",
+                "LocalizationKey.HudWarehouseWorkerMovingWorkerTrolleyToPickup",
+                "WarehouseWorkerStatusId.MovingWorkerTrolleyToStorage => Resolve(",
+                "LocalizationKey.HudWarehouseWorkerMovingWorkerTrolleyToStorage",
                 "WarehouseWorkerStatusId.MovingWorkerTrolleyToCustomerLoading =>",
                 "LocalizationKey.HudWarehouseWorkerMovingWorkerTrolleyToCustomerLoading",
                 "snapshot.BatchProductCount.Value",
@@ -4636,6 +5087,8 @@ namespace HardwareStore.Editor
                 { LocalizationKey.HudWarehouseWorkerMovingToStorage, 1 },
                 { LocalizationKey.HudWarehouseWorkerMovingToCustomerLoading, 1 },
                 { LocalizationKey.HudWarehouseWorkerMovingToWorkerTrolley, 0 },
+                { LocalizationKey.HudWarehouseWorkerMovingWorkerTrolleyToPickup, 0 },
+                { LocalizationKey.HudWarehouseWorkerMovingWorkerTrolleyToStorage, 0 },
                 { LocalizationKey.HudWarehouseWorkerMovingWorkerTrolleyToCustomerLoading, 1 },
                 { LocalizationKey.HudWarehouseWorkerReturningWorkerTrolley, 0 },
                 { LocalizationKey.HudWarehouseWorkerBlocked, 0 },
@@ -4671,10 +5124,18 @@ namespace HardwareStore.Editor
                         LocalizationKey.HudWarehouseWorkerMovingToWorkerTrolley].Template ==
                     "Грузчик готовит тележку к погрузке" &&
                     localizationEntries[
+                        LocalizationKey.HudWarehouseWorkerMovingWorkerTrolleyToPickup]
+                        .Template ==
+                    "Грузчик везёт тележку к поставке" &&
+                    localizationEntries[
+                        LocalizationKey.HudWarehouseWorkerMovingWorkerTrolleyToStorage]
+                        .Template ==
+                    "Грузчик везёт тележку к складу" &&
+                    localizationEntries[
                         LocalizationKey
                             .HudWarehouseWorkerMovingWorkerTrolleyToCustomerLoading]
                         .Template ==
-                    "Грузчик везёт заказ к машине клиента: {0} товара" &&
+                    "Грузчик везёт заказ к машине клиента • товаров: {0}" &&
                     localizationEntries[
                         LocalizationKey.HudWarehouseWorkerReturningWorkerTrolley]
                         .Template ==

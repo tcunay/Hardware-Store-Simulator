@@ -9,7 +9,7 @@ namespace HardwareStore.Gameplay.Features.Employees.Systems
     public sealed class ValidateWorkerTrolleyStateSystem : IExecuteSystem
     {
         private readonly GameContext _gameContext;
-        private readonly WarehouseWorkerConfig _config;
+        private readonly PlatformTrolleyConfig _config;
         private readonly IGroup<GameEntity> _trolleys;
         private readonly bool[] _occupiedSlots;
 
@@ -17,13 +17,15 @@ namespace HardwareStore.Gameplay.Features.Employees.Systems
             IStaticDataService staticData)
         {
             _gameContext = gameContext;
-            _config = staticData.WarehouseWorker;
-            _occupiedSlots = new bool[_config.TrolleyCapacity];
+            _config = staticData.PlatformTrolley;
+            _occupiedSlots = new bool[_config.Capacity];
             _trolleys = gameContext.GetGroup(GameMatcher.AllOf(
-                    GameMatcher.WorkerTrolley, GameMatcher.EntityId,
+                    GameMatcher.WorkerTrolley, GameMatcher.PlatformTrolley,
+                    GameMatcher.EntityId, GameMatcher.TrolleyStoreEntityId,
                     GameMatcher.WorkerTrolleyStoreEntityId,
                     GameMatcher.TrolleyCapacity,
                     GameMatcher.OccupiedTrolleySlotCount,
+                    GameMatcher.TrolleyMovementSpeed,
                     GameMatcher.TrolleyFollowDistance,
                     GameMatcher.WorkerTrolleyHomePosition,
                     GameMatcher.WorkerTrolleyHomeRotation,
@@ -52,13 +54,18 @@ namespace HardwareStore.Gameplay.Features.Employees.Systems
             GameEntity store = _gameContext.GetEntityWithEntityId(
                 trolley.WorkerTrolleyStoreEntityId);
             if (store == null || store.isDestructed || !store.isStore ||
-                trolley.isPlatformTrolley || trolley.isInteractable ||
-                trolley.TrolleyCapacity != _config.TrolleyCapacity ||
+                trolley.TrolleyStoreEntityId !=
+                trolley.WorkerTrolleyStoreEntityId ||
+                trolley.isInteractable ||
+                trolley.TrolleyCapacity != _config.Capacity ||
                 trolley.TrolleyCapacity != _occupiedSlots.Length ||
                 trolley.Slots.Length != trolley.TrolleyCapacity ||
                 trolley.OccupiedTrolleySlotCount < 0 ||
                 trolley.OccupiedTrolleySlotCount > trolley.TrolleyCapacity ||
-                trolley.TrolleyFollowDistance != _config.TrolleyFollowDistance ||
+                trolley.TrolleyMovementSpeed != _config.MovementSpeed ||
+                trolley.TrolleyFollowDistance != _config.FollowDistance ||
+                _gameContext.GetEntitiesWithTrolleyEntityId(
+                    trolley.EntityId).Count != 0 ||
                 !trolley.Rigidbody.isKinematic || trolley.Rigidbody.useGravity ||
                 !trolley.Rigidbody.detectCollisions)
                 throw new InvalidOperationException(
@@ -80,16 +87,12 @@ namespace HardwareStore.Gameplay.Features.Employees.Systems
                          trolley.EntityId))
             {
                 if (product.isDestructed || !product.isProduct ||
-                    !product.isInStock || product.isInboundProduct ||
                     product.isLoaded || product.isInteractable ||
                     !product.hasEntityId || !product.hasWorkerTrolleySlotIndex ||
                     product.WorkerTrolleySlotIndex < 0 ||
                     product.WorkerTrolleySlotIndex >= _occupiedSlots.Length ||
                     _occupiedSlots[product.WorkerTrolleySlotIndex] ||
                     !product.hasWarehouseRunEntityId ||
-                    !product.hasReservedStorageSlotIndex ||
-                    !product.hasReservedOrderLineEntityId ||
-                    !product.hasReservedCustomerLoadingSlotIndex ||
                     product.hasStorageSlotIndex || product.hasCarrierEntityId ||
                     product.hasOrderLineEntityId || product.hasLoadingSlotIndex ||
                     product.hasTrolleyEntityId || product.hasTrolleySlotIndex)
@@ -98,9 +101,9 @@ namespace HardwareStore.Gameplay.Features.Employees.Systems
                 GameEntity run = _gameContext.GetEntityWithEntityId(
                     product.WarehouseRunEntityId);
                 if (run == null || run.isDestructed ||
-                    !run.isWorkerTrolleyCustomerLoadingRun ||
                     !run.hasWarehouseTaskWorkerTrolleyEntityId ||
-                    run.WarehouseTaskWorkerTrolleyEntityId != trolley.EntityId)
+                    run.WarehouseTaskWorkerTrolleyEntityId != trolley.EntityId ||
+                    !IsValidRunCargo(run, product))
                     throw new InvalidOperationException(
                         $"Worker trolley product {product.EntityId} has invalid run.");
                 _occupiedSlots[product.WorkerTrolleySlotIndex] = true;
@@ -129,10 +132,52 @@ namespace HardwareStore.Gameplay.Features.Employees.Systems
                 !worker.hasWarehouseWorkerStatus ||
                 worker.WarehouseWorkerStatus is not
                     (WarehouseWorkerStatusId.MovingToWorkerTrolley or
+                     WarehouseWorkerStatusId.MovingWorkerTrolleyToPickup or
+                     WarehouseWorkerStatusId.MovingWorkerTrolleyToStorage or
                      WarehouseWorkerStatusId.MovingWorkerTrolleyToCustomerLoading or
                      WarehouseWorkerStatusId.ReturningWorkerTrolley))
                 throw new InvalidOperationException(
                     $"Worker trolley {trolley.EntityId} has an invalid pusher.");
+        }
+
+        private bool IsValidRunCargo(GameEntity run, GameEntity product)
+        {
+            if (run.isWorkerTrolleyCustomerLoadingRun &&
+                !run.isInboundToStorageTask &&
+                !run.isWorkerTrolleyInboundStorageRun)
+            {
+                return product.isInStock && !product.isInboundProduct &&
+                       product.hasStorageZoneEntityId &&
+                       product.hasReservedStorageSlotIndex &&
+                       product.hasReservedOrderLineEntityId &&
+                       product.hasReservedCustomerLoadingSlotIndex &&
+                       !product.hasDeliverySlotIndex &&
+                       !product.hasReservedDeliverySlotIndex;
+            }
+            if (!run.isWorkerTrolleyInboundStorageRun ||
+                !run.isInboundToStorageTask ||
+                run.isWorkerTrolleyCustomerLoadingRun ||
+                product.isInStock || !product.isInboundProduct ||
+                !product.hasDeliveryEntityId ||
+                !product.hasPurchaseOrderLineEntityId ||
+                product.hasDeliverySlotIndex ||
+                !product.hasReservedDeliverySlotIndex ||
+                product.hasStorageZoneEntityId ||
+                product.hasReservedStorageSlotIndex ||
+                product.hasReservedOrderLineEntityId ||
+                product.hasReservedCustomerLoadingSlotIndex)
+            {
+                return false;
+            }
+
+            GameEntity task =
+                _gameContext.GetEntityWithWarehouseTaskProductEntityId(
+                    product.EntityId);
+            return task != null && !task.isDestructed &&
+                   task.isWarehouseTask && task.isInboundToStorageTask &&
+                   task.hasWarehouseTaskStorageZoneEntityId &&
+                   task.hasWarehouseTaskReservedStorageSlotIndex &&
+                   (task == run) == task.isWorkerTrolleyInboundStorageRun;
         }
     }
 }

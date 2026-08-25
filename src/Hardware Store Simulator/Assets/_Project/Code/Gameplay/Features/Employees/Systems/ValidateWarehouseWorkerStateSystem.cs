@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using Entitas;
 using HardwareStore.Gameplay.Common;
 using HardwareStore.Gameplay.Components;
@@ -47,6 +48,8 @@ namespace HardwareStore.Gameplay.Features.Employees.Systems
                 WarehouseWorkerStatusId.MovingToStorage or
                 WarehouseWorkerStatusId.MovingToCustomerLoading or
                 WarehouseWorkerStatusId.MovingToWorkerTrolley or
+                WarehouseWorkerStatusId.MovingWorkerTrolleyToPickup or
+                WarehouseWorkerStatusId.MovingWorkerTrolleyToStorage or
                 WarehouseWorkerStatusId.MovingWorkerTrolleyToCustomerLoading;
             if (moving != (task != null))
             {
@@ -80,7 +83,8 @@ namespace HardwareStore.Gameplay.Features.Employees.Systems
             if (worker.isPushingWorkerTrolley != (pushed != null))
                 throw new InvalidOperationException(
                     $"Warehouse worker {worker.EntityId} pusher relation diverged.");
-            if (pushed != null && !pushed.isWorkerTrolley)
+            if (pushed != null &&
+                (!pushed.isWorkerTrolley || !pushed.isPlatformTrolley))
                 throw new InvalidOperationException(
                     $"Warehouse worker {worker.EntityId} pushes a non-worker trolley.");
             if (worker.WarehouseWorkerStatus ==
@@ -159,7 +163,8 @@ namespace HardwareStore.Gameplay.Features.Employees.Systems
                     task.hasWarehouseTaskReservedStorageSlotIndex ||
                     task.hasWarehouseTaskReservedLoadingSlotIndex ||
                     !task.hasWarehouseTaskCustomerVisitEntityId ||
-                    !task.hasWarehouseTaskWorkerTrolleyEntityId ||
+                    !task.hasWarehouseTaskWorkerTrolleyEntityId &&
+                    task.WarehouseTaskStep != WarehouseTaskStepId.Blocked ||
                     !task.hasWarehouseRunProductCount)
                     throw InvalidTask(task);
                 return;
@@ -172,6 +177,18 @@ namespace HardwareStore.Gameplay.Features.Employees.Systems
                     task.hasWarehouseTaskCustomerVisitEntityId ||
                     task.hasWarehouseTaskOrderLineEntityId ||
                     task.hasWarehouseTaskReservedLoadingSlotIndex)
+                {
+                    throw InvalidTask(task);
+                }
+                if (task.isWorkerTrolleyInboundStorageRun)
+                {
+                    if (!task.hasWarehouseTaskReservedStorageSlotIndex ||
+                        !task.hasWarehouseTaskWorkerTrolleyEntityId ||
+                        !task.hasWarehouseRunProductCount)
+                        throw InvalidTask(task);
+                }
+                else if (task.hasWarehouseTaskWorkerTrolleyEntityId ||
+                         task.hasWarehouseRunProductCount)
                 {
                     throw InvalidTask(task);
                 }
@@ -196,6 +213,13 @@ namespace HardwareStore.Gameplay.Features.Employees.Systems
             {
                 throw InvalidTask(task);
             }
+            if (product.hasWarehouseRunEntityId)
+            {
+                ValidateInboundWorkerTrolleyTask(task, product);
+                return;
+            }
+            if (task.isWorkerTrolleyInboundStorageRun)
+                throw InvalidTask(task);
             switch (task.WarehouseTaskStep)
             {
                 case WarehouseTaskStepId.Available:
@@ -234,6 +258,159 @@ namespace HardwareStore.Gameplay.Features.Employees.Systems
                     break;
                 default:
                     throw InvalidTask(task);
+            }
+        }
+
+        private void ValidateInboundWorkerTrolleyTask(GameEntity task,
+            GameEntity product)
+        {
+            GameEntity run = _gameContext.GetEntityWithEntityId(
+                product.WarehouseRunEntityId);
+            if (run == null || run.isDestructed ||
+                !run.isWarehouseTask || !run.isInboundToStorageTask ||
+                !run.isWorkerTrolleyInboundStorageRun ||
+                run.isWorkerTrolleyCustomerLoadingRun ||
+                !run.hasEntityId ||
+                !run.hasWarehouseTaskStoreEntityId ||
+                !run.hasWarehouseTaskStorageZoneEntityId ||
+                !run.hasWarehouseTaskWorkerTrolleyEntityId ||
+                !run.hasWarehouseRunProductCount ||
+                (task == run) != task.isWorkerTrolleyInboundStorageRun ||
+                task.WarehouseTaskStoreEntityId !=
+                run.WarehouseTaskStoreEntityId ||
+                task.WarehouseTaskStorageZoneEntityId !=
+                run.WarehouseTaskStorageZoneEntityId)
+            {
+                throw InvalidTask(task);
+            }
+            ValidateInboundWorkerTrolleyRun(run);
+        }
+
+        private void ValidateInboundWorkerTrolleyRun(GameEntity run)
+        {
+            bool available = run.WarehouseTaskStep == WarehouseTaskStepId.Available;
+            bool movingToTrolley = run.WarehouseTaskStep ==
+                WarehouseTaskStepId.MovingToWorkerTrolley;
+            bool movingToPickup = run.WarehouseTaskStep ==
+                WarehouseTaskStepId.MovingWorkerTrolleyToPickup;
+            bool movingToStorage = run.WarehouseTaskStep ==
+                WarehouseTaskStepId.MovingWorkerTrolleyToStorage;
+            bool blocked = run.WarehouseTaskStep == WarehouseTaskStepId.Blocked;
+            if (!available && !movingToTrolley && !movingToPickup &&
+                !movingToStorage && !blocked)
+                throw InvalidTask(run);
+            if ((available || blocked) && run.hasAssignedWorkerEntityId ||
+                (movingToTrolley || movingToPickup || movingToStorage) &&
+                !run.hasAssignedWorkerEntityId ||
+                run.WarehouseRunProductCount < 1)
+                throw InvalidTask(run);
+
+            GameEntity trolley = run.hasWarehouseTaskWorkerTrolleyEntityId
+                ? _gameContext.GetEntityWithEntityId(
+                    run.WarehouseTaskWorkerTrolleyEntityId)
+                : null;
+            bool validTrolley = trolley != null && !trolley.isDestructed &&
+                trolley.isWorkerTrolley && trolley.isPlatformTrolley &&
+                !trolley.isInteractable && trolley.hasEntityId &&
+                trolley.hasTrolleyStoreEntityId &&
+                trolley.TrolleyStoreEntityId == run.WarehouseTaskStoreEntityId &&
+                trolley.hasWorkerTrolleyStoreEntityId &&
+                trolley.WorkerTrolleyStoreEntityId ==
+                run.WarehouseTaskStoreEntityId &&
+                trolley.hasTrolleyCapacity && trolley.TrolleyCapacity > 0 &&
+                trolley.hasOccupiedTrolleySlotCount;
+            if (!blocked && !validTrolley ||
+                validTrolley &&
+                run.WarehouseRunProductCount > trolley.TrolleyCapacity)
+                throw InvalidTask(run);
+
+            GameEntity storageZone = _gameContext.GetEntityWithEntityId(
+                run.WarehouseTaskStorageZoneEntityId);
+            if (!blocked &&
+                (storageZone == null || storageZone.isDestructed ||
+                 !storageZone.isStorageZone || !storageZone.hasSlots))
+                throw InvalidTask(run);
+
+            int productCount = 0;
+            var storageSlots = new HashSet<int>();
+            var trolleySlots = new HashSet<int>();
+            foreach (GameEntity product in
+                     _gameContext.GetEntitiesWithWarehouseRunEntityId(run.EntityId))
+            {
+                productCount++;
+                InboundProductManifestValidator.Validate(_gameContext, product);
+                GameEntity task =
+                    _gameContext.GetEntityWithWarehouseTaskProductEntityId(
+                        product.EntityId);
+                if (task == null || task.isDestructed ||
+                    !task.isWarehouseTask || !task.isInboundToStorageTask ||
+                    !task.hasWarehouseTaskStoreEntityId ||
+                    task.WarehouseTaskStoreEntityId !=
+                    run.WarehouseTaskStoreEntityId ||
+                    !task.hasWarehouseTaskStorageZoneEntityId ||
+                    task.WarehouseTaskStorageZoneEntityId !=
+                    run.WarehouseTaskStorageZoneEntityId ||
+                    !task.hasWarehouseTaskReservedStorageSlotIndex ||
+                    (task == run) != task.isWorkerTrolleyInboundStorageRun ||
+                    task != run &&
+                    (task.hasAssignedWorkerEntityId ||
+                     task.WarehouseTaskStep != WarehouseTaskStepId.Available ||
+                     task.WarehouseTaskBlockReason !=
+                     WarehouseTaskBlockReasonId.None) ||
+                    !storageSlots.Add(
+                        task.WarehouseTaskReservedStorageSlotIndex))
+                {
+                    throw InvalidTask(run);
+                }
+                if (!blocked &&
+                    (task.WarehouseTaskReservedStorageSlotIndex < 0 ||
+                     task.WarehouseTaskReservedStorageSlotIndex >=
+                     storageZone.Slots.Length))
+                    throw InvalidTask(run);
+
+                bool onTrolley = product.hasWorkerTrolleyEntityId &&
+                    validTrolley &&
+                    product.WorkerTrolleyEntityId == trolley.EntityId &&
+                    product.hasWorkerTrolleySlotIndex &&
+                    product.WorkerTrolleySlotIndex >= 0 &&
+                    product.WorkerTrolleySlotIndex < trolley.TrolleyCapacity &&
+                    trolleySlots.Add(product.WorkerTrolleySlotIndex);
+                bool atDelivery = product.hasDeliverySlotIndex &&
+                    !product.hasReservedDeliverySlotIndex &&
+                    !product.hasWorkerTrolleyEntityId &&
+                    !product.hasWorkerTrolleySlotIndex;
+                bool loadedOnTrolley = !product.hasDeliverySlotIndex &&
+                    product.hasReservedDeliverySlotIndex && onTrolley;
+                if (product.isDestructed || !product.isProduct ||
+                    !product.isInboundProduct || product.isInStock ||
+                    product.isLoaded || product.isInteractable ||
+                    product.hasStorageZoneEntityId ||
+                    product.hasStorageSlotIndex ||
+                    product.hasReservedStorageSlotIndex ||
+                    product.hasCarrierEntityId || product.hasOrderLineEntityId ||
+                    product.hasLoadingSlotIndex || product.isLooseProduct ||
+                    product.hasTrolleyEntityId || product.hasTrolleySlotIndex ||
+                    movingToStorage != loadedOnTrolley ||
+                    !movingToStorage && !atDelivery)
+                {
+                    throw InvalidTask(run);
+                }
+            }
+
+            if (productCount != run.WarehouseRunProductCount)
+                throw InvalidTask(run);
+            if (movingToPickup || movingToStorage)
+            {
+                if (!trolley.hasTrolleyPusherEntityId ||
+                    trolley.TrolleyPusherEntityId !=
+                    run.AssignedWorkerEntityId ||
+                    trolley.OccupiedTrolleySlotCount !=
+                    (movingToStorage ? productCount : 0))
+                    throw InvalidTask(run);
+            }
+            else if (!blocked && trolley.OccupiedTrolleySlotCount != 0)
+            {
+                throw InvalidTask(run);
             }
         }
 
@@ -349,32 +526,43 @@ namespace HardwareStore.Gameplay.Features.Employees.Systems
         {
             bool movingToTrolley = run.WarehouseTaskStep ==
                 WarehouseTaskStepId.MovingToWorkerTrolley;
+            bool movingToStorage = run.WarehouseTaskStep ==
+                WarehouseTaskStepId.MovingWorkerTrolleyToStorage;
             bool movingToCustomer = run.WarehouseTaskStep ==
                 WarehouseTaskStepId.MovingWorkerTrolleyToCustomerLoading;
             bool available = run.WarehouseTaskStep == WarehouseTaskStepId.Available;
             bool blocked = run.WarehouseTaskStep == WarehouseTaskStepId.Blocked;
-            if (!movingToTrolley && !movingToCustomer && !available && !blocked)
+            if (!movingToTrolley && !movingToStorage && !movingToCustomer &&
+                !available && !blocked)
                 throw InvalidTask(run);
             GameEntity visit = _gameContext.GetEntityWithEntityId(
                 run.WarehouseTaskCustomerVisitEntityId);
-            GameEntity trolley = _gameContext.GetEntityWithEntityId(
-                run.WarehouseTaskWorkerTrolleyEntityId);
+            GameEntity trolley = run.hasWarehouseTaskWorkerTrolleyEntityId
+                ? _gameContext.GetEntityWithEntityId(
+                    run.WarehouseTaskWorkerTrolleyEntityId)
+                : null;
             bool validActiveVisit = visit != null && !visit.isDestructed &&
                 visit.isCustomerVisit && visit.isCustomerVisitLoading &&
                 visit.isOrder && visit.hasEntityId && visit.hasSlots;
             bool validTrolley = trolley != null && !trolley.isDestructed &&
-                trolley.isWorkerTrolley && trolley.hasEntityId &&
+                trolley.isWorkerTrolley && trolley.isPlatformTrolley &&
+                !trolley.isInteractable && trolley.hasEntityId &&
+                trolley.hasTrolleyStoreEntityId &&
+                trolley.TrolleyStoreEntityId == run.WarehouseTaskStoreEntityId &&
+                trolley.hasWorkerTrolleyStoreEntityId &&
+                trolley.WorkerTrolleyStoreEntityId ==
+                run.WarehouseTaskStoreEntityId &&
                 trolley.hasTrolleyCapacity &&
                 trolley.hasOccupiedTrolleySlotCount;
             if (!blocked && (!validActiveVisit || !validTrolley) ||
-                run.WarehouseRunProductCount < 2 ||
+                run.WarehouseRunProductCount < 1 ||
                 validTrolley &&
                 run.WarehouseRunProductCount > trolley.TrolleyCapacity ||
                 validActiveVisit && visit.Slots.Length > 64 ||
                 validTrolley && trolley.TrolleyCapacity > 64)
                 throw InvalidTask(run);
             if ((available || blocked) && run.hasAssignedWorkerEntityId ||
-                (movingToTrolley || movingToCustomer) &&
+                (movingToTrolley || movingToStorage || movingToCustomer) &&
                 !run.hasAssignedWorkerEntityId)
                 throw InvalidTask(run);
 
@@ -445,12 +633,13 @@ namespace HardwareStore.Gameplay.Features.Employees.Systems
             if (!blocked && productCount != run.WarehouseRunProductCount ||
                 blocked && productCount > run.WarehouseRunProductCount)
                 throw InvalidTask(run);
-            if (movingToCustomer)
+            if (movingToStorage || movingToCustomer)
             {
                 if (!trolley.hasTrolleyPusherEntityId ||
                     trolley.TrolleyPusherEntityId !=
                     run.AssignedWorkerEntityId ||
-                    trolley.OccupiedTrolleySlotCount != productCount)
+                    trolley.OccupiedTrolleySlotCount !=
+                    (movingToCustomer ? productCount : 0))
                     throw InvalidTask(run);
             }
             else if (blocked && validTrolley &&
@@ -504,6 +693,10 @@ namespace HardwareStore.Gameplay.Features.Employees.Systems
                     WarehouseWorkerStatusId.MovingToCustomerLoading,
                 WarehouseTaskStepId.MovingToWorkerTrolley =>
                     WarehouseWorkerStatusId.MovingToWorkerTrolley,
+                WarehouseTaskStepId.MovingWorkerTrolleyToPickup =>
+                    WarehouseWorkerStatusId.MovingWorkerTrolleyToPickup,
+                WarehouseTaskStepId.MovingWorkerTrolleyToStorage =>
+                    WarehouseWorkerStatusId.MovingWorkerTrolleyToStorage,
                 WarehouseTaskStepId.MovingWorkerTrolleyToCustomerLoading =>
                     WarehouseWorkerStatusId.MovingWorkerTrolleyToCustomerLoading,
                 _ => throw InvalidTask(task)

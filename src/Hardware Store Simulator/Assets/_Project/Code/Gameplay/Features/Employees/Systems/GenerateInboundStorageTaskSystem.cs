@@ -2,8 +2,14 @@ using System;
 using System.Collections.Generic;
 using Entitas;
 using HardwareStore.Gameplay.Common;
+using HardwareStore.Gameplay.Common.Navigation;
 using HardwareStore.Gameplay.Components;
+using HardwareStore.Gameplay.Configs;
 using HardwareStore.Gameplay.Factories;
+using HardwareStore.Gameplay.Features.Employees;
+using HardwareStore.Gameplay.Scene;
+using HardwareStore.Gameplay.StaticData;
+using UnityEngine;
 
 namespace HardwareStore.Gameplay.Features.Employees.Systems
 {
@@ -11,18 +17,28 @@ namespace HardwareStore.Gameplay.Features.Employees.Systems
     {
         private readonly GameContext _gameContext;
         private readonly IWarehouseTaskFactory _tasksFactory;
+        private readonly IStoreSceneData _sceneData;
+        private readonly IWorkerNavigationService _navigation;
+        private readonly WarehouseWorkerConfig _workerConfig;
         private readonly IGroup<GameEntity> _workers;
         private readonly IGroup<GameEntity> _products;
         private readonly IGroup<GameEntity> _stockedProducts;
         private readonly IGroup<GameEntity> _reservedStockProducts;
         private readonly IGroup<GameEntity> _tasks;
         private readonly Dictionary<int, int> _occupiedSlots = new();
+        private readonly List<int> _freeStorageSlots = new(18);
+        private readonly List<GameEntity> _batchProducts = new(3);
+        private readonly List<GameEntity> _candidateProducts = new(18);
 
         public GenerateInboundStorageTaskSystem(GameContext gameContext,
-            IWarehouseTaskFactory tasksFactory)
+            IWarehouseTaskFactory tasksFactory, IStoreSceneData sceneData,
+            IWorkerNavigationService navigation, IStaticDataService staticData)
         {
             _gameContext = gameContext;
             _tasksFactory = tasksFactory;
+            _sceneData = sceneData;
+            _navigation = navigation;
+            _workerConfig = staticData.WarehouseWorker;
             _workers = gameContext.GetGroup(GameMatcher.AllOf(
                     GameMatcher.WarehouseWorker,
                     GameMatcher.EntityId,
@@ -84,7 +100,10 @@ namespace HardwareStore.Gameplay.Features.Employees.Systems
         {
             foreach (GameEntity worker in _workers)
             {
-                if (worker.WarehouseWorkerStatus != WarehouseWorkerStatusId.Idle &&
+                bool returning = worker.WarehouseWorkerStatus ==
+                    WarehouseWorkerStatusId.ReturningWorkerTrolley;
+                if (!returning &&
+                    worker.WarehouseWorkerStatus != WarehouseWorkerStatusId.Idle &&
                     worker.WarehouseWorkerStatus != WarehouseWorkerStatusId.StorageFull)
                     continue;
                 if (_gameContext.GetEntityWithAssignedWorkerEntityId(worker.EntityId) != null)
@@ -102,14 +121,6 @@ namespace HardwareStore.Gameplay.Features.Employees.Systems
                 if (HasActiveTask(store.EntityId))
                     continue;
 
-                GameEntity product = FindNextProduct(store);
-                if (product == null)
-                {
-                    if (worker.WarehouseWorkerStatus == WarehouseWorkerStatusId.StorageFull)
-                        worker.ReplaceWarehouseWorkerStatus(WarehouseWorkerStatusId.Idle);
-                    continue;
-                }
-
                 GameEntity storageZone = _gameContext.GetEntityWithEntityId(
                     store.StorageZoneEntityId);
                 if (storageZone == null || !storageZone.isStorageZone ||
@@ -117,21 +128,145 @@ namespace HardwareStore.Gameplay.Features.Employees.Systems
                     throw new InvalidOperationException(
                         $"Store {store.EntityId} has invalid storage zone relation.");
 
-                int slotIndex = FindFreeStorageSlot(storageZone);
-                if (slotIndex < 0)
+                GameEntity trolley = returning
+                    ? GetLeasedWorkerTrolley(worker, store)
+                    : TryGetAvailablePlatformTrolley(worker, store);
+                int capacity = trolley?.TrolleyCapacity ?? 1;
+                CollectBatchProducts(store, capacity);
+                if (_batchProducts.Count == 0)
                 {
-                    worker.ReplaceWarehouseWorkerStatus(
-                        WarehouseWorkerStatusId.StorageFull);
+                    if (!returning && worker.WarehouseWorkerStatus ==
+                        WarehouseWorkerStatusId.StorageFull)
+                        worker.ReplaceWarehouseWorkerStatus(
+                            WarehouseWorkerStatusId.Idle);
                     continue;
                 }
 
+                BuildFreeStorageSlots(storageZone);
+                int productCount = Math.Min(_batchProducts.Count,
+                    _freeStorageSlots.Count);
+                if (productCount == 0)
+                {
+                    if (!returning)
+                    {
+                        worker.ReplaceWarehouseWorkerStatus(
+                            WarehouseWorkerStatusId.StorageFull);
+                    }
+                    continue;
+                }
+
+                if (trolley != null)
+                {
+                    if (!returning)
+                    {
+                        WorkerTrolleyLeaseUtility.BeginLease(
+                            trolley,
+                            store.EntityId,
+                            _sceneData.GetSpawnPoint(
+                                SpawnPointId.WarehouseWorkerTrolleyCustomerLoadingAccess));
+                    }
+                    CreateTrolleyBatch(worker, store, storageZone, trolley,
+                        productCount, returning);
+                }
+                else if (!returning)
+                {
+                    CreateManualTask(worker, store, storageZone,
+                        _batchProducts[0], _freeStorageSlots[0]);
+                }
+            }
+        }
+
+        private void CreateTrolleyBatch(GameEntity worker, GameEntity store,
+            GameEntity storageZone, GameEntity trolley, int productCount,
+            bool returning)
+        {
+            if (productCount < 1 || productCount > trolley.TrolleyCapacity ||
+                trolley.OccupiedTrolleySlotCount != 0 ||
+                _gameContext.GetEntitiesWithWorkerTrolleyEntityId(
+                    trolley.EntityId).Count != 0 ||
+                _gameContext.GetEntityWithWarehouseTaskWorkerTrolleyEntityId(
+                    trolley.EntityId) != null)
+            {
+                throw new InvalidOperationException(
+                    $"Worker trolley {trolley.EntityId} cannot start an inbound batch.");
+            }
+            if (returning)
+            {
+                if (!trolley.hasTrolleyPusherEntityId ||
+                    trolley.TrolleyPusherEntityId != worker.EntityId ||
+                    !worker.isPushingWorkerTrolley || !worker.isHandsOccupied)
+                    throw new InvalidOperationException(
+                        $"Returning worker {worker.EntityId} lost trolley ownership.");
+            }
+            else if (trolley.hasTrolleyPusherEntityId ||
+                     worker.isPushingWorkerTrolley || worker.isHandsOccupied)
+            {
+                throw new InvalidOperationException(
+                    $"Idle worker {worker.EntityId} cannot start an inbound trolley run.");
+            }
+
+            GameEntity primary = _tasksFactory.CreateWorkerTrolleyInboundStorageRun(
+                store.EntityId,
+                _batchProducts[0].EntityId,
+                storageZone.EntityId,
+                _freeStorageSlots[0],
+                trolley.EntityId,
+                productCount);
+            for (int index = 1; index < productCount; index++)
+            {
                 _tasksFactory.CreateInboundToStorage(
                     store.EntityId,
-                    product.EntityId,
+                    _batchProducts[index].EntityId,
                     storageZone.EntityId,
-                    slotIndex);
+                    _freeStorageSlots[index]);
+            }
+            for (int index = 0; index < productCount; index++)
+            {
+                GameEntity product = _batchProducts[index];
+                product.AddWarehouseRunEntityId(primary.EntityId);
                 product.isInteractable = false;
+            }
+            ValidateCreatedBatch(primary, trolley, storageZone, productCount);
+            if (worker.WarehouseWorkerStatus == WarehouseWorkerStatusId.StorageFull)
                 worker.ReplaceWarehouseWorkerStatus(WarehouseWorkerStatusId.Idle);
+        }
+
+        private void CreateManualTask(GameEntity worker, GameEntity store,
+            GameEntity storageZone, GameEntity product, int storageSlotIndex)
+        {
+            _tasksFactory.CreateInboundToStorage(
+                store.EntityId, product.EntityId,
+                storageZone.EntityId, storageSlotIndex);
+            product.isInteractable = false;
+            worker.ReplaceWarehouseWorkerStatus(WarehouseWorkerStatusId.Idle);
+        }
+
+        private void CollectBatchProducts(GameEntity store, int capacity)
+        {
+            if (capacity <= 0)
+                throw new InvalidOperationException(
+                    $"Store {store.EntityId} has an invalid inbound batch capacity.");
+            _batchProducts.Clear();
+            GameEntity first = FindNextProduct(store);
+            if (first == null)
+                return;
+            _batchProducts.Add(first);
+            if (capacity == 1 || store.isStoreClosing)
+                return;
+
+            _candidateProducts.Clear();
+            foreach (GameEntity product in _products)
+            {
+                if (product != first &&
+                    IsAvailableInboundProduct(product, store.EntityId))
+                    _candidateProducts.Add(product);
+            }
+            _candidateProducts.Sort(CompareInboundProduct);
+            foreach (GameEntity product in _candidateProducts)
+            {
+                if (_batchProducts.Count == capacity)
+                    break;
+                _batchProducts.Add(product);
             }
         }
 
@@ -371,9 +506,10 @@ namespace HardwareStore.Gameplay.Features.Employees.Systems
                 : left.EntityId.CompareTo(right.EntityId);
         }
 
-        private int FindFreeStorageSlot(GameEntity storageZone)
+        private void BuildFreeStorageSlots(GameEntity storageZone)
         {
             _occupiedSlots.Clear();
+            _freeStorageSlots.Clear();
             foreach (GameEntity product in _stockedProducts)
             {
                 if (product.StorageZoneEntityId == storageZone.EntityId)
@@ -402,10 +538,133 @@ namespace HardwareStore.Gameplay.Features.Employees.Systems
             for (int index = 0; index < storageZone.Slots.Length; index++)
             {
                 if (!_occupiedSlots.ContainsKey(index))
-                    return index;
+                    _freeStorageSlots.Add(index);
+            }
+        }
+
+        private GameEntity TryGetAvailablePlatformTrolley(GameEntity worker,
+            GameEntity store)
+        {
+            GameEntity trolley =
+                _gameContext.GetEntityWithTrolleyStoreEntityId(store.EntityId);
+            if (trolley == null || trolley.isDestructed)
+                return null;
+            ValidatePlatformTrolley(store, trolley);
+            if (trolley.isWorkerTrolley || !trolley.isInteractable ||
+                trolley.hasTrolleyPusherEntityId ||
+                trolley.OccupiedTrolleySlotCount != 0 ||
+                _gameContext.GetEntitiesWithTrolleyEntityId(
+                    trolley.EntityId).Count != 0 ||
+                _gameContext.GetEntitiesWithWorkerTrolleyEntityId(
+                    trolley.EntityId).Count != 0 ||
+                _gameContext.GetEntityWithWarehouseTaskWorkerTrolleyEntityId(
+                    trolley.EntityId) != null)
+            {
+                return null;
             }
 
-            return -1;
+            Pose homePose = new(trolley.Transform.position,
+                trolley.Transform.rotation);
+            return _navigation.CanReach(
+                worker.NavigationAgent,
+                WorkerTrolleyLeaseUtility.GetPusherPosition(trolley, homePose),
+                _workerConfig.NavigationSampleRadius)
+                ? trolley
+                : null;
+        }
+
+        private GameEntity GetLeasedWorkerTrolley(GameEntity worker,
+            GameEntity store)
+        {
+            GameEntity trolley =
+                _gameContext.GetEntityWithWorkerTrolleyStoreEntityId(store.EntityId);
+            if (trolley == null || trolley.isDestructed)
+                return null;
+            ValidatePlatformTrolley(store, trolley);
+            if (!trolley.isWorkerTrolley || trolley.isInteractable ||
+                !trolley.hasWorkerTrolleyStoreEntityId ||
+                trolley.WorkerTrolleyStoreEntityId != store.EntityId ||
+                !trolley.hasWorkerTrolleyHomePosition ||
+                !trolley.hasWorkerTrolleyHomeRotation ||
+                !trolley.hasWorkerTrolleyCustomerLoadingPosition ||
+                !trolley.hasWorkerTrolleyCustomerLoadingRotation ||
+                !trolley.hasTrolleyPusherEntityId ||
+                trolley.TrolleyPusherEntityId != worker.EntityId ||
+                trolley.OccupiedTrolleySlotCount != 0 ||
+                _gameContext.GetEntitiesWithTrolleyEntityId(
+                    trolley.EntityId).Count != 0 ||
+                _gameContext.GetEntitiesWithWorkerTrolleyEntityId(
+                    trolley.EntityId).Count != 0 ||
+                _gameContext.GetEntityWithWarehouseTaskWorkerTrolleyEntityId(
+                    trolley.EntityId) != null)
+            {
+                throw new InvalidOperationException(
+                    $"Returning worker {worker.EntityId} has an invalid leased trolley.");
+            }
+            return trolley;
+        }
+
+        private static void ValidatePlatformTrolley(GameEntity store,
+            GameEntity trolley)
+        {
+            if (trolley.isDestructed || !trolley.isPlatformTrolley ||
+                !trolley.hasEntityId || !trolley.hasTrolleyStoreEntityId ||
+                trolley.TrolleyStoreEntityId != store.EntityId ||
+                !trolley.hasTrolleyCapacity || trolley.TrolleyCapacity <= 0 ||
+                !trolley.hasOccupiedTrolleySlotCount ||
+                trolley.OccupiedTrolleySlotCount < 0 ||
+                trolley.OccupiedTrolleySlotCount > trolley.TrolleyCapacity ||
+                !trolley.hasTrolleyMovementSpeed ||
+                !trolley.hasTrolleyFollowDistance ||
+                !trolley.hasView || !trolley.hasTransform ||
+                !trolley.hasRigidbody || !trolley.hasColliders ||
+                !trolley.hasSlots ||
+                trolley.Slots.Length != trolley.TrolleyCapacity)
+            {
+                throw new InvalidOperationException(
+                    $"Store {store.EntityId} has an invalid platform trolley.");
+            }
+        }
+
+        private void ValidateCreatedBatch(GameEntity primary,
+            GameEntity trolley, GameEntity storageZone, int productCount)
+        {
+            if (primary == null || primary.isDestructed ||
+                !primary.isWarehouseTask || !primary.isInboundToStorageTask ||
+                !primary.isWorkerTrolleyInboundStorageRun ||
+                !primary.hasEntityId ||
+                !primary.hasWarehouseTaskWorkerTrolleyEntityId ||
+                primary.WarehouseTaskWorkerTrolleyEntityId != trolley.EntityId ||
+                !primary.hasWarehouseRunProductCount ||
+                primary.WarehouseRunProductCount != productCount)
+            {
+                throw new InvalidOperationException(
+                    "Inbound worker-trolley primary task was created incorrectly.");
+            }
+
+            for (int index = 0; index < productCount; index++)
+            {
+                GameEntity product = _batchProducts[index];
+                GameEntity task =
+                    _gameContext.GetEntityWithWarehouseTaskProductEntityId(
+                        product.EntityId);
+                if (task == null || task.isDestructed ||
+                    !task.isWarehouseTask || !task.isInboundToStorageTask ||
+                    !task.hasWarehouseTaskStorageZoneEntityId ||
+                    task.WarehouseTaskStorageZoneEntityId != storageZone.EntityId ||
+                    !task.hasWarehouseTaskReservedStorageSlotIndex ||
+                    task.WarehouseTaskReservedStorageSlotIndex !=
+                    _freeStorageSlots[index] ||
+                    !product.hasWarehouseRunEntityId ||
+                    product.WarehouseRunEntityId != primary.EntityId ||
+                    product.isInteractable ||
+                    (index == 0) != (task == primary) ||
+                    (index == 0) != task.isWorkerTrolleyInboundStorageRun)
+                {
+                    throw new InvalidOperationException(
+                        $"Inbound trolley product {product.EntityId} has an invalid task.");
+                }
+            }
         }
 
         private static void Reserve(Dictionary<int, int> occupied, int slotIndex,

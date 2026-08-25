@@ -354,6 +354,8 @@ namespace HardwareStore.Gameplay.Features.Presentation.Systems
                 WarehouseWorkerStatusId.MovingToCustomerLoading;
             bool requiresWorkerTrolleyRun = status is
                 WarehouseWorkerStatusId.MovingToWorkerTrolley or
+                WarehouseWorkerStatusId.MovingWorkerTrolleyToPickup or
+                WarehouseWorkerStatusId.MovingWorkerTrolleyToStorage or
                 WarehouseWorkerStatusId.MovingWorkerTrolleyToCustomerLoading;
             if (!requiresTaskProduct && !requiresWorkerTrolleyRun)
             {
@@ -369,20 +371,38 @@ namespace HardwareStore.Gameplay.Features.Presentation.Systems
 
             if (requiresWorkerTrolleyRun)
             {
+                bool outboundRun = task != null &&
+                    task.isWorkerTrolleyCustomerLoadingRun &&
+                    !task.isInboundToStorageTask &&
+                    !task.isWorkerTrolleyInboundStorageRun;
+                bool inboundRun = task != null &&
+                    task.isWorkerTrolleyInboundStorageRun &&
+                    task.isInboundToStorageTask &&
+                    !task.isWorkerTrolleyCustomerLoadingRun;
                 if (task == null || task.isDestructed ||
                     !task.isWarehouseTask ||
-                    !task.isWorkerTrolleyCustomerLoadingRun ||
-                    task.isInboundToStorageTask ||
+                    outboundRun == inboundRun ||
                     task.isStockToCustomerLoadingTask ||
                     !task.hasAssignedWorkerEntityId ||
                     task.AssignedWorkerEntityId != worker.EntityId ||
                     !task.hasWarehouseRunProductCount ||
-                    task.WarehouseRunProductCount < 2 ||
+                    task.WarehouseRunProductCount < 1 ||
                     task.WarehouseRunProductCount >
-                    _staticData.WarehouseWorker.TrolleyCapacity)
+                    _staticData.PlatformTrolley.Capacity)
                     throw new InvalidOperationException(
                         $"Moving warehouse worker {worker.EntityId} has no valid " +
                         "worker-trolley run.");
+                if ((status ==
+                     WarehouseWorkerStatusId.MovingWorkerTrolleyToCustomerLoading &&
+                     !outboundRun) ||
+                    (status ==
+                     WarehouseWorkerStatusId.MovingWorkerTrolleyToPickup &&
+                     !inboundRun))
+                {
+                    throw new InvalidOperationException(
+                        $"Warehouse worker {worker.EntityId} status does not match " +
+                        $"worker-trolley run {task.EntityId}.");
+                }
                 int? batchProductCount = status ==
                     WarehouseWorkerStatusId.MovingWorkerTrolleyToCustomerLoading
                     ? task.WarehouseRunProductCount

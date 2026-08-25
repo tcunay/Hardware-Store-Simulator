@@ -73,7 +73,7 @@ namespace HardwareStore.Gameplay.Features.Employees.Systems
                 if (selected == null)
                     continue;
                 if (returningTrolley &&
-                    !selected.isWorkerTrolleyCustomerLoadingRun)
+                    !IsWorkerTrolleyRun(selected))
                 {
                     continue;
                 }
@@ -84,7 +84,7 @@ namespace HardwareStore.Gameplay.Features.Employees.Systems
                     worker.ReplaceWarehouseWorkerStatus(WarehouseWorkerStatusId.Idle);
 
                 selected.AddAssignedWorkerEntityId(worker.EntityId);
-                bool trolleyRun = selected.isWorkerTrolleyCustomerLoadingRun;
+                bool trolleyRun = IsWorkerTrolleyRun(selected);
                 selected.ReplaceWarehouseTaskStep(trolleyRun
                     ? WarehouseTaskStepId.MovingToWorkerTrolley
                     : WarehouseTaskStepId.MovingToPickup);
@@ -104,6 +104,8 @@ namespace HardwareStore.Gameplay.Features.Employees.Systems
             foreach (GameEntity task in _tasks)
             {
                 ValidateRole(task);
+                if (IsInboundTrolleyCompanion(task))
+                    continue;
                 if (task.WarehouseTaskStoreEntityId != storeEntityId ||
                     task.WarehouseTaskStep != WarehouseTaskStepId.Available ||
                     task.hasAssignedWorkerEntityId)
@@ -151,12 +153,41 @@ namespace HardwareStore.Gameplay.Features.Employees.Systems
                         $"Worker-trolley run {task.EntityId} has invalid relations.");
                 }
             }
+            else if (task.isWorkerTrolleyInboundStorageRun)
+            {
+                if (!task.isInboundToStorageTask ||
+                    !task.hasWarehouseTaskProductEntityId ||
+                    !task.hasWarehouseTaskStorageZoneEntityId ||
+                    !task.hasWarehouseTaskReservedStorageSlotIndex ||
+                    !task.hasWarehouseTaskWorkerTrolleyEntityId ||
+                    !task.hasWarehouseRunProductCount)
+                {
+                    throw new InvalidOperationException(
+                        $"Inbound worker-trolley run {task.EntityId} has invalid relations.");
+                }
+            }
             else if (!task.hasWarehouseTaskProductEntityId)
             {
                 throw new InvalidOperationException(
                     $"Warehouse task {task.EntityId} has no product relation.");
             }
         }
+
+        private bool IsInboundTrolleyCompanion(GameEntity task)
+        {
+            if (!task.isInboundToStorageTask ||
+                task.isWorkerTrolleyInboundStorageRun ||
+                !task.hasWarehouseTaskProductEntityId)
+                return false;
+            GameEntity product = _gameContext.GetEntityWithEntityId(
+                task.WarehouseTaskProductEntityId);
+            return product != null && !product.isDestructed &&
+                   product.hasWarehouseRunEntityId;
+        }
+
+        private static bool IsWorkerTrolleyRun(GameEntity task) =>
+            task.isWorkerTrolleyCustomerLoadingRun ||
+            task.isWorkerTrolleyInboundStorageRun;
 
         private static void ValidateStore(GameEntity worker, GameEntity store)
         {

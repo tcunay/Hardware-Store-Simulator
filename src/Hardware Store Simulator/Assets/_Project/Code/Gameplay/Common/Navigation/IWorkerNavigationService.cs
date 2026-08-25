@@ -16,6 +16,8 @@ namespace HardwareStore.Gameplay.Common.Navigation
             float angularSpeed, float stoppingDistance);
         bool TryEnsurePlacedOnNavMesh(NavMeshAgent agent, Vector3 position,
             float sampleRadius);
+        bool CanReach(NavMeshAgent agent, Vector3 destination,
+            float sampleRadius);
         bool TrySetDestination(NavMeshAgent agent, Vector3 destination,
             float sampleRadius);
         void SetAutomaticRotation(NavMeshAgent agent, bool enabled);

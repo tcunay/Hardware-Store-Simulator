@@ -153,6 +153,8 @@ namespace HardwareStore.Gameplay.Localization
         HudControlsForklift = 1082,
         HudObjectiveCustomerDemandUnavailable = 1083,
         HudStockCustomerDemandUnavailable = 1084,
+        HudWarehouseWorkerMovingWorkerTrolleyToStorage = 1085,
+        HudWarehouseWorkerMovingWorkerTrolleyToPickup = 1086,
         ProcurementStatusNotRequired = 1100,
         ProcurementStatusStockSufficient = 1101,
         ProcurementStatusInsufficientStorage = 1102,

@@ -1,6 +1,7 @@
 using System;
 using Entitas;
 using HardwareStore.Gameplay.Common;
+using HardwareStore.Gameplay.Components;
 using UnityEngine;
 
 namespace HardwareStore.Gameplay.Features.Trolley.Systems
@@ -32,6 +33,11 @@ namespace HardwareStore.Gameplay.Features.Trolley.Systems
             foreach (GameEntity trolley in _trolleys)
             {
                 ValidateConfiguration(trolley);
+                if (trolley.isWorkerTrolley)
+                {
+                    ValidateWorkerLease(trolley);
+                    continue;
+                }
                 int cargoCount = ValidateCargo(trolley);
                 if (cargoCount != trolley.OccupiedTrolleySlotCount)
                 {
@@ -139,6 +145,61 @@ namespace HardwareStore.Gameplay.Features.Trolley.Systems
             {
                 throw new InvalidOperationException(
                     $"Trolley {trolley.EntityId} has an invalid pusher relation.");
+            }
+        }
+
+        private void ValidateWorkerLease(GameEntity trolley)
+        {
+            if (trolley.isInteractable ||
+                !trolley.hasWorkerTrolleyStoreEntityId ||
+                trolley.WorkerTrolleyStoreEntityId !=
+                trolley.TrolleyStoreEntityId ||
+                !trolley.hasWorkerTrolleyHomePosition ||
+                !trolley.hasWorkerTrolleyHomeRotation ||
+                !trolley.hasWorkerTrolleyCustomerLoadingPosition ||
+                !trolley.hasWorkerTrolleyCustomerLoadingRotation ||
+                _gameContext.GetEntitiesWithTrolleyEntityId(
+                    trolley.EntityId).Count != 0)
+            {
+                throw new InvalidOperationException(
+                    $"Platform trolley {trolley.EntityId} has an invalid worker lease.");
+            }
+
+            int cargoCount = _gameContext.GetEntitiesWithWorkerTrolleyEntityId(
+                trolley.EntityId).Count;
+            if (cargoCount != trolley.OccupiedTrolleySlotCount)
+            {
+                throw new InvalidOperationException(
+                    $"Leased trolley {trolley.EntityId} reports invalid occupancy.");
+            }
+
+            if (!trolley.hasTrolleyPusherEntityId)
+            {
+                if (cargoCount != 0)
+                    throw new InvalidOperationException(
+                        $"Unpushed leased trolley {trolley.EntityId} contains cargo.");
+                return;
+            }
+
+            GameEntity worker = _gameContext.GetEntityWithEntityId(
+                trolley.TrolleyPusherEntityId);
+            if (worker == null || worker.isDestructed ||
+                !worker.isWarehouseWorker || !worker.hasEntityId ||
+                !worker.isHandsOccupied || !worker.isPushingWorkerTrolley ||
+                worker.isCarryingProduct ||
+                !worker.hasWarehouseWorkerStoreEntityId ||
+                worker.WarehouseWorkerStoreEntityId !=
+                trolley.TrolleyStoreEntityId ||
+                !worker.hasWarehouseWorkerStatus ||
+                worker.WarehouseWorkerStatus is not
+                    (WarehouseWorkerStatusId.MovingToWorkerTrolley or
+                     WarehouseWorkerStatusId.MovingWorkerTrolleyToPickup or
+                     WarehouseWorkerStatusId.MovingWorkerTrolleyToStorage or
+                     WarehouseWorkerStatusId.MovingWorkerTrolleyToCustomerLoading or
+                     WarehouseWorkerStatusId.ReturningWorkerTrolley))
+            {
+                throw new InvalidOperationException(
+                    $"Leased trolley {trolley.EntityId} has an invalid worker pusher.");
             }
         }
 

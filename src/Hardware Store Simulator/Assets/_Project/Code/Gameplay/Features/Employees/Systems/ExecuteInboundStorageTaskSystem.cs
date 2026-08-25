@@ -58,6 +58,8 @@ namespace HardwareStore.Gameplay.Features.Employees.Systems
         {
             foreach (GameEntity task in _tasks.GetEntities(_buffer))
             {
+                if (IsWorkerTrolleyBatchTask(task))
+                    continue;
                 if (!task.hasAssignedWorkerEntityId)
                 {
                     if (task.WarehouseTaskStep is WarehouseTaskStepId.Available or
@@ -92,6 +94,16 @@ namespace HardwareStore.Gameplay.Features.Employees.Systems
                             $"{task.WarehouseTaskStep}.");
                 }
             }
+        }
+
+        private bool IsWorkerTrolleyBatchTask(GameEntity task)
+        {
+            if (task.isWorkerTrolleyInboundStorageRun)
+                return true;
+            GameEntity product = _gameContext.GetEntityWithEntityId(
+                task.WarehouseTaskProductEntityId);
+            return product != null && !product.isDestructed &&
+                   product.hasWarehouseRunEntityId;
         }
 
         private void ExecutePickupStep(GameEntity worker, GameEntity task)

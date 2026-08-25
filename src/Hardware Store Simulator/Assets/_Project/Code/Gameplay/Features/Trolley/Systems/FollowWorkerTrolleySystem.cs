@@ -4,6 +4,7 @@ using Entitas;
 using HardwareStore.Gameplay.Common.Navigation;
 using HardwareStore.Gameplay.Common.Physics;
 using HardwareStore.Gameplay.Components;
+using HardwareStore.Gameplay.Features.Employees;
 using UnityEngine;
 
 namespace HardwareStore.Gameplay.Features.Trolley.Systems
@@ -76,8 +77,14 @@ namespace HardwareStore.Gameplay.Features.Trolley.Systems
                     trolley.EntityId);
             if (run != null && !run.isDestructed)
             {
-                if (!run.isWarehouseTask ||
-                    !run.isWorkerTrolleyCustomerLoadingRun ||
+                bool outboundRun = run.isWorkerTrolleyCustomerLoadingRun &&
+                    !run.isWorkerTrolleyInboundStorageRun &&
+                    !run.isInboundToStorageTask;
+                bool inboundRun = run.isWorkerTrolleyInboundStorageRun &&
+                    !run.isWorkerTrolleyCustomerLoadingRun &&
+                    run.isInboundToStorageTask;
+                bool validRunRole = outboundRun ^ inboundRun;
+                if (!run.isWarehouseTask || !validRunRole ||
                     !run.hasAssignedWorkerEntityId ||
                     run.AssignedWorkerEntityId != worker.EntityId ||
                     !run.hasWarehouseTaskStep ||
@@ -112,6 +119,7 @@ namespace HardwareStore.Gameplay.Features.Trolley.Systems
             trolley.RemoveTrolleyPusherEntityId();
             worker.isPushingWorkerTrolley = false;
             worker.isHandsOccupied = false;
+            WorkerTrolleyLeaseUtility.ReleaseLease(trolley);
             _navigation.SetAutomaticRotation(
                 worker.NavigationAgent, enabled: true);
             worker.ReplaceWarehouseWorkerStatus(worker.isWorkerShiftActive

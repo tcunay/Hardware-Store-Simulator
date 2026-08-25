@@ -69,5 +69,26 @@ namespace HardwareStore.Gameplay.Factories
                 .With(x => x.isWarehouseTask = true)
                 .With(x => x.isWorkerTrolleyCustomerLoadingRun = true);
         }
+
+        public GameEntity CreateWorkerTrolleyInboundStorageRun(
+            int storeEntityId, int productEntityId, int storageZoneEntityId,
+            int reservedStorageSlotIndex, int workerTrolleyEntityId,
+            int productCount)
+        {
+            return CreateEntity.Empty(_identifiers.Next())
+                .AddWarehouseTaskStoreEntityId(storeEntityId)
+                .AddWarehouseTaskStorageZoneEntityId(storageZoneEntityId)
+                .AddWarehouseTaskProductEntityId(productEntityId)
+                .AddWarehouseTaskReservedStorageSlotIndex(reservedStorageSlotIndex)
+                .AddWarehouseTaskWorkerTrolleyEntityId(workerTrolleyEntityId)
+                .AddWarehouseRunProductCount(productCount)
+                .AddWarehouseTaskStep(WarehouseTaskStepId.Available)
+                .AddWarehouseTaskBlockReason(WarehouseTaskBlockReasonId.None)
+                .AddWarehouseTaskTimeoutRemaining(
+                    _staticData.WarehouseWorker.TaskTimeout)
+                .With(x => x.isWarehouseTask = true)
+                .With(x => x.isInboundToStorageTask = true)
+                .With(x => x.isWorkerTrolleyInboundStorageRun = true);
+        }
     }
 }

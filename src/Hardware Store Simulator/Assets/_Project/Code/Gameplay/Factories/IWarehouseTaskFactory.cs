@@ -11,5 +11,10 @@ namespace HardwareStore.Gameplay.Factories
 
         GameEntity CreateWorkerTrolleyCustomerLoadingRun(int storeEntityId,
             int customerVisitEntityId, int workerTrolleyEntityId);
+
+        GameEntity CreateWorkerTrolleyInboundStorageRun(int storeEntityId,
+            int productEntityId, int storageZoneEntityId,
+            int reservedStorageSlotIndex, int workerTrolleyEntityId,
+            int productCount);
     }
 }

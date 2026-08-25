@@ -36,6 +36,8 @@ namespace HardwareStore.Gameplay.Features.Employees.Systems
         {
             foreach (GameEntity task in _tasks)
             {
+                if (IsWorkerTrolleyBatchTask(task))
+                    continue;
                 if (task.WarehouseTaskStep != WarehouseTaskStepId.Blocked ||
                     (!task.hasAssignedWorkerEntityId &&
                      !task.hasWarehouseTaskReservedStorageSlotIndex))
@@ -87,6 +89,16 @@ namespace HardwareStore.Gameplay.Features.Employees.Systems
                     LocalizationKey.NotificationWarehouseWorkerTaskBlocked,
                     LocalizedTexts.ProductName(product.ProductType)));
             }
+        }
+
+        private bool IsWorkerTrolleyBatchTask(GameEntity task)
+        {
+            if (task.isWorkerTrolleyInboundStorageRun)
+                return true;
+            GameEntity product = _gameContext.GetEntityWithEntityId(
+                task.WarehouseTaskProductEntityId);
+            return product != null && !product.isDestructed &&
+                   product.hasWarehouseRunEntityId;
         }
 
         private static void RestoreProductToDeliverySlot(GameEntity product,

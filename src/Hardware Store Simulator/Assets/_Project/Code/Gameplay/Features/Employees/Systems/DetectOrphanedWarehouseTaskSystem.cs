@@ -26,6 +26,8 @@ namespace HardwareStore.Gameplay.Features.Employees.Systems
         {
             foreach (GameEntity task in _tasks)
             {
+                if (IsWorkerTrolleyBatchTask(task))
+                    continue;
                 if (task.isInboundToStorageTask ==
                     task.isStockToCustomerLoadingTask)
                 {
@@ -53,6 +55,16 @@ namespace HardwareStore.Gameplay.Features.Employees.Systems
                 task.ReplaceWarehouseTaskBlockReason(
                     WarehouseTaskBlockReasonId.WorkerMissing);
             }
+        }
+
+        private bool IsWorkerTrolleyBatchTask(GameEntity task)
+        {
+            if (task.isWorkerTrolleyInboundStorageRun)
+                return true;
+            GameEntity product = _gameContext.GetEntityWithEntityId(
+                task.WarehouseTaskProductEntityId);
+            return product != null && !product.isDestructed &&
+                   product.hasWarehouseRunEntityId;
         }
     }
 }

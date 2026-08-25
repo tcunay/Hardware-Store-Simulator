@@ -21,7 +21,6 @@ namespace HardwareStore.Gameplay.Features.Employees.Systems
                     GameMatcher.EntityId,
                     GameMatcher.WarehouseTaskStoreEntityId,
                     GameMatcher.WarehouseTaskCustomerVisitEntityId,
-                    GameMatcher.WarehouseTaskWorkerTrolleyEntityId,
                     GameMatcher.WarehouseRunProductCount,
                     GameMatcher.WarehouseTaskStep,
                     GameMatcher.WarehouseTaskBlockReason)
@@ -60,7 +59,8 @@ namespace HardwareStore.Gameplay.Features.Employees.Systems
 
                 foreach (GameEntity product in _products)
                     product.RemoveWarehouseRunEntityId();
-                run.RemoveWarehouseTaskWorkerTrolleyEntityId();
+                if (run.hasWarehouseTaskWorkerTrolleyEntityId)
+                    run.RemoveWarehouseTaskWorkerTrolleyEntityId();
                 run.isDestructed = true;
                 ResetWorker(run.WarehouseTaskStoreEntityId);
             }

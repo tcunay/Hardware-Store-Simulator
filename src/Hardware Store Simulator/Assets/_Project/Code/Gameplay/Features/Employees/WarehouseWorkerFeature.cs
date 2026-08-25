@@ -15,6 +15,7 @@ namespace HardwareStore.Gameplay.Features.Employees
             Add(systems.Create<AssignWarehouseTaskSystem>());
             Add(systems.Create<TickWarehouseTaskTimeoutSystem>());
             Add(systems.Create<ExecuteInboundStorageTaskSystem>());
+            Add(systems.Create<ExecuteWorkerTrolleyInboundStorageRunSystem>());
             Add(systems.Create<ExecuteCustomerLoadingTaskSystem>());
             Add(systems.Create<ExecuteWorkerTrolleyRunSystem>());
             Add(systems.Create<ReturnWorkerTrolleySystem>());

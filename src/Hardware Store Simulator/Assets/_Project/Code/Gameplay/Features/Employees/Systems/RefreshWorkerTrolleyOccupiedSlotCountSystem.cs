@@ -1,6 +1,5 @@
 using System;
 using Entitas;
-using HardwareStore.Gameplay.Configs;
 using HardwareStore.Gameplay.StaticData;
 
 namespace HardwareStore.Gameplay.Features.Employees.Systems
@@ -15,8 +14,7 @@ namespace HardwareStore.Gameplay.Features.Employees.Systems
             GameContext gameContext, IStaticDataService staticData)
         {
             _gameContext = gameContext;
-            WarehouseWorkerConfig config = staticData.WarehouseWorker;
-            _occupiedSlots = new bool[config.TrolleyCapacity];
+            _occupiedSlots = new bool[staticData.PlatformTrolley.Capacity];
             _trolleys = gameContext.GetGroup(GameMatcher.AllOf(
                     GameMatcher.WorkerTrolley, GameMatcher.EntityId,
                     GameMatcher.TrolleyCapacity,

@@ -30,7 +30,8 @@ namespace HardwareStore.Gameplay.Features.Trolley.Systems
             {
                 GameEntity trolley =
                     _gameContext.GetEntityWithEntityId(request.TargetEntityId);
-                if (!trolley.isPlatformTrolley)
+                if (trolley == null || !trolley.isPlatformTrolley ||
+                    trolley.isWorkerTrolley)
                     continue;
 
                 GameEntity player =

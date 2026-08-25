@@ -24,7 +24,7 @@ namespace HardwareStore.Gameplay.Features.Trolley.Systems
                     GameMatcher.Transform,
                     GameMatcher.Rigidbody,
                     GameMatcher.Colliders)
-                .NoneOf(GameMatcher.Destructed));
+                .NoneOf(GameMatcher.WorkerTrolley, GameMatcher.Destructed));
         }
 
         public void Execute()

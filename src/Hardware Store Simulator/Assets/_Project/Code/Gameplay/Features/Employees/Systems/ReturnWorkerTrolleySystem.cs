@@ -4,6 +4,7 @@ using Entitas;
 using HardwareStore.Gameplay.Common.Navigation;
 using HardwareStore.Gameplay.Components;
 using HardwareStore.Gameplay.Configs;
+using HardwareStore.Gameplay.Features.Employees;
 using HardwareStore.Gameplay.StaticData;
 using UnityEngine;
 
@@ -103,6 +104,7 @@ namespace HardwareStore.Gameplay.Features.Employees.Systems
             trolley.RemoveTrolleyPusherEntityId();
             worker.isPushingWorkerTrolley = false;
             worker.isHandsOccupied = false;
+            WorkerTrolleyLeaseUtility.ReleaseLease(trolley);
             _navigation.SetAutomaticRotation(
                 worker.NavigationAgent, enabled: true);
             worker.ReplaceWarehouseWorkerStatus(worker.isWorkerShiftActive
@@ -145,9 +147,13 @@ namespace HardwareStore.Gameplay.Features.Employees.Systems
             GameEntity trolley)
         {
             if (trolley == null || trolley.isDestructed ||
-                !trolley.isWorkerTrolley || trolley.isPlatformTrolley ||
+                !trolley.isWorkerTrolley || !trolley.isPlatformTrolley ||
+                trolley.isInteractable ||
                 !trolley.hasEntityId || !trolley.hasTrolleyPusherEntityId ||
                 trolley.TrolleyPusherEntityId != worker.EntityId ||
+                !trolley.hasTrolleyStoreEntityId ||
+                trolley.TrolleyStoreEntityId !=
+                worker.WarehouseWorkerStoreEntityId ||
                 !trolley.hasWorkerTrolleyStoreEntityId ||
                 trolley.WorkerTrolleyStoreEntityId !=
                 worker.WarehouseWorkerStoreEntityId ||
@@ -155,9 +161,13 @@ namespace HardwareStore.Gameplay.Features.Employees.Systems
                 trolley.OccupiedTrolleySlotCount != 0 ||
                 _gameContext.GetEntitiesWithWorkerTrolleyEntityId(
                     trolley.EntityId).Count != 0 ||
+                _gameContext.GetEntitiesWithTrolleyEntityId(
+                    trolley.EntityId).Count != 0 ||
                 !trolley.hasTrolleyFollowDistance ||
                 !trolley.hasWorkerTrolleyHomePosition ||
                 !trolley.hasWorkerTrolleyHomeRotation ||
+                !trolley.hasWorkerTrolleyCustomerLoadingPosition ||
+                !trolley.hasWorkerTrolleyCustomerLoadingRotation ||
                 !trolley.hasTransform || !trolley.hasRigidbody)
                 throw new InvalidOperationException(
                     $"Returning worker {worker.EntityId} has invalid empty trolley.");

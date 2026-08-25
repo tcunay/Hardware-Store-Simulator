@@ -29,12 +29,12 @@ namespace HardwareStore.Gameplay.Presentation
                         nameof(batchProductCount));
             }
             else if (status ==
-                     WarehouseWorkerStatusId.MovingWorkerTrolleyToCustomerLoading)
+                WarehouseWorkerStatusId.MovingWorkerTrolleyToCustomerLoading)
             {
                 if (productType.HasValue || !batchProductCount.HasValue ||
-                    batchProductCount.Value < 2)
+                    batchProductCount.Value < 1)
                     throw new ArgumentException(
-                        "A moving worker trolley requires a batch of at least two products.",
+                        "A moving worker trolley requires at least one product.",
                         nameof(batchProductCount));
             }
             else if (productType.HasValue || batchProductCount.HasValue)

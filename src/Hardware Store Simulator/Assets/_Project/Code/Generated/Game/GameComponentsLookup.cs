@@ -311,12 +311,13 @@ public static class GameComponentsLookup {
     public const int WorkerTrolleyEntityId = 300;
     public const int WorkerTrolleyHomePosition = 301;
     public const int WorkerTrolleyHomeRotation = 302;
-    public const int WorkerTrolleySlotIndex = 303;
-    public const int WorkerTrolleyStoreEntityId = 304;
-    public const int WorldPosition = 305;
-    public const int WorldRotation = 306;
+    public const int WorkerTrolleyInboundStorageRun = 303;
+    public const int WorkerTrolleySlotIndex = 304;
+    public const int WorkerTrolleyStoreEntityId = 305;
+    public const int WorldPosition = 306;
+    public const int WorldRotation = 307;
 
-    public const int TotalComponents = 307;
+    public const int TotalComponents = 308;
 
     public static readonly string[] componentNames = {
         "AimAssistRadius",
@@ -622,6 +623,7 @@ public static class GameComponentsLookup {
         "WorkerTrolleyEntityId",
         "WorkerTrolleyHomePosition",
         "WorkerTrolleyHomeRotation",
+        "WorkerTrolleyInboundStorageRun",
         "WorkerTrolleySlotIndex",
         "WorkerTrolleyStoreEntityId",
         "WorldPosition",
@@ -932,6 +934,7 @@ public static class GameComponentsLookup {
         typeof(HardwareStore.Gameplay.Components.WorkerTrolleyEntityId),
         typeof(HardwareStore.Gameplay.Components.WorkerTrolleyHomePosition),
         typeof(HardwareStore.Gameplay.Components.WorkerTrolleyHomeRotation),
+        typeof(HardwareStore.Gameplay.Components.WorkerTrolleyInboundStorageRun),
         typeof(HardwareStore.Gameplay.Components.WorkerTrolleySlotIndex),
         typeof(HardwareStore.Gameplay.Components.WorkerTrolleyStoreEntityId),
         typeof(HardwareStore.Gameplay.Components.WorldPosition),

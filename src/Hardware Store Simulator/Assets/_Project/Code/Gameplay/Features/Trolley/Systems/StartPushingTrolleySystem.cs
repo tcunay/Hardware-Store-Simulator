@@ -92,6 +92,9 @@ namespace HardwareStore.Gameplay.Features.Trolley.Systems
                         "as a platform trolley, but it has another role.");
                 }
 
+                if (focusedTarget.isWorkerTrolley)
+                    return null;
+
                 ValidateTrolley(focusedTarget);
                 return focusedTarget;
             }

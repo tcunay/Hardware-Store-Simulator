@@ -25,8 +25,8 @@ namespace HardwareStore.Gameplay.Features.Employees.Systems
         {
             _gameContext = gameContext;
             _config = staticData.WarehouseWorker;
-            _occupiedCartSlots = new bool[_config.TrolleyCapacity];
-            _occupiedLoadingSlots = new bool[_config.TrolleyCapacity];
+            _occupiedCartSlots = new bool[staticData.PlatformTrolley.Capacity];
+            _occupiedLoadingSlots = new bool[staticData.CustomerVehicle.CargoCapacity];
             _navigation = navigation;
             _runs = gameContext.GetGroup(GameMatcher.AllOf(
                     GameMatcher.WarehouseTask,
@@ -74,6 +74,9 @@ namespace HardwareStore.Gameplay.Features.Employees.Systems
                     case WarehouseTaskStepId.MovingToWorkerTrolley:
                         ExecuteMoveToTrolley(run, worker, trolley);
                         break;
+                    case WarehouseTaskStepId.MovingWorkerTrolleyToStorage:
+                        ExecuteMoveToStorage(run, worker, trolley);
+                        break;
                     case WarehouseTaskStepId.MovingWorkerTrolleyToCustomerLoading:
                         ExecuteMoveToCustomer(run, worker, trolley);
                         break;
@@ -97,7 +100,8 @@ namespace HardwareStore.Gameplay.Features.Employees.Systems
                     $"Worker trolley {trolley.EntityId} is not empty before loading.");
 
             Pose cartTarget = HomePose(trolley);
-            Vector3 pusherTarget = PusherTarget(trolley, cartTarget);
+            Vector3 pusherTarget = WorkerTrolleyLeaseUtility.GetPusherPosition(
+                trolley, cartTarget);
             bool alreadyPushing = trolley.hasTrolleyPusherEntityId;
             if (alreadyPushing &&
                 (trolley.TrolleyPusherEntityId != worker.EntityId ||
@@ -110,9 +114,9 @@ namespace HardwareStore.Gameplay.Features.Employees.Systems
                     $"Worker {worker.EntityId} cannot approach trolley while occupied.");
             if (alreadyPushing)
             {
-                _navigation.SetAutomaticRotation(
-                    worker.NavigationAgent, enabled: false);
-                worker.Transform.rotation = cartTarget.rotation;
+                MoveToStorage(run, worker);
+                ExecuteMoveToStorage(run, worker, trolley);
+                return;
             }
 
             if (!HasReached(worker, pusherTarget))
@@ -126,14 +130,43 @@ namespace HardwareStore.Gameplay.Features.Employees.Systems
             worker.Transform.rotation = cartTarget.rotation;
             if (!CartReached(trolley, cartTarget))
                 return;
-            if (!alreadyPushing)
+            trolley.AddTrolleyPusherEntityId(worker.EntityId);
+            worker.isPushingWorkerTrolley = true;
+            worker.isHandsOccupied = true;
+            MoveToStorage(run, worker);
+            ExecuteMoveToStorage(run, worker, trolley);
+        }
+
+        private void ExecuteMoveToStorage(GameEntity run, GameEntity worker,
+            GameEntity trolley)
+        {
+            if (worker.WarehouseWorkerStatus !=
+                WarehouseWorkerStatusId.MovingWorkerTrolleyToStorage)
+                throw InvalidStatus(run, worker);
+            CollectAndValidateProducts(run, trolley, onTrolley: false);
+            if (!trolley.hasTrolleyPusherEntityId ||
+                trolley.TrolleyPusherEntityId != worker.EntityId ||
+                !worker.isPushingWorkerTrolley || !worker.isHandsOccupied ||
+                trolley.OccupiedTrolleySlotCount != 0)
             {
-                trolley.AddTrolleyPusherEntityId(worker.EntityId);
-                worker.isPushingWorkerTrolley = true;
-                worker.isHandsOccupied = true;
+                throw new InvalidOperationException(
+                    $"Worker-trolley run {run.EntityId} has invalid empty trolley state.");
             }
-            _navigation.SetAutomaticRotation(
-                worker.NavigationAgent, enabled: true);
+
+            Pose cartTarget = StoragePose(worker, trolley);
+            Vector3 pusherTarget = WorkerTrolleyLeaseUtility.GetPusherPosition(
+                trolley, cartTarget);
+            if (!HasReached(worker, pusherTarget))
+            {
+                Navigate(worker, run, pusherTarget,
+                    WarehouseTaskBlockReasonId.NoStoragePath);
+                return;
+            }
+
+            _navigation.Stop(worker.NavigationAgent);
+            worker.Transform.rotation = cartTarget.rotation;
+            if (!CartReached(trolley, cartTarget))
+                return;
             for (int index = 0; index < _products.Count; index++)
             {
                 GameEntity product = _products[index];
@@ -147,6 +180,18 @@ namespace HardwareStore.Gameplay.Features.Employees.Systems
             run.ReplaceWarehouseTaskTimeoutRemaining(_config.TaskTimeout);
             worker.ReplaceWarehouseWorkerStatus(
                 WarehouseWorkerStatusId.MovingWorkerTrolleyToCustomerLoading);
+        }
+
+        private void MoveToStorage(GameEntity run, GameEntity worker)
+        {
+            _navigation.Stop(worker.NavigationAgent);
+            _navigation.SetAutomaticRotation(
+                worker.NavigationAgent, enabled: true);
+            run.ReplaceWarehouseTaskStep(
+                WarehouseTaskStepId.MovingWorkerTrolleyToStorage);
+            run.ReplaceWarehouseTaskTimeoutRemaining(_config.TaskTimeout);
+            worker.ReplaceWarehouseWorkerStatus(
+                WarehouseWorkerStatusId.MovingWorkerTrolleyToStorage);
         }
 
         private void ExecuteMoveToCustomer(GameEntity run, GameEntity worker,
@@ -166,7 +211,8 @@ namespace HardwareStore.Gameplay.Features.Employees.Systems
             GameEntity visit = GetLoadingVisit(run);
             ValidateAtomicUnload(run, visit);
             Pose cartTarget = CustomerLoadingPose(trolley);
-            Vector3 pusherTarget = PusherTarget(trolley, cartTarget);
+            Vector3 pusherTarget = WorkerTrolleyLeaseUtility.GetPusherPosition(
+                trolley, cartTarget);
             if (!HasReached(worker, pusherTarget))
             {
                 Navigate(worker, run, pusherTarget,
@@ -196,7 +242,7 @@ namespace HardwareStore.Gameplay.Features.Employees.Systems
                 _products.Add(product);
             _products.Sort(CompareRunProducts);
             if (_products.Count != run.WarehouseRunProductCount ||
-                _products.Count < 2 || _products.Count > trolley.TrolleyCapacity)
+                _products.Count < 1 || _products.Count > trolley.TrolleyCapacity)
                 throw new InvalidOperationException(
                     $"Worker-trolley run {run.EntityId} has invalid product count.");
 
@@ -422,12 +468,17 @@ namespace HardwareStore.Gameplay.Features.Employees.Systems
                 worker.WarehouseWorkerStoreEntityId !=
                 run.WarehouseTaskStoreEntityId ||
                 !worker.hasWarehouseWorkerStatus || !worker.hasTransform ||
-                !worker.hasNavigationAgent || worker.isCarryingProduct)
+                !worker.hasNavigationAgent ||
+                !worker.hasWarehouseWorkerStoragePosition ||
+                !worker.hasWarehouseWorkerStorageRotation ||
+                worker.isCarryingProduct)
                 throw new InvalidOperationException(
                     $"Worker-trolley run {run.EntityId} references invalid worker.");
-            if (!trolley.isWorkerTrolley || trolley.isPlatformTrolley ||
+            if (!trolley.isWorkerTrolley || !trolley.isPlatformTrolley ||
                 trolley.isInteractable || !trolley.hasEntityId ||
                 trolley.EntityId != run.WarehouseTaskWorkerTrolleyEntityId ||
+                !trolley.hasTrolleyStoreEntityId ||
+                trolley.TrolleyStoreEntityId != run.WarehouseTaskStoreEntityId ||
                 !trolley.hasWorkerTrolleyStoreEntityId ||
                 trolley.WorkerTrolleyStoreEntityId != run.WarehouseTaskStoreEntityId ||
                 !trolley.hasTrolleyCapacity || !trolley.hasOccupiedTrolleySlotCount ||
@@ -437,7 +488,9 @@ namespace HardwareStore.Gameplay.Features.Employees.Systems
                 !trolley.hasWorkerTrolleyHomePosition ||
                 !trolley.hasWorkerTrolleyHomeRotation ||
                 !trolley.hasWorkerTrolleyCustomerLoadingPosition ||
-                !trolley.hasWorkerTrolleyCustomerLoadingRotation)
+                !trolley.hasWorkerTrolleyCustomerLoadingRotation ||
+                _gameContext.GetEntitiesWithTrolleyEntityId(
+                    trolley.EntityId).Count != 0)
                 throw new InvalidOperationException(
                     $"Worker-trolley run {run.EntityId} references invalid trolley.");
         }
@@ -471,9 +524,12 @@ namespace HardwareStore.Gameplay.Features.Employees.Systems
             trolley.WorkerTrolleyCustomerLoadingPosition,
             trolley.WorkerTrolleyCustomerLoadingRotation);
 
-        private static Vector3 PusherTarget(GameEntity trolley, Pose cartTarget) =>
-            cartTarget.position - cartTarget.rotation * Vector3.forward *
-            trolley.TrolleyFollowDistance;
+        private static Pose StoragePose(GameEntity worker,
+            GameEntity trolley) =>
+            WorkerTrolleyLeaseUtility.CreateStorageAccessPose(
+            worker.WarehouseWorkerStoragePosition,
+            worker.WarehouseWorkerStorageRotation,
+            trolley.TrolleyFollowDistance);
 
         private bool CartReached(GameEntity trolley, Pose target)
         {

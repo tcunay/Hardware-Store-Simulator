@@ -35,6 +35,7 @@ using HardwareStore.Gameplay.Features.Trolley.Systems;
 using HardwareStore.Gameplay.Factories;
 using HardwareStore.Gameplay.Localization;
 using HardwareStore.Gameplay.Presentation;
+using HardwareStore.Gameplay.Scene;
 using HardwareStore.Gameplay.StaticData;
 using HardwareStore.Gameplay.Views;
 using HardwareStore.Infrastructure.States.GameStates;
@@ -1487,6 +1488,13 @@ namespace HardwareStore.Editor
             OpenStoreForSmoke(runtime, scenario);
             UnlockWarehouseWorkerHiring(runtime, scenario);
             GameEntity worker = HireWarehouseWorker(runtime, scenario);
+            Require(runtime.Game.GetEntityWithTrolleyStoreEntityId(
+                        scenario.Store.EntityId) == null &&
+                    runtime.Game.GetEntityWithWorkerTrolleyStoreEntityId(
+                        scenario.Store.EntityId) == null &&
+                    runtime.Game.GetGroup(GameMatcher.PlatformTrolley).count == 0 &&
+                    runtime.Game.GetGroup(GameMatcher.WorkerTrolley).count == 0,
+                "Customer-loading hand-carry smoke unexpectedly started with a trolley.");
 
             ValidateWarehouseWorkerCustomerLoadingFlow(
                 runtime,
@@ -1496,12 +1504,43 @@ namespace HardwareStore.Editor
             Debug.Log(
                 "[Hardware Store] Warehouse-worker customer-loading smoke passed: bay A/B " +
                 "ownership, outbound priority, no preemption, player/worker cooperative " +
-                "slots, StorageFull and closing work, recovery branches, exact reward and " +
-                "clean departure.");
+                "slots, hand-carry without a purchased trolley, StorageFull and closing " +
+                "work, recovery branches, exact reward and clean departure.");
         }
 
         [MenuItem("Tools/Hardware Store/Run Warehouse Worker Trolley Smoke Test")]
         public static void RunWarehouseWorkerTrolleySmokeTest()
+        {
+            Runtime runtime = ResolveRuntime();
+            Scenario scenario = ResolveFreshScenario(runtime);
+            PrepareWarehouseWorkerTrolleyBatch(
+                runtime,
+                scenario,
+                out GameEntity worker,
+                out GameEntity trolley,
+                out CustomerVisit visit,
+                out GameEntity run,
+                out GameEntity[] products);
+            CompleteWarehouseWorkerTrolleyBatch(
+                runtime,
+                scenario,
+                worker,
+                trolley,
+                visit,
+                run,
+                products);
+
+            Debug.Log(
+                "[Hardware Store] Warehouse-worker trolley smoke passed: hire without a " +
+                "private cart, purchased platform-trolley lease, one-product minimum and " +
+                "mixed batch 3, storage-access loading leg, player-claim quota race, exact " +
+                "cargo/loading slots, midpoint collision sweeps, atomic unload, " +
+                "returning-cart batch-2 redirect through Closing, " +
+                "report-safe release and restored player interaction.");
+        }
+
+        [MenuItem("Tools/Hardware Store/Run Warehouse Worker Trolley Loaded Recovery Smoke Test")]
+        public static void RunWarehouseWorkerTrolleyLoadedRecoverySmokeTest()
         {
             Runtime runtime = ResolveRuntime();
             Scenario scenario = ResolveFreshScenario(runtime);
@@ -1519,29 +1558,376 @@ namespace HardwareStore.Editor
                 scenario,
                 worker,
                 trolley);
-            ValidateWorkerTrolleyRecoveryBeforeAndAfterLoad(
+            RecoverBlockedWorkerTrolleyRun(
                 runtime,
                 scenario,
                 worker,
                 trolley,
                 visit.Entity,
-                ref run,
-                ref products);
-            CompleteWarehouseWorkerTrolleyBatch(
+                run,
+                products,
+                WarehouseTaskBlockReasonId.WorkerTrolleyObstructed,
+                expectedLoadedOnTrolley: true);
+
+            Debug.Log(
+                "[Hardware Store] Warehouse-worker loaded trolley recovery smoke passed: " +
+                "the player could not capture the lease and blocked loaded cargo was " +
+                "restored before releasing the purchased trolley.");
+        }
+
+        [MenuItem("Tools/Hardware Store/Run Warehouse Worker Trolley Empty Recovery Smoke Test")]
+        public static void RunWarehouseWorkerTrolleyEmptyRecoverySmokeTest()
+        {
+            Runtime runtime = ResolveRuntime();
+            Scenario scenario = ResolveFreshScenario(runtime);
+            PrepareWarehouseWorkerTrolleyBatch(
+                runtime,
+                scenario,
+                out GameEntity worker,
+                out GameEntity trolley,
+                out CustomerVisit visit,
+                out GameEntity run,
+                out GameEntity[] products,
+                loadTrolleyAtStorage: false,
+                singleProductOrder: true);
+            RecoverBlockedWorkerTrolleyRun(
                 runtime,
                 scenario,
                 worker,
                 trolley,
-                visit,
+                visit.Entity,
                 run,
-                products);
+                products,
+                WarehouseTaskBlockReasonId.NoWorkerTrolleyPath,
+                expectedLoadedOnTrolley: false);
 
             Debug.Log(
-                "[Hardware Store] Warehouse-worker trolley smoke passed: bundled 1:1 " +
-                "non-interactable cart, surplus-stock player-claim quota race, deterministic " +
-                "mixed batch 3, exact cargo/loading slots, recovery before/after cart " +
-                "loading, midpoint collision sweeps, atomic unload, returning-cart batch-2 " +
-                "redirect through Closing, report-safe return and authored home normalization.");
+                "[Hardware Store] Warehouse-worker empty trolley recovery smoke passed: " +
+                "an unreachable empty leased trolley was returned to player ownership.");
+        }
+
+        [MenuItem("Tools/Hardware Store/Run Warehouse Worker Inbound Manual Fallback Smoke Test")]
+        public static void RunWarehouseWorkerInboundManualFallbackSmokeTest()
+        {
+            Runtime runtime = ResolveRuntime();
+            Scenario scenario = ResolveFreshScenario(runtime);
+            OpenStoreForSmoke(runtime, scenario);
+            UnlockWarehouseWorkerHiring(runtime, scenario);
+            GameEntity worker = HireWarehouseWorker(runtime, scenario);
+            DeliveryArrival arrival = PurchaseAndPrepareArrival(
+                runtime,
+                scenario,
+                ProductTypeId.CementBag);
+            runtime.Systems.Create<GenerateInboundStorageTaskSystem>().Execute();
+            GameEntity task = FindLiveWarehouseTasks(runtime.Game).Single();
+            GameEntity product = runtime.Game.GetEntityWithEntityId(
+                task.WarehouseTaskProductEntityId);
+            Require(!task.isWorkerTrolleyInboundStorageRun &&
+                    FindLiveInboundWorkerTrolleyRuns(runtime.Game).Length == 0 &&
+                    runtime.Game.GetGroup(GameMatcher.PlatformTrolley).count == 0 &&
+                    runtime.Game.GetGroup(GameMatcher.WorkerTrolley).count == 0 &&
+                    product == arrival.Products
+                        .OrderBy(candidate => candidate.DeliverySlotIndex).First(),
+                "Worker without a purchased trolley did not retain the one-product manual " +
+                "inbound path.");
+            runtime.Systems.Create<AssignWarehouseTaskSystem>().Execute();
+            WarpWarehouseWorker(worker, worker.WarehouseWorkerPickupPosition);
+            runtime.Systems.Create<ExecuteInboundStorageTaskSystem>().Execute();
+            Require(task.WarehouseTaskStep == WarehouseTaskStepId.MovingToStorage &&
+                    product.hasCarrierEntityId &&
+                    product.CarrierEntityId == worker.EntityId &&
+                    worker.isCarryingProduct && worker.isHandsOccupied,
+                "No-cart inbound fallback did not use the worker's real hand-carry phase.");
+            WarpWarehouseWorker(worker, worker.WarehouseWorkerStoragePosition);
+            runtime.Systems.Create<ExecuteInboundStorageTaskSystem>().Execute();
+            runtime.Systems.Create<RegisterStockedProductSystem>().Execute();
+            ExecuteProductPlacement(runtime);
+            ExecuteStorageState(runtime);
+            CleanupEvents(runtime);
+            Require(task.isDestructed && product.isInStock &&
+                    !product.isInboundProduct && product.hasStorageSlotIndex &&
+                    !worker.isCarryingProduct && !worker.isHandsOccupied &&
+                    worker.WarehouseWorkerStatus == WarehouseWorkerStatusId.Idle &&
+                    runtime.Game.GetGroup(GameMatcher.PlatformTrolley).count == 0,
+                "No-cart inbound fallback did not finish its product by hand without spawning " +
+                "a private trolley.");
+
+            Debug.Log(
+                "[Hardware Store] Warehouse-worker inbound manual fallback smoke passed: " +
+                "one real product moved delivery-to-storage by hand without spawning a cart.");
+        }
+
+        [MenuItem("Tools/Hardware Store/Run Warehouse Worker Inbound Unreachable Trolley Smoke Test")]
+        public static void RunWarehouseWorkerInboundUnreachableTrolleySmokeTest()
+        {
+            Runtime runtime = ResolveRuntime();
+            Scenario scenario = ResolveFreshScenario(runtime);
+            OpenStoreForSmoke(runtime, scenario);
+            UnlockWarehouseWorkerHiring(runtime, scenario);
+            GameEntity worker = HireWarehouseWorker(runtime, scenario);
+            UnlockTrolleyUpgrade(runtime, scenario);
+            GameEntity trolley = PurchaseTrolley(runtime, scenario);
+            DeliveryArrival arrival = PurchaseAndPrepareArrival(
+                runtime,
+                scenario,
+                ProductTypeId.CementBag);
+            new GenerateInboundStorageTaskSystem(
+                runtime.Game,
+                runtime.WarehouseTasks,
+                runtime.SceneData,
+                new RejectDestinationWorkerNavigationService(),
+                runtime.StaticData).Execute();
+            GameEntity task = FindLiveWarehouseTasks(runtime.Game).Single();
+            Require(!task.isWorkerTrolleyInboundStorageRun &&
+                    FindLiveInboundWorkerTrolleyRuns(runtime.Game).Length == 0 &&
+                    trolley.isPlatformTrolley && !trolley.isWorkerTrolley &&
+                    trolley.isInteractable &&
+                    arrival.Products.Count(product => !product.isInteractable) == 1,
+                "Unreachable purchased trolley did not fall back to one manual inbound task.");
+            runtime.Systems.Create<AssignWarehouseTaskSystem>().Execute();
+            WarpWarehouseWorker(worker, worker.WarehouseWorkerPickupPosition);
+            runtime.Systems.Create<ExecuteInboundStorageTaskSystem>().Execute();
+            WarpWarehouseWorker(worker, worker.WarehouseWorkerStoragePosition);
+            runtime.Systems.Create<ExecuteInboundStorageTaskSystem>().Execute();
+            GameEntity product = runtime.Game.GetEntityWithEntityId(
+                task.WarehouseTaskProductEntityId);
+            Require(task.isDestructed && product.isInStock &&
+                    trolley.isPlatformTrolley && !trolley.isWorkerTrolley &&
+                    trolley.isInteractable &&
+                    runtime.Game.GetEntityWithWorkerTrolleyStoreEntityId(
+                        scenario.Store.EntityId) == null,
+                "Unreachable-cart fallback did not complete by hand while leaving the " +
+                "purchased trolley player-owned.");
+
+            Debug.Log(
+                "[Hardware Store] Warehouse-worker unreachable trolley smoke passed: " +
+                "the purchased cart stayed player-owned and the product moved by hand.");
+        }
+
+        [MenuItem("Tools/Hardware Store/Run Warehouse Worker Lost Returning Trolley Smoke Test")]
+        public static void RunWarehouseWorkerLostReturningTrolleySmokeTest()
+        {
+            Runtime runtime = ResolveRuntime();
+            Scenario scenario = ResolveFreshScenario(runtime);
+            OpenStoreForSmoke(runtime, scenario);
+            UnlockWarehouseWorkerHiring(runtime, scenario);
+            GameEntity worker = HireWarehouseWorker(runtime, scenario);
+            UnlockTrolleyUpgrade(runtime, scenario);
+            GameEntity trolley = PurchaseTrolley(runtime, scenario);
+            WorkerTrolleyLeaseUtility.BeginLease(
+                trolley,
+                scenario.Store.EntityId,
+                runtime.SceneData.GetSpawnPoint(
+                    SpawnPointId.WarehouseWorkerTrolleyCustomerLoadingAccess));
+            trolley.AddTrolleyPusherEntityId(worker.EntityId);
+            worker.isPushingWorkerTrolley = true;
+            worker.isHandsOccupied = true;
+            worker.ReplaceWarehouseWorkerStatus(
+                WarehouseWorkerStatusId.ReturningWorkerTrolley);
+            trolley.isDestructed = true;
+
+            runtime.Systems.Create<GenerateCustomerLoadingTaskSystem>().Execute();
+            runtime.Systems.Create<GenerateInboundStorageTaskSystem>().Execute();
+            runtime.Systems.Create<ReturnWorkerTrolleySystem>().Execute();
+            Require(trolley.isDestructed && !trolley.hasTrolleyPusherEntityId &&
+                    worker.WarehouseWorkerStatus == WarehouseWorkerStatusId.Idle &&
+                    !worker.isPushingWorkerTrolley && !worker.isHandsOccupied &&
+                    worker.NavigationAgent.updateRotation &&
+                    FindLiveWarehouseTasks(runtime.Game).Length == 0,
+                "A lost empty trolley blocked its returning worker before recovery.");
+
+            Debug.Log(
+                "[Hardware Store] Lost returning trolley smoke passed: generators yielded " +
+                "to recovery and the worker returned to Idle.");
+        }
+
+        [MenuItem("Tools/Hardware Store/Run Warehouse Worker Inbound Trolley Smoke Test")]
+        public static void RunWarehouseWorkerInboundTrolleySmokeTest()
+        {
+            Runtime runtime = ResolveRuntime();
+            Scenario scenario = ResolveFreshScenario(runtime);
+            OpenStoreForSmoke(runtime, scenario);
+            UnlockWarehouseWorkerHiring(runtime, scenario);
+            GameEntity worker = HireWarehouseWorker(runtime, scenario);
+            UnlockTrolleyUpgrade(runtime, scenario);
+            GameEntity trolley = PurchaseTrolley(runtime, scenario);
+            Pose purchasedHome = new(
+                new Vector3(4f, 0.02f, 1.95f),
+                Quaternion.Euler(0f, 90f, 0f));
+            trolley.Rigidbody.position = purchasedHome.position;
+            trolley.Rigidbody.rotation = purchasedHome.rotation;
+            trolley.Transform.SetPositionAndRotation(
+                purchasedHome.position,
+                purchasedHome.rotation);
+            Physics.SyncTransforms();
+            DeliveryArrival firstArrival = PurchaseAndPrepareArrival(
+                runtime,
+                scenario,
+                ProductTypeId.CementBag);
+            runtime.Systems.Create<GenerateInboundStorageTaskSystem>().Execute();
+            GameEntity firstRun = FindLiveInboundWorkerTrolleyRuns(runtime.Game).Single();
+            GameEntity[] firstBatch = FindInboundWorkerTrolleyRunProducts(
+                runtime.Game,
+                firstRun);
+            GameEntity[] firstTasks = FindLiveWarehouseTasks(runtime.Game);
+            Require(firstRun.WarehouseRunProductCount == trolley.TrolleyCapacity &&
+                    firstBatch.Length == trolley.TrolleyCapacity &&
+                    firstTasks.Length == trolley.TrolleyCapacity &&
+                    firstTasks.Count(task => task.isWorkerTrolleyInboundStorageRun) == 1 &&
+                    firstTasks.Select(task => task.WarehouseTaskReservedStorageSlotIndex)
+                        .OrderBy(slot => slot)
+                        .SequenceEqual(Enumerable.Range(0, trolley.TrolleyCapacity)) &&
+                    firstBatch.Select(product => product.DeliverySlotIndex)
+                        .OrderBy(slot => slot)
+                        .SequenceEqual(Enumerable.Range(0, trolley.TrolleyCapacity)) &&
+                    firstBatch.All(product =>
+                        product.WarehouseRunEntityId == firstRun.EntityId &&
+                        !product.isInteractable) &&
+                    ReferenceEquals(
+                        runtime.Game.GetEntityWithWorkerTrolleyStoreEntityId(
+                            scenario.Store.EntityId),
+                        trolley) &&
+                    firstRun.WarehouseTaskWorkerTrolleyEntityId == trolley.EntityId,
+                "Purchased trolley did not reserve one capacity-sized inbound batch on the " +
+                "same platform entity.");
+
+            runtime.Systems.Create<AssignWarehouseTaskSystem>().Execute();
+            MoveWarehouseWorkerToTrolleyPusherPose(
+                worker,
+                trolley,
+                purchasedHome);
+            runtime.Systems.Create<ExecuteWorkerTrolleyInboundStorageRunSystem>().Execute();
+            Require(firstRun.WarehouseTaskStep ==
+                    WarehouseTaskStepId.MovingWorkerTrolleyToPickup &&
+                    trolley.TrolleyPusherEntityId == worker.EntityId &&
+                    trolley.OccupiedTrolleySlotCount == 0,
+                "Inbound batch did not attach the purchased trolley before pickup.");
+            MoveWorkerTrolleyToPose(
+                worker,
+                trolley,
+                WorkerTrolleyLeaseUtility.CreateAccessPose(
+                    worker.WarehouseWorkerPickupPosition,
+                    worker.WarehouseWorkerPickupRotation,
+                    trolley.TrolleyFollowDistance));
+            runtime.Systems.Create<ExecuteWorkerTrolleyInboundStorageRunSystem>().Execute();
+            ExecuteProductPlacement(runtime);
+            Require(firstRun.WarehouseTaskStep ==
+                    WarehouseTaskStepId.MovingWorkerTrolleyToStorage &&
+                    trolley.OccupiedTrolleySlotCount == firstBatch.Length &&
+                    firstBatch.All(product =>
+                        !product.hasDeliverySlotIndex &&
+                        product.hasReservedDeliverySlotIndex &&
+                        product.hasWorkerTrolleyEntityId &&
+                        product.WorkerTrolleyEntityId == trolley.EntityId),
+                "Inbound batch did not remove products from delivery slots onto the purchased " +
+                "trolley.");
+            MoveWorkerTrolleyToStorageAccess(
+                runtime,
+                worker,
+                trolley,
+                firstRun);
+            runtime.Systems.Create<ExecuteWorkerTrolleyInboundStorageRunSystem>().Execute();
+            runtime.Systems.Create<CleanupDestructedEntitiesSystem>().Cleanup();
+            runtime.Systems.Create<RegisterStockedProductSystem>().Execute();
+            runtime.Systems.Create<CompleteDeliverySystem>().Execute();
+            runtime.Systems.Create<CleanupDestructedEntitiesSystem>().Cleanup();
+            ExecuteProductPlacement(runtime);
+            ExecuteStorageState(runtime);
+            CleanupEvents(runtime);
+            Require(FindLiveInboundWorkerTrolleyRuns(runtime.Game).Length == 0 &&
+                    FindLiveWarehouseTasks(runtime.Game).Length == 0 &&
+                    worker.WarehouseWorkerStatus ==
+                    WarehouseWorkerStatusId.ReturningWorkerTrolley &&
+                    trolley.isWorkerTrolley && trolley.isPlatformTrolley &&
+                    trolley.TrolleyPusherEntityId == worker.EntityId &&
+                    trolley.OccupiedTrolleySlotCount == 0 &&
+                    firstBatch.All(product =>
+                        product.isInStock && !product.isInboundProduct &&
+                        product.hasStorageSlotIndex &&
+                        !product.hasDeliverySlotIndex &&
+                        !product.hasReservedDeliverySlotIndex &&
+                        !product.hasWarehouseRunEntityId) &&
+                    firstBatch.Select(product => product.StorageSlotIndex)
+                        .OrderBy(slot => slot)
+                        .SequenceEqual(Enumerable.Range(0, firstBatch.Length)),
+                "Inbound trolley batch did not settle every product into unique real storage " +
+                "slots before returning.");
+
+            DeliveryArrival returningArrival = PurchaseAndPrepareArrival(
+                runtime,
+                scenario,
+                ProductTypeId.BoardBundle);
+            runtime.Systems.Create<GenerateInboundStorageTaskSystem>().Execute();
+            GameEntity returningRun =
+                FindLiveInboundWorkerTrolleyRuns(runtime.Game).Single();
+            GameEntity[] returningBatch = FindInboundWorkerTrolleyRunProducts(
+                runtime.Game,
+                returningRun);
+            Require(ReferenceEquals(
+                        runtime.Game.GetEntityWithWorkerTrolleyStoreEntityId(
+                            scenario.Store.EntityId),
+                        trolley) &&
+                    returningRun.WarehouseTaskWorkerTrolleyEntityId == trolley.EntityId &&
+                    trolley.TrolleyPusherEntityId == worker.EntityId &&
+                    returningBatch.Length == trolley.TrolleyCapacity,
+                "Returning worker did not reuse the already leased purchased trolley for the " +
+                "next inbound batch.");
+            runtime.Systems.Create<AssignWarehouseTaskSystem>().Execute();
+            runtime.Systems.Create<ExecuteWorkerTrolleyInboundStorageRunSystem>().Execute();
+            MoveWorkerTrolleyToPose(
+                worker,
+                trolley,
+                WorkerTrolleyLeaseUtility.CreateAccessPose(
+                    worker.WarehouseWorkerPickupPosition,
+                    worker.WarehouseWorkerPickupRotation,
+                    trolley.TrolleyFollowDistance));
+            runtime.Systems.Create<ExecuteWorkerTrolleyInboundStorageRunSystem>().Execute();
+            Require(returningRun.WarehouseTaskStep ==
+                    WarehouseTaskStepId.MovingWorkerTrolleyToStorage &&
+                    returningBatch.All(product => product.hasWorkerTrolleyEntityId),
+                "Returning-cart recovery smoke did not reach a loaded inbound batch.");
+            returningRun.ReplaceWarehouseTaskStep(WarehouseTaskStepId.Blocked);
+            returningRun.ReplaceWarehouseTaskBlockReason(
+                WarehouseTaskBlockReasonId.WorkerTrolleyObstructed);
+            runtime.Systems.Create<RecoverBlockedWorkerTrolleyRunSystem>().Execute();
+            ValidateReleasedPlatformTrolley(
+                runtime,
+                scenario,
+                trolley,
+                purchasedHome,
+                "Inbound blocked recovery did not release the same purchased trolley.");
+            Require(returningRun.isDestructed &&
+                    FindLiveInboundWorkerTrolleyRuns(runtime.Game).Length == 0 &&
+                    FindLiveWarehouseTasks(runtime.Game).Length == 0 &&
+                    worker.WarehouseWorkerStatus == WarehouseWorkerStatusId.Idle &&
+                    returningBatch.All(product =>
+                        product.isInboundProduct && product.isInteractable &&
+                        product.hasDeliverySlotIndex &&
+                        !product.hasReservedDeliverySlotIndex &&
+                        !product.hasWorkerTrolleyEntityId &&
+                        !product.hasWarehouseRunEntityId) &&
+                    returningBatch.Select(product => product.DeliverySlotIndex)
+                        .OrderBy(slot => slot)
+                        .SequenceEqual(Enumerable.Range(0, returningBatch.Length)),
+                "Inbound blocked recovery did not restore every delivery slot and destruct " +
+                "its full batch graph after releasing the purchased trolley.");
+            runtime.Systems.Create<CleanupDestructedEntitiesSystem>().Cleanup();
+            runtime.Systems.Create<GenerateInboundStorageTaskSystem>().Execute();
+            GameEntity retriedRun = FindLiveInboundWorkerTrolleyRuns(runtime.Game).Single();
+            Require(retriedRun.WarehouseTaskWorkerTrolleyEntityId == trolley.EntityId &&
+                    ReferenceEquals(
+                        runtime.Game.GetEntityWithWorkerTrolleyStoreEntityId(
+                            scenario.Store.EntityId),
+                        trolley) &&
+                    FindInboundWorkerTrolleyRunProducts(runtime.Game, retriedRun)
+                        .Length == trolley.TrolleyCapacity,
+                "Recovered inbound products did not re-lease the same purchased trolley on " +
+                "the next eligible generation pass.");
+
+            Debug.Log(
+                "[Hardware Store] Warehouse-worker inbound trolley smoke passed: purchased " +
+                "capacity batch, real delivery-slot pickup and storage placement, " +
+                "returning-cart reuse and full recovery release.");
         }
 
         [MenuItem("Tools/Hardware Store/Run Procurement Freedom Smoke Test")]
@@ -1788,12 +2174,14 @@ namespace HardwareStore.Editor
                         20f) &&
                     runtime.StaticData.WarehouseWorker.TrolleyCapacity == 3 &&
                     runtime.StaticData.WarehouseWorker.TrolleyCapacity ==
+                    runtime.StaticData.PlatformTrolley.Capacity &&
+                    runtime.StaticData.WarehouseWorker.TrolleyCapacity ==
                     runtime.StaticData.CustomerVehicle.CargoCapacity &&
                     Mathf.Approximately(
                         runtime.StaticData.WarehouseWorker.TrolleyFollowDistance,
-                        1.7f),
+                        runtime.StaticData.PlatformTrolley.FollowDistance),
                 "The worker smoke requires the frozen unlock, economy, navigation and " +
-                "bundled trolley values.");
+                "shared-trolley handling values.");
             Require(runtime.StaticData.StoreDay.StartMinute == 8 * 60 &&
                     runtime.StaticData.StoreDay.ClosingMinute == 20 * 60 &&
                     Mathf.Approximately(
@@ -2449,7 +2837,7 @@ namespace HardwareStore.Editor
                     runtime.Game.GetEntityWithWorkerTrolleyStoreEntityId(
                         scenario.Store.EntityId) == null &&
                     runtime.Game.GetGroup(GameMatcher.WorkerTrolley).count == 0,
-                "Warehouse worker unlock smoke requires a fresh employee/cart state.");
+                "Warehouse worker unlock smoke requires a fresh employee and no trolley lease.");
 
             scenario.Player.ReplaceFocusedEntityId(
                 scenario.StoreControlTerminal.EntityId);
@@ -2513,19 +2901,28 @@ namespace HardwareStore.Editor
             Scenario scenario)
         {
             WarehouseWorkerConfig config = runtime.StaticData.WarehouseWorker;
+            GameEntity platformTrolleyBefore =
+                runtime.Game.GetEntityWithTrolleyStoreEntityId(
+                    scenario.Store.EntityId);
+            int platformTrolleyCountBefore =
+                runtime.Game.GetGroup(GameMatcher.PlatformTrolley).count;
             int moneyBefore = scenario.Store.Money;
             int upgradeExpensesBefore = scenario.Store.DayUpgradeExpenses;
             RequestInteraction(scenario.Player, scenario.StoreControlTerminal);
             runtime.Systems.Create<HireWarehouseWorkerSystem>().Execute();
             GameEntity worker = runtime.Game.GetEntityWithWarehouseWorkerStoreEntityId(
                 scenario.Store.EntityId);
-            GameEntity workerTrolley =
-                runtime.Game.GetEntityWithWorkerTrolleyStoreEntityId(
-                    scenario.Store.EntityId);
             Require(worker != null &&
-                    workerTrolley != null &&
                     runtime.Game.GetGroup(GameMatcher.WarehouseWorker).count == 1 &&
-                    runtime.Game.GetGroup(GameMatcher.WorkerTrolley).count == 1 &&
+                    runtime.Game.GetEntityWithWorkerTrolleyStoreEntityId(
+                        scenario.Store.EntityId) == null &&
+                    runtime.Game.GetGroup(GameMatcher.WorkerTrolley).count == 0 &&
+                    ReferenceEquals(
+                        runtime.Game.GetEntityWithTrolleyStoreEntityId(
+                            scenario.Store.EntityId),
+                        platformTrolleyBefore) &&
+                    runtime.Game.GetGroup(GameMatcher.PlatformTrolley).count ==
+                    platformTrolleyCountBefore &&
                     scenario.Store.Money == moneyBefore - config.HirePrice &&
                     scenario.Store.DayUpgradeExpenses == checked(
                         upgradeExpensesBefore + config.HirePrice) &&
@@ -2539,31 +2936,9 @@ namespace HardwareStore.Editor
                     worker.hasWarehouseWorkerCustomerLoadingRotation &&
                     Quaternion.Angle(
                         worker.WarehouseWorkerCustomerLoadingRotation,
-                        Quaternion.Euler(0f, 180f, 0f)) < 0.01f &&
-                    !workerTrolley.isPlatformTrolley &&
-                    !workerTrolley.isInteractable &&
-                    !workerTrolley.hasTrolleyPusherEntityId &&
-                    workerTrolley.TrolleyCapacity == config.TrolleyCapacity &&
-                    workerTrolley.OccupiedTrolleySlotCount == 0 &&
-                    Mathf.Approximately(
-                        workerTrolley.TrolleyFollowDistance,
-                        config.TrolleyFollowDistance) &&
-                    Vector3.Distance(
-                        workerTrolley.WorkerTrolleyHomePosition,
-                        new Vector3(4f, 0.02f, 1.95f)) < 0.001f &&
-                    Quaternion.Angle(
-                        workerTrolley.WorkerTrolleyHomeRotation,
-                        Quaternion.Euler(0f, 90f, 0f)) < 0.01f &&
-                    Vector3.Distance(
-                        workerTrolley.WorkerTrolleyCustomerLoadingPosition,
-                        new Vector3(6f, 0.02f, 1.95f)) < 0.001f &&
-                    Quaternion.Angle(
-                        workerTrolley.WorkerTrolleyCustomerLoadingRotation,
-                        Quaternion.Euler(0f, 90f, 0f)) < 0.01f &&
-                    runtime.Game.GetEntitiesWithWorkerTrolleyEntityId(
-                        workerTrolley.EntityId).Count == 0,
-                "Worker hire did not create one paid Day 1 employee with one empty, " +
-                "non-interactable trolley and debit once.");
+                        Quaternion.Euler(0f, 180f, 0f)) < 0.01f,
+                "Worker hire did not create one paid Day 1 employee without spawning a " +
+                "private trolley and debit once.");
             RequireNotificationKey(runtime, LocalizationKey.NotificationWarehouseWorkerHired);
             CleanupEvents(runtime);
 
@@ -2573,10 +2948,6 @@ namespace HardwareStore.Editor
                 worker,
                 config.ViewPrefab,
                 "warehouse worker");
-            EntityBehaviour trolleyView = RequireRuntimeView(
-                workerTrolley,
-                config.TrolleyViewPrefab,
-                "warehouse worker trolley");
             Require(worker.hasTransform && worker.Transform == view.transform &&
                     worker.hasNavigationAgent &&
                     worker.NavigationAgent.gameObject == view.gameObject &&
@@ -2592,29 +2963,7 @@ namespace HardwareStore.Editor
                     Mathf.Approximately(worker.NavigationAgent.stoppingDistance,
                         config.StoppingDistance),
                 "Hired worker view did not bind its authored NavMesh and carry adapters.");
-            Require(trolleyView.GetType() == typeof(EntityBehaviour) &&
-                    workerTrolley.hasTransform &&
-                    workerTrolley.Transform == trolleyView.transform &&
-                    workerTrolley.hasRigidbody &&
-                    workerTrolley.Rigidbody.isKinematic &&
-                    !workerTrolley.Rigidbody.useGravity &&
-                    workerTrolley.hasColliders &&
-                    workerTrolley.Colliders.Length == 1 &&
-                    workerTrolley.hasSlots &&
-                    workerTrolley.Slots.Length == config.TrolleyCapacity &&
-                    workerTrolley.Slots.Distinct().Count() ==
-                    config.TrolleyCapacity &&
-                    Vector3.Distance(
-                        workerTrolley.Transform.position,
-                        workerTrolley.WorkerTrolleyHomePosition) < 0.001f &&
-                    Quaternion.Angle(
-                        workerTrolley.Transform.rotation,
-                        workerTrolley.WorkerTrolleyHomeRotation) < 0.01f,
-                "Bundled worker trolley did not bind at its authored home pose with three " +
-                "generic cargo slots and one kinematic body.");
-            runtime.Systems.Create<RefreshWorkerTrolleyOccupiedSlotCountSystem>().Execute();
             runtime.Systems.Create<ValidateWarehouseWorkerStateSystem>().Execute();
-            runtime.Systems.Create<ValidateWorkerTrolleyStateSystem>().Execute();
 
             int moneyAfterHire = scenario.Store.Money;
             int expensesAfterHire = scenario.Store.DayUpgradeExpenses;
@@ -2626,11 +2975,17 @@ namespace HardwareStore.Editor
                         worker) &&
                     runtime.Game.GetGroup(GameMatcher.WarehouseWorker).count == 1 &&
                     runtime.Game.GetEntityWithWorkerTrolleyStoreEntityId(
-                        scenario.Store.EntityId) == workerTrolley &&
-                    runtime.Game.GetGroup(GameMatcher.WorkerTrolley).count == 1 &&
+                        scenario.Store.EntityId) == null &&
+                    runtime.Game.GetGroup(GameMatcher.WorkerTrolley).count == 0 &&
+                    ReferenceEquals(
+                        runtime.Game.GetEntityWithTrolleyStoreEntityId(
+                            scenario.Store.EntityId),
+                        platformTrolleyBefore) &&
+                    runtime.Game.GetGroup(GameMatcher.PlatformTrolley).count ==
+                    platformTrolleyCountBefore &&
                     scenario.Store.Money == moneyAfterHire &&
                     scenario.Store.DayUpgradeExpenses == expensesAfterHire,
-                "Repeated hire created a second worker/trolley pair or debited twice.");
+                "Repeated hire created a second worker, spawned a trolley or debited twice.");
             CleanupEvents(runtime);
             ExecuteInteractionPrompts(runtime);
             Require(PromptMatches(
@@ -2653,13 +3008,13 @@ namespace HardwareStore.Editor
             out GameEntity trolley,
             out CustomerVisit visit,
             out GameEntity run,
-            out GameEntity[] products)
+            out GameEntity[] products,
+            bool loadTrolleyAtStorage = true,
+            bool singleProductOrder = false)
         {
             OpenStoreForSmoke(runtime, scenario);
             UnlockWarehouseWorkerHiring(runtime, scenario);
             worker = HireWarehouseWorker(runtime, scenario);
-            trolley = runtime.Game.GetEntityWithWorkerTrolleyStoreEntityId(
-                scenario.Store.EntityId);
 
             for (int deliveryIndex = 0; deliveryIndex < 2; deliveryIndex++)
             {
@@ -2680,12 +3035,6 @@ namespace HardwareStore.Editor
                         ProductTypeId.CementBag) == 6,
                 "Worker-trolley quota-race setup requires six stocked cement products.");
 
-            ValidateWorkerTrolleyPlayerRequestQuotaRace(
-                runtime,
-                scenario,
-                worker,
-                trolley);
-
             DeliveryArrival boardArrival = PurchaseAndPrepareArrival(
                 runtime,
                 scenario,
@@ -2699,6 +3048,42 @@ namespace HardwareStore.Editor
             Require(CountStockProducts(
                         runtime.Game,
                         scenario.StorageZone.EntityId,
+                        ProductTypeId.CementBag) == 6 &&
+                    CountStockProducts(
+                        runtime.Game,
+                        scenario.StorageZone.EntityId,
+                        ProductTypeId.BoardBundle) == 3,
+                "Outbound trolley setup did not hand-stock C6+B3 before its purchase.");
+
+            UnlockTrolleyUpgrade(runtime, scenario);
+            trolley = PurchaseTrolley(runtime, scenario);
+            Pose parkedLeaseHome = new(
+                new Vector3(4f, 0.02f, 1.95f),
+                Quaternion.Euler(0f, 90f, 0f));
+            trolley.Rigidbody.position = parkedLeaseHome.position;
+            trolley.Rigidbody.rotation = parkedLeaseHome.rotation;
+            trolley.Transform.SetPositionAndRotation(
+                parkedLeaseHome.position,
+                parkedLeaseHome.rotation);
+            Physics.SyncTransforms();
+            Require(trolley.isPlatformTrolley && !trolley.isWorkerTrolley &&
+                    trolley.isInteractable &&
+                    !trolley.hasWorkerTrolleyStoreEntityId &&
+                    runtime.Game.GetEntityWithWorkerTrolleyStoreEntityId(
+                        scenario.Store.EntityId) == null &&
+                    runtime.Game.GetGroup(GameMatcher.PlatformTrolley).count == 1 &&
+                    runtime.Game.GetGroup(GameMatcher.WorkerTrolley).count == 0,
+                "Purchased platform trolley was already leased before outbound demand.");
+
+            ValidateWorkerTrolleyPlayerRequestQuotaRace(
+                runtime,
+                scenario,
+                worker,
+                trolley);
+
+            Require(CountStockProducts(
+                        runtime.Game,
+                        scenario.StorageZone.EntityId,
                         ProductTypeId.CementBag) == 3 &&
                     CountStockProducts(
                         runtime.Game,
@@ -2706,53 +3091,115 @@ namespace HardwareStore.Editor
                         ProductTypeId.BoardBundle) == 3,
                 "Quota-race completion must leave the exact C3+B3 mixed-order stock.");
 
-            int workbenchSequenceIndex = runtime.StaticData.ProjectTypes
+            if (singleProductOrder)
+            {
+                GameEntity[] surplusCement = FindStockProducts(
+                        runtime.Game,
+                        scenario.StorageZone.EntityId)
+                    .Where(product => product.ProductType == ProductTypeId.CementBag)
+                    .OrderBy(product => product.StorageSlotIndex)
+                    .Skip(1)
+                    .ToArray();
+                Require(surplusCement.Length == 2,
+                    "One-product trolley setup could not isolate exactly one cement bag.");
+                foreach (GameEntity product in surplusCement)
+                    product.isDestructed = true;
+                runtime.Systems.Create<CleanupDestructedEntitiesSystem>().Cleanup();
+                ExecuteStorageState(runtime);
+                Require(CountStockProducts(
+                            runtime.Game,
+                            scenario.StorageZone.EntityId,
+                            ProductTypeId.CementBag) == 1,
+                    "One-product trolley setup did not leave exact stock-backed demand.");
+            }
+
+            CustomerProjectTypeId projectType = singleProductOrder
+                ? CustomerProjectTypeId.CementFoundation
+                : CustomerProjectTypeId.WorkbenchFoundation;
+            int projectSequenceIndex = runtime.StaticData.ProjectTypes
                 .Select((projectType, index) => (projectType, index))
-                .Single(item => item.projectType ==
-                                CustomerProjectTypeId.WorkbenchFoundation)
+                .Single(item => item.projectType == projectType)
                 .index;
-            scenario.Store.ReplaceNextProjectSequenceIndex(workbenchSequenceIndex);
+            scenario.Store.ReplaceNextProjectSequenceIndex(projectSequenceIndex);
             visit = SpawnAndParkCustomer(runtime, scenario);
-            Require(visit.Entity.CustomerProjectType ==
-                    CustomerProjectTypeId.WorkbenchFoundation,
-                "Worker-trolley setup did not spawn the mixed workbench project.");
+            Require(visit.Entity.CustomerProjectType == projectType,
+                "Worker-trolley setup did not spawn the selected one-or-mixed project.");
             OpenConsultation(runtime, scenario, visit.Entity);
-            CustomerProjectOfferDefinition mixedOffer = runtime.StaticData.GetProject(
-                CustomerProjectTypeId.WorkbenchFoundation).Offers[1];
+            int offerIndex = singleProductOrder ? 0 : 1;
+            RequireSelectedConsultationOffer(
+                runtime,
+                scenario,
+                visit.Entity,
+                offerIndex);
+            CustomerProjectOfferDefinition offer = runtime.StaticData.GetProject(
+                projectType).Offers[offerIndex];
             GameEntity[] orderLines = ConfirmConsultation(
                 runtime,
                 scenario,
                 visit.Entity,
-                mixedOffer);
-            Require(orderLines.Length == 2 &&
-                    FindOrderLine(orderLines, ProductTypeId.CementBag)
-                        .RequiredProductCount == 2 &&
-                    FindOrderLine(orderLines, ProductTypeId.BoardBundle)
-                        .RequiredProductCount == 1,
-                "Worker-trolley setup did not create the exact C2+B1 mixed order.");
+                offer);
+            int expectedProductCount = singleProductOrder ? 1 : 3;
+            Require(singleProductOrder
+                    ? orderLines.Length == 1 &&
+                      orderLines[0].ProductType == ProductTypeId.CementBag &&
+                      orderLines[0].RequiredProductCount == 1
+                    : orderLines.Length == 2 &&
+                      FindOrderLine(orderLines, ProductTypeId.CementBag)
+                          .RequiredProductCount == 2 &&
+                      FindOrderLine(orderLines, ProductTypeId.BoardBundle)
+                          .RequiredProductCount == 1,
+                "Worker-trolley setup did not create the selected one-or-mixed order.");
 
             runtime.Systems.Create<GenerateCustomerLoadingTaskSystem>().Execute();
             run = FindLiveWorkerTrolleyRuns(runtime.Game).Single();
             products = FindWorkerTrolleyRunProducts(runtime.Game, run);
             Require(FindLiveCustomerLoadingTasks(runtime.Game).Length == 0 &&
-                    run.WarehouseRunProductCount ==
-                    runtime.StaticData.WarehouseWorker.TrolleyCapacity &&
-                    products.Length == 3 &&
-                    products.Count(product => product.ProductType ==
-                                             ProductTypeId.CementBag) == 2 &&
-                    products.Count(product => product.ProductType ==
-                                             ProductTypeId.BoardBundle) == 1 &&
+                    ReferenceEquals(
+                        runtime.Game.GetEntityWithTrolleyStoreEntityId(
+                            scenario.Store.EntityId),
+                        trolley) &&
+                    ReferenceEquals(
+                        runtime.Game.GetEntityWithWorkerTrolleyStoreEntityId(
+                            scenario.Store.EntityId),
+                        trolley) &&
+                    runtime.Game.GetGroup(GameMatcher.PlatformTrolley).count == 1 &&
+                    runtime.Game.GetGroup(GameMatcher.WorkerTrolley).count == 1 &&
+                    trolley.isPlatformTrolley && trolley.isWorkerTrolley &&
+                    !trolley.isInteractable &&
+                    !trolley.hasTrolleyPusherEntityId &&
+                    Vector3.Distance(
+                        trolley.WorkerTrolleyHomePosition,
+                        parkedLeaseHome.position) < 0.001f &&
+                    Quaternion.Angle(
+                        trolley.WorkerTrolleyHomeRotation,
+                        parkedLeaseHome.rotation) < 0.01f &&
+                    run.WarehouseTaskWorkerTrolleyEntityId == trolley.EntityId &&
+                    run.WarehouseRunProductCount == expectedProductCount &&
+                    products.Length == expectedProductCount &&
+                    (singleProductOrder
+                        ? products.All(product =>
+                            product.ProductType == ProductTypeId.CementBag)
+                        : products.Count(product => product.ProductType ==
+                                                   ProductTypeId.CementBag) == 2 &&
+                          products.Count(product => product.ProductType ==
+                                                   ProductTypeId.BoardBundle) == 1) &&
                     products.Select(product =>
                             product.ReservedCustomerLoadingSlotIndex)
-                        .SequenceEqual(new[] { 0, 1, 2 }) &&
+                        .SequenceEqual(Enumerable.Range(0, expectedProductCount)) &&
                     products.All(product =>
                         product.hasReservedStorageSlotIndex &&
                         product.hasReservedOrderLineEntityId &&
                         !product.hasStorageSlotIndex &&
                         !product.isInteractable &&
                         !product.hasWorkerTrolleyEntityId),
-                "Mixed batch generation did not reserve exactly three deterministic products " +
-                "and customer-loading slots.");
+                "One-or-mixed batch generation did not lease the purchased platform trolley " +
+                "and reserve its deterministic products and customer-loading slots.");
+            ValidateActivePlatformTrolleyLease(
+                runtime,
+                scenario,
+                trolley,
+                expectedOccupiedSlotCount: 0,
+                "Mixed batch did not establish a valid platform-trolley lease.");
 
             runtime.Systems.Create<AssignWarehouseTaskSystem>().Execute();
             Require(run.hasAssignedWorkerEntityId &&
@@ -2769,11 +3216,33 @@ namespace HardwareStore.Editor
                     trolley.WorkerTrolleyHomePosition,
                     trolley.WorkerTrolleyHomeRotation));
             runtime.Systems.Create<ExecuteWorkerTrolleyRunSystem>().Execute();
+            Require(run.WarehouseTaskStep ==
+                    WarehouseTaskStepId.MovingWorkerTrolleyToStorage &&
+                    worker.WarehouseWorkerStatus ==
+                    WarehouseWorkerStatusId.MovingWorkerTrolleyToStorage &&
+                    worker.isPushingWorkerTrolley && worker.isHandsOccupied &&
+                    trolley.TrolleyPusherEntityId == worker.EntityId &&
+                    trolley.OccupiedTrolleySlotCount == 0 &&
+                    products.All(product => !product.hasWorkerTrolleyEntityId),
+                "Worker did not attach the leased trolley before moving it to storage.");
+            ValidateActivePlatformTrolleyLease(
+                runtime,
+                scenario,
+                trolley,
+                expectedOccupiedSlotCount: 0,
+                "Storage-bound platform-trolley lease became invalid before loading.");
+            if (!loadTrolleyAtStorage)
+                return;
+            MoveWorkerTrolleyToStorageAccess(runtime, worker, trolley, run);
+            runtime.Systems.Create<ExecuteWorkerTrolleyRunSystem>().Execute();
             ExecuteProductPlacement(runtime);
-            runtime.Systems.Create<RefreshWorkerTrolleyOccupiedSlotCountSystem>().Execute();
-            runtime.Systems.Create<ValidateWarehouseWorkerStateSystem>().Execute();
-            runtime.Systems.Create<ValidateWorkerTrolleyStateSystem>().Execute();
             products = FindWorkerTrolleyRunProducts(runtime.Game, run);
+            ValidateActivePlatformTrolleyLease(
+                runtime,
+                scenario,
+                trolley,
+                products.Length,
+                "Loaded mixed batch lost its platform-trolley lease.");
             int trolleyEntityId = trolley.EntityId;
             int trolleyCapacity = trolley.TrolleyCapacity;
             Transform[] trolleySlots = trolley.Slots;
@@ -2786,14 +3255,14 @@ namespace HardwareStore.Editor
                     trolley.TrolleyPusherEntityId == worker.EntityId &&
                     trolley.OccupiedTrolleySlotCount == products.Length &&
                     products.Select(product => product.WorkerTrolleySlotIndex)
-                        .SequenceEqual(new[] { 0, 1, 2 }) &&
+                        .SequenceEqual(Enumerable.Range(0, expectedProductCount)) &&
                     products.All(product =>
                         product.WorkerTrolleyEntityId == trolleyEntityId &&
                         product.WorkerTrolleySlotIndex >= 0 &&
                         product.WorkerTrolleySlotIndex < trolleyCapacity &&
                         product.Transform.parent ==
                         trolleySlots[product.WorkerTrolleySlotIndex]),
-                "Worker did not load the full mixed batch onto the bundled trolley.");
+                "Worker did not load the full mixed batch onto the leased platform trolley.");
         }
 
         private static void ValidateWorkerTrolleyPlayerRequestQuotaRace(
@@ -2915,8 +3384,23 @@ namespace HardwareStore.Editor
                     trolley.WorkerTrolleyHomePosition,
                     trolley.WorkerTrolleyHomeRotation));
             runtime.Systems.Create<ExecuteWorkerTrolleyRunSystem>().Execute();
+            Require(run.WarehouseTaskStep ==
+                    WarehouseTaskStepId.MovingWorkerTrolleyToStorage &&
+                    worker.WarehouseWorkerStatus ==
+                    WarehouseWorkerStatusId.MovingWorkerTrolleyToStorage &&
+                    trolley.TrolleyPusherEntityId == worker.EntityId &&
+                    trolley.OccupiedTrolleySlotCount == 0 &&
+                    workerProducts.All(product => !product.hasWorkerTrolleyEntityId),
+                "Quota-race worker did not take the leased trolley to storage before load.");
+            MoveWorkerTrolleyToStorageAccess(runtime, worker, trolley, run);
+            runtime.Systems.Create<ExecuteWorkerTrolleyRunSystem>().Execute();
             ExecuteProductPlacement(runtime);
-            runtime.Systems.Create<RefreshWorkerTrolleyOccupiedSlotCountSystem>().Execute();
+            ValidateActivePlatformTrolleyLease(
+                runtime,
+                scenario,
+                trolley,
+                workerProducts.Length,
+                "Quota-race batch lost its platform-trolley lease after loading.");
             Require(trolley.OccupiedTrolleySlotCount == 2 &&
                     workerProducts.Select(product => product.WorkerTrolleySlotIndex)
                         .SequenceEqual(new[] { 0, 1 }),
@@ -2933,9 +3417,12 @@ namespace HardwareStore.Editor
                 customerPose);
             runtime.Systems.Create<ExecuteWorkerTrolleyRunSystem>().Execute();
             ExecuteProductPlacement(runtime);
-            runtime.Systems.Create<RefreshWorkerTrolleyOccupiedSlotCountSystem>().Execute();
-            runtime.Systems.Create<ValidateWarehouseWorkerStateSystem>().Execute();
-            runtime.Systems.Create<ValidateWorkerTrolleyStateSystem>().Execute();
+            ValidateActivePlatformTrolleyLease(
+                runtime,
+                scenario,
+                trolley,
+                expectedOccupiedSlotCount: 0,
+                "Quota-race unload released or corrupted the trolley before its return.");
             GameEntity[] loadedProducts = workerProducts
                 .Prepend(playerProduct)
                 .ToArray();
@@ -2967,10 +3454,10 @@ namespace HardwareStore.Editor
                 new[] { line },
                 loadedProducts);
 
-            runtime.Systems.Create<ReturnWorkerTrolleySystem>().Execute();
             Pose homePose = new(
                 trolley.WorkerTrolleyHomePosition,
                 trolley.WorkerTrolleyHomeRotation);
+            runtime.Systems.Create<ReturnWorkerTrolleySystem>().Execute();
             Pose returnMidpoint = new(
                 Vector3.Lerp(customerPose.position, homePose.position, 0.5f),
                 homePose.rotation);
@@ -2990,21 +3477,45 @@ namespace HardwareStore.Editor
             runtime.Systems.Create<FollowWorkerTrolleySystem>().Execute();
             Physics.SyncTransforms();
             runtime.Systems.Create<ReturnWorkerTrolleySystem>().Execute();
-            runtime.Systems.Create<ValidateWarehouseWorkerStateSystem>().Execute();
-            runtime.Systems.Create<ValidateWorkerTrolleyStateSystem>().Execute();
+            ValidateReleasedPlatformTrolley(
+                runtime,
+                scenario,
+                trolley,
+                homePose,
+                "Quota-race return did not release the purchased trolley to the player.");
             Require(worker.WarehouseWorkerStatus == WarehouseWorkerStatusId.Idle &&
                     worker.NavigationAgent.updateRotation &&
                     !worker.isHandsOccupied && !worker.isPushingWorkerTrolley &&
-                    !trolley.hasTrolleyPusherEntityId &&
-                    PoseMatches(
-                        new Pose(trolley.Transform.position, trolley.Transform.rotation),
-                        homePose) &&
                     CountStockProducts(
                         runtime.Game,
                         scenario.StorageZone.EntityId,
                         ProductTypeId.CementBag) == 3,
                 "Quota-race cleanup did not return the empty cart or leave exact cement " +
                 "stock for the mixed-order smoke.");
+
+            scenario.Player.ReplaceFocusedEntityId(trolley.EntityId);
+            scenario.Player.ReplaceFocusedInteractionType(
+                InteractionTypeId.PlatformTrolley);
+            scenario.Input.isTrolleyPressed = true;
+            runtime.Systems.Create<StartPushingTrolleySystem>().Execute();
+            CleanupEvents(runtime);
+            Require(scenario.Player.isPushingTrolley &&
+                    scenario.Player.isHandsOccupied &&
+                    !scenario.Player.hasFocusedEntityId &&
+                    !scenario.Player.hasFocusedInteractionType &&
+                    trolley.TrolleyPusherEntityId == scenario.Player.EntityId &&
+                    !trolley.isInteractable,
+                "The player could not reclaim the platform trolley after worker return.");
+            scenario.Input.isTrolleyPressed = true;
+            runtime.Systems.Create<DetachPushedTrolleySystem>().Execute();
+            CleanupEvents(runtime);
+            Require(!scenario.Player.isPushingTrolley &&
+                    !scenario.Player.isHandsOccupied &&
+                    !trolley.hasTrolleyPusherEntityId &&
+                    trolley.isInteractable,
+                "The reclaimed platform trolley did not detach before its next worker lease.");
+            runtime.Systems.Create<ValidatePlayerHandlingStateSystem>().Execute();
+            runtime.Systems.Create<ValidatePlatformTrolleyStateSystem>().Execute();
         }
 
         private static void ValidateWorkerTrolleyCannotBeCapturedByPlayer(
@@ -3013,71 +3524,111 @@ namespace HardwareStore.Editor
             GameEntity worker,
             GameEntity trolley)
         {
-            Require(!trolley.isInteractable && !trolley.isPlatformTrolley &&
-                    trolley.View.GetType() == typeof(EntityBehaviour) &&
-                    trolley.Colliders.All(collider =>
-                        collider.gameObject.layer ==
-                        LayerMask.NameToLayer("Ignore Raycast")) &&
+            Require(!trolley.isInteractable && trolley.isPlatformTrolley &&
+                    trolley.isWorkerTrolley &&
+                    trolley.View is HardwareStore.Gameplay.Views.InteractionView &&
                     !scenario.Player.isPushingTrolley &&
                     trolley.TrolleyPusherEntityId == worker.EntityId,
-                "Worker trolley exposed a player interaction or direct-focus collider.");
-            if (scenario.Player.hasFocusedEntityId)
-                scenario.Player.RemoveFocusedEntityId();
-            if (scenario.Player.hasFocusedInteractionType)
-                scenario.Player.RemoveFocusedInteractionType();
+                "Leased platform trolley exposed a player interaction or lost its worker.");
+            scenario.Player.ReplaceFocusedEntityId(trolley.EntityId);
+            scenario.Player.ReplaceFocusedInteractionType(
+                InteractionTypeId.PlatformTrolley);
             scenario.Input.isTrolleyPressed = true;
             runtime.Systems.Create<StartPushingTrolleySystem>().Execute();
             Require(!scenario.Player.isPushingTrolley &&
+                    !scenario.Player.isHandsOccupied &&
                     trolley.TrolleyPusherEntityId == worker.EntityId,
-                "Player F input captured a worker-only trolley.");
+                "Player F input captured a platform trolley during its worker lease.");
             CleanupEvents(runtime);
+            scenario.Player.RemoveFocusedEntityId();
+            scenario.Player.RemoveFocusedInteractionType();
         }
 
-        private static void ValidateWorkerTrolleyRecoveryBeforeAndAfterLoad(
+        private static void ValidateActivePlatformTrolleyLease(
             Runtime runtime,
             Scenario scenario,
-            GameEntity worker,
             GameEntity trolley,
-            GameEntity visit,
-            ref GameEntity run,
-            ref GameEntity[] products)
+            int expectedOccupiedSlotCount,
+            string message)
         {
-            RecoverBlockedWorkerTrolleyRun(
-                runtime,
-                scenario,
-                worker,
-                trolley,
-                visit,
-                run,
-                products,
-                WarehouseTaskBlockReasonId.WorkerTrolleyObstructed,
-                expectedLoadedOnTrolley: true);
-            CreateAssignedWorkerTrolleyRun(
-                runtime,
-                scenario,
-                worker,
-                trolley,
-                out run,
-                out products,
-                loadTrolley: false);
-            RecoverBlockedWorkerTrolleyRun(
-                runtime,
-                scenario,
-                worker,
-                trolley,
-                visit,
-                run,
-                products,
-                WarehouseTaskBlockReasonId.NoWorkerTrolleyPath,
-                expectedLoadedOnTrolley: false);
-            CreateAssignedWorkerTrolleyRun(
-                runtime,
-                scenario,
-                worker,
-                trolley,
-                out run,
-                out products,
-                loadTrolley: true);
+            runtime.Systems.Create<RefreshWorkerTrolleyOccupiedSlotCountSystem>().Execute();
+            Require(trolley.OccupiedTrolleySlotCount == expectedOccupiedSlotCount,
+                message + " Worker cargo count is invalid.");
+            runtime.Systems.Create<RefreshTrolleyOccupiedSlotCountSystem>().Execute();
+            if (trolley.hasTrolleyPusherEntityId)
+            {
+                Pose workerDrivenPose = new(
+                    trolley.Transform.position,
+                    trolley.Transform.rotation);
+                runtime.Systems.Create<FollowPushedTrolleySystem>().Execute();
+                Require(PoseMatches(
+                        new Pose(trolley.Transform.position, trolley.Transform.rotation),
+                        workerDrivenPose),
+                    message + " Player trolley movement captured the worker lease.");
+            }
+            runtime.Systems.Create<ValidateWarehouseWorkerStateSystem>().Execute();
+            runtime.Systems.Create<ValidateWorkerTrolleyStateSystem>().Execute();
+            runtime.Systems.Create<ValidatePlatformTrolleyStateSystem>().Execute();
+            Require(trolley.isPlatformTrolley && trolley.isWorkerTrolley &&
+                    !trolley.isInteractable &&
+                    trolley.hasTrolleyStoreEntityId &&
+                    trolley.TrolleyStoreEntityId == scenario.Store.EntityId &&
+                    trolley.hasWorkerTrolleyStoreEntityId &&
+                    trolley.WorkerTrolleyStoreEntityId == scenario.Store.EntityId &&
+                    trolley.hasWorkerTrolleyHomePosition &&
+                    trolley.hasWorkerTrolleyHomeRotation &&
+                    trolley.hasWorkerTrolleyCustomerLoadingPosition &&
+                    trolley.hasWorkerTrolleyCustomerLoadingRotation &&
+                    trolley.OccupiedTrolleySlotCount == expectedOccupiedSlotCount &&
+                    ReferenceEquals(
+                        runtime.Game.GetEntityWithTrolleyStoreEntityId(
+                            scenario.Store.EntityId),
+                        trolley) &&
+                    ReferenceEquals(
+                        runtime.Game.GetEntityWithWorkerTrolleyStoreEntityId(
+                            scenario.Store.EntityId),
+                        trolley) &&
+                    runtime.Game.GetGroup(GameMatcher.PlatformTrolley).count == 1 &&
+                    runtime.Game.GetGroup(GameMatcher.WorkerTrolley).count == 1,
+                message);
+        }
+
+        private static void ValidateReleasedPlatformTrolley(
+            Runtime runtime,
+            Scenario scenario,
+            GameEntity trolley,
+            Pose expectedHomePose,
+            string message)
+        {
+            runtime.Systems.Create<RefreshTrolleyOccupiedSlotCountSystem>().Execute();
+            runtime.Systems.Create<ValidateWarehouseWorkerStateSystem>().Execute();
+            runtime.Systems.Create<ValidateWorkerTrolleyStateSystem>().Execute();
+            runtime.Systems.Create<ValidatePlatformTrolleyStateSystem>().Execute();
+            Require(trolley.isPlatformTrolley && !trolley.isWorkerTrolley &&
+                    trolley.isInteractable &&
+                    trolley.hasTrolleyStoreEntityId &&
+                    trolley.TrolleyStoreEntityId == scenario.Store.EntityId &&
+                    !trolley.hasWorkerTrolleyStoreEntityId &&
+                    !trolley.hasWorkerTrolleyHomePosition &&
+                    !trolley.hasWorkerTrolleyHomeRotation &&
+                    !trolley.hasWorkerTrolleyCustomerLoadingPosition &&
+                    !trolley.hasWorkerTrolleyCustomerLoadingRotation &&
+                    !trolley.hasTrolleyPusherEntityId &&
+                    trolley.OccupiedTrolleySlotCount == 0 &&
+                    runtime.Game.GetEntitiesWithWorkerTrolleyEntityId(
+                        trolley.EntityId).Count == 0 &&
+                    PoseMatches(
+                        new Pose(trolley.Transform.position, trolley.Transform.rotation),
+                        expectedHomePose) &&
+                    ReferenceEquals(
+                        runtime.Game.GetEntityWithTrolleyStoreEntityId(
+                            scenario.Store.EntityId),
+                        trolley) &&
+                    runtime.Game.GetEntityWithWorkerTrolleyStoreEntityId(
+                        scenario.Store.EntityId) == null &&
+                    runtime.Game.GetGroup(GameMatcher.PlatformTrolley).count == 1 &&
+                    runtime.Game.GetGroup(GameMatcher.WorkerTrolley).count == 0,
+                message);
         }
 
         private static void RecoverBlockedWorkerTrolleyRun(
@@ -3095,26 +3646,29 @@ namespace HardwareStore.Editor
                     products.All(product =>
                         product.hasWorkerTrolleyEntityId == expectedLoadedOnTrolley),
                 "Worker-trolley recovery setup does not match its expected cart phase.");
+            Pose homePose = new(
+                trolley.WorkerTrolleyHomePosition,
+                trolley.WorkerTrolleyHomeRotation);
             run.ReplaceWarehouseTaskStep(WarehouseTaskStepId.Blocked);
             run.ReplaceWarehouseTaskBlockReason(reason);
             runtime.Systems.Create<RecoverBlockedWorkerTrolleyRunSystem>().Execute();
-            runtime.Systems.Create<RefreshWorkerTrolleyOccupiedSlotCountSystem>().Execute();
-            runtime.Systems.Create<ValidateWarehouseWorkerStateSystem>().Execute();
-            runtime.Systems.Create<ValidateWorkerTrolleyStateSystem>().Execute();
+            ValidateReleasedPlatformTrolley(
+                runtime,
+                scenario,
+                trolley,
+                homePose,
+                "Blocked worker-trolley recovery did not release its platform trolley.");
             Require(run.WarehouseTaskStep == WarehouseTaskStepId.Blocked &&
                     run.WarehouseTaskBlockReason == reason &&
                     !run.hasAssignedWorkerEntityId &&
+                    !run.hasWarehouseTaskWorkerTrolleyEntityId &&
+                    runtime.Game.GetEntityWithWarehouseTaskWorkerTrolleyEntityId(
+                        trolley.EntityId) == null &&
                     worker.WarehouseWorkerStatus == WarehouseWorkerStatusId.Blocked &&
                     !worker.isHandsOccupied && !worker.isPushingWorkerTrolley &&
                     worker.NavigationAgent.updateRotation &&
                     !trolley.hasTrolleyPusherEntityId &&
                     trolley.OccupiedTrolleySlotCount == 0 &&
-                    Vector3.Distance(
-                        trolley.Transform.position,
-                        trolley.WorkerTrolleyHomePosition) < 0.001f &&
-                    Quaternion.Angle(
-                        trolley.Transform.rotation,
-                        trolley.WorkerTrolleyHomeRotation) < 0.01f &&
                     products.All(product =>
                         product.isInStock && product.isInteractable &&
                         product.hasStorageSlotIndex &&
@@ -3128,59 +3682,61 @@ namespace HardwareStore.Editor
                 "Blocked worker-trolley recovery did not restore shelves and normalize the " +
                 "worker/cart before manual handoff.");
 
-            visit.isCustomerVisitLoading = false;
-            runtime.Systems.Create<CleanupBlockedWorkerTrolleyRunSystem>().Execute();
-            visit.isCustomerVisitLoading = true;
-            Require(run.isDestructed &&
-                    products.All(product => !product.hasWarehouseRunEntityId) &&
+            GameEntity[] orderLines = GetOrderLines(runtime.Game, visit);
+            GameEntity[] handoffProducts = products
+                .OrderBy(product => product.ProductType)
+                .ThenBy(product => product.EntityId)
+                .ToArray();
+            for (int index = 0; index < handoffProducts.Length; index++)
+            {
+                GameEntity product = handoffProducts[index];
+                RequestInteraction(scenario.Player, product);
+                runtime.Systems.Create<PickUpProductSystem>().Execute();
+                Require(product.hasCarrierEntityId &&
+                        product.CarrierEntityId == scenario.Player.EntityId &&
+                        !product.hasWarehouseRunEntityId &&
+                        product.hasReservedStorageSlotIndex &&
+                        product.hasReservedOrderLineEntityId,
+                    "Player did not claim a recovered trolley-run product through the real " +
+                    "manual handoff path.");
+                CleanupEvents(runtime);
+
+                runtime.Systems.Create<CleanupBlockedWorkerTrolleyRunSystem>().Execute();
+                bool finalHandoff = index == handoffProducts.Length - 1;
+                Require(run.isDestructed == finalHandoff &&
+                        worker.WarehouseWorkerStatus == (finalHandoff
+                            ? WarehouseWorkerStatusId.Idle
+                            : WarehouseWorkerStatusId.Blocked),
+                    "Blocked trolley diagnostic did not wait for every real manual handoff.");
+
+                RequestInteraction(scenario.Player, visit);
+                runtime.Systems.Create<LoadHeldProductSystem>().Execute();
+                Require(product.isProductLoaded && product.isLoaded &&
+                        product.hasOrderLineEntityId &&
+                        product.hasLoadingSlotIndex &&
+                        !scenario.Player.isHandsOccupied,
+                    "Recovered trolley-run product did not load through the customer vehicle " +
+                    "interaction.");
+                runtime.Systems.Create<RegisterLoadedProductSystem>().Execute();
+                CleanupEvents(runtime);
+            }
+
+            runtime.Systems.Create<CompleteOrderSystem>().Execute();
+            Require(visit.isCustomerVisitCompleted &&
+                    !visit.isCustomerVisitLoading &&
+                    run.isDestructed &&
+                    !run.hasWarehouseTaskWorkerTrolleyEntityId &&
+                    products.All(product =>
+                        !product.hasWarehouseRunEntityId &&
+                        product.isLoaded && product.hasOrderLineEntityId) &&
+                    orderLines.Sum(line => line.LoadedProductCount) == products.Length &&
                     worker.WarehouseWorkerStatus == WarehouseWorkerStatusId.Idle,
-                "Resolved blocked trolley diagnostic did not release its run/product links.");
+                "Real blocked-run handoff did not complete the order and release every run " +
+                "relation.");
             runtime.Systems.Create<CleanupDestructedEntitiesSystem>().Cleanup();
             ExecuteProductPlacement(runtime);
             ExecuteStorageState(runtime);
-        }
-
-        private static void CreateAssignedWorkerTrolleyRun(
-            Runtime runtime,
-            Scenario scenario,
-            GameEntity worker,
-            GameEntity trolley,
-            out GameEntity run,
-            out GameEntity[] products,
-            bool loadTrolley)
-        {
-            runtime.Systems.Create<GenerateCustomerLoadingTaskSystem>().Execute();
-            run = FindLiveWorkerTrolleyRuns(runtime.Game).Single();
-            products = FindWorkerTrolleyRunProducts(runtime.Game, run);
-            Require(products.Length == run.WarehouseRunProductCount &&
-                    products.Length ==
-                    runtime.StaticData.WarehouseWorker.TrolleyCapacity,
-                "Regenerated worker-trolley run lost the exact mixed batch.");
-            runtime.Systems.Create<AssignWarehouseTaskSystem>().Execute();
-            Require(run.hasAssignedWorkerEntityId &&
-                    run.AssignedWorkerEntityId == worker.EntityId &&
-                    run.WarehouseTaskStep ==
-                    WarehouseTaskStepId.MovingToWorkerTrolley,
-                "Regenerated worker-trolley run was not assigned to the idle worker.");
-            if (!loadTrolley)
-                return;
-
-            MoveWorkerTrolleyToPose(
-                worker,
-                trolley,
-                new Pose(
-                    trolley.WorkerTrolleyHomePosition,
-                    trolley.WorkerTrolleyHomeRotation));
-            runtime.Systems.Create<ExecuteWorkerTrolleyRunSystem>().Execute();
-            ExecuteProductPlacement(runtime);
-            runtime.Systems.Create<RefreshWorkerTrolleyOccupiedSlotCountSystem>().Execute();
-            runtime.Systems.Create<ValidateWarehouseWorkerStateSystem>().Execute();
-            runtime.Systems.Create<ValidateWorkerTrolleyStateSystem>().Execute();
-            Require(run.WarehouseTaskStep ==
-                    WarehouseTaskStepId.MovingWorkerTrolleyToCustomerLoading &&
-                    trolley.OccupiedTrolleySlotCount == products.Length &&
-                    products.All(product => product.hasWorkerTrolleyEntityId),
-                "Regenerated worker-trolley run did not reload its exact products.");
+            CleanupEvents(runtime);
         }
 
         private static void CompleteWarehouseWorkerTrolleyBatch(
@@ -3214,9 +3770,12 @@ namespace HardwareStore.Editor
                 "storage-to-customer corridor.");
             runtime.Systems.Create<ExecuteWorkerTrolleyRunSystem>().Execute();
             ExecuteProductPlacement(runtime);
-            runtime.Systems.Create<RefreshWorkerTrolleyOccupiedSlotCountSystem>().Execute();
-            runtime.Systems.Create<ValidateWarehouseWorkerStateSystem>().Execute();
-            runtime.Systems.Create<ValidateWorkerTrolleyStateSystem>().Execute();
+            ValidateActivePlatformTrolleyLease(
+                runtime,
+                scenario,
+                trolley,
+                expectedOccupiedSlotCount: 0,
+                "Atomic unload released or corrupted the trolley before return.");
             Require(run.isDestructed && !run.hasAssignedWorkerEntityId &&
                     FindLiveWorkerTrolleyRuns(runtime.Game).Length == 0 &&
                     runtime.Game.GetEntityWithAssignedWorkerEntityId(
@@ -3284,6 +3843,9 @@ namespace HardwareStore.Editor
                 scenario,
                 worker,
                 trolley);
+            Pose finalHomePose = new(
+                trolley.WorkerTrolleyHomePosition,
+                trolley.WorkerTrolleyHomeRotation);
             scenario.Player.ReplaceFocusedEntityId(
                 scenario.StoreControlTerminal.EntityId);
             ExecuteInteractionPrompts(runtime);
@@ -3304,20 +3866,18 @@ namespace HardwareStore.Editor
                 "Taskless empty-cart return blocked the mandatory day report.");
             CleanupEvents(runtime);
             runtime.Systems.Create<ReturnWorkerTrolleySystem>().Execute();
-            runtime.Systems.Create<ValidateWarehouseWorkerStateSystem>().Execute();
-            runtime.Systems.Create<ValidateWorkerTrolleyStateSystem>().Execute();
+            ValidateReleasedPlatformTrolley(
+                runtime,
+                scenario,
+                trolley,
+                finalHomePose,
+                "Report-time return did not release the purchased platform trolley.");
             Require(worker.WarehouseWorkerStatus == WarehouseWorkerStatusId.Idle &&
                     worker.NavigationAgent.updateRotation &&
                     !worker.isPushingWorkerTrolley && !worker.isHandsOccupied &&
                     !trolley.hasTrolleyPusherEntityId &&
-                    trolley.OccupiedTrolleySlotCount == 0 &&
-                    Vector3.Distance(
-                        trolley.Transform.position,
-                        trolley.WorkerTrolleyHomePosition) < 0.001f &&
-                    Quaternion.Angle(
-                        trolley.Transform.rotation,
-                        trolley.WorkerTrolleyHomeRotation) < 0.01f,
-                "Report-time trolley return did not normalize the empty cart at home.");
+                    trolley.OccupiedTrolleySlotCount == 0,
+                "Report-time trolley return did not normalize and release the empty cart.");
         }
 
         private static void CompleteWorkerTrolleyBatchTwoDuringReturn(
@@ -3382,10 +3942,22 @@ namespace HardwareStore.Editor
             MoveWarehouseWorkerToTrolleyPusherPose(worker, trolley, homePose);
             runtime.Systems.Create<FollowWorkerTrolleySystem>().Execute();
             runtime.Systems.Create<ExecuteWorkerTrolleyRunSystem>().Execute();
+            Require(run.WarehouseTaskStep ==
+                    WarehouseTaskStepId.MovingWorkerTrolleyToStorage &&
+                    worker.WarehouseWorkerStatus ==
+                    WarehouseWorkerStatusId.MovingWorkerTrolleyToStorage &&
+                    trolley.TrolleyPusherEntityId == worker.EntityId &&
+                    trolley.OccupiedTrolleySlotCount == 0,
+                "Redirected batch skipped the shared-trolley storage leg.");
+            MoveWorkerTrolleyToStorageAccess(runtime, worker, trolley, run);
+            runtime.Systems.Create<ExecuteWorkerTrolleyRunSystem>().Execute();
             ExecuteProductPlacement(runtime);
-            runtime.Systems.Create<RefreshWorkerTrolleyOccupiedSlotCountSystem>().Execute();
-            runtime.Systems.Create<ValidateWarehouseWorkerStateSystem>().Execute();
-            runtime.Systems.Create<ValidateWorkerTrolleyStateSystem>().Execute();
+            ValidateActivePlatformTrolleyLease(
+                runtime,
+                scenario,
+                trolley,
+                products.Length,
+                "Redirected batch lost its platform-trolley lease after loading.");
             Require(worker.NavigationAgent.updateRotation &&
                     trolley.OccupiedTrolleySlotCount == 3 &&
                     products.Select(product => product.WorkerTrolleySlotIndex)
@@ -3404,9 +3976,12 @@ namespace HardwareStore.Editor
                 customerPose);
             runtime.Systems.Create<ExecuteWorkerTrolleyRunSystem>().Execute();
             ExecuteProductPlacement(runtime);
-            runtime.Systems.Create<RefreshWorkerTrolleyOccupiedSlotCountSystem>().Execute();
-            runtime.Systems.Create<ValidateWarehouseWorkerStateSystem>().Execute();
-            runtime.Systems.Create<ValidateWorkerTrolleyStateSystem>().Execute();
+            ValidateActivePlatformTrolleyLease(
+                runtime,
+                scenario,
+                trolley,
+                expectedOccupiedSlotCount: 0,
+                "Closing batch released or corrupted its trolley before return.");
             Require(run.isDestructed &&
                     worker.WarehouseWorkerStatus ==
                     WarehouseWorkerStatusId.ReturningWorkerTrolley &&
@@ -3450,6 +4025,80 @@ namespace HardwareStore.Editor
             Physics.SyncTransforms();
         }
 
+        private static void MoveWorkerTrolleyToStorageAccess(
+            Runtime runtime,
+            GameEntity worker,
+            GameEntity trolley,
+            GameEntity run)
+        {
+            Pose storageCartPose =
+                WorkerTrolleyLeaseUtility.CreateStorageAccessPose(
+                    worker.WarehouseWorkerStoragePosition,
+                    worker.WarehouseWorkerStorageRotation,
+                    trolley.TrolleyFollowDistance);
+            Vector3 storagePusherPosition =
+                WorkerTrolleyLeaseUtility.GetPusherPosition(
+                    trolley,
+                    storageCartPose);
+            Require(Vector3.Distance(
+                        storagePusherPosition,
+                        worker.WarehouseWorkerStoragePosition) < 0.001f &&
+                    Mathf.Abs(Quaternion.Angle(
+                        storageCartPose.rotation,
+                        worker.WarehouseWorkerStorageRotation) - 105f) < 0.01f,
+                "Worker-trolley storage pose did not use the diagonal clearance between " +
+                "the pallet rack and loading bay while preserving the authored access point.");
+
+            Pose origin = new(
+                trolley.Transform.position,
+                trolley.Transform.rotation);
+            Pose midpoint = new(
+                Vector3.Lerp(origin.position, storageCartPose.position, 0.5f),
+                Quaternion.Slerp(origin.rotation, storageCartPose.rotation, 0.5f));
+            MoveWarehouseWorkerToTrolleyPusherPose(worker, trolley, midpoint);
+            runtime.Systems.Create<FollowWorkerTrolleySystem>().Execute();
+            Physics.SyncTransforms();
+            Require(PoseMatches(
+                        new Pose(trolley.Transform.position, trolley.Transform.rotation),
+                        midpoint) &&
+                    run.WarehouseTaskStep ==
+                    WarehouseTaskStepId.MovingWorkerTrolleyToStorage,
+                "Worker trolley collided during its real turning sweep toward storage.");
+
+            MoveWarehouseWorkerToTrolleyPusherPose(
+                worker,
+                trolley,
+                storageCartPose);
+            runtime.Systems.Create<FollowWorkerTrolleySystem>().Execute();
+            Physics.SyncTransforms();
+            Require(PoseMatches(
+                        new Pose(trolley.Transform.position, trolley.Transform.rotation),
+                        storageCartPose) &&
+                    run.WarehouseTaskStep ==
+                    WarehouseTaskStepId.MovingWorkerTrolleyToStorage,
+                "Worker trolley collided before reaching its safe storage loading pose.");
+
+            Collider[] palletBeams = UnityEngine.Object
+                .FindObjectsByType<Collider>(
+                    FindObjectsInactive.Exclude,
+                    FindObjectsSortMode.None)
+                .Where(collider =>
+                    collider.gameObject.scene == trolley.View.gameObject.scene &&
+                    (collider.name.StartsWith("Pallet Beam ",
+                         StringComparison.Ordinal) ||
+                     collider.name.StartsWith("Upper Pallet Beam ",
+                         StringComparison.Ordinal)))
+                .ToArray();
+            Collider[] trolleyHulls = trolley.Colliders
+                .Where(collider => collider != null && collider.enabled &&
+                                   !collider.isTrigger)
+                .ToArray();
+            Require(palletBeams.Length == 12 && trolleyHulls.Length > 0 &&
+                    trolleyHulls.All(trolleyHull => palletBeams.All(beam =>
+                        !trolleyHull.bounds.Intersects(beam.bounds))),
+                "The safe worker-trolley storage pose intersects an authored pallet beam.");
+        }
+
         private static void MoveWorkerTrolleyAlongAuthoredOutboundRun(
             Runtime runtime,
             GameEntity worker,
@@ -3461,11 +4110,8 @@ namespace HardwareStore.Editor
                 trolley.Transform.position,
                 trolley.Transform.rotation);
             Vector3 runDelta = destination.position - origin.position;
-            Vector3 trolleyForward = origin.rotation * Vector3.forward;
-            Require(Mathf.Approximately(runDelta.magnitude, 2f) &&
-                    Vector3.Dot(runDelta.normalized, trolleyForward) >= 0.999f &&
-                    Quaternion.Angle(origin.rotation, destination.rotation) < 0.01f,
-                "Worker-trolley smoke requires the exact 2m forward-facing authored run.");
+            Require(runDelta.sqrMagnitude > 0.01f,
+                "Worker-trolley smoke requires distinct storage and customer poses.");
 
             Pose midpoint = new(
                 Vector3.Lerp(origin.position, destination.position, 0.5f),
@@ -3509,6 +4155,13 @@ namespace HardwareStore.Editor
             Scenario scenario,
             GameEntity worker)
         {
+            Require(runtime.Game.GetEntityWithTrolleyStoreEntityId(
+                        scenario.Store.EntityId) == null &&
+                    runtime.Game.GetEntityWithWorkerTrolleyStoreEntityId(
+                        scenario.Store.EntityId) == null &&
+                    runtime.Game.GetGroup(GameMatcher.PlatformTrolley).count == 0 &&
+                    runtime.Game.GetGroup(GameMatcher.WorkerTrolley).count == 0,
+                "Hand-carry flow requires a worker without any purchased or leased trolley.");
             ProductTypeId cement = ProductTypeId.CementBag;
             ProductTypeId boards = ProductTypeId.BoardBundle;
             DeliveryArrival cementArrival = PurchaseAndPrepareArrival(
@@ -3655,6 +4308,7 @@ namespace HardwareStore.Editor
                     !workerProduct.isInteractable &&
                     workerProduct.hasReservedStorageSlotIndex &&
                     workerProduct.hasReservedOrderLineEntityId &&
+                    FindLiveWorkerTrolleyRuns(runtime.Game).Length == 0 &&
                     runtime.Game.GetEntitiesWithWarehouseTaskCustomerVisitEntityId(
                         bayB.Entity.EntityId).Count == 0,
                 "Outbound generation ignored bay ownership, FIFO line or player-first cargo.");
@@ -4320,6 +4974,38 @@ namespace HardwareStore.Editor
                 .OrderBy(run => run.EntityId)
                 .ToArray();
 
+        private static GameEntity[] FindLiveInboundWorkerTrolleyRuns(
+            GameContext context) =>
+            context.GetGroup(GameMatcher.AllOf(
+                    GameMatcher.WarehouseTask,
+                    GameMatcher.InboundToStorageTask,
+                    GameMatcher.WorkerTrolleyInboundStorageRun,
+                    GameMatcher.EntityId,
+                    GameMatcher.WarehouseTaskStoreEntityId,
+                    GameMatcher.WarehouseTaskStorageZoneEntityId,
+                    GameMatcher.WarehouseTaskProductEntityId,
+                    GameMatcher.WarehouseTaskWorkerTrolleyEntityId,
+                    GameMatcher.WarehouseRunProductCount,
+                    GameMatcher.WarehouseTaskStep)
+                .NoneOf(GameMatcher.Destructed))
+                .GetEntities()
+                .OrderBy(run => run.EntityId)
+                .ToArray();
+
+        private static GameEntity[] FindInboundWorkerTrolleyRunProducts(
+            GameContext context,
+            GameEntity run) =>
+            context.GetEntitiesWithWarehouseRunEntityId(run.EntityId)
+                .Where(product => product.isProduct && product.isInboundProduct &&
+                                  !product.isDestructed)
+                .OrderBy(product => product.hasDeliverySlotIndex
+                    ? product.DeliverySlotIndex
+                    : product.hasReservedDeliverySlotIndex
+                        ? product.ReservedDeliverySlotIndex
+                        : int.MaxValue)
+                .ThenBy(product => product.EntityId)
+                .ToArray();
+
         private static GameEntity[] FindWorkerTrolleyRunProducts(
             GameContext context,
             GameEntity run) =>
@@ -4527,6 +5213,9 @@ namespace HardwareStore.Editor
                 "Assigned outbound helper requires an idle worker and clean loading visit.");
             runtime.Systems.Create<GenerateCustomerLoadingTaskSystem>().Execute();
             GameEntity task = FindLiveCustomerLoadingTasks(runtime.Game).Single();
+            Require(FindLiveWorkerTrolleyRuns(runtime.Game).Length == 0,
+                "A worker without an available purchased trolley generated a trolley run " +
+                "instead of one hand-carry task.");
             runtime.Systems.Create<AssignWarehouseTaskSystem>().Execute();
             Require(task.hasAssignedWorkerEntityId &&
                     task.AssignedWorkerEntityId == worker.EntityId &&
@@ -10202,6 +10891,29 @@ namespace HardwareStore.Editor
         private static void ValidateRussianLocalization(
             ILocalizationService localization)
         {
+            WarehouseWorkerStatusSnapshot storageLegSnapshot = new(
+                WarehouseWorkerStatusId.MovingWorkerTrolleyToStorage,
+                productType: null);
+            WarehouseWorkerStatusSnapshot pickupLegSnapshot = new(
+                WarehouseWorkerStatusId.MovingWorkerTrolleyToPickup,
+                productType: null);
+            WarehouseWorkerStatusSnapshot singleProductTrolleySnapshot = new(
+                WarehouseWorkerStatusId.MovingWorkerTrolleyToCustomerLoading,
+                productType: null,
+                batchProductCount: 1);
+            Require(storageLegSnapshot.Status ==
+                    WarehouseWorkerStatusId.MovingWorkerTrolleyToStorage &&
+                    !storageLegSnapshot.ProductType.HasValue &&
+                    !storageLegSnapshot.BatchProductCount.HasValue &&
+                    pickupLegSnapshot.Status ==
+                    WarehouseWorkerStatusId.MovingWorkerTrolleyToPickup &&
+                    !pickupLegSnapshot.ProductType.HasValue &&
+                    !pickupLegSnapshot.BatchProductCount.HasValue &&
+                    singleProductTrolleySnapshot.Status ==
+                    WarehouseWorkerStatusId.MovingWorkerTrolleyToCustomerLoading &&
+                    singleProductTrolleySnapshot.BatchProductCount == 1,
+                "Warehouse-worker HUD snapshots rejected the shared-cart storage leg or " +
+                "one-product trolley run.");
             Require(localization.Language == LanguageId.Russian &&
                     localization.Culture.Name == "ru-RU",
                 "The smoke localization service did not load Russian with ru-RU culture.");
@@ -10363,9 +11075,22 @@ namespace HardwareStore.Editor
                     "Грузчик готовит тележку к погрузке" &&
                     localization.Resolve(LocalizedTexts.Text(
                         LocalizationKey
+                            .HudWarehouseWorkerMovingWorkerTrolleyToPickup)) ==
+                    "Грузчик везёт тележку к поставке" &&
+                    localization.Resolve(LocalizedTexts.Text(
+                        LocalizationKey
+                            .HudWarehouseWorkerMovingWorkerTrolleyToStorage)) ==
+                    "Грузчик везёт тележку к складу" &&
+                    localization.Resolve(LocalizedTexts.Text(
+                        LocalizationKey
+                            .HudWarehouseWorkerMovingWorkerTrolleyToCustomerLoading,
+                        1)) ==
+                    "Грузчик везёт заказ к машине клиента • товаров: 1" &&
+                    localization.Resolve(LocalizedTexts.Text(
+                        LocalizationKey
                             .HudWarehouseWorkerMovingWorkerTrolleyToCustomerLoading,
                         3)) ==
-                    "Грузчик везёт заказ к машине клиента: 3 товара" &&
+                    "Грузчик везёт заказ к машине клиента • товаров: 3" &&
                     localization.Resolve(LocalizedTexts.Text(
                         LocalizationKey.HudWarehouseWorkerReturningWorkerTrolley)) ==
                     "Грузчик возвращает тележку",
@@ -10436,6 +11161,7 @@ namespace HardwareStore.Editor
                 container.Resolve<IEconomySolvencyService>(),
                 container.Resolve<IInteractionPhysicsService>(),
                 container.Resolve<ITrolleyMotionService>(),
+                container.Resolve<IStoreSceneData>(),
                 container.Resolve<ICustomerArrivalSchedule>(),
                 container.Resolve<ILocalizationService>(),
                 container.Resolve<IWarehouseTaskFactory>());
@@ -10623,6 +11349,7 @@ namespace HardwareStore.Editor
                 IEconomySolvencyService economySolvency,
                 IInteractionPhysicsService interactionPhysics,
                 ITrolleyMotionService trolleyMotion,
+                IStoreSceneData sceneData,
                 ICustomerArrivalSchedule customerArrivalSchedule,
                 ILocalizationService localization,
                 IWarehouseTaskFactory warehouseTasks)
@@ -10636,6 +11363,7 @@ namespace HardwareStore.Editor
                 EconomySolvency = economySolvency;
                 InteractionPhysics = interactionPhysics;
                 TrolleyMotion = trolleyMotion;
+                SceneData = sceneData;
                 CustomerArrivalSchedule = customerArrivalSchedule;
                 Localization = localization;
                 WarehouseTasks = warehouseTasks;
@@ -10650,6 +11378,7 @@ namespace HardwareStore.Editor
             public IEconomySolvencyService EconomySolvency { get; }
             public IInteractionPhysicsService InteractionPhysics { get; }
             public ITrolleyMotionService TrolleyMotion { get; }
+            public IStoreSceneData SceneData { get; }
             public ICustomerArrivalSchedule CustomerArrivalSchedule { get; }
             public ILocalizationService Localization { get; }
             public IWarehouseTaskFactory WarehouseTasks { get; }
@@ -10785,6 +11514,9 @@ namespace HardwareStore.Editor
                 UnityEngine.AI.NavMeshAgent agent,
                 Vector3 position,
                 float sampleRadius) => true;
+
+            public bool CanReach(UnityEngine.AI.NavMeshAgent agent,
+                Vector3 destination, float sampleRadius) => false;
 
             public bool TrySetDestination(
                 UnityEngine.AI.NavMeshAgent agent,

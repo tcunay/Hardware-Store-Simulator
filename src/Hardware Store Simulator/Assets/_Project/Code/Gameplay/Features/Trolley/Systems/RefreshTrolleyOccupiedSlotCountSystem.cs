@@ -18,7 +18,7 @@ namespace HardwareStore.Gameplay.Features.Trolley.Systems
                     GameMatcher.EntityId,
                     GameMatcher.TrolleyCapacity,
                     GameMatcher.OccupiedTrolleySlotCount)
-                .NoneOf(GameMatcher.Destructed));
+                .NoneOf(GameMatcher.WorkerTrolley, GameMatcher.Destructed));
         }
 
         public void Execute()

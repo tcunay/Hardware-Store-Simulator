@@ -130,7 +130,7 @@ namespace HardwareStore.Gameplay.Features.Orders.Systems
                 run.isStockToCustomerLoadingTask || !run.hasEntityId ||
                 !run.hasWarehouseTaskCustomerVisitEntityId ||
                 run.WarehouseTaskCustomerVisitEntityId != visit.EntityId ||
-                !run.hasWarehouseTaskWorkerTrolleyEntityId ||
+                run.hasWarehouseTaskWorkerTrolleyEntityId ||
                 !run.hasWarehouseRunProductCount ||
                 !run.hasWarehouseTaskStep ||
                 run.WarehouseTaskStep != WarehouseTaskStepId.Blocked ||
