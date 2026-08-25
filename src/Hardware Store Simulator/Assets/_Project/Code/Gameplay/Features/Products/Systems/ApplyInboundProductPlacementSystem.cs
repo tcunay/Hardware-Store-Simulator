@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using Entitas;
+using HardwareStore.Gameplay.Common;
 
 namespace HardwareStore.Gameplay.Features.Products.Systems
 {
@@ -16,8 +17,10 @@ namespace HardwareStore.Gameplay.Features.Products.Systems
             _products = gameContext.GetGroup(GameMatcher.AllOf(
                     GameMatcher.Product,
                     GameMatcher.EntityId,
+                    GameMatcher.ProductType,
                     GameMatcher.InboundProduct,
                     GameMatcher.DeliveryEntityId,
+                    GameMatcher.PurchaseOrderLineEntityId,
                     GameMatcher.DeliverySlotIndex,
                     GameMatcher.ProductPlacementDirty,
                     GameMatcher.View,
@@ -48,10 +51,8 @@ namespace HardwareStore.Gameplay.Features.Products.Systems
         {
             foreach (GameEntity product in _products.GetEntities(_buffer))
             {
+                InboundProductManifestValidator.Validate(_gameContext, product);
                 GameEntity delivery = _gameContext.GetEntityWithEntityId(product.DeliveryEntityId);
-                if (!delivery.isDeliveryActive)
-                    throw new InvalidOperationException(
-                        $"Inbound product {product.EntityId} references an inactive delivery.");
                 if (product.DeliverySlotIndex < 0 || product.DeliverySlotIndex >= delivery.Slots.Length)
                     throw new InvalidOperationException(
                         $"Inbound product {product.EntityId} references delivery slot " +

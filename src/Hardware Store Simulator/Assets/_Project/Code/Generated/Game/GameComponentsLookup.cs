@@ -92,179 +92,199 @@ public static class GameComponentsLookup {
     public const int DeliveryProcurementTerminalEntityId = 81;
     public const int DeliveryProductCount = 82;
     public const int DeliveryProductsSpawned = 83;
-    public const int DeliverySlotIndex = 84;
-    public const int DeliverySpawnPosition = 85;
-    public const int DeliverySpawnRotation = 86;
-    public const int Destructed = 87;
-    public const int DropForwardDistance = 88;
-    public const int DropOrigin = 89;
-    public const int EntityId = 90;
-    public const int ExpectedProfit = 91;
-    public const int FocusedEntityId = 92;
-    public const int FocusedInteractionType = 93;
-    public const int FocusInteractionAvailable = 94;
-    public const int GamepadLookSpeed = 95;
-    public const int Gravity = 96;
-    public const int HandsOccupied = 97;
-    public const int HeldRotationOffset = 98;
-    public const int Highlighted = 99;
-    public const int HorizontalSpeed = 100;
-    public const int InboundProduct = 101;
-    public const int InboundToStorageTask = 102;
-    public const int InStock = 103;
-    public const int Interactable = 104;
-    public const int InteractionDistance = 105;
-    public const int InteractionPrompt = 106;
-    public const int InteractionRequest = 107;
-    public const int InteractionView = 108;
-    public const int LineIndex = 109;
-    public const int Loaded = 110;
-    public const int LoadedProductCount = 111;
-    public const int LoadingSlotIndex = 112;
-    public const int LoadingZone = 113;
-    public const int LooseProduct = 114;
-    public const int MaxPitch = 115;
-    public const int ModalOpen = 116;
-    public const int Money = 117;
-    public const int MouseSensitivity = 118;
-    public const int MoveDirection = 119;
-    public const int MovementSpeed = 120;
-    public const int NavigationAgent = 121;
-    public const int NextCustomerArrivalSequence = 122;
-    public const int NextProjectSequenceIndex = 123;
-    public const int NotificationMessage = 124;
-    public const int OccupiedStorageSlotCount = 125;
-    public const int OccupiedTrolleySlotCount = 126;
-    public const int OfferIndex = 127;
-    public const int Order = 128;
-    public const int OrderContentReleased = 129;
-    public const int OrderCounter = 130;
-    public const int OrderCounterEntityId = 131;
-    public const int OrderEntityId = 132;
-    public const int OrderLine = 133;
-    public const int OrderLineEntityId = 134;
-    public const int OrderProgressionCounted = 135;
-    public const int OrderReward = 136;
-    public const int OrderRewarded = 137;
-    public const int ParkingSpotIndex = 138;
-    public const int PlatformTrolley = 139;
-    public const int Player = 140;
-    public const int ProcurementTerminal = 141;
-    public const int ProcurementTerminalEntityId = 142;
-    public const int Product = 143;
-    public const int ProductDropCollisionRadius = 144;
-    public const int ProductLoaded = 145;
-    public const int ProductMass = 146;
-    public const int ProductMassApplied = 147;
-    public const int ProductPlacementDirty = 148;
-    public const int ProductStocked = 149;
-    public const int ProductType = 150;
-    public const int PurchaseDeliveryRequest = 151;
-    public const int PurchaseDeliverySucceeded = 152;
-    public const int PushingTrolley = 153;
-    public const int PushingWorkerTrolley = 154;
-    public const int QueueSpotIndex = 155;
-    public const int RequiredProductCount = 156;
-    public const int ReservedCustomerLoadingBayEntityId = 157;
-    public const int ReservedCustomerLoadingSlotIndex = 158;
-    public const int ReservedCustomerParkingSpotEntityId = 159;
-    public const int ReservedCustomerQueueSpotEntityId = 160;
-    public const int ReservedCustomerTrafficLaneEntityId = 161;
-    public const int ReservedDeliverySlotIndex = 162;
-    public const int ReservedOrderLineEntityId = 163;
-    public const int ReservedStorageSlotIndex = 164;
-    public const int RigidbodyCollisionDetectionMode = 165;
-    public const int Rigidbody = 166;
-    public const int RigidbodyInterpolationMode = 167;
-    public const int RotationSpeed = 168;
-    public const int RouteCompleted = 169;
-    public const int Route = 170;
-    public const int RouteMover = 171;
-    public const int RouteWaypointIndex = 172;
-    public const int SceneViewKey = 173;
-    public const int SelectedConsultationOffer = 174;
-    public const int SelectedProductType = 175;
-    public const int ServingOrderCounterEntityId = 176;
-    public const int Slots = 177;
-    public const int SourceEntityId = 178;
-    public const int SpawnPosition = 179;
-    public const int SpawnRotation = 180;
-    public const int SprintSpeed = 181;
-    public const int StockedProductCount = 182;
-    public const int StockToCustomerLoadingTask = 183;
-    public const int StorageProductCount = 184;
-    public const int StorageSlotIndex = 185;
-    public const int StorageZone = 186;
-    public const int StorageZoneEntityId = 187;
-    public const int Store = 188;
-    public const int StoreClosing = 189;
-    public const int StoreControlTerminal = 190;
-    public const int StoreControlTerminalEntityId = 191;
-    public const int StoreEntityId = 192;
-    public const int StoreOpen = 193;
-    public const int StorePreparing = 194;
-    public const int StoreSceneBindingsValidated = 195;
-    public const int TargetEntityId = 196;
-    public const int Transform = 197;
-    public const int TrolleyCapacity = 198;
-    public const int TrolleyEntityId = 199;
-    public const int TrolleyFollowDistance = 200;
-    public const int TrolleyMovementSpeed = 201;
-    public const int TrolleyPusherEntityId = 202;
-    public const int TrolleySlotIndex = 203;
-    public const int TrolleySpawnPosition = 204;
-    public const int TrolleySpawnRotation = 205;
-    public const int TrolleyStoreEntityId = 206;
-    public const int TrolleyUpgradeTerminal = 207;
-    public const int TrolleyUpgradeTerminalEntityId = 208;
-    public const int TrolleyUpgradeUnlocked = 209;
-    public const int UnitPrice = 210;
-    public const int VerticalVelocity = 211;
-    public const int View = 212;
-    public const int ViewPitch = 213;
-    public const int ViewPivot = 214;
-    public const int ViewPrefab = 215;
-    public const int WalkSpeed = 216;
-    public const int WarehouseRunEntityId = 217;
-    public const int WarehouseRunProductCount = 218;
-    public const int WarehouseTask = 219;
-    public const int WarehouseTaskBlockReason = 220;
-    public const int WarehouseTaskCustomerVisitEntityId = 221;
-    public const int WarehouseTaskOrderLineEntityId = 222;
-    public const int WarehouseTaskProductEntityId = 223;
-    public const int WarehouseTaskReservedLoadingSlotIndex = 224;
-    public const int WarehouseTaskReservedStorageSlotIndex = 225;
-    public const int WarehouseTaskStep = 226;
-    public const int WarehouseTaskStorageZoneEntityId = 227;
-    public const int WarehouseTaskStoreEntityId = 228;
-    public const int WarehouseTaskTimeoutRemaining = 229;
-    public const int WarehouseTaskWorkerTrolleyEntityId = 230;
-    public const int WarehouseWorker = 231;
-    public const int WarehouseWorkerCustomerLoadingPosition = 232;
-    public const int WarehouseWorkerCustomerLoadingRotation = 233;
-    public const int WarehouseWorkerHiringUnlocked = 234;
-    public const int WarehouseWorkerPickupPosition = 235;
-    public const int WarehouseWorkerPickupRotation = 236;
-    public const int WarehouseWorkerStatus = 237;
-    public const int WarehouseWorkerStoragePosition = 238;
-    public const int WarehouseWorkerStorageRotation = 239;
-    public const int WarehouseWorkerStoreEntityId = 240;
-    public const int WaypointTolerance = 241;
-    public const int WorkerPaidDayNumber = 242;
-    public const int WorkerShiftActive = 243;
-    public const int WorkerTrolley = 244;
-    public const int WorkerTrolleyCustomerLoadingPosition = 245;
-    public const int WorkerTrolleyCustomerLoadingRotation = 246;
-    public const int WorkerTrolleyCustomerLoadingRun = 247;
-    public const int WorkerTrolleyEntityId = 248;
-    public const int WorkerTrolleyHomePosition = 249;
-    public const int WorkerTrolleyHomeRotation = 250;
-    public const int WorkerTrolleySlotIndex = 251;
-    public const int WorkerTrolleyStoreEntityId = 252;
-    public const int WorldPosition = 253;
-    public const int WorldRotation = 254;
+    public const int DeliveryPurchaseOrderEntityId = 84;
+    public const int DeliverySlotIndex = 85;
+    public const int DeliverySpawnPosition = 86;
+    public const int DeliverySpawnRotation = 87;
+    public const int Destructed = 88;
+    public const int DropForwardDistance = 89;
+    public const int DropOrigin = 90;
+    public const int EntityId = 91;
+    public const int ExpectedProfit = 92;
+    public const int FocusedEntityId = 93;
+    public const int FocusedInteractionType = 94;
+    public const int FocusInteractionAvailable = 95;
+    public const int GamepadLookSpeed = 96;
+    public const int Gravity = 97;
+    public const int HandsOccupied = 98;
+    public const int HeldRotationOffset = 99;
+    public const int Highlighted = 100;
+    public const int HorizontalSpeed = 101;
+    public const int InboundProduct = 102;
+    public const int InboundToStorageTask = 103;
+    public const int InStock = 104;
+    public const int Interactable = 105;
+    public const int InteractionDistance = 106;
+    public const int InteractionPrompt = 107;
+    public const int InteractionRequest = 108;
+    public const int InteractionView = 109;
+    public const int LineIndex = 110;
+    public const int Loaded = 111;
+    public const int LoadedProductCount = 112;
+    public const int LoadingSlotIndex = 113;
+    public const int LoadingZone = 114;
+    public const int LooseProduct = 115;
+    public const int MaxPitch = 116;
+    public const int ModalOpen = 117;
+    public const int Money = 118;
+    public const int MouseSensitivity = 119;
+    public const int MoveDirection = 120;
+    public const int MovementSpeed = 121;
+    public const int NavigationAgent = 122;
+    public const int NextCustomerArrivalSequence = 123;
+    public const int NextProjectSequenceIndex = 124;
+    public const int NotificationMessage = 125;
+    public const int OccupiedStorageSlotCount = 126;
+    public const int OccupiedTrolleySlotCount = 127;
+    public const int OfferIndex = 128;
+    public const int Order = 129;
+    public const int OrderContentReleased = 130;
+    public const int OrderCounter = 131;
+    public const int OrderCounterEntityId = 132;
+    public const int OrderEntityId = 133;
+    public const int OrderLine = 134;
+    public const int OrderLineEntityId = 135;
+    public const int OrderProgressionCounted = 136;
+    public const int OrderReward = 137;
+    public const int OrderRewarded = 138;
+    public const int ParkingSpotIndex = 139;
+    public const int PlatformTrolley = 140;
+    public const int Player = 141;
+    public const int ProcurementCart = 142;
+    public const int ProcurementCartEntityId = 143;
+    public const int ProcurementCartLine = 144;
+    public const int ProcurementCartPackageCapacity = 145;
+    public const int ProcurementCartTerminalEntityId = 146;
+    public const int ProcurementPackageCount = 147;
+    public const int ProcurementTerminal = 148;
+    public const int ProcurementTerminalEntityId = 149;
+    public const int Product = 150;
+    public const int ProductDropCollisionRadius = 151;
+    public const int ProductLoaded = 152;
+    public const int ProductMass = 153;
+    public const int ProductMassApplied = 154;
+    public const int ProductPlacementDirty = 155;
+    public const int ProductStocked = 156;
+    public const int ProductType = 157;
+    public const int PurchaseDeliveryRequest = 158;
+    public const int PurchaseDeliverySucceeded = 159;
+    public const int PurchaseOrder = 160;
+    public const int PurchaseOrderCost = 161;
+    public const int PurchaseOrderEntityId = 162;
+    public const int PurchaseOrderLine = 163;
+    public const int PurchaseOrderLineCost = 164;
+    public const int PurchaseOrderLineEntityId = 165;
+    public const int PurchaseOrderLineIndex = 166;
+    public const int PurchaseOrderLinePackageCount = 167;
+    public const int PurchaseOrderLineProductCount = 168;
+    public const int PurchaseOrderLineStockedProductCount = 169;
+    public const int PurchaseOrderPackageCount = 170;
+    public const int PurchaseOrderProcurementTerminalEntityId = 171;
+    public const int PurchaseOrderProductCount = 172;
+    public const int PushingTrolley = 173;
+    public const int PushingWorkerTrolley = 174;
+    public const int QueueSpotIndex = 175;
+    public const int RequiredProductCount = 176;
+    public const int ReservedCustomerLoadingBayEntityId = 177;
+    public const int ReservedCustomerLoadingSlotIndex = 178;
+    public const int ReservedCustomerParkingSpotEntityId = 179;
+    public const int ReservedCustomerQueueSpotEntityId = 180;
+    public const int ReservedCustomerTrafficLaneEntityId = 181;
+    public const int ReservedDeliverySlotIndex = 182;
+    public const int ReservedOrderLineEntityId = 183;
+    public const int ReservedStorageSlotIndex = 184;
+    public const int RigidbodyCollisionDetectionMode = 185;
+    public const int Rigidbody = 186;
+    public const int RigidbodyInterpolationMode = 187;
+    public const int RotationSpeed = 188;
+    public const int RouteCompleted = 189;
+    public const int Route = 190;
+    public const int RouteMover = 191;
+    public const int RouteWaypointIndex = 192;
+    public const int SceneViewKey = 193;
+    public const int SelectedConsultationOffer = 194;
+    public const int SelectedProductType = 195;
+    public const int ServingOrderCounterEntityId = 196;
+    public const int Slots = 197;
+    public const int SourceEntityId = 198;
+    public const int SpawnPosition = 199;
+    public const int SpawnRotation = 200;
+    public const int SprintSpeed = 201;
+    public const int StockedProductCount = 202;
+    public const int StockToCustomerLoadingTask = 203;
+    public const int StorageProductCount = 204;
+    public const int StorageSlotIndex = 205;
+    public const int StorageZone = 206;
+    public const int StorageZoneEntityId = 207;
+    public const int Store = 208;
+    public const int StoreClosing = 209;
+    public const int StoreControlTerminal = 210;
+    public const int StoreControlTerminalEntityId = 211;
+    public const int StoreEntityId = 212;
+    public const int StoreOpen = 213;
+    public const int StorePreparing = 214;
+    public const int StoreSceneBindingsValidated = 215;
+    public const int TargetEntityId = 216;
+    public const int Transform = 217;
+    public const int TrolleyCapacity = 218;
+    public const int TrolleyEntityId = 219;
+    public const int TrolleyFollowDistance = 220;
+    public const int TrolleyMovementSpeed = 221;
+    public const int TrolleyPusherEntityId = 222;
+    public const int TrolleySlotIndex = 223;
+    public const int TrolleySpawnPosition = 224;
+    public const int TrolleySpawnRotation = 225;
+    public const int TrolleyStoreEntityId = 226;
+    public const int TrolleyUpgradeTerminal = 227;
+    public const int TrolleyUpgradeTerminalEntityId = 228;
+    public const int TrolleyUpgradeUnlocked = 229;
+    public const int UnitPrice = 230;
+    public const int VerticalVelocity = 231;
+    public const int View = 232;
+    public const int ViewPitch = 233;
+    public const int ViewPivot = 234;
+    public const int ViewPrefab = 235;
+    public const int WalkSpeed = 236;
+    public const int WarehouseRunEntityId = 237;
+    public const int WarehouseRunProductCount = 238;
+    public const int WarehouseTask = 239;
+    public const int WarehouseTaskBlockReason = 240;
+    public const int WarehouseTaskCustomerVisitEntityId = 241;
+    public const int WarehouseTaskOrderLineEntityId = 242;
+    public const int WarehouseTaskProductEntityId = 243;
+    public const int WarehouseTaskReservedLoadingSlotIndex = 244;
+    public const int WarehouseTaskReservedStorageSlotIndex = 245;
+    public const int WarehouseTaskStep = 246;
+    public const int WarehouseTaskStorageZoneEntityId = 247;
+    public const int WarehouseTaskStoreEntityId = 248;
+    public const int WarehouseTaskTimeoutRemaining = 249;
+    public const int WarehouseTaskWorkerTrolleyEntityId = 250;
+    public const int WarehouseWorker = 251;
+    public const int WarehouseWorkerCustomerLoadingPosition = 252;
+    public const int WarehouseWorkerCustomerLoadingRotation = 253;
+    public const int WarehouseWorkerHiringUnlocked = 254;
+    public const int WarehouseWorkerPickupPosition = 255;
+    public const int WarehouseWorkerPickupRotation = 256;
+    public const int WarehouseWorkerStatus = 257;
+    public const int WarehouseWorkerStoragePosition = 258;
+    public const int WarehouseWorkerStorageRotation = 259;
+    public const int WarehouseWorkerStoreEntityId = 260;
+    public const int WaypointTolerance = 261;
+    public const int WorkerPaidDayNumber = 262;
+    public const int WorkerShiftActive = 263;
+    public const int WorkerTrolley = 264;
+    public const int WorkerTrolleyCustomerLoadingPosition = 265;
+    public const int WorkerTrolleyCustomerLoadingRotation = 266;
+    public const int WorkerTrolleyCustomerLoadingRun = 267;
+    public const int WorkerTrolleyEntityId = 268;
+    public const int WorkerTrolleyHomePosition = 269;
+    public const int WorkerTrolleyHomeRotation = 270;
+    public const int WorkerTrolleySlotIndex = 271;
+    public const int WorkerTrolleyStoreEntityId = 272;
+    public const int WorldPosition = 273;
+    public const int WorldRotation = 274;
 
-    public const int TotalComponents = 255;
+    public const int TotalComponents = 275;
 
     public static readonly string[] componentNames = {
         "AimAssistRadius",
@@ -351,6 +371,7 @@ public static class GameComponentsLookup {
         "DeliveryProcurementTerminalEntityId",
         "DeliveryProductCount",
         "DeliveryProductsSpawned",
+        "DeliveryPurchaseOrderEntityId",
         "DeliverySlotIndex",
         "DeliverySpawnPosition",
         "DeliverySpawnRotation",
@@ -408,6 +429,12 @@ public static class GameComponentsLookup {
         "ParkingSpotIndex",
         "PlatformTrolley",
         "Player",
+        "ProcurementCart",
+        "ProcurementCartEntityId",
+        "ProcurementCartLine",
+        "ProcurementCartPackageCapacity",
+        "ProcurementCartTerminalEntityId",
+        "ProcurementPackageCount",
         "ProcurementTerminal",
         "ProcurementTerminalEntityId",
         "Product",
@@ -420,6 +447,19 @@ public static class GameComponentsLookup {
         "ProductType",
         "PurchaseDeliveryRequest",
         "PurchaseDeliverySucceeded",
+        "PurchaseOrder",
+        "PurchaseOrderCost",
+        "PurchaseOrderEntityId",
+        "PurchaseOrderLine",
+        "PurchaseOrderLineCost",
+        "PurchaseOrderLineEntityId",
+        "PurchaseOrderLineIndex",
+        "PurchaseOrderLinePackageCount",
+        "PurchaseOrderLineProductCount",
+        "PurchaseOrderLineStockedProductCount",
+        "PurchaseOrderPackageCount",
+        "PurchaseOrderProcurementTerminalEntityId",
+        "PurchaseOrderProductCount",
         "PushingTrolley",
         "PushingWorkerTrolley",
         "QueueSpotIndex",
@@ -609,6 +649,7 @@ public static class GameComponentsLookup {
         typeof(HardwareStore.Gameplay.Components.DeliveryProcurementTerminalEntityId),
         typeof(HardwareStore.Gameplay.Components.DeliveryProductCount),
         typeof(HardwareStore.Gameplay.Components.DeliveryProductsSpawned),
+        typeof(HardwareStore.Gameplay.Components.DeliveryPurchaseOrderEntityId),
         typeof(HardwareStore.Gameplay.Components.DeliverySlotIndex),
         typeof(HardwareStore.Gameplay.Components.DeliverySpawnPosition),
         typeof(HardwareStore.Gameplay.Components.DeliverySpawnRotation),
@@ -666,6 +707,12 @@ public static class GameComponentsLookup {
         typeof(HardwareStore.Gameplay.Components.ParkingSpotIndex),
         typeof(HardwareStore.Gameplay.Components.PlatformTrolley),
         typeof(HardwareStore.Gameplay.Components.Player),
+        typeof(HardwareStore.Gameplay.Components.ProcurementCart),
+        typeof(HardwareStore.Gameplay.Components.ProcurementCartEntityId),
+        typeof(HardwareStore.Gameplay.Components.ProcurementCartLine),
+        typeof(HardwareStore.Gameplay.Components.ProcurementCartPackageCapacity),
+        typeof(HardwareStore.Gameplay.Components.ProcurementCartTerminalEntityId),
+        typeof(HardwareStore.Gameplay.Components.ProcurementPackageCount),
         typeof(HardwareStore.Gameplay.Components.ProcurementTerminal),
         typeof(HardwareStore.Gameplay.Components.ProcurementTerminalEntityId),
         typeof(HardwareStore.Gameplay.Components.Product),
@@ -678,6 +725,19 @@ public static class GameComponentsLookup {
         typeof(HardwareStore.Gameplay.Components.ProductType),
         typeof(HardwareStore.Gameplay.Components.PurchaseDeliveryRequest),
         typeof(HardwareStore.Gameplay.Components.PurchaseDeliverySucceeded),
+        typeof(HardwareStore.Gameplay.Components.PurchaseOrder),
+        typeof(HardwareStore.Gameplay.Components.PurchaseOrderCost),
+        typeof(HardwareStore.Gameplay.Components.PurchaseOrderEntityId),
+        typeof(HardwareStore.Gameplay.Components.PurchaseOrderLine),
+        typeof(HardwareStore.Gameplay.Components.PurchaseOrderLineCost),
+        typeof(HardwareStore.Gameplay.Components.PurchaseOrderLineEntityId),
+        typeof(HardwareStore.Gameplay.Components.PurchaseOrderLineIndex),
+        typeof(HardwareStore.Gameplay.Components.PurchaseOrderLinePackageCount),
+        typeof(HardwareStore.Gameplay.Components.PurchaseOrderLineProductCount),
+        typeof(HardwareStore.Gameplay.Components.PurchaseOrderLineStockedProductCount),
+        typeof(HardwareStore.Gameplay.Components.PurchaseOrderPackageCount),
+        typeof(HardwareStore.Gameplay.Components.PurchaseOrderProcurementTerminalEntityId),
+        typeof(HardwareStore.Gameplay.Components.PurchaseOrderProductCount),
         typeof(HardwareStore.Gameplay.Components.PushingTrolley),
         typeof(HardwareStore.Gameplay.Components.PushingWorkerTrolley),
         typeof(HardwareStore.Gameplay.Components.QueueSpotIndex),

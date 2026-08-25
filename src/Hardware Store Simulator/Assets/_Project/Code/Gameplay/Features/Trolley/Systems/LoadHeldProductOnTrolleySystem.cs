@@ -1,5 +1,6 @@
 using System;
 using Entitas;
+using HardwareStore.Gameplay.Common;
 using HardwareStore.Gameplay.Components;
 using HardwareStore.Gameplay.Factories;
 using HardwareStore.Gameplay.Localization;
@@ -122,9 +123,13 @@ namespace HardwareStore.Gameplay.Features.Trolley.Systems
             GameEntity player,
             GameEntity trolley)
         {
+            if (product != null && product.isInboundProduct)
+                InboundProductManifestValidator.Validate(_gameContext, product);
+
             bool hasInboundReservation = product != null &&
                 product.isInboundProduct && !product.isInStock &&
                 product.hasDeliveryEntityId &&
+                product.hasPurchaseOrderLineEntityId &&
                 product.hasReservedDeliverySlotIndex &&
                 !product.hasReservedStorageSlotIndex &&
                 !product.hasReservedOrderLineEntityId;
@@ -152,6 +157,7 @@ namespace HardwareStore.Gameplay.Features.Trolley.Systems
             if (product.isInboundProduct)
             {
                 if (!product.hasDeliveryEntityId ||
+                    !product.hasPurchaseOrderLineEntityId ||
                     !product.hasReservedDeliverySlotIndex || product.isInStock ||
                     product.hasStorageZoneEntityId ||
                     product.hasReservedStorageSlotIndex ||

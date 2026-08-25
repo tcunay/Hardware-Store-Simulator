@@ -1,0 +1,24 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 8f3664830aaf64d9cb268e44c0bfa16c, type: 3}
+  m_Name: ProductConfig_BrickPack
+  m_EditorClassIdentifier: Assembly-CSharp::HardwareStore.Gameplay.Configs.ProductConfig
+  _viewPrefab: {fileID: 271743160961325931, guid: 42ca00a71543b4386ad831044fdae833, type: 3}
+  _productType: 2
+  _unitPrice: 330
+  _mass: 24
+  _carryMovementSpeed: 2.9
+  _heldRotationEuler: {x: 0, y: 0, z: 0}
+  _dropForwardDistance: 1.2
+  _productDropCollisionRadius: 0.53
+  _worldInterpolation: 1
+  _worldCollisionDetection: 3

@@ -51,13 +51,15 @@ namespace HardwareStore.Gameplay.Features.Interaction.Systems
                         terminal.EntityId);
                 if (delivery != null)
                 {
+                    int incompleteLineCount = CountIncompleteDeliveryLines(
+                        delivery,
+                        terminal.EntityId);
                     player.SetInteractionPrompt(
                         LocalizedTexts.Text(
-                            LocalizationKey.PromptDeliveryBeingStocked,
-                            LocalizedTexts.ProductName(delivery.ProductType),
+                            LocalizationKey.PromptMixedDeliveryBeingStocked,
                             delivery.StockedProductCount,
                             delivery.DeliveryProductCount,
-                            LocalizedTexts.ProductUnit(delivery.ProductType)),
+                            incompleteLineCount),
                         false);
                     continue;
                 }
@@ -66,6 +68,77 @@ namespace HardwareStore.Gameplay.Features.Interaction.Systems
                     LocalizedTexts.Text(LocalizationKey.PromptOpenProcurement),
                     true);
             }
+        }
+
+        private int CountIncompleteDeliveryLines(GameEntity delivery,
+            int terminalEntityId)
+        {
+            if (!delivery.isDelivery || !delivery.isDeliveryActive ||
+                delivery.isDestructed || !delivery.hasEntityId ||
+                !delivery.hasDeliveryPurchaseOrderEntityId ||
+                !delivery.hasDeliveryProcurementTerminalEntityId ||
+                delivery.DeliveryProcurementTerminalEntityId != terminalEntityId ||
+                !delivery.hasDeliveryProductCount ||
+                !delivery.hasStockedProductCount ||
+                delivery.DeliveryProductCount <= 0 ||
+                delivery.StockedProductCount < 0 ||
+                delivery.StockedProductCount > delivery.DeliveryProductCount)
+            {
+                throw new InvalidOperationException(
+                    $"Procurement terminal {terminalEntityId} owns an invalid delivery.");
+            }
+
+            GameEntity purchaseOrder = _gameContext.GetEntityWithEntityId(
+                delivery.DeliveryPurchaseOrderEntityId);
+            if (purchaseOrder == null || !purchaseOrder.isPurchaseOrder ||
+                purchaseOrder.isDestructed || !purchaseOrder.hasEntityId)
+            {
+                throw new InvalidOperationException(
+                    $"Delivery {delivery.EntityId} references an invalid purchase order.");
+            }
+
+            int lineCount = 0;
+            int incompleteLineCount = 0;
+            int productCount = 0;
+            int stockedProductCount = 0;
+            foreach (GameEntity line in
+                     _gameContext.GetEntitiesWithPurchaseOrderEntityId(
+                         purchaseOrder.EntityId))
+            {
+                if (line.isDestructed)
+                    continue;
+                if (!line.isPurchaseOrderLine ||
+                    !line.hasPurchaseOrderLineProductCount ||
+                    !line.hasPurchaseOrderLineStockedProductCount ||
+                    line.PurchaseOrderLineProductCount <= 0 ||
+                    line.PurchaseOrderLineStockedProductCount < 0 ||
+                    line.PurchaseOrderLineStockedProductCount >
+                    line.PurchaseOrderLineProductCount)
+                {
+                    throw new InvalidOperationException(
+                        $"Purchase order {purchaseOrder.EntityId} contains an invalid line.");
+                }
+
+                lineCount++;
+                productCount = checked(
+                    productCount + line.PurchaseOrderLineProductCount);
+                stockedProductCount = checked(
+                    stockedProductCount +
+                    line.PurchaseOrderLineStockedProductCount);
+                if (line.PurchaseOrderLineStockedProductCount <
+                    line.PurchaseOrderLineProductCount)
+                {
+                    incompleteLineCount++;
+                }
+            }
+            if (lineCount == 0 || productCount != delivery.DeliveryProductCount ||
+                stockedProductCount != delivery.StockedProductCount)
+            {
+                throw new InvalidOperationException(
+                    $"Delivery {delivery.EntityId} progress disagrees with its manifest.");
+            }
+
+            return incompleteLineCount;
         }
     }
 }

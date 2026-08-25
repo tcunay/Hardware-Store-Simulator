@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using Entitas;
 using HardwareStore.Gameplay.Configs;
@@ -14,6 +15,7 @@ namespace HardwareStore.Gameplay.Features.Presentation.Systems
         private readonly IStaticDataService _staticData;
         private readonly IHudService _hud;
         private readonly IGroup<GameEntity> _players;
+        private readonly List<GameEntity> _deliveryLineBuffer = new(8);
 
         public PresentHudSystem(GameContext gameContext, IStaticDataService staticData,
             IHudService hud)
@@ -43,15 +45,8 @@ namespace HardwareStore.Gameplay.Features.Presentation.Systems
             GameEntity delivery =
                 _gameContext.GetEntityWithDeliveryProcurementTerminalEntityId(
                     procurementTerminal.EntityId);
-
-            bool hasActiveDelivery = delivery != null;
-            ProductTypeId deliveryProductType = hasActiveDelivery
-                ? delivery.ProductType
-                : procurementTerminal.SelectedProductType;
-            int deliveryStockedCount = hasActiveDelivery ? delivery.StockedProductCount : 0;
-            int deliveryProductCount = hasActiveDelivery
-                ? delivery.DeliveryProductCount
-                : _staticData.GetDelivery(deliveryProductType).ProductCount;
+            DeliveryProgressSnapshot? deliveryProgress =
+                CreateDeliveryProgressSnapshot(delivery, procurementTerminal);
 
             HudOrderState orderState = HudOrderState.NoCustomer;
             CustomerProjectTypeId? projectType = null;
@@ -124,10 +119,7 @@ namespace HardwareStore.Gameplay.Features.Presentation.Systems
                 totalRequiredProductCount,
                 store.Money,
                 storageZone.StorageProductCount,
-                hasActiveDelivery,
-                deliveryProductType,
-                deliveryStockedCount,
-                deliveryProductCount,
+                deliveryProgress,
                 carriedProductType,
                 player.hasInteractionPrompt ? player.InteractionPrompt : null,
                 player.hasFocusedEntityId,
@@ -137,6 +129,105 @@ namespace HardwareStore.Gameplay.Features.Presentation.Systems
                 player.isCursorLocked,
                 customerFlow,
                 warehouseWorkerStatus));
+        }
+
+        private DeliveryProgressSnapshot? CreateDeliveryProgressSnapshot(
+            GameEntity delivery,
+            GameEntity procurementTerminal)
+        {
+            if (delivery == null)
+                return null;
+            if (!delivery.isDelivery || !delivery.isDeliveryActive ||
+                delivery.isDestructed || !delivery.hasEntityId ||
+                !delivery.hasDeliveryPurchaseOrderEntityId ||
+                !delivery.hasDeliveryProcurementTerminalEntityId ||
+                delivery.DeliveryProcurementTerminalEntityId !=
+                procurementTerminal.EntityId ||
+                !delivery.hasDeliveryProductCount ||
+                !delivery.hasStockedProductCount ||
+                delivery.DeliveryProductCount <= 0 ||
+                delivery.StockedProductCount < 0 ||
+                delivery.StockedProductCount > delivery.DeliveryProductCount)
+            {
+                throw new InvalidOperationException(
+                    $"Procurement terminal {procurementTerminal.EntityId} owns an invalid " +
+                    "active delivery.");
+            }
+
+            GameEntity purchaseOrder = _gameContext.GetEntityWithEntityId(
+                delivery.DeliveryPurchaseOrderEntityId);
+            if (purchaseOrder == null || !purchaseOrder.isPurchaseOrder ||
+                purchaseOrder.isDestructed || !purchaseOrder.hasEntityId ||
+                !purchaseOrder.hasPurchaseOrderProcurementTerminalEntityId ||
+                purchaseOrder.PurchaseOrderProcurementTerminalEntityId !=
+                procurementTerminal.EntityId ||
+                !purchaseOrder.hasPurchaseOrderProductCount ||
+                purchaseOrder.PurchaseOrderProductCount !=
+                delivery.DeliveryProductCount)
+            {
+                throw new InvalidOperationException(
+                    $"Delivery {delivery.EntityId} references an invalid purchase order.");
+            }
+
+            _deliveryLineBuffer.Clear();
+            foreach (GameEntity line in
+                     _gameContext.GetEntitiesWithPurchaseOrderEntityId(
+                         purchaseOrder.EntityId))
+            {
+                if (!line.isDestructed)
+                    _deliveryLineBuffer.Add(line);
+            }
+            _deliveryLineBuffer.Sort(PurchaseOrderLineComparer.Instance);
+            if (_deliveryLineBuffer.Count == 0)
+                throw new InvalidOperationException(
+                    $"Purchase order {purchaseOrder.EntityId} has no active lines.");
+
+            var lines = new DeliveryLineProgressSnapshot[_deliveryLineBuffer.Count];
+            int stockedProductCount = 0;
+            int productCount = 0;
+            for (int index = 0; index < _deliveryLineBuffer.Count; index++)
+            {
+                GameEntity line = _deliveryLineBuffer[index];
+                if (!line.isPurchaseOrderLine || !line.hasEntityId ||
+                    !line.hasPurchaseOrderEntityId ||
+                    line.PurchaseOrderEntityId != purchaseOrder.EntityId ||
+                    !line.hasPurchaseOrderLineIndex ||
+                    line.PurchaseOrderLineIndex != index ||
+                    !line.hasProductType ||
+                    !line.hasPurchaseOrderLineProductCount ||
+                    !line.hasPurchaseOrderLineStockedProductCount ||
+                    line.PurchaseOrderLineProductCount <= 0 ||
+                    line.PurchaseOrderLineStockedProductCount < 0 ||
+                    line.PurchaseOrderLineStockedProductCount >
+                    line.PurchaseOrderLineProductCount)
+                {
+                    throw new InvalidOperationException(
+                        $"Purchase order {purchaseOrder.EntityId} has an invalid line at " +
+                        $"position {index}.");
+                }
+
+                stockedProductCount = checked(
+                    stockedProductCount +
+                    line.PurchaseOrderLineStockedProductCount);
+                productCount = checked(
+                    productCount + line.PurchaseOrderLineProductCount);
+                lines[index] = new DeliveryLineProgressSnapshot(
+                    index,
+                    line.ProductType,
+                    line.PurchaseOrderLineStockedProductCount,
+                    line.PurchaseOrderLineProductCount);
+            }
+            if (stockedProductCount != delivery.StockedProductCount ||
+                productCount != delivery.DeliveryProductCount)
+            {
+                throw new InvalidOperationException(
+                    $"Delivery {delivery.EntityId} progress disagrees with its purchase order.");
+            }
+
+            return new DeliveryProgressSnapshot(
+                lines,
+                stockedProductCount,
+                productCount);
         }
 
         private GameEntity[] GetOrderedCustomerVisits(GameEntity store)
@@ -540,5 +631,32 @@ namespace HardwareStore.Gameplay.Features.Presentation.Systems
             customerVisit.isCustomerVisitCompleted ||
             customerVisit.isCustomerVisitReturning ||
             customerVisit.isCustomerVisitDeparting;
+
+        private sealed class PurchaseOrderLineComparer : IComparer<GameEntity>
+        {
+            public static readonly PurchaseOrderLineComparer Instance = new();
+
+            public int Compare(GameEntity left, GameEntity right)
+            {
+                if (left.hasPurchaseOrderLineIndex !=
+                    right.hasPurchaseOrderLineIndex)
+                {
+                    return left.hasPurchaseOrderLineIndex ? 1 : -1;
+                }
+                if (left.hasPurchaseOrderLineIndex)
+                {
+                    int indexComparison = left.PurchaseOrderLineIndex.CompareTo(
+                        right.PurchaseOrderLineIndex);
+                    if (indexComparison != 0)
+                        return indexComparison;
+                }
+
+                if (left.hasEntityId != right.hasEntityId)
+                    return left.hasEntityId ? 1 : -1;
+                return left.hasEntityId
+                    ? left.EntityId.CompareTo(right.EntityId)
+                    : 0;
+            }
+        }
     }
 }

@@ -42,10 +42,12 @@ namespace HardwareStore.Gameplay.Features.Interaction.Systems
                         terminal.EntityId);
                 if (delivery != null)
                 {
+                    ValidateDeliveryProgress(delivery, terminal.EntityId);
                     player.SetInteractionPrompt(
                         LocalizedTexts.Text(
-                            LocalizationKey.PromptBringDeliveryToIntake,
-                            LocalizedTexts.ProductName(delivery.ProductType)),
+                            LocalizationKey.PromptBringMixedDeliveryToIntake,
+                            delivery.StockedProductCount,
+                            delivery.DeliveryProductCount),
                         false);
                     continue;
                 }
@@ -90,6 +92,26 @@ namespace HardwareStore.Gameplay.Features.Interaction.Systems
                             LocalizationKey.PromptNoStockForOrder,
                             productName),
                     false);
+            }
+        }
+
+        private static void ValidateDeliveryProgress(
+            GameEntity delivery,
+            int terminalEntityId)
+        {
+            if (!delivery.isDelivery || !delivery.isDeliveryActive ||
+                delivery.isDestructed || !delivery.hasEntityId ||
+                !delivery.hasDeliveryPurchaseOrderEntityId ||
+                !delivery.hasDeliveryProcurementTerminalEntityId ||
+                delivery.DeliveryProcurementTerminalEntityId != terminalEntityId ||
+                !delivery.hasDeliveryProductCount ||
+                !delivery.hasStockedProductCount ||
+                delivery.DeliveryProductCount <= 0 ||
+                delivery.StockedProductCount < 0 ||
+                delivery.StockedProductCount > delivery.DeliveryProductCount)
+            {
+                throw new InvalidOperationException(
+                    $"Procurement terminal {terminalEntityId} owns an invalid delivery.");
             }
         }
 

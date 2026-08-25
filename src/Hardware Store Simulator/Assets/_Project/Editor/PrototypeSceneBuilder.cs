@@ -4,6 +4,7 @@ using System.Linq;
 using HardwareStore.Gameplay.Common.Registrars;
 using HardwareStore.Gameplay.Components;
 using HardwareStore.Gameplay.Configs;
+using HardwareStore.Gameplay.Factories;
 using HardwareStore.Gameplay.Localization;
 using HardwareStore.Gameplay.Presentation;
 using HardwareStore.Gameplay.Registrars;
@@ -32,6 +33,14 @@ namespace HardwareStore.Editor
         private const string PlayerPrefabPath = "Assets/_Project/Prefabs/Gameplay/Player.prefab";
         private const string CementProductPrefabPath = "Assets/_Project/Prefabs/Gameplay/CementBag.prefab";
         private const string BoardProductPrefabPath = "Assets/_Project/Prefabs/Gameplay/BoardBundle.prefab";
+        private const string BrickProductPrefabPath =
+            "Assets/_Project/Prefabs/Gameplay/BrickPack.prefab";
+        private const string DrywallProductPrefabPath =
+            "Assets/_Project/Prefabs/Gameplay/DrywallSheet.prefab";
+        private const string PaintProductPrefabPath =
+            "Assets/_Project/Prefabs/Gameplay/PaintBucket.prefab";
+        private const string InsulationProductPrefabPath =
+            "Assets/_Project/Prefabs/Gameplay/InsulationRoll.prefab";
         private const string DeliveryVehiclePrefabPath = "Assets/_Project/Prefabs/Gameplay/DeliveryTruck.prefab";
         private const string CustomerVehiclePrefabPath =
             "Assets/_Project/Prefabs/Gameplay/CustomerVehicle.prefab";
@@ -48,14 +57,30 @@ namespace HardwareStore.Editor
             "Assets/Scenes/Prototype_Yard/" + WarehouseWorkerNavMeshAssetName + ".asset";
         private const string CementProductConfigName = "ProductConfig";
         private const string BoardProductConfigName = "ProductConfig_BoardBundle";
+        private const string BrickProductConfigName = "ProductConfig_BrickPack";
+        private const string DrywallProductConfigName = "ProductConfig_DrywallSheet";
+        private const string PaintProductConfigName = "ProductConfig_PaintBucket";
+        private const string InsulationProductConfigName = "ProductConfig_InsulationRoll";
         private const string CementDeliveryConfigName = "DeliveryConfig";
         private const string BoardDeliveryConfigName = "DeliveryConfig_BoardBundle";
+        private const string BrickDeliveryConfigName = "DeliveryConfig_BrickPack";
+        private const string DrywallDeliveryConfigName = "DeliveryConfig_DrywallSheet";
+        private const string PaintDeliveryConfigName = "DeliveryConfig_PaintBucket";
+        private const string InsulationDeliveryConfigName = "DeliveryConfig_InsulationRoll";
         private const string CementProjectConfigName =
             "CustomerProjectConfig_CementFoundation";
         private const string LumberProjectConfigName =
             "CustomerProjectConfig_LumberShelving";
         private const string WorkbenchProjectConfigName =
             "CustomerProjectConfig_WorkbenchFoundation";
+        private const string GardenWallProjectConfigName =
+            "CustomerProjectConfig_GardenWall";
+        private const string DrywallPartitionProjectConfigName =
+            "CustomerProjectConfig_DrywallPartition";
+        private const string WorkshopRenovationProjectConfigName =
+            "CustomerProjectConfig_WorkshopRenovation";
+        private const string GarageInsulationProjectConfigName =
+            "CustomerProjectConfig_GarageInsulation";
         private const string ProductRecoveryConfigName = "ProductRecoveryConfig";
         private const string PlatformTrolleyConfigName = "PlatformTrolleyConfig";
         private const string WarehouseWorkerConfigName = "WarehouseWorkerConfig";
@@ -64,7 +89,7 @@ namespace HardwareStore.Editor
         private const string LegacyCementOrderConfigName = "OrderConfig";
         private const string LegacyBoardOrderConfigName = "OrderConfig_BoardBundle";
         private const int CustomerVehicleCargoCapacity = 3;
-        private const int StorageSlotCapacity = 9;
+        private const int StorageSlotCapacity = 18;
         private static readonly ILocalizationService RussianPreviewLocalization =
             CreateRussianPreviewLocalization();
 
@@ -90,6 +115,14 @@ namespace HardwareStore.Editor
                 LoadConfig<DeliveryConfig>(CementDeliveryConfigName);
             DeliveryConfig boardDeliveryConfig =
                 LoadConfig<DeliveryConfig>(BoardDeliveryConfigName);
+            DeliveryConfig brickDeliveryConfig =
+                LoadConfig<DeliveryConfig>(BrickDeliveryConfigName);
+            DeliveryConfig drywallDeliveryConfig =
+                LoadConfig<DeliveryConfig>(DrywallDeliveryConfigName);
+            DeliveryConfig paintDeliveryConfig =
+                LoadConfig<DeliveryConfig>(PaintDeliveryConfigName);
+            DeliveryConfig insulationDeliveryConfig =
+                LoadConfig<DeliveryConfig>(InsulationDeliveryConfigName);
             CustomerVehicleConfig customerVehicleConfig =
                 LoadConfig<CustomerVehicleConfig>("CustomerVehicleConfig");
             CustomerConfig customerConfig = LoadConfig<CustomerConfig>("CustomerConfig");
@@ -107,15 +140,35 @@ namespace HardwareStore.Editor
                 LoadConfig<ProductConfig>(CementProductConfigName);
             ProductConfig boardProductConfig =
                 LoadConfig<ProductConfig>(BoardProductConfigName);
+            ProductConfig brickProductConfig =
+                LoadConfig<ProductConfig>(BrickProductConfigName);
+            ProductConfig drywallProductConfig =
+                LoadConfig<ProductConfig>(DrywallProductConfigName);
+            ProductConfig paintProductConfig =
+                LoadConfig<ProductConfig>(PaintProductConfigName);
+            ProductConfig insulationProductConfig =
+                LoadConfig<ProductConfig>(InsulationProductConfigName);
             CustomerProjectConfig cementProjectConfig =
                 LoadConfig<CustomerProjectConfig>(CementProjectConfigName);
             CustomerProjectConfig lumberProjectConfig =
                 LoadConfig<CustomerProjectConfig>(LumberProjectConfigName);
             CustomerProjectConfig workbenchProjectConfig =
                 LoadConfig<CustomerProjectConfig>(WorkbenchProjectConfigName);
+            CustomerProjectConfig gardenWallProjectConfig =
+                LoadConfig<CustomerProjectConfig>(GardenWallProjectConfigName);
+            CustomerProjectConfig drywallPartitionProjectConfig =
+                LoadConfig<CustomerProjectConfig>(DrywallPartitionProjectConfigName);
+            CustomerProjectConfig workshopRenovationProjectConfig =
+                LoadConfig<CustomerProjectConfig>(WorkshopRenovationProjectConfigName);
+            CustomerProjectConfig garageInsulationProjectConfig =
+                LoadConfig<CustomerProjectConfig>(GarageInsulationProjectConfigName);
             ConfigurePrototypeConfigs(
                 cementDeliveryConfig,
                 boardDeliveryConfig,
+                brickDeliveryConfig,
+                drywallDeliveryConfig,
+                paintDeliveryConfig,
+                insulationDeliveryConfig,
                 economyConfig,
                 productRecoveryConfig,
                 storeDayConfig,
@@ -123,9 +176,17 @@ namespace HardwareStore.Editor
                 warehouseWorkerConfig,
                 cementProductConfig,
                 boardProductConfig,
+                brickProductConfig,
+                drywallProductConfig,
+                paintProductConfig,
+                insulationProductConfig,
                 cementProjectConfig,
                 lumberProjectConfig,
-                workbenchProjectConfig);
+                workbenchProjectConfig,
+                gardenWallProjectConfig,
+                drywallPartitionProjectConfig,
+                workshopRenovationProjectConfig,
+                garageInsulationProjectConfig);
             EnsurePlayerPrefab(playerConfig);
             EnsureProjectContextPrefab();
 
@@ -136,6 +197,12 @@ namespace HardwareStore.Editor
             Material cement = GetOrCreateMaterial("CementBag", new Color(0.67f, 0.62f, 0.50f), 0.03f);
             Material timber = GetOrCreateMaterial("Timber", new Color(0.48f, 0.27f, 0.11f), 0.14f);
             Material boardStrap = GetOrCreateMaterial("BoardStrap", new Color(0.1f, 0.12f, 0.11f), 0.38f);
+            Material brick = GetOrCreateMaterial(
+                "Brick", new Color(0.58f, 0.212f, 0.114f), 0.08f);
+            Material drywall = GetOrCreateMaterial(
+                "Drywall", new Color(0.859f, 0.843f, 0.761f), 0.12f);
+            Material drywallEdge = GetOrCreateMaterial(
+                "DrywallEdge", new Color(0.08f, 0.32f, 0.55f), 0.24f);
             Material darkMetal = GetOrCreateMaterial("DarkMetal", new Color(0.075f, 0.085f, 0.095f), 0.52f);
             Material truckPaint = GetOrCreateMaterial("TruckPaint", new Color(0.095f, 0.34f, 0.53f), 0.42f);
             Material loadingGreen = GetOrCreateMaterial("LoadingGreen", new Color(0.08f, 0.78f, 0.36f), 0.18f, true);
@@ -145,8 +212,21 @@ namespace HardwareStore.Editor
 
             EnsureCementProductPrefab(cementProductConfig, cement);
             EnsureBoardProductPrefab(boardProductConfig, timber, boardStrap);
+            EnsureBrickProductPrefab(brickProductConfig, brick, darkMetal);
+            EnsureDrywallProductPrefab(drywallProductConfig, drywall, drywallEdge);
+            EnsurePaintProductPrefab(paintProductConfig, brandBlue, white, darkMetal);
+            EnsureInsulationProductPrefab(
+                insulationProductConfig, yellow, darkMetal);
             EnsureDeliveryVehiclePrefab(
-                new[] { cementDeliveryConfig, boardDeliveryConfig },
+                new[]
+                {
+                    cementDeliveryConfig,
+                    boardDeliveryConfig,
+                    brickDeliveryConfig,
+                    drywallDeliveryConfig,
+                    paintDeliveryConfig,
+                    insulationDeliveryConfig
+                },
                 yellow,
                 darkMetal,
                 glass,
@@ -567,19 +647,29 @@ namespace HardwareStore.Editor
                 CreateCube($"Pallet Beam {row + 1} B", storage.transform,
                     new Vector3(4.3f, 0.25f, z + 0.22f),
                     new Vector3(5.8f, 0.18f, 0.18f), timber);
+                CreateCube($"Upper Pallet Beam {row + 1} A", storage.transform,
+                    new Vector3(4.3f, 1.55f, z - 0.22f),
+                    new Vector3(5.8f, 0.18f, 0.18f), timber);
+                CreateCube($"Upper Pallet Beam {row + 1} B", storage.transform,
+                    new Vector3(4.3f, 1.55f, z + 0.22f),
+                    new Vector3(5.8f, 0.18f, 0.18f), timber);
             }
 
             GameObject slotsRoot = CreateEmpty("Storage Slots", storage.transform);
             Transform[] slots = new Transform[StorageSlotCapacity];
             const int slotsPerRow = 3;
+            const int rowsPerLevel = 3;
+            const int slotsPerLevel = slotsPerRow * rowsPerLevel;
             for (int i = 0; i < slots.Length; i++)
             {
-                int column = i % slotsPerRow;
-                int row = i / slotsPerRow;
+                int levelIndex = i / slotsPerLevel;
+                int levelSlotIndex = i % slotsPerLevel;
+                int column = levelSlotIndex % slotsPerRow;
+                int row = levelSlotIndex / slotsPerRow;
                 GameObject slot = CreateEmpty($"Stock Slot {i + 1}", slotsRoot.transform);
                 slot.transform.position = new Vector3(
                     2.4f + column * 1.9f,
-                    0.55f,
+                    0.68f + levelIndex * 1.27f,
                     4.4f + row * 2.05f);
                 slots[i] = slot.transform;
             }
@@ -1118,6 +1208,240 @@ namespace HardwareStore.Editor
             }
         }
 
+        private static void EnsureBrickProductPrefab(ProductConfig productConfig,
+            Material brickMaterial, Material strapMaterial)
+        {
+            GameObject product = CreateEmpty("Brick Pack");
+
+            try
+            {
+                product.transform.SetLocalPositionAndRotation(Vector3.zero, Quaternion.identity);
+                product.transform.localScale = Vector3.one;
+                product.SetActive(true);
+
+                InteractionHighlight highlight = null;
+                for (int layerIndex = 0; layerIndex < 2; layerIndex++)
+                for (int columnIndex = 0; columnIndex < 3; columnIndex++)
+                {
+                    GameObject brick = CreateCube(
+                        $"Brick {layerIndex * 3 + columnIndex + 1}",
+                        product.transform,
+                        new Vector3(
+                            -0.27f + columnIndex * 0.27f,
+                            -0.08f + layerIndex * 0.16f,
+                            0f),
+                        new Vector3(0.24f, 0.14f, 0.48f),
+                        brickMaterial,
+                        false,
+                        true);
+                    if (highlight == null)
+                        highlight = brick.AddComponent<InteractionHighlight>();
+                }
+
+                CreateCube("Left Strap", product.transform, new Vector3(-0.18f, 0f, 0f),
+                    new Vector3(0.05f, 0.34f, 0.5f), strapMaterial, false, true);
+                CreateCube("Right Strap", product.transform, new Vector3(0.18f, 0f, 0f),
+                    new Vector3(0.05f, 0.34f, 0.5f), strapMaterial, false, true);
+
+                FinalizeBoxProductPrefab(
+                    product,
+                    productConfig,
+                    Vector3.zero,
+                    new Vector3(0.82f, 0.34f, 0.52f),
+                    new Vector3(0f, 0.35f, 0f),
+                    new Vector3(1.45f, 1.8f, 1.15f),
+                    highlight,
+                    BrickProductPrefabPath);
+            }
+            finally
+            {
+                Object.DestroyImmediate(product);
+            }
+        }
+
+        private static void EnsureDrywallProductPrefab(ProductConfig productConfig,
+            Material drywallMaterial, Material edgeMaterial)
+        {
+            GameObject product = CreateEmpty("Drywall Sheet");
+
+            try
+            {
+                product.transform.SetLocalPositionAndRotation(Vector3.zero, Quaternion.identity);
+                product.transform.localScale = Vector3.one;
+                product.SetActive(true);
+
+                InteractionHighlight highlight = null;
+                for (int index = 0; index < 3; index++)
+                {
+                    GameObject sheet = CreateCube(
+                        $"Drywall Layer {index + 1}",
+                        product.transform,
+                        new Vector3(0f, -0.05f + index * 0.05f, 0f),
+                        new Vector3(1.52f, 0.04f, 0.42f),
+                        drywallMaterial,
+                        false,
+                        true);
+                    if (highlight == null)
+                        highlight = sheet.AddComponent<InteractionHighlight>();
+                }
+
+                CreateCube("Front Edge", product.transform, new Vector3(0f, 0f, -0.215f),
+                    new Vector3(1.55f, 0.17f, 0.025f), edgeMaterial, false, true);
+                CreateCube("Back Edge", product.transform, new Vector3(0f, 0f, 0.215f),
+                    new Vector3(1.55f, 0.17f, 0.025f), edgeMaterial, false, true);
+
+                FinalizeBoxProductPrefab(
+                    product,
+                    productConfig,
+                    Vector3.zero,
+                    new Vector3(1.55f, 0.18f, 0.46f),
+                    new Vector3(0f, 0.35f, 0f),
+                    new Vector3(2.15f, 1.75f, 1.15f),
+                    highlight,
+                    DrywallProductPrefabPath);
+            }
+            finally
+            {
+                Object.DestroyImmediate(product);
+            }
+        }
+
+        private static void EnsurePaintProductPrefab(ProductConfig productConfig,
+            Material bucketMaterial, Material lidMaterial, Material handleMaterial)
+        {
+            GameObject product = CreateEmpty("Paint Bucket");
+
+            try
+            {
+                product.transform.SetLocalPositionAndRotation(Vector3.zero, Quaternion.identity);
+                product.transform.localScale = Vector3.one;
+                product.SetActive(true);
+
+                GameObject body = CreateVisualCylinder(
+                    "Bucket Body",
+                    product.transform,
+                    Vector3.zero,
+                    Quaternion.identity,
+                    new Vector3(0.48f, 0.26f, 0.48f),
+                    bucketMaterial);
+                InteractionHighlight highlight = body.AddComponent<InteractionHighlight>();
+                CreateVisualCylinder(
+                    "Bucket Lid",
+                    product.transform,
+                    new Vector3(0f, 0.265f, 0f),
+                    Quaternion.identity,
+                    new Vector3(0.52f, 0.025f, 0.52f),
+                    lidMaterial);
+                CreateCube("Handle Left", product.transform, new Vector3(-0.22f, 0.08f, 0f),
+                    new Vector3(0.025f, 0.28f, 0.025f), handleMaterial, false, true);
+                CreateCube("Handle Right", product.transform, new Vector3(0.22f, 0.08f, 0f),
+                    new Vector3(0.025f, 0.28f, 0.025f), handleMaterial, false, true);
+                CreateCube("Handle Grip", product.transform, new Vector3(0f, 0.22f, 0f),
+                    new Vector3(0.46f, 0.025f, 0.025f), handleMaterial, false, true);
+
+                FinalizeBoxProductPrefab(
+                    product,
+                    productConfig,
+                    Vector3.zero,
+                    new Vector3(0.52f, 0.58f, 0.52f),
+                    new Vector3(0f, 0.35f, 0f),
+                    new Vector3(1.25f, 1.8f, 1.25f),
+                    highlight,
+                    PaintProductPrefabPath);
+            }
+            finally
+            {
+                Object.DestroyImmediate(product);
+            }
+        }
+
+        private static void EnsureInsulationProductPrefab(ProductConfig productConfig,
+            Material insulationMaterial, Material strapMaterial)
+        {
+            GameObject product = CreateEmpty("Insulation Roll");
+
+            try
+            {
+                product.transform.SetLocalPositionAndRotation(Vector3.zero, Quaternion.identity);
+                product.transform.localScale = Vector3.one;
+                product.SetActive(true);
+
+                GameObject roll = CreateVisualCylinder(
+                    "Insulation Roll Visual",
+                    product.transform,
+                    Vector3.zero,
+                    Quaternion.Euler(0f, 0f, 90f),
+                    new Vector3(0.56f, 0.55f, 0.56f),
+                    insulationMaterial);
+                InteractionHighlight highlight = roll.AddComponent<InteractionHighlight>();
+                CreateCube("Left Strap", product.transform, new Vector3(-0.3f, 0f, 0f),
+                    new Vector3(0.055f, 0.58f, 0.58f), strapMaterial, false, true);
+                CreateCube("Right Strap", product.transform, new Vector3(0.3f, 0f, 0f),
+                    new Vector3(0.055f, 0.58f, 0.58f), strapMaterial, false, true);
+
+                FinalizeBoxProductPrefab(
+                    product,
+                    productConfig,
+                    Vector3.zero,
+                    new Vector3(1.15f, 0.58f, 0.58f),
+                    new Vector3(0f, 0.35f, 0f),
+                    new Vector3(1.75f, 1.8f, 1.25f),
+                    highlight,
+                    InsulationProductPrefabPath);
+            }
+            finally
+            {
+                Object.DestroyImmediate(product);
+            }
+        }
+
+        private static void FinalizeBoxProductPrefab(
+            GameObject product,
+            ProductConfig productConfig,
+            Vector3 solidColliderCenter,
+            Vector3 solidColliderSize,
+            Vector3 interactionCenter,
+            Vector3 interactionSize,
+            InteractionHighlight highlight,
+            string prefabPath)
+        {
+            if (highlight == null)
+                throw new ArgumentNullException(nameof(highlight));
+
+            Rigidbody body = product.AddComponent<Rigidbody>();
+            body.mass = productConfig.Mass;
+            body.isKinematic = true;
+            body.useGravity = false;
+            body.interpolation = productConfig.WorldInterpolation;
+            body.collisionDetectionMode = productConfig.WorldCollisionDetection;
+
+            BoxCollider solidCollider = product.AddComponent<BoxCollider>();
+            solidCollider.center = solidColliderCenter;
+            solidCollider.size = solidColliderSize;
+
+            GameObject interactionArea = CreateEmpty("Interaction Area", product.transform);
+            BoxCollider interactionCollider = interactionArea.AddComponent<BoxCollider>();
+            interactionCollider.isTrigger = true;
+            interactionCollider.center = interactionCenter;
+            interactionCollider.size = interactionSize;
+
+            InteractionView interactionView = product.AddComponent<InteractionView>();
+            interactionView.Configure(highlight);
+            product.AddComponent<TransformRegistrar>();
+            product.AddComponent<InteractionViewRegistrar>();
+            product.AddComponent<RigidbodyRegistrar>();
+            product.AddComponent<CollidersRegistrar>();
+
+            GameObject prefab = PrefabUtility.SaveAsPrefabAsset(product, prefabPath);
+            if (prefab == null)
+                throw new InvalidOperationException($"Could not create product prefab at {prefabPath}.");
+
+            EntityBehaviour prefabView = prefab.GetComponent<EntityBehaviour>() ??
+                                         throw new InvalidOperationException(
+                                             $"Product prefab at {prefabPath} has no view root.");
+            AssignViewPrefab(productConfig, prefabView);
+        }
+
         private static void EnsureDeliveryVehiclePrefab(IReadOnlyCollection<DeliveryConfig> deliveryConfigs,
             Material inboundYellow,
             Material darkMetal, Material glass, Material timber)
@@ -1160,12 +1484,19 @@ namespace HardwareStore.Editor
                     darkMetal);
 
                 GameObject slotsRoot = CreateEmpty("Cargo Slots", vehicle.transform);
-                int cargoSlotCapacity = deliveryConfigs.Max(config => config.ProductCount);
+                int cargoSlotCapacity = checked(
+                    deliveryConfigs.Max(config => config.ProductCount) *
+                    ProcurementCartFactory.CurrentDeliveryPackageCapacity);
                 Transform[] cargoSlots = new Transform[cargoSlotCapacity];
                 for (int index = 0; index < cargoSlots.Length; index++)
                 {
                     GameObject slot = CreateEmpty($"Cargo Slot {index + 1}", slotsRoot.transform);
-                    slot.transform.localPosition = new Vector3(0f, 1.28f, -1.8f + index * 0.92f);
+                    int levelIndex = index / 3;
+                    int positionIndex = index % 3;
+                    slot.transform.localPosition = new Vector3(
+                        0f,
+                        1.5f + levelIndex * 0.67f,
+                        -1.8f + positionIndex * 0.92f);
                     cargoSlots[index] = slot.transform;
                 }
 
@@ -2099,6 +2430,24 @@ namespace HardwareStore.Editor
             return cube;
         }
 
+        private static GameObject CreateVisualCylinder(
+            string name,
+            Transform parent,
+            Vector3 localPosition,
+            Quaternion localRotation,
+            Vector3 localScale,
+            Material material)
+        {
+            GameObject cylinder = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
+            cylinder.name = name;
+            cylinder.transform.SetParent(parent, false);
+            cylinder.transform.SetLocalPositionAndRotation(localPosition, localRotation);
+            cylinder.transform.localScale = localScale;
+            cylinder.GetComponent<Renderer>().sharedMaterial = material;
+            Object.DestroyImmediate(cylinder.GetComponent<Collider>());
+            return cylinder;
+        }
+
         private static void CreateLocalWheel(string name, Transform parent, Vector3 localPosition,
             Material material)
         {
@@ -2212,10 +2561,22 @@ namespace HardwareStore.Editor
             EnsureConfigAsset<CustomerProjectConfig>(CementProjectConfigName);
             EnsureConfigAsset<CustomerProjectConfig>(LumberProjectConfigName);
             EnsureConfigAsset<CustomerProjectConfig>(WorkbenchProjectConfigName);
+            EnsureConfigAsset<CustomerProjectConfig>(GardenWallProjectConfigName);
+            EnsureConfigAsset<CustomerProjectConfig>(DrywallPartitionProjectConfigName);
+            EnsureConfigAsset<CustomerProjectConfig>(WorkshopRenovationProjectConfigName);
+            EnsureConfigAsset<CustomerProjectConfig>(GarageInsulationProjectConfigName);
             EnsureConfigAsset<ProductConfig>(CementProductConfigName);
             EnsureConfigAsset<ProductConfig>(BoardProductConfigName);
+            EnsureConfigAsset<ProductConfig>(BrickProductConfigName);
+            EnsureConfigAsset<ProductConfig>(DrywallProductConfigName);
+            EnsureConfigAsset<ProductConfig>(PaintProductConfigName);
+            EnsureConfigAsset<ProductConfig>(InsulationProductConfigName);
             EnsureConfigAsset<DeliveryConfig>(CementDeliveryConfigName);
             EnsureConfigAsset<DeliveryConfig>(BoardDeliveryConfigName);
+            EnsureConfigAsset<DeliveryConfig>(BrickDeliveryConfigName);
+            EnsureConfigAsset<DeliveryConfig>(DrywallDeliveryConfigName);
+            EnsureConfigAsset<DeliveryConfig>(PaintDeliveryConfigName);
+            EnsureConfigAsset<DeliveryConfig>(InsulationDeliveryConfigName);
             EnsureConfigAsset<CustomerVehicleConfig>("CustomerVehicleConfig");
             EnsureConfigAsset<CustomerConfig>("CustomerConfig");
             EnsureConfigAsset<CustomerFlowConfig>(CustomerFlowConfigName);
@@ -2229,6 +2590,10 @@ namespace HardwareStore.Editor
         private static void ConfigurePrototypeConfigs(
             DeliveryConfig cementDeliveryConfig,
             DeliveryConfig boardDeliveryConfig,
+            DeliveryConfig brickDeliveryConfig,
+            DeliveryConfig drywallDeliveryConfig,
+            DeliveryConfig paintDeliveryConfig,
+            DeliveryConfig insulationDeliveryConfig,
             EconomyConfig economyConfig,
             ProductRecoveryConfig productRecoveryConfig,
             StoreDayConfig storeDayConfig,
@@ -2236,9 +2601,17 @@ namespace HardwareStore.Editor
             WarehouseWorkerConfig warehouseWorkerConfig,
             ProductConfig cementProductConfig,
             ProductConfig boardProductConfig,
+            ProductConfig brickProductConfig,
+            ProductConfig drywallProductConfig,
+            ProductConfig paintProductConfig,
+            ProductConfig insulationProductConfig,
             CustomerProjectConfig cementProjectConfig,
             CustomerProjectConfig lumberProjectConfig,
-            CustomerProjectConfig workbenchProjectConfig)
+            CustomerProjectConfig workbenchProjectConfig,
+            CustomerProjectConfig gardenWallProjectConfig,
+            CustomerProjectConfig drywallPartitionProjectConfig,
+            CustomerProjectConfig workshopRenovationProjectConfig,
+            CustomerProjectConfig garageInsulationProjectConfig)
         {
             ConfigureDeliveryConfig(
                 cementDeliveryConfig,
@@ -2250,6 +2623,26 @@ namespace HardwareStore.Editor
                 ProductTypeId.BoardBundle,
                 productCount: 3,
                 purchaseUnitPrice: 260);
+            ConfigureDeliveryConfig(
+                brickDeliveryConfig,
+                ProductTypeId.BrickPack,
+                productCount: 3,
+                purchaseUnitPrice: 190);
+            ConfigureDeliveryConfig(
+                drywallDeliveryConfig,
+                ProductTypeId.DrywallSheet,
+                productCount: 3,
+                purchaseUnitPrice: 80);
+            ConfigureDeliveryConfig(
+                paintDeliveryConfig,
+                ProductTypeId.PaintBucket,
+                productCount: 3,
+                purchaseUnitPrice: 140);
+            ConfigureDeliveryConfig(
+                insulationDeliveryConfig,
+                ProductTypeId.InsulationRoll,
+                productCount: 3,
+                purchaseUnitPrice: 150);
 
             SerializedObject economy = new(economyConfig);
             RequireSerializedProperty(economy, "_initialMoney").intValue = 1100;
@@ -2317,6 +2710,42 @@ namespace HardwareStore.Editor
                 heldRotationEuler: Vector3.zero,
                 dropForwardDistance: 1.35f,
                 productDropCollisionRadius: 0.86f);
+            ConfigureProductConfig(
+                brickProductConfig,
+                ProductTypeId.BrickPack,
+                unitPrice: 330,
+                mass: 24f,
+                carryMovementSpeed: 2.9f,
+                heldRotationEuler: Vector3.zero,
+                dropForwardDistance: 1.2f,
+                productDropCollisionRadius: 0.53f);
+            ConfigureProductConfig(
+                drywallProductConfig,
+                ProductTypeId.DrywallSheet,
+                unitPrice: 260,
+                mass: 14f,
+                carryMovementSpeed: 2.8f,
+                heldRotationEuler: Vector3.zero,
+                dropForwardDistance: 1.35f,
+                productDropCollisionRadius: 0.84f);
+            ConfigureProductConfig(
+                paintProductConfig,
+                ProductTypeId.PaintBucket,
+                unitPrice: 340,
+                mass: 16f,
+                carryMovementSpeed: 3.4f,
+                heldRotationEuler: Vector3.zero,
+                dropForwardDistance: 1.05f,
+                productDropCollisionRadius: 0.49f);
+            ConfigureProductConfig(
+                insulationProductConfig,
+                ProductTypeId.InsulationRoll,
+                unitPrice: 350,
+                mass: 8f,
+                carryMovementSpeed: 3.3f,
+                heldRotationEuler: Vector3.zero,
+                dropForwardDistance: 1.25f,
+                productDropCollisionRadius: 0.72f);
 
             ConfigureSingleProductProject(
                 cementProjectConfig,
@@ -2328,6 +2757,26 @@ namespace HardwareStore.Editor
                 ProductTypeId.BoardBundle,
                 defaultOfferIndex: 1);
             ConfigureWorkbenchProject(workbenchProjectConfig);
+            ConfigureMixedProject(
+                gardenWallProjectConfig,
+                CustomerProjectTypeId.GardenWall,
+                ProductTypeId.BrickPack,
+                ProductTypeId.CementBag);
+            ConfigureMixedProject(
+                drywallPartitionProjectConfig,
+                CustomerProjectTypeId.DrywallPartition,
+                ProductTypeId.DrywallSheet,
+                ProductTypeId.BoardBundle);
+            ConfigureMixedProject(
+                workshopRenovationProjectConfig,
+                CustomerProjectTypeId.WorkshopRenovation,
+                ProductTypeId.PaintBucket,
+                ProductTypeId.DrywallSheet);
+            ConfigureMixedProject(
+                garageInsulationProjectConfig,
+                CustomerProjectTypeId.GarageInsulation,
+                ProductTypeId.InsulationRoll,
+                ProductTypeId.BoardBundle);
         }
 
         private static void ConfigureDeliveryConfig(DeliveryConfig config, ProductTypeId productType,
@@ -2400,6 +2849,36 @@ namespace HardwareStore.Editor
                     new CustomerProjectOfferDefinition(
                         new CustomerProjectLineDefinition(ProductTypeId.CementBag, requiredCount: 1),
                         new CustomerProjectLineDefinition(ProductTypeId.BoardBundle, requiredCount: 2))
+                });
+            EditorUtility.SetDirty(config);
+        }
+
+        private static void ConfigureMixedProject(
+            CustomerProjectConfig config,
+            CustomerProjectTypeId projectType,
+            ProductTypeId primaryProductType,
+            ProductTypeId secondaryProductType)
+        {
+            config.Configure(
+                projectType,
+                defaultOfferIndex: 1,
+                offers: new[]
+                {
+                    new CustomerProjectOfferDefinition(
+                        new CustomerProjectLineDefinition(
+                            primaryProductType, requiredCount: 1),
+                        new CustomerProjectLineDefinition(
+                            secondaryProductType, requiredCount: 1)),
+                    new CustomerProjectOfferDefinition(
+                        new CustomerProjectLineDefinition(
+                            primaryProductType, requiredCount: 2),
+                        new CustomerProjectLineDefinition(
+                            secondaryProductType, requiredCount: 1)),
+                    new CustomerProjectOfferDefinition(
+                        new CustomerProjectLineDefinition(
+                            primaryProductType, requiredCount: 1),
+                        new CustomerProjectLineDefinition(
+                            secondaryProductType, requiredCount: 2))
                 });
             EditorUtility.SetDirty(config);
         }

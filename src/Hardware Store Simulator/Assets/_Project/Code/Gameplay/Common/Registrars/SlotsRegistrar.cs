@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using HardwareStore.Infrastructure.View;
 using HardwareStore.Infrastructure.View.Registrars;
 using UnityEngine;
 
@@ -26,6 +27,38 @@ namespace HardwareStore.Gameplay.Common.Registrars
         {
             if (Entity.hasSlots)
                 Entity.RemoveSlots();
+        }
+
+        internal void ValidateConfiguration(
+            EntityBehaviour entityBehaviour,
+            int minimumSlotCount)
+        {
+            if (entityBehaviour == null)
+                throw new ArgumentNullException(nameof(entityBehaviour));
+            if (minimumSlotCount <= 0)
+                throw new ArgumentOutOfRangeException(nameof(minimumSlotCount));
+            if (transform != entityBehaviour.transform)
+            {
+                throw new InvalidOperationException(
+                    "SlotsRegistrar must be on its EntityBehaviour root.");
+            }
+
+            Validate(_slots);
+            if (_slots.Length < minimumSlotCount)
+            {
+                throw new InvalidOperationException(
+                    $"SlotsRegistrar exposes {_slots.Length} slots, but at least " +
+                    $"{minimumSlotCount} are required.");
+            }
+
+            for (int index = 0; index < _slots.Length; index++)
+            {
+                if (!_slots[index].IsChildOf(entityBehaviour.transform))
+                {
+                    throw new InvalidOperationException(
+                        $"Registered slot {index} is outside the entity hierarchy.");
+                }
+            }
         }
 
         private static void Validate(Transform[] slots)

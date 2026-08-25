@@ -1,5 +1,6 @@
 using System;
 using Entitas;
+using HardwareStore.Gameplay.Common;
 using UnityEngine;
 
 namespace HardwareStore.Gameplay.Features.Trolley.Systems
@@ -78,9 +79,13 @@ namespace HardwareStore.Gameplay.Features.Trolley.Systems
             foreach (GameEntity product in
                      _gameContext.GetEntitiesWithTrolleyEntityId(trolley.EntityId))
             {
+                if (product.isInboundProduct)
+                    InboundProductManifestValidator.Validate(_gameContext, product);
+
                 bool hasInboundReservation =
                     product.isInboundProduct && !product.isInStock &&
                     product.hasDeliveryEntityId &&
+                    product.hasPurchaseOrderLineEntityId &&
                     product.hasReservedDeliverySlotIndex &&
                     !product.hasStorageZoneEntityId &&
                     !product.hasReservedStorageSlotIndex &&

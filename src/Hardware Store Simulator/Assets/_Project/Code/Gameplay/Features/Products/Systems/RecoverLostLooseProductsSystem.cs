@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using Entitas;
+using HardwareStore.Gameplay.Common;
 using HardwareStore.Gameplay.Factories;
 using HardwareStore.Gameplay.Localization;
 using HardwareStore.Gameplay.StaticData;
@@ -34,6 +35,7 @@ namespace HardwareStore.Gameplay.Features.Products.Systems
                     GameMatcher.EntityId,
                     GameMatcher.InboundProduct,
                     GameMatcher.DeliveryEntityId,
+                    GameMatcher.PurchaseOrderLineEntityId,
                     GameMatcher.ReservedDeliverySlotIndex,
                     GameMatcher.LooseProduct,
                     GameMatcher.WorldPosition,
@@ -76,12 +78,14 @@ namespace HardwareStore.Gameplay.Features.Products.Systems
                 GameMatcher.EntityId,
                 GameMatcher.InboundProduct,
                 GameMatcher.DeliveryEntityId,
+                GameMatcher.PurchaseOrderLineEntityId,
                 GameMatcher.DeliverySlotIndex));
             _reservedDeliverySlots = gameContext.GetGroup(GameMatcher.AllOf(
                 GameMatcher.Product,
                 GameMatcher.EntityId,
                 GameMatcher.InboundProduct,
                 GameMatcher.DeliveryEntityId,
+                GameMatcher.PurchaseOrderLineEntityId,
                 GameMatcher.ReservedDeliverySlotIndex));
             _activeStorageSlots = gameContext.GetGroup(GameMatcher.AllOf(
                 GameMatcher.Product,
@@ -194,11 +198,12 @@ namespace HardwareStore.Gameplay.Features.Products.Systems
             GameEntity product,
             IReadOnlyDictionary<(int OwnerEntityId, int SlotIndex), int> reservations)
         {
+            InboundProductManifestValidator.Validate(_gameContext, product);
             GameEntity delivery =
                 _gameContext.GetEntityWithEntityId(product.DeliveryEntityId);
             if (delivery == null || !delivery.isDelivery || !delivery.isDeliveryActive ||
                 !delivery.hasEntityId || !delivery.hasSlots ||
-                !delivery.hasProductType)
+                !delivery.hasDeliveryPurchaseOrderEntityId)
             {
                 throw new InvalidOperationException(
                     $"Lost inbound product {product.EntityId} references invalid delivery " +
@@ -234,12 +239,25 @@ namespace HardwareStore.Gameplay.Features.Products.Systems
                 if (!product.isProduct || product.isDestructed ||
                     !product.isInboundProduct || product.isInStock || product.isLoaded ||
                     !product.hasEntityId || !product.hasProductType ||
+                    !product.hasPurchaseOrderLineEntityId ||
                     product.DeliveryEntityId != delivery.EntityId ||
-                    product.ProductType != delivery.ProductType ||
                     product.hasDeliverySlotIndex == product.hasReservedDeliverySlotIndex)
                 {
                     throw new InvalidOperationException(
                         $"Delivery {delivery.EntityId} has an invalid linked product.");
+                }
+
+                GameEntity line = _gameContext.GetEntityWithEntityId(
+                    product.PurchaseOrderLineEntityId);
+                if (line == null || !line.isPurchaseOrderLine || line.isDestructed ||
+                    !line.hasPurchaseOrderEntityId ||
+                    line.PurchaseOrderEntityId !=
+                    delivery.DeliveryPurchaseOrderEntityId ||
+                    !line.hasProductType || line.ProductType != product.ProductType)
+                {
+                    throw new InvalidOperationException(
+                        $"Delivery {delivery.EntityId} product {product.EntityId} has an " +
+                        "invalid purchase-order line.");
                 }
 
                 if (product == expectedProduct)

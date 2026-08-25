@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using Entitas;
+using HardwareStore.Gameplay.Common;
 using HardwareStore.Gameplay.Components;
 using HardwareStore.Gameplay.Factories;
 using HardwareStore.Gameplay.Localization;
@@ -89,9 +90,16 @@ namespace HardwareStore.Gameplay.Features.Delivery.Systems
                     continue;
                 }
 
-                if (!product.isInboundProduct || product.isInStock ||
-                    !product.hasDeliveryEntityId)
+                if (!product.isInboundProduct || product.isInStock)
                     continue;
+                InboundProductManifestValidator.Validate(_gameContext, product);
+                if (!product.hasDeliveryEntityId ||
+                    !product.hasPurchaseOrderLineEntityId)
+                {
+                    throw new InvalidOperationException(
+                        $"Inbound product {product.EntityId} has no purchase manifest " +
+                        "relations.");
+                }
                 if (product.hasDeliverySlotIndex ||
                     !product.hasReservedDeliverySlotIndex ||
                     product.hasTrolleyEntityId || product.hasTrolleySlotIndex)
@@ -105,10 +113,26 @@ namespace HardwareStore.Gameplay.Features.Delivery.Systems
                 GameEntity delivery =
                     _gameContext.GetEntityWithEntityId(product.DeliveryEntityId);
                 if (delivery == null || !delivery.isDeliveryActive ||
+                    !delivery.hasDeliveryPurchaseOrderEntityId ||
                     delivery.StoreEntityId != store.EntityId)
                 {
                     throw new InvalidOperationException(
                         $"Inbound product {product.EntityId} does not belong to store {store.EntityId}.");
+                }
+                GameEntity purchaseOrderLine = _gameContext.GetEntityWithEntityId(
+                    product.PurchaseOrderLineEntityId);
+                if (purchaseOrderLine == null ||
+                    !purchaseOrderLine.isPurchaseOrderLine ||
+                    purchaseOrderLine.isDestructed ||
+                    !purchaseOrderLine.hasPurchaseOrderEntityId ||
+                    purchaseOrderLine.PurchaseOrderEntityId !=
+                    delivery.DeliveryPurchaseOrderEntityId ||
+                    !purchaseOrderLine.hasProductType ||
+                    purchaseOrderLine.ProductType != product.ProductType)
+                {
+                    throw new InvalidOperationException(
+                        $"Inbound product {product.EntityId} references an invalid purchase " +
+                        $"order line {product.PurchaseOrderLineEntityId}.");
                 }
 
                 Dictionary<int, int> occupiedSlots = GetOrCreateOccupiedSlots(

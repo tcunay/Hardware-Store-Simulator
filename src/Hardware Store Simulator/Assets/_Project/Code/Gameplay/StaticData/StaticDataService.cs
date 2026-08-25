@@ -1,8 +1,11 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using HardwareStore.Gameplay.Common.Registrars;
 using HardwareStore.Gameplay.Components;
 using HardwareStore.Gameplay.Configs;
+using HardwareStore.Gameplay.Factories;
+using HardwareStore.Infrastructure.View;
 using UnityEngine;
 
 namespace HardwareStore.Gameplay.StaticData
@@ -152,12 +155,70 @@ namespace HardwareStore.Gameplay.StaticData
                 .OrderBy(productType => (int)productType)
                 .ToArray();
             if (missingDeliveries.Length == 0 && unexpectedDeliveries.Length == 0)
+            {
+                DeliveryConfig sharedVehicle = deliveries.Values.First();
+                foreach (DeliveryConfig delivery in deliveries.Values)
+                {
+                    if (delivery.ViewPrefab != sharedVehicle.ViewPrefab)
+                    {
+                        throw new InvalidOperationException(
+                            "Every delivery config must use the same vehicle prefab so a " +
+                            "mixed purchase order can be delivered atomically.");
+                    }
+                }
+                ValidateDeliveryVehiclePrefab(
+                    deliveries.Values,
+                    sharedVehicle.ViewPrefab);
                 return;
+            }
 
             throw new InvalidOperationException(
                 "Product and delivery catalogs must contain exactly the same product types. " +
                 $"Missing deliveries: {Format(missingDeliveries)}. " +
                 $"Unexpected deliveries: {Format(unexpectedDeliveries)}.");
+        }
+
+        private static void ValidateDeliveryVehiclePrefab(
+            IEnumerable<DeliveryConfig> deliveries,
+            EntityBehaviour viewPrefab)
+        {
+            EntityBehaviour[] entityBehaviours =
+                viewPrefab.GetComponentsInChildren<EntityBehaviour>(includeInactive: true);
+            TransformRegistrar[] transformRegistrars =
+                viewPrefab.GetComponentsInChildren<TransformRegistrar>(includeInactive: true);
+            SlotsRegistrar[] slotsRegistrars =
+                viewPrefab.GetComponentsInChildren<SlotsRegistrar>(includeInactive: true);
+            if (viewPrefab.transform.parent != null ||
+                entityBehaviours.Length != 1 ||
+                !ReferenceEquals(entityBehaviours[0], viewPrefab) ||
+                transformRegistrars.Length != 1 ||
+                transformRegistrars[0].transform != viewPrefab.transform ||
+                slotsRegistrars.Length != 1 ||
+                slotsRegistrars[0].transform != viewPrefab.transform)
+            {
+                throw new InvalidOperationException(
+                    "The shared delivery vehicle must expose exactly one EntityBehaviour, " +
+                    "TransformRegistrar, and SlotsRegistrar on its prefab root.");
+            }
+
+            int maximumProductCount = deliveries.Max(delivery => delivery.ProductCount);
+            int minimumSlotCount;
+            try
+            {
+                minimumSlotCount = checked(
+                    maximumProductCount *
+                    ProcurementCartFactory.CurrentDeliveryPackageCapacity);
+            }
+            catch (OverflowException exception)
+            {
+                throw new InvalidOperationException(
+                    "Maximum mixed-delivery cargo capacity must fit a 32-bit signed integer.",
+                    exception);
+            }
+
+            slotsRegistrars[0].ValidateConfiguration(
+                viewPrefab,
+                minimumSlotCount);
         }
 
         private static void ValidateCompatibility(

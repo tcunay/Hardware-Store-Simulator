@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using Entitas;
+using HardwareStore.Gameplay.Common;
 
 namespace HardwareStore.Gameplay.Features.Carrying.Systems
 {
@@ -43,6 +44,11 @@ namespace HardwareStore.Gameplay.Features.Carrying.Systems
                     continue;
 
                 GameEntity product = _gameContext.GetEntityWithCarrierEntityId(player.EntityId);
+                if (product.isInboundProduct)
+                {
+                    InboundProductManifestValidator.Validate(_gameContext, product);
+                    continue;
+                }
                 if (!product.isInStock || product.isLoaded)
                     continue;
                 ValidateHeldProduct(visit, product);

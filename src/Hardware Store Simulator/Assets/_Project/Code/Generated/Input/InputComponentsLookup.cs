@@ -9,23 +9,27 @@
 public static class InputComponentsLookup {
 
     public const int ConfirmPressed = 0;
-    public const int DropPressed = 1;
-    public const int InputState = 2;
-    public const int InteractPressed = 3;
-    public const int LookInput = 4;
-    public const int MoveInput = 5;
-    public const int NextPressed = 6;
-    public const int PointerLook = 7;
-    public const int PreviousPressed = 8;
-    public const int SprintHeld = 9;
-    public const int ToggleCursorPressed = 10;
-    public const int TrolleyPressed = 11;
+    public const int DecreasePressed = 1;
+    public const int DropPressed = 2;
+    public const int IncreasePressed = 3;
+    public const int InputState = 4;
+    public const int InteractPressed = 5;
+    public const int LookInput = 6;
+    public const int MoveInput = 7;
+    public const int NextPressed = 8;
+    public const int PointerLook = 9;
+    public const int PreviousPressed = 10;
+    public const int SprintHeld = 11;
+    public const int ToggleCursorPressed = 12;
+    public const int TrolleyPressed = 13;
 
-    public const int TotalComponents = 12;
+    public const int TotalComponents = 14;
 
     public static readonly string[] componentNames = {
         "ConfirmPressed",
+        "DecreasePressed",
         "DropPressed",
+        "IncreasePressed",
         "InputState",
         "InteractPressed",
         "LookInput",
@@ -40,7 +44,9 @@ public static class InputComponentsLookup {
 
     public static readonly System.Type[] componentTypes = {
         typeof(HardwareStore.Gameplay.Components.ConfirmPressed),
+        typeof(HardwareStore.Gameplay.Components.DecreasePressed),
         typeof(HardwareStore.Gameplay.Components.DropPressed),
+        typeof(HardwareStore.Gameplay.Components.IncreasePressed),
         typeof(HardwareStore.Gameplay.Components.InputState),
         typeof(HardwareStore.Gameplay.Components.InteractPressed),
         typeof(HardwareStore.Gameplay.Components.LookInput),

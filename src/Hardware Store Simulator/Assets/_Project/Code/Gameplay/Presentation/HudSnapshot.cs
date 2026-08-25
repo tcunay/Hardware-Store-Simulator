@@ -11,9 +11,8 @@ namespace HardwareStore.Gameplay.Presentation
             CustomerProjectTypeId? projectType,
             OrderLineSnapshot[] orderLines, int totalAvailableProductCount,
             int totalLoadedProductCount, int totalRequiredProductCount,
-            int money, int stockCount, bool hasActiveDelivery,
-            ProductTypeId deliveryProductType, int deliveryStockedCount,
-            int deliveryProductCount, ProductTypeId? carriedProductType,
+            int money, int stockCount, DeliveryProgressSnapshot? delivery,
+            ProductTypeId? carriedProductType,
             LocalizedText prompt, bool hasFocus, bool canInteract, bool hasItem,
             bool isPushingTrolley, bool cursorLocked,
             CustomerFlowSnapshot customerFlow,
@@ -37,10 +36,7 @@ namespace HardwareStore.Gameplay.Presentation
             TotalRequiredProductCount = totalRequiredProductCount;
             Money = money;
             StockCount = stockCount;
-            HasActiveDelivery = hasActiveDelivery;
-            DeliveryProductType = deliveryProductType;
-            DeliveryStockedCount = deliveryStockedCount;
-            DeliveryProductCount = deliveryProductCount;
+            Delivery = delivery;
             CarriedProductType = carriedProductType;
             Prompt = prompt;
             HasFocus = hasFocus;
@@ -61,10 +57,8 @@ namespace HardwareStore.Gameplay.Presentation
         public int TotalRequiredProductCount { get; }
         public int Money { get; }
         public int StockCount { get; }
-        public bool HasActiveDelivery { get; }
-        public ProductTypeId DeliveryProductType { get; }
-        public int DeliveryStockedCount { get; }
-        public int DeliveryProductCount { get; }
+        public DeliveryProgressSnapshot? Delivery { get; }
+        public bool HasActiveDelivery => Delivery.HasValue;
         public ProductTypeId? CarriedProductType { get; }
         public LocalizedText Prompt { get; }
         public bool HasFocus { get; }

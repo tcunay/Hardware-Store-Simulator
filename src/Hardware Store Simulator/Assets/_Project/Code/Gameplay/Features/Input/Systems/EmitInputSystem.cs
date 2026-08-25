@@ -27,6 +27,8 @@ namespace HardwareStore.Gameplay.Features.Input.Systems
                 input.isTrolleyPressed = _inputService.TrolleyPressedThisFrame;
                 input.isPreviousPressed = _inputService.PreviousPressedThisFrame;
                 input.isNextPressed = _inputService.NextPressedThisFrame;
+                input.isIncreasePressed = _inputService.IncreasePressedThisFrame;
+                input.isDecreasePressed = _inputService.DecreasePressedThisFrame;
                 input.isToggleCursorPressed = _inputService.ToggleCursorPressedThisFrame;
                 input.isPointerLook = _inputService.LookUsesPointer;
             }

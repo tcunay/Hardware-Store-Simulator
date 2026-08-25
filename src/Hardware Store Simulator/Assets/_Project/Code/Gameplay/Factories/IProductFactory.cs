@@ -6,6 +6,6 @@ namespace HardwareStore.Gameplay.Factories
     public interface IProductFactory
     {
         GameEntity CreateInbound(ProductTypeId productType, Pose at, int deliveryEntityId,
-            int deliverySlotIndex);
+            int deliverySlotIndex, int purchaseOrderLineEntityId);
     }
 }

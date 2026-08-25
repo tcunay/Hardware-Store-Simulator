@@ -1,5 +1,6 @@
 using System;
 using Entitas;
+using HardwareStore.Gameplay.Common;
 using HardwareStore.Gameplay.Components;
 
 namespace HardwareStore.Gameplay.Features.Employees.Systems
@@ -186,9 +187,15 @@ namespace HardwareStore.Gameplay.Features.Employees.Systems
             }
         }
 
-        private static void ValidateInboundTask(GameEntity task,
+        private void ValidateInboundTask(GameEntity task,
             GameEntity product)
         {
+            InboundProductManifestValidator.Validate(_gameContext, product);
+            if (!product.isInboundProduct || !product.hasDeliveryEntityId ||
+                !product.hasPurchaseOrderLineEntityId)
+            {
+                throw InvalidTask(task);
+            }
             switch (task.WarehouseTaskStep)
             {
                 case WarehouseTaskStepId.Available:

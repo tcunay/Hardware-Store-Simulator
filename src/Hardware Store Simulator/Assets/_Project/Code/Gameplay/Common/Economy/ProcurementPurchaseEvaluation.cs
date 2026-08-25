@@ -31,7 +31,7 @@ namespace HardwareStore.Gameplay.Common.Economy
             }
             if (deliveryProductCount <= 0)
                 throw new ArgumentOutOfRangeException(nameof(deliveryProductCount));
-            if (deliveryCost < 0)
+            if (deliveryCost <= 0)
                 throw new ArgumentOutOfRangeException(nameof(deliveryCost));
 
             Availability = availability;

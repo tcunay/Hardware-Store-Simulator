@@ -15,6 +15,10 @@ namespace HardwareStore.Gameplay.Localization
             {
                 ProductTypeId.CementBag => LocalizationKey.ProductCementBagName,
                 ProductTypeId.BoardBundle => LocalizationKey.ProductBoardBundleName,
+                ProductTypeId.BrickPack => LocalizationKey.ProductBrickPackName,
+                ProductTypeId.DrywallSheet => LocalizationKey.ProductDrywallSheetName,
+                ProductTypeId.PaintBucket => LocalizationKey.ProductPaintBucketName,
+                ProductTypeId.InsulationRoll => LocalizationKey.ProductInsulationRollName,
                 _ => throw new ArgumentOutOfRangeException(
                     nameof(productType), productType, "Unsupported product type.")
             });
@@ -24,6 +28,10 @@ namespace HardwareStore.Gameplay.Localization
             {
                 ProductTypeId.CementBag => LocalizationKey.ProductPieceUnit,
                 ProductTypeId.BoardBundle => LocalizationKey.ProductPieceUnit,
+                ProductTypeId.BrickPack => LocalizationKey.ProductPieceUnit,
+                ProductTypeId.DrywallSheet => LocalizationKey.ProductPieceUnit,
+                ProductTypeId.PaintBucket => LocalizationKey.ProductPieceUnit,
+                ProductTypeId.InsulationRoll => LocalizationKey.ProductPieceUnit,
                 _ => throw new ArgumentOutOfRangeException(
                     nameof(productType), productType, "Unsupported product type.")
             });
@@ -37,6 +45,14 @@ namespace HardwareStore.Gameplay.Localization
                     LocalizationKey.ProjectLumberShelvingTitle,
                 CustomerProjectTypeId.WorkbenchFoundation =>
                     LocalizationKey.ProjectWorkbenchFoundationTitle,
+                CustomerProjectTypeId.GardenWall =>
+                    LocalizationKey.ProjectGardenWallTitle,
+                CustomerProjectTypeId.DrywallPartition =>
+                    LocalizationKey.ProjectDrywallPartitionTitle,
+                CustomerProjectTypeId.WorkshopRenovation =>
+                    LocalizationKey.ProjectWorkshopRenovationTitle,
+                CustomerProjectTypeId.GarageInsulation =>
+                    LocalizationKey.ProjectGarageInsulationTitle,
                 _ => throw new ArgumentOutOfRangeException(
                     nameof(projectType), projectType, "Unsupported customer project type.")
             });
@@ -50,6 +66,14 @@ namespace HardwareStore.Gameplay.Localization
                     LocalizationKey.ProjectLumberShelvingRequest,
                 CustomerProjectTypeId.WorkbenchFoundation =>
                     LocalizationKey.ProjectWorkbenchFoundationRequest,
+                CustomerProjectTypeId.GardenWall =>
+                    LocalizationKey.ProjectGardenWallRequest,
+                CustomerProjectTypeId.DrywallPartition =>
+                    LocalizationKey.ProjectDrywallPartitionRequest,
+                CustomerProjectTypeId.WorkshopRenovation =>
+                    LocalizationKey.ProjectWorkshopRenovationRequest,
+                CustomerProjectTypeId.GarageInsulation =>
+                    LocalizationKey.ProjectGarageInsulationRequest,
                 _ => throw new ArgumentOutOfRangeException(
                     nameof(projectType), projectType, "Unsupported customer project type.")
             });
@@ -100,6 +124,34 @@ namespace HardwareStore.Gameplay.Localization
                     2 => LocalizationKey.ProjectWorkbenchFoundationOffer2Title,
                     _ => throw InvalidOfferIndex(offerIndex)
                 },
+                CustomerProjectTypeId.GardenWall => offerIndex switch
+                {
+                    0 => LocalizationKey.ProjectGardenWallOffer0Title,
+                    1 => LocalizationKey.ProjectGardenWallOffer1Title,
+                    2 => LocalizationKey.ProjectGardenWallOffer2Title,
+                    _ => throw InvalidOfferIndex(offerIndex)
+                },
+                CustomerProjectTypeId.DrywallPartition => offerIndex switch
+                {
+                    0 => LocalizationKey.ProjectDrywallPartitionOffer0Title,
+                    1 => LocalizationKey.ProjectDrywallPartitionOffer1Title,
+                    2 => LocalizationKey.ProjectDrywallPartitionOffer2Title,
+                    _ => throw InvalidOfferIndex(offerIndex)
+                },
+                CustomerProjectTypeId.WorkshopRenovation => offerIndex switch
+                {
+                    0 => LocalizationKey.ProjectWorkshopRenovationOffer0Title,
+                    1 => LocalizationKey.ProjectWorkshopRenovationOffer1Title,
+                    2 => LocalizationKey.ProjectWorkshopRenovationOffer2Title,
+                    _ => throw InvalidOfferIndex(offerIndex)
+                },
+                CustomerProjectTypeId.GarageInsulation => offerIndex switch
+                {
+                    0 => LocalizationKey.ProjectGarageInsulationOffer0Title,
+                    1 => LocalizationKey.ProjectGarageInsulationOffer1Title,
+                    2 => LocalizationKey.ProjectGarageInsulationOffer2Title,
+                    _ => throw InvalidOfferIndex(offerIndex)
+                },
                 _ => throw new ArgumentOutOfRangeException(
                     nameof(projectType), projectType, "Unsupported customer project type.")
             };
@@ -127,6 +179,34 @@ namespace HardwareStore.Gameplay.Localization
                     0 => LocalizationKey.ProjectWorkbenchFoundationOffer0Description,
                     1 => LocalizationKey.ProjectWorkbenchFoundationOffer1Description,
                     2 => LocalizationKey.ProjectWorkbenchFoundationOffer2Description,
+                    _ => throw InvalidOfferIndex(offerIndex)
+                },
+                CustomerProjectTypeId.GardenWall => offerIndex switch
+                {
+                    0 => LocalizationKey.ProjectGardenWallOffer0Description,
+                    1 => LocalizationKey.ProjectGardenWallOffer1Description,
+                    2 => LocalizationKey.ProjectGardenWallOffer2Description,
+                    _ => throw InvalidOfferIndex(offerIndex)
+                },
+                CustomerProjectTypeId.DrywallPartition => offerIndex switch
+                {
+                    0 => LocalizationKey.ProjectDrywallPartitionOffer0Description,
+                    1 => LocalizationKey.ProjectDrywallPartitionOffer1Description,
+                    2 => LocalizationKey.ProjectDrywallPartitionOffer2Description,
+                    _ => throw InvalidOfferIndex(offerIndex)
+                },
+                CustomerProjectTypeId.WorkshopRenovation => offerIndex switch
+                {
+                    0 => LocalizationKey.ProjectWorkshopRenovationOffer0Description,
+                    1 => LocalizationKey.ProjectWorkshopRenovationOffer1Description,
+                    2 => LocalizationKey.ProjectWorkshopRenovationOffer2Description,
+                    _ => throw InvalidOfferIndex(offerIndex)
+                },
+                CustomerProjectTypeId.GarageInsulation => offerIndex switch
+                {
+                    0 => LocalizationKey.ProjectGarageInsulationOffer0Description,
+                    1 => LocalizationKey.ProjectGarageInsulationOffer1Description,
+                    2 => LocalizationKey.ProjectGarageInsulationOffer2Description,
                     _ => throw InvalidOfferIndex(offerIndex)
                 },
                 _ => throw new ArgumentOutOfRangeException(

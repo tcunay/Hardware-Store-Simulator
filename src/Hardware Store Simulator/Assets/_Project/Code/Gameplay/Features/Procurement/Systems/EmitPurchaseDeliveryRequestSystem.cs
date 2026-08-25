@@ -1,5 +1,6 @@
 using Entitas;
 using HardwareStore.Common.Entity;
+using HardwareStore.Gameplay.Factories;
 
 namespace HardwareStore.Gameplay.Features.Procurement.Systems
 {
@@ -47,6 +48,44 @@ namespace HardwareStore.Gameplay.Features.Procurement.Systems
                     $"Player {player.EntityId} references an invalid procurement terminal " +
                     $"{terminal.EntityId}.");
             }
+
+            GameEntity cart =
+                _gameContext.GetEntityWithProcurementCartTerminalEntityId(
+                    terminal.EntityId);
+            if (cart == null)
+            {
+                throw new System.InvalidOperationException(
+                    $"Terminal {terminal.EntityId} has no procurement cart.");
+            }
+            if (!cart.isProcurementCart || cart.isDestructed ||
+                !cart.hasEntityId || !cart.hasStoreEntityId ||
+                cart.StoreEntityId != player.StoreEntityId ||
+                !cart.hasProcurementCartPackageCapacity ||
+                cart.ProcurementCartPackageCapacity <= 0 ||
+                cart.ProcurementCartPackageCapacity >
+                ProcurementCartFactory.CurrentDeliveryPackageCapacity)
+            {
+                throw new System.InvalidOperationException(
+                    $"Terminal {terminal.EntityId} owns an invalid procurement cart.");
+            }
+
+            bool hasLine = false;
+            foreach (GameEntity line in
+                     _gameContext.GetEntitiesWithProcurementCartEntityId(cart.EntityId))
+            {
+                if (line.isDestructed)
+                    continue;
+                if (!line.isProcurementCartLine || !line.hasEntityId ||
+                    !line.hasProductType || !line.hasProcurementPackageCount ||
+                    line.ProcurementPackageCount <= 0)
+                {
+                    throw new System.InvalidOperationException(
+                        $"Cart {cart.EntityId} contains an invalid line.");
+                }
+                hasLine = true;
+            }
+            if (!hasLine)
+                return;
 
             CreateEntity.Empty()
                 .AddSourceEntityId(player.EntityId)

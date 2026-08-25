@@ -51,9 +51,25 @@ namespace HardwareStore.Editor
         private const string CementProductConfigPath = "Assets/Resources/Configs/ProductConfig.asset";
         private const string BoardProductConfigPath =
             "Assets/Resources/Configs/ProductConfig_BoardBundle.asset";
+        private const string BrickProductConfigPath =
+            "Assets/Resources/Configs/ProductConfig_BrickPack.asset";
+        private const string DrywallProductConfigPath =
+            "Assets/Resources/Configs/ProductConfig_DrywallSheet.asset";
+        private const string PaintProductConfigPath =
+            "Assets/Resources/Configs/ProductConfig_PaintBucket.asset";
+        private const string InsulationProductConfigPath =
+            "Assets/Resources/Configs/ProductConfig_InsulationRoll.asset";
         private const string CementDeliveryConfigPath = "Assets/Resources/Configs/DeliveryConfig.asset";
         private const string BoardDeliveryConfigPath =
             "Assets/Resources/Configs/DeliveryConfig_BoardBundle.asset";
+        private const string BrickDeliveryConfigPath =
+            "Assets/Resources/Configs/DeliveryConfig_BrickPack.asset";
+        private const string DrywallDeliveryConfigPath =
+            "Assets/Resources/Configs/DeliveryConfig_DrywallSheet.asset";
+        private const string PaintDeliveryConfigPath =
+            "Assets/Resources/Configs/DeliveryConfig_PaintBucket.asset";
+        private const string InsulationDeliveryConfigPath =
+            "Assets/Resources/Configs/DeliveryConfig_InsulationRoll.asset";
         private const string CustomerVehicleConfigPath =
             "Assets/Resources/Configs/CustomerVehicleConfig.asset";
         private const string CustomerConfigPath =
@@ -75,12 +91,28 @@ namespace HardwareStore.Editor
             "Assets/Resources/Configs/CustomerProjectConfig_LumberShelving.asset";
         private const string WorkbenchProjectConfigPath =
             "Assets/Resources/Configs/CustomerProjectConfig_WorkbenchFoundation.asset";
+        private const string GardenWallProjectConfigPath =
+            "Assets/Resources/Configs/CustomerProjectConfig_GardenWall.asset";
+        private const string DrywallPartitionProjectConfigPath =
+            "Assets/Resources/Configs/CustomerProjectConfig_DrywallPartition.asset";
+        private const string WorkshopRenovationProjectConfigPath =
+            "Assets/Resources/Configs/CustomerProjectConfig_WorkshopRenovation.asset";
+        private const string GarageInsulationProjectConfigPath =
+            "Assets/Resources/Configs/CustomerProjectConfig_GarageInsulation.asset";
         private const string LegacyCementOrderConfigPath =
             "Assets/Resources/Configs/OrderConfig.asset";
         private const string LegacyBoardOrderConfigPath =
             "Assets/Resources/Configs/OrderConfig_BoardBundle.asset";
         private const string CementProductPrefabPath = "Assets/_Project/Prefabs/Gameplay/CementBag.prefab";
         private const string BoardProductPrefabPath = "Assets/_Project/Prefabs/Gameplay/BoardBundle.prefab";
+        private const string BrickProductPrefabPath =
+            "Assets/_Project/Prefabs/Gameplay/BrickPack.prefab";
+        private const string DrywallProductPrefabPath =
+            "Assets/_Project/Prefabs/Gameplay/DrywallSheet.prefab";
+        private const string PaintProductPrefabPath =
+            "Assets/_Project/Prefabs/Gameplay/PaintBucket.prefab";
+        private const string InsulationProductPrefabPath =
+            "Assets/_Project/Prefabs/Gameplay/InsulationRoll.prefab";
         private const string DeliveryVehiclePrefabPath = "Assets/_Project/Prefabs/Gameplay/DeliveryTruck.prefab";
         private const string CustomerVehiclePrefabPath =
             "Assets/_Project/Prefabs/Gameplay/CustomerVehicle.prefab";
@@ -94,19 +126,27 @@ namespace HardwareStore.Editor
             "Assets/_Project/Prefabs/Gameplay/WarehouseWorkerTrolley.prefab";
         private const string WarehouseWorkerNavMeshPath =
             "Assets/Scenes/Prototype_Yard/NavMesh-Navigation.asset";
-        private const int RequiredStorageSlotCapacity = 9;
+        private const int RequiredStorageSlotCapacity = 18;
 
         private static readonly ProductTypeId[] ExpectedProductTypes =
         {
             ProductTypeId.CementBag,
-            ProductTypeId.BoardBundle
+            ProductTypeId.BoardBundle,
+            ProductTypeId.BrickPack,
+            ProductTypeId.DrywallSheet,
+            ProductTypeId.PaintBucket,
+            ProductTypeId.InsulationRoll
         };
 
         private static readonly CustomerProjectTypeId[] ExpectedProjectTypes =
         {
             CustomerProjectTypeId.CementFoundation,
             CustomerProjectTypeId.LumberShelving,
-            CustomerProjectTypeId.WorkbenchFoundation
+            CustomerProjectTypeId.WorkbenchFoundation,
+            CustomerProjectTypeId.GardenWall,
+            CustomerProjectTypeId.DrywallPartition,
+            CustomerProjectTypeId.WorkshopRenovation,
+            CustomerProjectTypeId.GarageInsulation
         };
 
         private static readonly Type[] ExpectedInputComponents =
@@ -121,6 +161,8 @@ namespace HardwareStore.Editor
             typeof(TrolleyPressed),
             typeof(PreviousPressed),
             typeof(NextPressed),
+            typeof(IncreasePressed),
+            typeof(DecreasePressed),
             typeof(ToggleCursorPressed),
             typeof(PointerLook)
         };
@@ -335,18 +377,35 @@ namespace HardwareStore.Editor
             InputAction move = playerMap.FindAction("Move");
             InputAction previous = playerMap.FindAction("Previous");
             InputAction next = playerMap.FindAction("Next");
+            InputAction increase = playerMap.FindAction("Increase");
+            InputAction decrease = playerMap.FindAction("Decrease");
             InputAction confirm = playerMap.FindAction("Confirm");
             InputAction interact = playerMap.FindAction("Interact");
             InputAction drop = playerMap.FindAction("Drop");
             InputAction trolley = playerMap.FindAction("Trolley");
-            Require(move != null && previous != null && next != null && confirm != null &&
+            Require(move != null && previous != null && next != null &&
+                    increase != null && decrease != null && confirm != null &&
                     interact != null && drop != null && trolley != null,
-                "Player input must expose Move, modal navigation, E interaction, G drop and " +
-                "the dedicated F trolley action.");
+                "Player input must expose Move, catalog navigation and quantity controls, " +
+                "E interaction, G drop and the dedicated F trolley action.");
 
             Require(HasBinding(previous, "<Keyboard>/leftArrow") &&
                     HasBinding(next, "<Keyboard>/rightArrow"),
-                "Consultation navigation must use the keyboard left and right arrows.");
+                "Modal card navigation must use the keyboard left and right arrows.");
+            Require(increase.type == InputActionType.Button &&
+                    decrease.type == InputActionType.Button &&
+                    HasBinding(increase, "<Keyboard>/upArrow") &&
+                    HasBinding(increase, "<Gamepad>/dpad/up") &&
+                    HasOnlyBindings(increase,
+                        "<Keyboard>/upArrow",
+                        "<Gamepad>/dpad/up") &&
+                    HasBinding(decrease, "<Keyboard>/downArrow") &&
+                    HasBinding(decrease, "<Gamepad>/dpad/down") &&
+                    HasOnlyBindings(decrease,
+                        "<Keyboard>/downArrow",
+                        "<Gamepad>/dpad/down"),
+                "Procurement package quantity must use only Up/Down arrows and the matching " +
+                "gamepad D-pad directions.");
             Require(!HasAnyBinding(previous,
                         "<Keyboard>/1",
                         "<Keyboard>/2",
@@ -397,25 +456,43 @@ namespace HardwareStore.Editor
                 "E must remain the world/product action and G must remain product drop; " +
                 "neither action may alias the dedicated trolley input.");
 
-            PropertyInfo trolleyPressedProperty = typeof(IInputService).GetProperty(
-                nameof(IInputService.TrolleyPressedThisFrame),
-                BindingFlags.Instance | BindingFlags.Public | BindingFlags.DeclaredOnly);
-            Require(trolleyPressedProperty?.PropertyType == typeof(bool),
-                $"{nameof(IInputService)} must expose one-frame trolley input explicitly.");
+            foreach (string propertyName in new[]
+                     {
+                         nameof(IInputService.TrolleyPressedThisFrame),
+                         nameof(IInputService.IncreasePressedThisFrame),
+                         nameof(IInputService.DecreasePressedThisFrame)
+                     })
+            {
+                PropertyInfo pressedProperty = typeof(IInputService).GetProperty(
+                    propertyName,
+                    BindingFlags.Instance | BindingFlags.Public |
+                    BindingFlags.DeclaredOnly);
+                Require(pressedProperty?.PropertyType == typeof(bool),
+                    $"{nameof(IInputService)} must expose one-frame {propertyName} input " +
+                    "explicitly.");
+            }
             string inputServiceSource = ReadRuntimeSource(
                 "Gameplay", "Common", "Input", nameof(InputSystemService) + ".cs");
             RequireSourceContains(inputServiceSource,
                 "_playerMap.FindAction(\"Trolley\", true)",
-                "TrolleyPressedThisFrame => _trolley.WasPressedThisFrame()");
+                "_playerMap.FindAction(\"Increase\", true)",
+                "_playerMap.FindAction(\"Decrease\", true)",
+                "TrolleyPressedThisFrame => _trolley.WasPressedThisFrame()",
+                "IncreasePressedThisFrame => _increase.WasPressedThisFrame()",
+                "DecreasePressedThisFrame => _decrease.WasPressedThisFrame()");
             string emitInputSource = ReadRuntimeSource(
                 "Gameplay", "Features", "Input", "Systems", "EmitInputSystem.cs");
             RequireSourceContains(emitInputSource,
-                "input.isTrolleyPressed = _inputService.TrolleyPressedThisFrame");
+                "input.isTrolleyPressed = _inputService.TrolleyPressedThisFrame",
+                "input.isIncreasePressed = _inputService.IncreasePressedThisFrame",
+                "input.isDecreasePressed = _inputService.DecreasePressedThisFrame");
             string cleanupInputSource = ReadRuntimeSource(
                 "Gameplay", "Features", "Cleanup", "Systems",
                 "CleanupInputRequestsSystem.cs");
             RequireSourceContains(cleanupInputSource,
-                "input.isTrolleyPressed = false");
+                "input.isTrolleyPressed = false",
+                "input.isIncreasePressed = false",
+                "input.isDecreasePressed = false");
         }
 
         private static bool HasBinding(InputAction action, string path) =>
@@ -568,11 +645,10 @@ namespace HardwareStore.Editor
                 runtimeTypes,
                 "GetEntityWithDayReportStoreEntityId",
                 typeof(GameEntity));
-            Require(GameComponentsLookup.componentTypes.Length == 255,
-                "The worker-trolley warehouse-worker slice must expose the exact " +
-                "255-component " +
-                "generated Game " +
-                "registry.");
+            Require(GameComponentsLookup.componentTypes.Length == 275 &&
+                    InputComponentsLookup.componentTypes.Length == 14,
+                "The mixed-procurement slice must expose the exact generated registry sizes " +
+                "of 275 Game components and 14 Input components.");
 
             Type featureType = runtimeTypes.SingleOrDefault(type =>
                 type.Name == "StoreDayFeature");
@@ -1349,6 +1425,34 @@ namespace HardwareStore.Editor
             Require(discoveredComponents.Contains(typeof(DeliveryProcurementTerminalEntityId)),
                 $"{nameof(DeliveryProcurementTerminalEntityId)} must uniquely relate the active delivery " +
                 "to its procurement terminal.");
+            Type[] procurementGraphComponents =
+            {
+                typeof(ProcurementCart),
+                typeof(ProcurementCartLine),
+                typeof(ProcurementCartTerminalEntityId),
+                typeof(ProcurementCartEntityId),
+                typeof(ProcurementCartPackageCapacity),
+                typeof(ProcurementPackageCount),
+                typeof(PurchaseOrder),
+                typeof(PurchaseOrderLine),
+                typeof(PurchaseOrderProcurementTerminalEntityId),
+                typeof(PurchaseOrderEntityId),
+                typeof(PurchaseOrderPackageCount),
+                typeof(PurchaseOrderProductCount),
+                typeof(PurchaseOrderCost),
+                typeof(PurchaseOrderLineIndex),
+                typeof(PurchaseOrderLinePackageCount),
+                typeof(PurchaseOrderLineProductCount),
+                typeof(PurchaseOrderLineCost),
+                typeof(PurchaseOrderLineStockedProductCount),
+                typeof(DeliveryPurchaseOrderEntityId),
+                typeof(PurchaseOrderLineEntityId)
+            };
+            foreach (Type component in procurementGraphComponents)
+            {
+                Require(discoveredComponents.Contains(component),
+                    $"Mixed procurement requires the {component.Name} Game component.");
+            }
             Require(discoveredComponents.Contains(typeof(CarrierEntityId)),
                 $"{nameof(CarrierEntityId)} must relate the carried product to its carrier.");
             Require(discoveredComponents.Contains(typeof(ReservedDeliverySlotIndex)) &&
@@ -1400,6 +1504,24 @@ namespace HardwareStore.Editor
             RequireComponentIndexAttribute(
                 typeof(DeliveryProcurementTerminalEntityId),
                 "Entitas.CodeGeneration.Attributes.PrimaryEntityIndexAttribute");
+            RequireComponentIndexAttribute(
+                typeof(ProcurementCartTerminalEntityId),
+                "Entitas.CodeGeneration.Attributes.PrimaryEntityIndexAttribute");
+            RequireComponentIndexAttribute(
+                typeof(ProcurementCartEntityId),
+                "Entitas.CodeGeneration.Attributes.EntityIndexAttribute");
+            RequireComponentIndexAttribute(
+                typeof(PurchaseOrderProcurementTerminalEntityId),
+                "Entitas.CodeGeneration.Attributes.PrimaryEntityIndexAttribute");
+            RequireComponentIndexAttribute(
+                typeof(PurchaseOrderEntityId),
+                "Entitas.CodeGeneration.Attributes.EntityIndexAttribute");
+            RequireComponentIndexAttribute(
+                typeof(DeliveryPurchaseOrderEntityId),
+                "Entitas.CodeGeneration.Attributes.PrimaryEntityIndexAttribute");
+            RequireComponentIndexAttribute(
+                typeof(PurchaseOrderLineEntityId),
+                "Entitas.CodeGeneration.Attributes.EntityIndexAttribute");
             RequireComponentIndexAttribute(
                 typeof(CustomerActorVisitEntityId),
                 "Entitas.CodeGeneration.Attributes.PrimaryEntityIndexAttribute");
@@ -1465,6 +1587,30 @@ namespace HardwareStore.Editor
                 runtimeTypes,
                 "GetEntityWithDeliveryProcurementTerminalEntityId",
                 typeof(GameEntity));
+            RequireGeneratedIndexApi(
+                runtimeTypes,
+                "GetEntityWithProcurementCartTerminalEntityId",
+                typeof(GameEntity));
+            RequireGeneratedIndexApi(
+                runtimeTypes,
+                "GetEntitiesWithProcurementCartEntityId",
+                returnType: null);
+            RequireGeneratedIndexApi(
+                runtimeTypes,
+                "GetEntityWithPurchaseOrderProcurementTerminalEntityId",
+                typeof(GameEntity));
+            RequireGeneratedIndexApi(
+                runtimeTypes,
+                "GetEntitiesWithPurchaseOrderEntityId",
+                returnType: null);
+            RequireGeneratedIndexApi(
+                runtimeTypes,
+                "GetEntityWithDeliveryPurchaseOrderEntityId",
+                typeof(GameEntity));
+            RequireGeneratedIndexApi(
+                runtimeTypes,
+                "GetEntitiesWithPurchaseOrderLineEntityId",
+                returnType: null);
             RequireGeneratedIndexApi(
                 runtimeTypes,
                 "GetEntityWithCustomerActorVisitEntityId",
@@ -3050,11 +3196,15 @@ namespace HardwareStore.Editor
                 "Create<OrderProgressFeature>()",
                 "Create<TrolleyFeature>()",
                 "Trolley progression must run after order progress.");
-            RequireSourceOrder(
-                storeFeatureSource,
-                "Create<TrolleyFeature>()",
-                "Create<StorageStateFeature>()",
-                "Trolley reservations must refresh before storage availability.");
+            int trolleyFeatureIndex = storeFeatureSource.IndexOf(
+                "Create<TrolleyFeature>()", StringComparison.Ordinal);
+            int finalStorageStateIndex = storeFeatureSource.LastIndexOf(
+                "Create<StorageStateFeature>()", StringComparison.Ordinal);
+            Require(trolleyFeatureIndex >= 0 &&
+                    finalStorageStateIndex > trolleyFeatureIndex &&
+                    CountOccurrences(storeFeatureSource,
+                        "Create<StorageStateFeature>()") == 4,
+                "Trolley reservations must refresh at the fourth storage-state barrier.");
             RequireSourceOrder(
                 storeFeatureSource,
                 "Create<MovementFeature>()",
@@ -4482,7 +4632,7 @@ namespace HardwareStore.Editor
             (string Prefix, int Minimum, int Maximum)[] expectedKeyRanges =
             {
                 ("Product", 100, 199),
-                ("Project", 200, 299),
+                ("Project", 200, 399),
                 ("Hud", 1000, 1099),
                 ("ProcurementStatus", 1100, 1199),
                 ("Prompt", 2000, 2999),
@@ -4771,9 +4921,9 @@ namespace HardwareStore.Editor
                 }
             }
 
-            ValidateConfigCatalogAssets<ProductConfig>(expectedCount: 2);
-            ValidateConfigCatalogAssets<DeliveryConfig>(expectedCount: 2);
-            ValidateConfigCatalogAssets<CustomerProjectConfig>(expectedCount: 3);
+            ValidateConfigCatalogAssets<ProductConfig>(ExpectedProductTypes.Length);
+            ValidateConfigCatalogAssets<DeliveryConfig>(ExpectedProductTypes.Length);
+            ValidateConfigCatalogAssets<CustomerProjectConfig>(ExpectedProjectTypes.Length);
             Require(CustomerProjectConfig.MaxLinesPerOffer == 2,
                 $"{nameof(CustomerProjectConfig)}.{nameof(CustomerProjectConfig.MaxLinesPerOffer)} " +
                 "must match the two-line mixed-project presentation contract.");
@@ -5277,10 +5427,7 @@ namespace HardwareStore.Editor
                         typeof(int),
                         typeof(int),
                         typeof(int),
-                        typeof(bool),
-                        typeof(ProductTypeId),
-                        typeof(int),
-                        typeof(int),
+                        typeof(DeliveryProgressSnapshot?),
                         typeof(ProductTypeId?),
                         typeof(LocalizedText),
                         typeof(bool),
@@ -5304,10 +5451,8 @@ namespace HardwareStore.Editor
                 (nameof(HudSnapshot.TotalRequiredProductCount), typeof(int)),
                 (nameof(HudSnapshot.Money), typeof(int)),
                 (nameof(HudSnapshot.StockCount), typeof(int)),
+                (nameof(HudSnapshot.Delivery), typeof(DeliveryProgressSnapshot?)),
                 (nameof(HudSnapshot.HasActiveDelivery), typeof(bool)),
-                (nameof(HudSnapshot.DeliveryProductType), typeof(ProductTypeId)),
-                (nameof(HudSnapshot.DeliveryStockedCount), typeof(int)),
-                (nameof(HudSnapshot.DeliveryProductCount), typeof(int)),
                 (nameof(HudSnapshot.CarriedProductType), typeof(ProductTypeId?)),
                 (nameof(HudSnapshot.Prompt), typeof(LocalizedText)),
                 (nameof(HudSnapshot.HasFocus), typeof(bool)),
@@ -5322,7 +5467,37 @@ namespace HardwareStore.Editor
             ValidateImmutableSnapshotType(typeof(OrderLineSnapshot));
             ValidateImmutableSnapshotType(typeof(ConsultationOfferSnapshot));
             ValidateImmutableSnapshotType(typeof(ConsultationSnapshot));
+            ValidateImmutableSnapshotType(typeof(DeliveryLineProgressSnapshot));
+            ValidateImmutableSnapshotType(typeof(DeliveryProgressSnapshot));
             ValidateImmutableSnapshotType(typeof(HudSnapshot));
+            Require(typeof(DeliveryLineProgressSnapshot).GetConstructor(new[]
+                    {
+                        typeof(int),
+                        typeof(ProductTypeId),
+                        typeof(int),
+                        typeof(int)
+                    }) != null &&
+                    typeof(DeliveryProgressSnapshot).GetConstructor(new[]
+                    {
+                        typeof(DeliveryLineProgressSnapshot[]),
+                        typeof(int),
+                        typeof(int)
+                    }) != null,
+                "Delivery presentation must expose immutable per-SKU line progress and " +
+                "aggregate stocked/product totals.");
+            ValidateSnapshotProperties(
+                typeof(DeliveryLineProgressSnapshot),
+                (nameof(DeliveryLineProgressSnapshot.LineIndex), typeof(int)),
+                (nameof(DeliveryLineProgressSnapshot.ProductType), typeof(ProductTypeId)),
+                (nameof(DeliveryLineProgressSnapshot.StockedProductCount), typeof(int)),
+                (nameof(DeliveryLineProgressSnapshot.ProductCount), typeof(int)));
+            ValidateSnapshotProperties(
+                typeof(DeliveryProgressSnapshot),
+                (nameof(DeliveryProgressSnapshot.Lines),
+                    typeof(IReadOnlyList<DeliveryLineProgressSnapshot>)),
+                (nameof(DeliveryProgressSnapshot.StockedProductCount), typeof(int)),
+                (nameof(DeliveryProgressSnapshot.ProductCount), typeof(int)),
+                (nameof(DeliveryProgressSnapshot.IncompleteLineCount), typeof(int)));
             ValidateImmutableSnapshotCollection(
                 typeof(ConsultationSnapshot),
                 nameof(ConsultationSnapshot.Offers),
@@ -5335,6 +5510,10 @@ namespace HardwareStore.Editor
                 typeof(HudSnapshot),
                 nameof(HudSnapshot.OrderLines),
                 typeof(IReadOnlyList<OrderLineSnapshot>));
+            ValidateImmutableSnapshotCollection(
+                typeof(DeliveryProgressSnapshot),
+                nameof(DeliveryProgressSnapshot.Lines),
+                typeof(IReadOnlyList<DeliveryLineProgressSnapshot>));
             string presentConsultationSource = ReadRuntimeSource(
                 "Gameplay", "Features", "Presentation", "Systems",
                 "PresentConsultationSystem.cs");
@@ -5359,7 +5538,13 @@ namespace HardwareStore.Editor
                 "Array.AsReadOnly((ConsultationOfferSnapshot[])offers.Clone())");
             RequireSourceContains(hudSnapshotSource,
                 "public readonly struct HudSnapshot",
+                "DeliveryProgressSnapshot? delivery",
                 "Array.AsReadOnly((OrderLineSnapshot[])orderLines.Clone())");
+            string deliveryProgressSnapshotSource = ReadRuntimeSource(
+                "Gameplay", "Presentation", nameof(DeliveryProgressSnapshot) + ".cs");
+            RequireSourceContains(deliveryProgressSnapshotSource,
+                "public readonly struct DeliveryProgressSnapshot",
+                "Array.AsReadOnly((DeliveryLineProgressSnapshot[])lines.Clone())");
             string offerLineSnapshotSource = ReadRuntimeSource(
                 "Gameplay", "Presentation", nameof(ConsultationOfferLineSnapshot) + ".cs");
             string orderLineSnapshotSource = ReadRuntimeSource(
@@ -5394,7 +5579,27 @@ namespace HardwareStore.Editor
                 typeof(ProcurementTerminalEntityId),
                 typeof(SelectedProductType),
                 typeof(PurchaseDeliveryRequest),
-                typeof(PurchaseDeliverySucceeded)
+                typeof(PurchaseDeliverySucceeded),
+                typeof(ProcurementCart),
+                typeof(ProcurementCartLine),
+                typeof(ProcurementCartTerminalEntityId),
+                typeof(ProcurementCartEntityId),
+                typeof(ProcurementCartPackageCapacity),
+                typeof(ProcurementPackageCount),
+                typeof(PurchaseOrder),
+                typeof(PurchaseOrderLine),
+                typeof(PurchaseOrderProcurementTerminalEntityId),
+                typeof(PurchaseOrderEntityId),
+                typeof(PurchaseOrderPackageCount),
+                typeof(PurchaseOrderProductCount),
+                typeof(PurchaseOrderCost),
+                typeof(PurchaseOrderLineIndex),
+                typeof(PurchaseOrderLinePackageCount),
+                typeof(PurchaseOrderLineProductCount),
+                typeof(PurchaseOrderLineCost),
+                typeof(PurchaseOrderLineStockedProductCount),
+                typeof(DeliveryPurchaseOrderEntityId),
+                typeof(PurchaseOrderLineEntityId)
             };
             foreach (Type component in procurementComponents)
             {
@@ -5404,7 +5609,9 @@ namespace HardwareStore.Editor
 
             string[] procurementSystemNames =
             {
+                "EnsureProcurementCartSystem",
                 "ChangeProcurementSelectionSystem",
+                "ChangeProcurementCartQuantitySystem",
                 "EmitPurchaseDeliveryRequestSystem",
                 "CancelProcurementSystem",
                 "OpenProcurementSystem"
@@ -5461,11 +5668,38 @@ namespace HardwareStore.Editor
                 "ProcurementFeature", StringComparison.Ordinal);
             int deliveryFeaturePosition = storeFeatureSource.IndexOf(
                 "DeliveryFeature", StringComparison.Ordinal);
+            int productRecoveryFeaturePosition = storeFeatureSource.IndexOf(
+                "Create<ProductRecoveryFeature>()", StringComparison.Ordinal);
+            int employeeFeaturePosition = storeFeatureSource.IndexOf(
+                "Create<EmployeeFeature>()", StringComparison.Ordinal);
+            int storeDayFeaturePosition = storeFeatureSource.IndexOf(
+                "Create<StoreDayFeature>()", StringComparison.Ordinal);
+            int orderProgressFeaturePosition = storeFeatureSource.IndexOf(
+                "Create<OrderProgressFeature>()", StringComparison.Ordinal);
+            int trolleyFeaturePosition = storeFeatureSource.IndexOf(
+                "Create<TrolleyFeature>()", StringComparison.Ordinal);
+            int productPlacementFeaturePosition = storeFeatureSource.IndexOf(
+                "Create<ProductPlacementFeature>()", StringComparison.Ordinal);
+            MatchCollection storageBarriers = Regex.Matches(
+                storeFeatureSource,
+                Regex.Escape("Create<StorageStateFeature>()"));
             Require(interactionFeaturePosition >= 0 &&
                     procurementFeaturePosition > interactionFeaturePosition &&
                     deliveryFeaturePosition > procurementFeaturePosition,
                 "StoreFeature must emit world interaction, update the procurement modal, " +
                 "and only then process delivery purchases.");
+            Require(storageBarriers.Count == 4 &&
+                    storageBarriers[0].Index > productRecoveryFeaturePosition &&
+                    storageBarriers[0].Index < interactionFeaturePosition &&
+                    storageBarriers[1].Index > employeeFeaturePosition &&
+                    storageBarriers[1].Index < storeDayFeaturePosition &&
+                    storageBarriers[2].Index > orderProgressFeaturePosition &&
+                    storageBarriers[2].Index < trolleyFeaturePosition &&
+                    storageBarriers[3].Index > trolleyFeaturePosition &&
+                    storageBarriers[3].Index < productPlacementFeaturePosition,
+                "StoreFeature must refresh derived storage exactly after recovery, employee, " +
+                "order-progress and trolley mutations; the employee barrier must precede " +
+                "procurement evaluation in the same frame.");
 
             string interactionFeatureSource = ReadRuntimeSource(
                 "Gameplay", "Features", "Interaction", "InteractionFeature.cs");
@@ -5509,6 +5743,20 @@ namespace HardwareStore.Editor
                 "terminal.SelectedProductType",
                 "% _productTypes.Length");
 
+            string changeQuantitySource = ReadRuntimeSource(
+                "Gameplay", "Features", "Procurement", "Systems",
+                "ChangeProcurementCartQuantitySystem.cs");
+            RequireSourceContains(changeQuantitySource,
+                "GameMatcher.ModalOpen",
+                "GameMatcher.ProcurementTerminalEntityId",
+                "InputMatcher.IncreasePressed",
+                "InputMatcher.DecreasePressed",
+                "GetEntityWithProcurementCartTerminalEntityId",
+                "GetEntitiesWithProcurementCartEntityId",
+                "ProcurementCartPackageCapacity",
+                "_carts.CreateLine(",
+                "selectedLine.isDestructed = true");
+
             string emitPurchaseSource = ReadRuntimeSource(
                 "Gameplay", "Features", "Procurement", "Systems",
                 "EmitPurchaseDeliveryRequestSystem.cs");
@@ -5516,6 +5764,9 @@ namespace HardwareStore.Editor
                 "GameMatcher.ModalOpen",
                 "GameMatcher.ProcurementTerminalEntityId",
                 "InputMatcher.ConfirmPressed",
+                "GetEntityWithProcurementCartTerminalEntityId",
+                "GetEntitiesWithProcurementCartEntityId",
+                "if (!hasLine)",
                 "CreateEntity.Empty()",
                 "isPurchaseDeliveryRequest = true");
             Require(!emitPurchaseSource.Contains("InteractionRequest", StringComparison.Ordinal),
@@ -5540,13 +5791,17 @@ namespace HardwareStore.Editor
                 "player.isModalOpen",
                 "player.hasProcurementTerminalEntityId",
                 "GetEntityWithDeliveryProcurementTerminalEntityId",
-                "_solvency.EvaluatePurchase(",
+                "GetEntityWithProcurementCartTerminalEntityId",
+                "_solvency.EvaluateCart(cart.EntityId)",
                 "ProcurementPurchaseAvailability.InsufficientStorage",
                 "ProcurementPurchaseAvailability.InsufficientMoney",
                 "ProcurementPurchaseAvailability.DemandWouldBecomeInsolvent",
                 "LocalizationKey.NotificationPurchaseWouldBlockOrder",
                 "LocalizationKey.NotificationPurchaseWouldBlockForecast",
-                "_deliveryFactory.Create",
+                "_purchaseOrders.Create(",
+                "_deliveryFactory.Create(",
+                "LocalizationKey.NotificationMixedDeliveryOrdered",
+                "ClearCart(cart)",
                 "store.ReplaceMoney(moneyAfterPurchase)",
                 "request.isPurchaseDeliverySucceeded = true");
             Require(!purchaseSource.Contains("GameMatcher.InteractionRequest", StringComparison.Ordinal),
@@ -5661,6 +5916,48 @@ namespace HardwareStore.Editor
                 $"{nameof(ProcurementSolvencyService)} must depend only on ECS state and " +
                 "validated static data.");
             RequireMethod(
+                typeof(IProcurementCartFactory),
+                nameof(IProcurementCartFactory.Create),
+                typeof(GameEntity),
+                typeof(int),
+                typeof(int));
+            RequireMethod(
+                typeof(IProcurementCartFactory),
+                nameof(IProcurementCartFactory.CreateLine),
+                typeof(GameEntity),
+                typeof(int),
+                typeof(ProductTypeId),
+                typeof(int));
+            RequireMethod(
+                typeof(IPurchaseOrderFactory),
+                nameof(IPurchaseOrderFactory.Create),
+                typeof(GameEntity),
+                typeof(int),
+                typeof(int),
+                typeof(int));
+            RequireMethod(
+                typeof(IDeliveryFactory),
+                nameof(IDeliveryFactory.Create),
+                typeof(GameEntity),
+                typeof(int),
+                typeof(int),
+                typeof(int),
+                typeof(Pose));
+            RequireMethod(
+                typeof(IProductFactory),
+                nameof(IProductFactory.CreateInbound),
+                typeof(GameEntity),
+                typeof(ProductTypeId),
+                typeof(Pose),
+                typeof(int),
+                typeof(int),
+                typeof(int));
+            RequireMethod(
+                typeof(IProcurementSolvencyService),
+                nameof(IProcurementSolvencyService.EvaluateCart),
+                typeof(ProcurementPurchaseEvaluation),
+                typeof(int));
+            RequireMethod(
                 typeof(IProcurementSolvencyService),
                 nameof(IProcurementSolvencyService.EvaluatePurchase),
                 typeof(ProcurementPurchaseEvaluation),
@@ -5676,10 +5973,12 @@ namespace HardwareStore.Editor
                 "Gameplay", "Common", "Economy",
                 nameof(ProcurementSolvencyService) + ".cs");
             RequireSourceContains(solvencySource,
-                "MaximumProjectionLeafCount = 4096",
+                "MaximumProjectionStateCount = 131072",
                 "storageZone.Slots.Length",
                 "checked(",
                 "IncludeCommittedDelivery(state, terminalState.Terminal)",
+                "public ProcurementPurchaseEvaluation EvaluateCart(",
+                "GetEntitiesWithProcurementCartEntityId(",
                 "GetEntitiesWithCustomerVisitStoreEntityId(",
                 "OrderBy(visit => visit.CustomerArrivalSequence)",
                 "new List<ProtectedDemand>(visits.Length)",
@@ -5696,7 +5995,7 @@ namespace HardwareStore.Editor
                 "ProtectedDemand.ProjectForecast(visit)",
                 "store.NextProjectSequenceIndex,",
                 "_staticData.ProjectTypes.Count);",
-                "ValidateProjectionBound(demandPlan)",
+                "ValidateProjectionPlan(demandPlan)",
                 "AreProtectedDemandsSolvent(",
                 "demandIndex == demandPlan.ProtectedDemands.Count",
                 "AreForecastPathsSolvent(",
@@ -5704,8 +6003,9 @@ namespace HardwareStore.Editor
                 "foreach (CustomerProjectOfferDefinition offer in project.Offers)",
                 "demandPlan.ProtectedDemands.Count",
                 "demandPlan.FutureProjectCount",
-                "MultiplyProjectionLeafCount(ref leafCount, project)",
-                "MaximumProjectionLeafCount / offerCount",
+                "new ProjectionMemo(",
+                "Dictionary<ProjectionKey, byte>",
+                "unique states",
                 "completed.OccupiedSlotCount + additionalProductCount >",
                 "completed.Capacity");
             RequireSourceOrder(
@@ -5740,7 +6040,7 @@ namespace HardwareStore.Editor
             RequireSourceOrder(
                 solvencySource,
                 "var demandPlan = new DemandPlan(",
-                "ValidateProjectionBound(demandPlan)",
+                "ValidateProjectionPlan(demandPlan)",
                 "The complete active-visit and future-project plan must be bounded before " +
                 "solvency recursion.");
             RequireSourceOrder(
@@ -5765,7 +6065,9 @@ namespace HardwareStore.Editor
             string bootstrapSource = ReadRuntimeSource(
                 "Infrastructure", "Installers", nameof(BootstrapInstaller) + ".cs");
             RequireSourceContains(bootstrapSource,
-                "BindInterfacesTo<ProcurementSolvencyService>().AsSingle()");
+                "BindInterfacesTo<ProcurementSolvencyService>().AsSingle()",
+                "Bind<IProcurementCartFactory>().To<ProcurementCartFactory>().AsSingle()",
+                "Bind<IPurchaseOrderFactory>().To<PurchaseOrderFactory>().AsSingle()");
 
             RequireMethod(
                 typeof(IHudService),
@@ -5778,10 +6080,12 @@ namespace HardwareStore.Editor
                         typeof(CustomerProjectTypeId),
                         typeof(int),
                         typeof(int),
-                        typeof(ProcurementProductSnapshot[])
+                        typeof(int),
+                        typeof(ProcurementProductSnapshot[]),
+                        typeof(ProcurementCartSnapshot)
                     }) != null,
                 $"{nameof(ProcurementSnapshot)} must expose demand kind, project, money, " +
-                "free storage and exactly two product cards.");
+                "free storage, selected catalog index, arbitrary product cards and cart.");
             Require(typeof(ProcurementProductSnapshot).GetConstructor(new[]
                     {
                         typeof(int),
@@ -5794,41 +6098,91 @@ namespace HardwareStore.Editor
                         typeof(int),
                         typeof(int),
                         typeof(int),
-                        typeof(ProcurementPurchaseState),
-                        typeof(bool)
+                        typeof(int)
                     }) != null,
-                $"{nameof(ProcurementProductSnapshot)} must expose immutable delivery, " +
-                "stock, deficit, affordability and selection data.");
+                $"{nameof(ProcurementProductSnapshot)} must expose immutable package, stock, " +
+                "transit, demand, projected deficit and cart data.");
+            Require(typeof(ProcurementCartLineSnapshot).GetConstructor(new[]
+                    {
+                        typeof(int),
+                        typeof(ProductTypeId),
+                        typeof(int),
+                        typeof(int),
+                        typeof(int),
+                        typeof(int),
+                        typeof(int)
+                    }) != null &&
+                    typeof(ProcurementCartSnapshot).GetConstructor(new[]
+                    {
+                        typeof(ProcurementCartLineSnapshot[]),
+                        typeof(int),
+                        typeof(int),
+                        typeof(int),
+                        typeof(int),
+                        typeof(int),
+                        typeof(int),
+                        typeof(ProcurementPurchaseState)
+                    }) != null,
+                "Procurement cart snapshots must expose immutable manifest lines and exact " +
+                "aggregate package, product, money, storage and purchase state.");
             ValidateImmutableSnapshotType(typeof(ProcurementProductSnapshot));
+            ValidateImmutableSnapshotType(typeof(ProcurementCartLineSnapshot));
+            ValidateImmutableSnapshotType(typeof(ProcurementCartSnapshot));
             ValidateImmutableSnapshotType(typeof(ProcurementSnapshot));
             ValidateImmutableSnapshotCollection(
                 typeof(ProcurementSnapshot),
                 nameof(ProcurementSnapshot.Products),
                 typeof(IReadOnlyList<ProcurementProductSnapshot>));
+            ValidateImmutableSnapshotCollection(
+                typeof(ProcurementCartSnapshot),
+                nameof(ProcurementCartSnapshot.Lines),
+                typeof(IReadOnlyList<ProcurementCartLineSnapshot>));
             ValidateSnapshotProperties(
                 typeof(ProcurementSnapshot),
                 (nameof(ProcurementSnapshot.DemandKind), typeof(ProcurementDemandKind)),
                 (nameof(ProcurementSnapshot.ProjectType), typeof(CustomerProjectTypeId)),
                 (nameof(ProcurementSnapshot.Money), typeof(int)),
                 (nameof(ProcurementSnapshot.FreeStorageSlotCount), typeof(int)),
+                (nameof(ProcurementSnapshot.SelectedProductIndex), typeof(int)),
                 (nameof(ProcurementSnapshot.Products),
-                    typeof(IReadOnlyList<ProcurementProductSnapshot>)));
+                    typeof(IReadOnlyList<ProcurementProductSnapshot>)),
+                (nameof(ProcurementSnapshot.Cart), typeof(ProcurementCartSnapshot)));
             ValidateSnapshotProperties(
                 typeof(ProcurementProductSnapshot),
                 (nameof(ProcurementProductSnapshot.Index), typeof(int)),
                 (nameof(ProcurementProductSnapshot.ProductType), typeof(ProductTypeId)),
-                (nameof(ProcurementProductSnapshot.DeliveryProductCount), typeof(int)),
-                (nameof(ProcurementProductSnapshot.DeliveryCost), typeof(int)),
-                (nameof(ProcurementProductSnapshot.MoneyAfterPurchase), typeof(int)),
-                (nameof(ProcurementProductSnapshot.AvailableProductCount), typeof(int)),
+                (nameof(ProcurementProductSnapshot.PackageProductCount), typeof(int)),
+                (nameof(ProcurementProductSnapshot.PackageCost), typeof(int)),
+                (nameof(ProcurementProductSnapshot.StockProductCount), typeof(int)),
+                (nameof(ProcurementProductSnapshot.InTransitProductCount), typeof(int)),
                 (nameof(ProcurementProductSnapshot.MinimumRequiredProductCount), typeof(int)),
                 (nameof(ProcurementProductSnapshot.MaximumRequiredProductCount), typeof(int)),
                 (nameof(ProcurementProductSnapshot.RemainingRequiredProductCount), typeof(int)),
-                (nameof(ProcurementProductSnapshot.DeficitProductCount), typeof(int)),
-                (nameof(ProcurementProductSnapshot.PurchaseState),
+                (nameof(ProcurementProductSnapshot.ProjectedDeficitProductCount), typeof(int)),
+                (nameof(ProcurementProductSnapshot.CartPackageCount), typeof(int)),
+                (nameof(ProcurementProductSnapshot.CartProductCount), typeof(int)));
+            ValidateSnapshotProperties(
+                typeof(ProcurementCartLineSnapshot),
+                (nameof(ProcurementCartLineSnapshot.LineIndex), typeof(int)),
+                (nameof(ProcurementCartLineSnapshot.ProductType), typeof(ProductTypeId)),
+                (nameof(ProcurementCartLineSnapshot.PackageCount), typeof(int)),
+                (nameof(ProcurementCartLineSnapshot.PackageProductCount), typeof(int)),
+                (nameof(ProcurementCartLineSnapshot.PackageCost), typeof(int)),
+                (nameof(ProcurementCartLineSnapshot.ProductCount), typeof(int)),
+                (nameof(ProcurementCartLineSnapshot.LineCost), typeof(int)));
+            ValidateSnapshotProperties(
+                typeof(ProcurementCartSnapshot),
+                (nameof(ProcurementCartSnapshot.Lines),
+                    typeof(IReadOnlyList<ProcurementCartLineSnapshot>)),
+                (nameof(ProcurementCartSnapshot.PackageCount), typeof(int)),
+                (nameof(ProcurementCartSnapshot.PackageCapacity), typeof(int)),
+                (nameof(ProcurementCartSnapshot.ProductCount), typeof(int)),
+                (nameof(ProcurementCartSnapshot.TotalCost), typeof(int)),
+                (nameof(ProcurementCartSnapshot.MoneyAfterPurchase), typeof(int)),
+                (nameof(ProcurementCartSnapshot.RequiredStorageSlotCount), typeof(int)),
+                (nameof(ProcurementCartSnapshot.PurchaseState),
                     typeof(ProcurementPurchaseState)),
-                (nameof(ProcurementProductSnapshot.PurchaseAvailable), typeof(bool)),
-                (nameof(ProcurementProductSnapshot.Selected), typeof(bool)));
+                (nameof(ProcurementCartSnapshot.CanCheckout), typeof(bool)));
 
             string procurementSnapshotSource = ReadRuntimeSource(
                 "Gameplay", "Presentation", nameof(ProcurementSnapshot) + ".cs");
@@ -5836,18 +6190,18 @@ namespace HardwareStore.Editor
                 "Gameplay", "Presentation", nameof(ProcurementProductSnapshot) + ".cs");
             RequireSourceContains(procurementSnapshotSource,
                 "public readonly struct ProcurementSnapshot",
-                "ProductCardCount = 2",
-                "selectedCount != 1",
+                "selectedProductIndex < 0 || selectedProductIndex >= products.Length",
+                "ValidateCartProducts(products, cart)",
                 "Array.AsReadOnly((ProcurementProductSnapshot[])products.Clone())");
             RequireSourceContains(procurementProductSnapshotSource,
                 "public readonly struct ProcurementProductSnapshot",
-                "MoneyAfterPurchase",
+                "PackageProductCount",
+                "InTransitProductCount",
                 "MinimumRequiredProductCount",
                 "MaximumRequiredProductCount",
-                "DeficitProductCount",
-                "PurchaseState",
-                "PurchaseAvailable",
-                "Selected");
+                "ProjectedDeficitProductCount",
+                "CartPackageCount",
+                "CartProductCount");
 
             string presentSource = ReadRuntimeSource(
                 "Gameplay", "Features", "Presentation", "Systems",
@@ -5857,17 +6211,32 @@ namespace HardwareStore.Editor
                 "GameMatcher.ProcurementTerminalEntityId",
                 "PresentProcurement(null)",
                 "_solvency.EvaluatePurchase(",
+                "_solvency.EvaluateCart(cart.EntityId)",
                 "ProcurementDemandKind.ProjectForecast",
                 "ProcurementDemandKind.ConfirmedOrder",
                 "GetEntitiesWithOrderEntityId",
-                "OrderBy(line => line.LineIndex)",
-                "_staticData.ProductTypes.ToArray()",
+                "_productTypes = new ProductTypeId[staticData.ProductTypes.Count]",
+                "CollectCartLineEntities(cart)",
+                "CaptureSourceFingerprint(",
+                "SourceFingerprintMatchesCache()",
+                "_hud.PresentProcurement(_cachedSnapshot)",
                 "minimumRequiredProductCount",
                 "maximumRequiredProductCount",
                 "remainingRequiredProductCount",
-                "deficitProductCount",
+                "projectedDeficitProductCount",
+                "new ProcurementCartLineSnapshot(",
+                "new ProcurementCartSnapshot(",
                 "MapPurchaseState(evaluation.Availability)",
-                "PresentProcurement(new ProcurementSnapshot");
+                "var snapshot = new ProcurementSnapshot(",
+                "_hud.PresentProcurement(snapshot)");
+            Require(!presentSource.Contains("CustomerPatienceRemaining",
+                        StringComparison.Ordinal) &&
+                    !presentSource.Contains("CustomerPatienceWarningIssued",
+                        StringComparison.Ordinal) &&
+                    !presentSource.Contains("_staticData.ProductTypes.ToArray()",
+                        StringComparison.Ordinal),
+                "Procurement presentation cache must use a stable exact fingerprint and must " +
+                "not invalidate on per-frame patience or allocate the catalog per frame.");
 
             string presentationFeatureSource = ReadRuntimeSource(
                 "Gameplay", "Features", "Presentation", "PresentationFeature.cs");
@@ -5886,20 +6255,45 @@ namespace HardwareStore.Editor
                 "Gameplay", "Presentation", nameof(PrototypeHudView) + ".cs");
             RequireSourceContains(hudViewSource,
                 "DrawProcurement",
+                "const int cardsPerPage = 6",
+                "procurement.SelectedProductIndex / cardsPerPage",
+                "DrawProcurementCart(",
+                "procurement.Cart",
                 "LocalizationKey.HudProcurementTitle",
                 "LocalizationKey.HudProcurementForecastTitle",
                 "LocalizationKey.HudProcurementOrderTitle",
-                "LocalizationKey.HudProcurementForecastProductDetails",
-                "LocalizationKey.HudProcurementProductDetails",
+                "LocalizationKey.HudProcurementPackageDetails",
+                "LocalizationKey.HudProcurementConfirmedCounts",
+                "LocalizationKey.HudProcurementForecastCounts",
                 "LocalizationKey.ProcurementStatusPlanWouldBlockOrder",
                 "LocalizationKey.ProcurementStatusPlanWouldBlockForecast",
                 "LocalizationKey.ProcurementStatusPrepurchaseAvailable",
+                "LocalizationKey.HudProcurementCartTitle",
+                "LocalizationKey.HudProcurementCartLine",
+                "LocalizationKey.HudProcurementCartCapacityReached",
                 "LocalizationKey.HudProcurementControls");
 
             var procurementLocalizationArities = new Dictionary<LocalizationKey, int>
             {
                 { LocalizationKey.HudProcurementForecastTitle, 1 },
                 { LocalizationKey.HudProcurementForecastProductDetails, 7 },
+                { LocalizationKey.HudProcurementPage, 2 },
+                { LocalizationKey.HudProcurementPackageDetails, 3 },
+                { LocalizationKey.HudProcurementConfirmedCounts, 5 },
+                { LocalizationKey.HudProcurementForecastCounts, 5 },
+                { LocalizationKey.HudProcurementCardCartQuantity, 3 },
+                { LocalizationKey.HudProcurementCartTitle, 2 },
+                { LocalizationKey.HudProcurementCartLine, 5 },
+                { LocalizationKey.HudProcurementCartProductTotal, 2 },
+                { LocalizationKey.HudProcurementCartCost, 1 },
+                { LocalizationKey.HudProcurementCartBalanceAfter, 1 },
+                { LocalizationKey.HudProcurementCartStorage, 2 },
+                { LocalizationKey.HudProcurementCartEmpty, 0 },
+                { LocalizationKey.HudProcurementCartCapacityReached, 1 },
+                { LocalizationKey.HudObjectiveMixedDelivery, 3 },
+                { LocalizationKey.PromptMixedDeliveryBeingStocked, 3 },
+                { LocalizationKey.PromptBringMixedDeliveryToIntake, 2 },
+                { LocalizationKey.NotificationMixedDeliveryOrdered, 3 },
                 { LocalizationKey.ProcurementStatusPlanWouldBlockOrder, 0 },
                 { LocalizationKey.ProcurementStatusPlanWouldBlockForecast, 0 },
                 { LocalizationKey.ProcurementStatusPrepurchaseAvailable, 0 },
@@ -5920,326 +6314,428 @@ namespace HardwareStore.Editor
 
         private static void ValidateBoundedProcurementSolvencyPolicy(int storageCapacity)
         {
-            Require(storageCapacity > 0,
-                "Bounded procurement validation requires positive authored storage capacity.");
-            Require(ExpectedProductTypes.Length == 2 && ExpectedProjectTypes.Length > 0,
-                "Bounded procurement validation currently models the two-product prototype.");
+            const int protectedPreOrderCount = 3;
+            const int runtimeMaximumUniqueStateCount = 131072;
+            const int regressionWorkloadBudget = 8192;
+            Require(storageCapacity == RequiredStorageSlotCapacity,
+                $"The expanded product catalog requires exactly " +
+                $"{RequiredStorageSlotCapacity} storage slots.");
 
-            ProductConfig[] products =
-            {
-                RequireAsset<ProductConfig>(CementProductConfigPath),
-                RequireAsset<ProductConfig>(BoardProductConfigPath)
-            };
-            DeliveryConfig[] deliveries =
-            {
-                RequireAsset<DeliveryConfig>(CementDeliveryConfigPath),
-                RequireAsset<DeliveryConfig>(BoardDeliveryConfigPath)
-            };
+            ProductConfig[] products = LoadConfigCatalogAssets<ProductConfig>()
+                .OrderBy(config => (int)config.ProductType)
+                .ToArray();
+            DeliveryConfig[] deliveries = LoadConfigCatalogAssets<DeliveryConfig>()
+                .OrderBy(config => (int)config.ProductType)
+                .ToArray();
             CustomerProjectConfig[] projects =
+                LoadConfigCatalogAssets<CustomerProjectConfig>()
+                    .OrderBy(config => (int)config.ProjectType)
+                    .ToArray();
+            Require(products.Select(config => config.ProductType)
+                        .SequenceEqual(ExpectedProductTypes) &&
+                    deliveries.Select(config => config.ProductType)
+                        .SequenceEqual(ExpectedProductTypes) &&
+                    projects.Select(config => config.ProjectType)
+                        .SequenceEqual(ExpectedProjectTypes),
+                "Bounded procurement assets must preserve the complete deterministic " +
+                "product and project ordering.");
+
+            int maximumBranchingFactor = projects.Max(project => project.Offers.Count);
+            Require(maximumBranchingFactor == 3,
+                "The frozen projection proof requires exactly three offers per project.");
+            int protectedStructuralStateCount = Enumerable.Range(
+                    0,
+                    protectedPreOrderCount + 1)
+                .Sum(depth => IntPower(maximumBranchingFactor, depth));
+            int forecastStructuralStateCount = Enumerable.Range(
+                    protectedPreOrderCount,
+                    projects.Length + 1)
+                .Sum(depth => IntPower(maximumBranchingFactor, depth));
+            int forecastOnlyStructuralBound = checked(
+                protectedStructuralStateCount + forecastStructuralStateCount);
+            int exactDemandBoundaryStateCount = IntPower(
+                maximumBranchingFactor,
+                protectedPreOrderCount);
+            int structuralProjectionBound = checked(
+                forecastOnlyStructuralBound + exactDemandBoundaryStateCount);
+            Require(forecastOnlyStructuralBound == 88600 &&
+                    structuralProjectionBound == 88627 &&
+                    structuralProjectionBound < runtimeMaximumUniqueStateCount,
+                $"The current 3-forecast + 7-future topology must have a formal " +
+                $"88,627-state upper bound below the strict runtime cap " +
+                $"{runtimeMaximumUniqueStateCount}; found {structuralProjectionBound}.");
+
+            List<int[]> cartAllocationStocks = CreateCatalogCartAllocationStocks(
+                deliveries,
+                ProcurementCartFactory.CurrentDeliveryPackageCapacity);
+            int binaryStockStateCount = 1 << ExpectedProductTypes.Length;
+            var binaryStartStocks = Enumerable.Range(0, binaryStockStateCount)
+                .Select(mask => Enumerable.Range(0, ExpectedProductTypes.Length)
+                    .Select(productIndex => (mask & (1 << productIndex)) == 0 ? 0 : 1)
+                    .ToArray())
+                .ToList();
+            Require(cartAllocationStocks.Count == 84 &&
+                    binaryStartStocks.Count == 64,
+                "Frozen workload validation requires all 84 zero-to-three-package cart " +
+                "allocations and all 64 binary catalog stock states.");
+            int[][] workloadStocks = cartAllocationStocks
+                .Concat(binaryStartStocks)
+                .GroupBy(stock => string.Join(",", stock))
+                .Select(group => group.First())
+                .ToArray();
+            Require(workloadStocks.Length == 147,
+                "Only the empty state may overlap the cart-allocation and binary-stock " +
+                "workload matrices.");
+
+            int maximumHorizon = checked(projects.Length + protectedPreOrderCount);
+            int highSolventMoney = checked(
+                deliveries.Sum(delivery => delivery.TotalCost) * maximumHorizon + 200);
+            int worstObservedStateCount = 0;
+            int evaluatedWorkloadCount = 0;
+            int allowedWorkloadCount = 0;
+            foreach (int[] stock in workloadStocks)
+            for (int projectOffset = 0;
+                 projectOffset < projects.Length;
+                 projectOffset++)
+            for (int activeForecastCount = 0;
+                 activeForecastCount <= protectedPreOrderCount;
+                 activeForecastCount++)
             {
-                RequireAsset<CustomerProjectConfig>(CementProjectConfigPath),
-                RequireAsset<CustomerProjectConfig>(LumberProjectConfigPath),
-                RequireAsset<CustomerProjectConfig>(WorkbenchProjectConfigPath)
-            };
-            for (int index = 0; index < ExpectedProductTypes.Length; index++)
-            {
-                Require(products[index].ProductType == ExpectedProductTypes[index] &&
-                        deliveries[index].ProductType == ExpectedProductTypes[index],
-                    "Bounded procurement assets must preserve product catalog ordering.");
+                bool allowed = TryCountCatalogProjectionStates(
+                    highSolventMoney,
+                    stock,
+                    projectOffset,
+                    activeForecastCount,
+                    storageCapacity,
+                    products,
+                    deliveries,
+                    projects,
+                    out int visitedStateCount);
+                evaluatedWorkloadCount++;
+                if (allowed)
+                    allowedWorkloadCount++;
+                worstObservedStateCount = Math.Max(
+                    worstObservedStateCount,
+                    visitedStateCount);
             }
-            for (int index = 0; index < ExpectedProjectTypes.Length; index++)
+            Require(evaluatedWorkloadCount == workloadStocks.Length * projects.Length *
+                        (protectedPreOrderCount + 1) &&
+                    allowedWorkloadCount > 0,
+                "Frozen procurement workload did not cover every stock, cyclic offset and " +
+                "zero-to-three-active-forecast combination.");
+
+            var sampledSolventThresholdStocks = new List<(string Label, int[] Stock)>
             {
-                Require(projects[index].ProjectType == ExpectedProjectTypes[index],
-                    "Bounded procurement assets must preserve project sequence ordering.");
+                ("empty cart", new int[ExpectedProductTypes.Length])
+            };
+            for (int productIndex = 0;
+                 productIndex < ExpectedProductTypes.Length;
+                 productIndex++)
+            {
+                var onePackageStock = new int[ExpectedProductTypes.Length];
+                onePackageStock[productIndex] = deliveries[productIndex].ProductCount;
+                sampledSolventThresholdStocks.Add((
+                    $"one {ExpectedProductTypes[productIndex]} package",
+                    onePackageStock));
             }
 
-            int saturationMoney = 0;
-            int maximumCycleNetLoss = 0;
-            foreach (CustomerProjectConfig project in projects)
+            var mixedThreePackageStock = new int[ExpectedProductTypes.Length];
+            for (int productIndex = 0; productIndex < 3; productIndex++)
+                mixedThreePackageStock[productIndex] = deliveries[productIndex].ProductCount;
+            sampledSolventThresholdStocks.Add((
+                "mixed three-package cart",
+                mixedThreePackageStock));
+            Require(sampledSolventThresholdStocks.All(sample =>
+                        sample.Stock.Sum() <= storageCapacity),
+                "Sampled post-candidate procurement states exceed authored storage capacity.");
+
+            var observedOffsets = new HashSet<int>();
+            foreach ((string label, int[] stock) in sampledSolventThresholdStocks)
+            for (int projectOffset = 0;
+                 projectOffset < projects.Length;
+                 projectOffset++)
             {
-                int maximumProjectCost = 0;
+                int minimumSolventMoney = FindMinimumCatalogProjectionMoney(
+                    stock,
+                    projectOffset,
+                    highSolventMoney,
+                    protectedPreOrderCount,
+                    storageCapacity,
+                    products,
+                    deliveries,
+                    projects);
+                Require(TryCountCatalogProjectionStates(
+                        minimumSolventMoney,
+                        stock,
+                        projectOffset,
+                        protectedPreOrderCount,
+                        storageCapacity,
+                        products,
+                        deliveries,
+                        projects,
+                        out int visitedStateCount),
+                    $"The {label} projection at cyclic offset {projectOffset} must " +
+                    $"complete at its exact sampled solvent threshold " +
+                    $"{minimumSolventMoney}.");
+                worstObservedStateCount = Math.Max(
+                    worstObservedStateCount,
+                    visitedStateCount);
+
+                observedOffsets.Add(projectOffset);
+            }
+
+            Require(observedOffsets.Count == projects.Length &&
+                    projects.Length == ExpectedProjectTypes.Length,
+                "Bounded procurement validation must cover all seven cyclic project starts.");
+            Require(worstObservedStateCount == 4961 &&
+                    worstObservedStateCount < regressionWorkloadBudget &&
+                    worstObservedStateCount < runtimeMaximumUniqueStateCount,
+                $"The frozen catalog workload must peak at 4,961 states and stay below the " +
+                $"independent {regressionWorkloadBudget}-state regression budget and " +
+                $"{runtimeMaximumUniqueStateCount}-state correctness cap; " +
+                $"observed {worstObservedStateCount}.");
+        }
+
+        private static List<int[]> CreateCatalogCartAllocationStocks(
+            IReadOnlyList<DeliveryConfig> deliveries,
+            int maximumPackageCount)
+        {
+            var results = new List<int[]>();
+            var packageCounts = new int[deliveries.Count];
+            CollectCatalogCartAllocationStocks(
+                deliveries,
+                maximumPackageCount,
+                0,
+                packageCounts,
+                results);
+            return results;
+        }
+
+        private static void CollectCatalogCartAllocationStocks(
+            IReadOnlyList<DeliveryConfig> deliveries,
+            int remainingPackageCount,
+            int productIndex,
+            int[] packageCounts,
+            ICollection<int[]> results)
+        {
+            if (productIndex == deliveries.Count)
+            {
+                results.Add(packageCounts
+                    .Select((packageCount, index) => checked(
+                        packageCount * deliveries[index].ProductCount))
+                    .ToArray());
+                return;
+            }
+
+            for (int packageCount = 0;
+                 packageCount <= remainingPackageCount;
+                 packageCount++)
+            {
+                packageCounts[productIndex] = packageCount;
+                CollectCatalogCartAllocationStocks(
+                    deliveries,
+                    remainingPackageCount - packageCount,
+                    productIndex + 1,
+                    packageCounts,
+                    results);
+            }
+            packageCounts[productIndex] = 0;
+        }
+
+        private static int IntPower(int value, int exponent)
+        {
+            int result = 1;
+            for (int index = 0; index < exponent; index++)
+                result = checked(result * value);
+            return result;
+        }
+
+        private static int FindMinimumCatalogProjectionMoney(
+            IReadOnlyList<int> stock,
+            int projectOffset,
+            int highSolventMoney,
+            int protectedPreOrderCount,
+            int storageCapacity,
+            IReadOnlyList<ProductConfig> products,
+            IReadOnlyList<DeliveryConfig> deliveries,
+            IReadOnlyList<CustomerProjectConfig> projects)
+        {
+            Require(TryCountCatalogProjectionStates(
+                    highSolventMoney,
+                    stock,
+                    projectOffset,
+                    protectedPreOrderCount,
+                    storageCapacity,
+                    products,
+                    deliveries,
+                    projects,
+                    out _),
+                $"Derived high-solvent money {highSolventMoney} cannot cover cyclic " +
+                $"project offset {projectOffset}.");
+
+            int lowerBound = 0;
+            int upperBound = highSolventMoney;
+            while (lowerBound < upperBound)
+            {
+                int candidateMoney = lowerBound + (upperBound - lowerBound) / 2;
+                if (TryCountCatalogProjectionStates(
+                        candidateMoney,
+                        stock,
+                        projectOffset,
+                        protectedPreOrderCount,
+                        storageCapacity,
+                        products,
+                        deliveries,
+                        projects,
+                        out _))
+                {
+                    upperBound = candidateMoney;
+                }
+                else
+                {
+                    lowerBound = candidateMoney + 1;
+                }
+            }
+
+            return lowerBound;
+        }
+
+        private static bool TryCountCatalogProjectionStates(
+            int initialMoney,
+            IReadOnlyList<int> initialStock,
+            int projectOffset,
+            int protectedPreOrderCount,
+            int storageCapacity,
+            IReadOnlyList<ProductConfig> products,
+            IReadOnlyList<DeliveryConfig> deliveries,
+            IReadOnlyList<CustomerProjectConfig> projects,
+            out int visitedStateCount)
+        {
+            var stock = initialStock.ToArray();
+            var initialState = new CatalogProjectionState(initialMoney, stock);
+            var states = new Dictionary<string, CatalogProjectionState>
+            {
+                [initialState.StateKey] = initialState
+            };
+            visitedStateCount = states.Count;
+            int protectedForecastHandoffStateCount = protectedPreOrderCount == 0
+                ? states.Count
+                : 0;
+            int horizon = checked(projects.Count + protectedPreOrderCount);
+            for (int stageIndex = 0; stageIndex < horizon; stageIndex++)
+            {
+                CustomerProjectConfig project = projects[
+                    (projectOffset + stageIndex) % projects.Count];
+                var nextStates = new Dictionary<string, CatalogProjectionState>();
+                foreach (CatalogProjectionState state in states.Values)
                 foreach (CustomerProjectOfferDefinition offer in project.Offers)
                 {
-                    ResolveBoundedOffer(
-                        offer,
-                        products,
-                        deliveries,
-                        out _,
-                        out _,
-                        out int purchaseCost,
-                        out int reward);
-                    maximumProjectCost = Math.Max(maximumProjectCost, purchaseCost);
-                    maximumCycleNetLoss = Math.Max(
-                        maximumCycleNetLoss,
-                        Math.Max(0, checked(purchaseCost - reward)));
-                }
-
-                saturationMoney = checked(saturationMoney + maximumProjectCost);
-            }
-
-            // Derive a conservative bound from the actual assets: enough money to buy the
-            // most expensive offer of every project, plus the worst single-offer net debit.
-            int maximumMoney = checked(saturationMoney + maximumCycleNetLoss);
-            int expectedLeafCount = projects.Aggregate(
-                1,
-                (count, project) => checked(count * project.Offers.Count));
-            Require(expectedLeafCount > 0 && expectedLeafCount <= 4096,
-                "Bounded procurement validation exceeds the runtime projection leaf cap.");
-
-            int validatedStateCount = 0;
-            for (int projectOffset = 0; projectOffset < projects.Length; projectOffset++)
-            for (int firstStock = 0; firstStock <= storageCapacity; firstStock++)
-            for (int secondStock = 0;
-                 secondStock <= storageCapacity - firstStock;
-                 secondStock++)
-            {
-                bool reachedSolventMoney = false;
-                for (int money = 0; money <= maximumMoney; money++)
-                {
-                    var state = new BoundedProjectionState(
-                        money,
-                        firstStock,
-                        secondStock);
-                    bool solvent = AreAllBoundedForecastPathsSolvent(
-                        state,
-                        projectOffset,
-                        projects.Length,
-                        storageCapacity,
-                        products,
-                        deliveries,
-                        projects,
-                        out int leafCount);
-                    if (reachedSolventMoney && !solvent)
+                    if (!TryCompleteCatalogOffer(
+                            state,
+                            offer,
+                            storageCapacity,
+                            products,
+                            deliveries,
+                            out CatalogProjectionState completed))
                     {
-                        throw new InvalidOperationException(
-                            "Procurement solvency must be monotonic as available money grows.");
+                        return false;
                     }
-                    if (solvent)
+                    if (stageIndex == 1)
                     {
-                        reachedSolventMoney = true;
-                        Require(leafCount == expectedLeafCount,
-                            "A safe procurement state must preserve every full-cycle offer " +
-                            "leaf across the configured project horizon.");
-                        Require(AreAllBoundedOneStepSuccessorsSafe(
-                                state,
-                                projectOffset,
-                                storageCapacity,
-                                products,
-                                deliveries,
-                                projects,
-                                expectedLeafCount),
-                            "A safe procurement state must remain full-horizon safe after " +
-                            "every offer of its current project.");
+                        if (completed.Money < 200)
+                            return false;
+                        completed = completed.Debit(200);
                     }
 
-                    validatedStateCount++;
+                    nextStates[completed.StateKey] = completed;
+                }
+
+                states = nextStates;
+                visitedStateCount = checked(visitedStateCount + states.Count);
+                if (stageIndex == protectedPreOrderCount - 1)
+                {
+                    // Runtime memoizes the final protected-demand state once in the
+                    // protected phase and once at the future-forecast phase boundary.
+                    protectedForecastHandoffStateCount = states.Count;
                 }
             }
 
-            Require(validatedStateCount > 0,
-                "Bounded procurement validation did not inspect any economy states.");
-        }
-
-        private static bool AreAllBoundedOneStepSuccessorsSafe(
-            BoundedProjectionState state,
-            int projectSequenceIndex,
-            int storageCapacity,
-            ProductConfig[] products,
-            DeliveryConfig[] deliveries,
-            CustomerProjectConfig[] projects,
-            int expectedLeafCount)
-        {
-            int nextProjectSequenceIndex =
-                (projectSequenceIndex + 1) % projects.Length;
-            foreach (CustomerProjectOfferDefinition offer in
-                     projects[projectSequenceIndex].Offers)
-            {
-                if (!TryCompleteBoundedOffer(
-                        state,
-                        offer,
-                        storageCapacity,
-                        products,
-                        deliveries,
-                        out BoundedProjectionState afterOffer))
-                {
-                    return false;
-                }
-                if (!AreAllBoundedForecastPathsSolvent(
-                        afterOffer,
-                        nextProjectSequenceIndex,
-                        projects.Length,
-                        storageCapacity,
-                        products,
-                        deliveries,
-                        projects,
-                        out int leafCount) ||
-                    leafCount != expectedLeafCount)
-                {
-                    return false;
-                }
-            }
-
+            visitedStateCount = checked(
+                visitedStateCount + protectedForecastHandoffStateCount);
             return true;
         }
 
-        private static bool AreAllBoundedForecastPathsSolvent(
-            BoundedProjectionState state,
-            int projectSequenceIndex,
-            int remainingProjectCount,
-            int storageCapacity,
-            ProductConfig[] products,
-            DeliveryConfig[] deliveries,
-            CustomerProjectConfig[] projects,
-            out int leafCount)
-        {
-            if (remainingProjectCount == 0)
-            {
-                leafCount = 1;
-                return true;
-            }
-
-            leafCount = 0;
-            CustomerProjectConfig project = projects[projectSequenceIndex];
-            foreach (CustomerProjectOfferDefinition offer in project.Offers)
-            {
-                if (!TryCompleteBoundedOffer(
-                        state,
-                        offer,
-                        storageCapacity,
-                        products,
-                        deliveries,
-                        out BoundedProjectionState afterOffer))
-                {
-                    return false;
-                }
-
-                if (!AreAllBoundedForecastPathsSolvent(
-                        afterOffer,
-                        (projectSequenceIndex + 1) % projects.Length,
-                        remainingProjectCount - 1,
-                        storageCapacity,
-                        products,
-                        deliveries,
-                        projects,
-                        out int childLeafCount))
-                {
-                    return false;
-                }
-
-                leafCount = checked(leafCount + childLeafCount);
-            }
-
-            return true;
-        }
-
-        private static bool TryCompleteBoundedOffer(
-            BoundedProjectionState state,
+        private static bool TryCompleteCatalogOffer(
+            CatalogProjectionState state,
             CustomerProjectOfferDefinition offer,
             int storageCapacity,
-            ProductConfig[] products,
-            DeliveryConfig[] deliveries,
-            out BoundedProjectionState completed)
+            IReadOnlyList<ProductConfig> products,
+            IReadOnlyList<DeliveryConfig> deliveries,
+            out CatalogProjectionState completed)
         {
-            ResolveBoundedOffer(
-                offer,
-                products,
-                deliveries,
-                out int firstRequired,
-                out int secondRequired,
-                out _,
-                out int reward);
+            int[] stock = (int[])state.Stock.Clone();
+            int occupiedSlotCount = stock.Sum();
+            int purchaseCost = 0;
+            int reward = 0;
+            foreach (CustomerProjectLineDefinition line in offer.Lines)
+            {
+                int productIndex = Array.IndexOf(ExpectedProductTypes, line.ProductType);
+                Require(productIndex >= 0,
+                    $"Projected offer references unknown product {line.ProductType}.");
+                int missingCount = Math.Max(0, line.RequiredCount - stock[productIndex]);
+                DeliveryConfig delivery = deliveries[productIndex];
+                int packageCount = checked(
+                    (missingCount + delivery.ProductCount - 1) /
+                    delivery.ProductCount);
+                int purchasedCount = checked(packageCount * delivery.ProductCount);
+                stock[productIndex] = checked(stock[productIndex] + purchasedCount);
+                occupiedSlotCount = checked(occupiedSlotCount + purchasedCount);
+                purchaseCost = checked(
+                    purchaseCost + checked(packageCount * delivery.TotalCost));
+                reward = checked(
+                    reward + checked(
+                        products[productIndex].UnitPrice * line.RequiredCount));
+            }
 
-            int firstMissing = Math.Max(0, firstRequired - state.FirstStock);
-            int secondMissing = Math.Max(0, secondRequired - state.SecondStock);
-            int firstBatchCount = checked(
-                (firstMissing + deliveries[0].ProductCount - 1) /
-                deliveries[0].ProductCount);
-            int secondBatchCount = checked(
-                (secondMissing + deliveries[1].ProductCount - 1) /
-                deliveries[1].ProductCount);
-            int firstPurchased = checked(firstBatchCount * deliveries[0].ProductCount);
-            int secondPurchased = checked(secondBatchCount * deliveries[1].ProductCount);
-            int purchaseCost = checked(
-                checked(firstBatchCount * deliveries[0].TotalCost) +
-                checked(secondBatchCount * deliveries[1].TotalCost));
-            int occupiedBeforePurchase = checked(state.FirstStock + state.SecondStock);
-            int occupiedAfterPurchase = checked(
-                occupiedBeforePurchase + firstPurchased + secondPurchased);
-            if (state.Money < purchaseCost || occupiedAfterPurchase > storageCapacity)
+            if (state.Money < purchaseCost || occupiedSlotCount > storageCapacity)
             {
                 completed = default;
                 return false;
             }
 
-            completed = new BoundedProjectionState(
-                checked(state.Money - purchaseCost + reward),
-                checked(state.FirstStock + firstPurchased - firstRequired),
-                checked(state.SecondStock + secondPurchased - secondRequired));
-            Require(completed.Money >= 0 &&
-                    completed.FirstStock >= 0 &&
-                    completed.SecondStock >= 0 &&
-                    completed.FirstStock + completed.SecondStock <= storageCapacity,
-                "A bounded procurement transition produced invalid economy state.");
-            return true;
-        }
-
-        private static void ResolveBoundedOffer(
-            CustomerProjectOfferDefinition offer,
-            ProductConfig[] products,
-            DeliveryConfig[] deliveries,
-            out int firstRequired,
-            out int secondRequired,
-            out int purchaseCostFromEmpty,
-            out int reward)
-        {
-            firstRequired = 0;
-            secondRequired = 0;
-            reward = 0;
             foreach (CustomerProjectLineDefinition line in offer.Lines)
             {
                 int productIndex = Array.IndexOf(ExpectedProductTypes, line.ProductType);
-                Require(productIndex >= 0,
-                    $"Bounded procurement offer references unknown product {line.ProductType}.");
-                if (productIndex == 0)
-                {
-                    Require(firstRequired == 0,
-                        "Bounded procurement offers cannot duplicate product lines.");
-                    firstRequired = line.RequiredCount;
-                }
-                else
-                {
-                    Require(secondRequired == 0,
-                        "Bounded procurement offers cannot duplicate product lines.");
-                    secondRequired = line.RequiredCount;
-                }
-
-                reward = checked(
-                    reward + checked(products[productIndex].UnitPrice * line.RequiredCount));
+                stock[productIndex] = checked(
+                    stock[productIndex] - line.RequiredCount);
             }
 
-            int firstBatchCount = checked(
-                (firstRequired + deliveries[0].ProductCount - 1) /
-                deliveries[0].ProductCount);
-            int secondBatchCount = checked(
-                (secondRequired + deliveries[1].ProductCount - 1) /
-                deliveries[1].ProductCount);
-            purchaseCostFromEmpty = checked(
-                checked(firstBatchCount * deliveries[0].TotalCost) +
-                checked(secondBatchCount * deliveries[1].TotalCost));
+            completed = new CatalogProjectionState(
+                checked(state.Money - purchaseCost + reward),
+                stock);
+            return true;
         }
 
-        private readonly struct BoundedProjectionState
+        private readonly struct CatalogProjectionState
         {
-            public BoundedProjectionState(int money, int firstStock, int secondStock)
+            public CatalogProjectionState(int money, int[] stock)
             {
                 Money = money;
-                FirstStock = firstStock;
-                SecondStock = secondStock;
+                Stock = stock;
+                StateKey = Key(money, stock);
             }
 
             public int Money { get; }
-            public int FirstStock { get; }
-            public int SecondStock { get; }
+            public int[] Stock { get; }
+            public string StateKey { get; }
+
+            public CatalogProjectionState Debit(int amount) =>
+                new(checked(Money - amount), (int[])Stock.Clone());
+
+            public static string Key(int initialMoney, IReadOnlyList<int> stock) =>
+                $"{initialMoney}|{string.Join(",", stock)}";
+
+            public override string ToString() => StateKey;
         }
 
         private static void ValidateJennyPipeline()
@@ -6343,14 +6839,14 @@ namespace HardwareStore.Editor
                 .Cast<ProductTypeId>()
                 .ToArray();
             Require(enumValues.SequenceEqual(ExpectedProductTypes),
-                $"{nameof(ProductTypeId)} must append exactly CementBag = 0 and BoardBundle = 1.");
+                $"{nameof(ProductTypeId)} must preserve the six append-only product IDs.");
             CustomerProjectTypeId[] projectEnumValues =
                 Enum.GetValues(typeof(CustomerProjectTypeId))
                     .Cast<CustomerProjectTypeId>()
                     .ToArray();
             Require(projectEnumValues.SequenceEqual(ExpectedProjectTypes),
-                $"{nameof(CustomerProjectTypeId)} must contain exactly CementFoundation = 0, " +
-                "LumberShelving = 1 and WorkbenchFoundation = 2.");
+                $"{nameof(CustomerProjectTypeId)} must preserve the seven append-only " +
+                "customer-project IDs.");
             Require(AssetDatabase.LoadMainAssetAtPath(LegacyCementOrderConfigPath) == null &&
                     AssetDatabase.LoadMainAssetAtPath(LegacyBoardOrderConfigPath) == null,
                 "Legacy single-SKU OrderConfig assets must be removed by the prototype builder.");
@@ -6359,10 +6855,26 @@ namespace HardwareStore.Editor
                 RequireAsset<ProductConfig>(CementProductConfigPath);
             ProductConfig boardProductConfig =
                 RequireAsset<ProductConfig>(BoardProductConfigPath);
+            ProductConfig brickProductConfig =
+                RequireAsset<ProductConfig>(BrickProductConfigPath);
+            ProductConfig drywallProductConfig =
+                RequireAsset<ProductConfig>(DrywallProductConfigPath);
+            ProductConfig paintProductConfig =
+                RequireAsset<ProductConfig>(PaintProductConfigPath);
+            ProductConfig insulationProductConfig =
+                RequireAsset<ProductConfig>(InsulationProductConfigPath);
             DeliveryConfig cementDeliveryConfig =
                 RequireAsset<DeliveryConfig>(CementDeliveryConfigPath);
             DeliveryConfig boardDeliveryConfig =
                 RequireAsset<DeliveryConfig>(BoardDeliveryConfigPath);
+            DeliveryConfig brickDeliveryConfig =
+                RequireAsset<DeliveryConfig>(BrickDeliveryConfigPath);
+            DeliveryConfig drywallDeliveryConfig =
+                RequireAsset<DeliveryConfig>(DrywallDeliveryConfigPath);
+            DeliveryConfig paintDeliveryConfig =
+                RequireAsset<DeliveryConfig>(PaintDeliveryConfigPath);
+            DeliveryConfig insulationDeliveryConfig =
+                RequireAsset<DeliveryConfig>(InsulationDeliveryConfigPath);
             CustomerVehicleConfig customerVehicleConfig =
                 RequireAsset<CustomerVehicleConfig>(CustomerVehicleConfigPath);
             CustomerConfig customerConfig = RequireAsset<CustomerConfig>(CustomerConfigPath);
@@ -6382,6 +6894,14 @@ namespace HardwareStore.Editor
                 RequireAsset<CustomerProjectConfig>(LumberProjectConfigPath);
             CustomerProjectConfig workbenchProjectConfig =
                 RequireAsset<CustomerProjectConfig>(WorkbenchProjectConfigPath);
+            CustomerProjectConfig gardenWallProjectConfig =
+                RequireAsset<CustomerProjectConfig>(GardenWallProjectConfigPath);
+            CustomerProjectConfig drywallPartitionProjectConfig =
+                RequireAsset<CustomerProjectConfig>(DrywallPartitionProjectConfigPath);
+            CustomerProjectConfig workshopRenovationProjectConfig =
+                RequireAsset<CustomerProjectConfig>(WorkshopRenovationProjectConfigPath);
+            CustomerProjectConfig garageInsulationProjectConfig =
+                RequireAsset<CustomerProjectConfig>(GarageInsulationProjectConfigPath);
 
             ProductConfig[] productConfigs = LoadConfigCatalogAssets<ProductConfig>();
             DeliveryConfig[] deliveryConfigs = LoadConfigCatalogAssets<DeliveryConfig>();
@@ -6390,8 +6910,8 @@ namespace HardwareStore.Editor
             Require(productConfigs.Length == ExpectedProductTypes.Length &&
                     deliveryConfigs.Length == ExpectedProductTypes.Length &&
                     projectConfigs.Length == ExpectedProjectTypes.Length,
-                "Product and delivery catalogs must contain two assets, and the customer " +
-                "project catalog must contain three assets.");
+                "Product and delivery catalogs must contain six assets, and the customer " +
+                "project catalog must contain seven assets.");
             var expectedKeys = new HashSet<ProductTypeId>(ExpectedProductTypes);
             var expectedProjectKeys = new HashSet<CustomerProjectTypeId>(ExpectedProjectTypes);
             var productKeys = new HashSet<ProductTypeId>(productConfigs.Select(config => config.ProductType));
@@ -6427,6 +6947,46 @@ namespace HardwareStore.Editor
                 productDropCollisionRadius: 0.86f,
                 deliveryCount: 3,
                 purchaseUnitPrice: 260);
+            ValidateProductCatalogEntry(
+                brickProductConfig,
+                brickDeliveryConfig,
+                ProductTypeId.BrickPack,
+                unitPrice: 330,
+                mass: 24f,
+                carryMovementSpeed: 2.9f,
+                productDropCollisionRadius: 0.53f,
+                deliveryCount: 3,
+                purchaseUnitPrice: 190);
+            ValidateProductCatalogEntry(
+                drywallProductConfig,
+                drywallDeliveryConfig,
+                ProductTypeId.DrywallSheet,
+                unitPrice: 260,
+                mass: 14f,
+                carryMovementSpeed: 2.8f,
+                productDropCollisionRadius: 0.84f,
+                deliveryCount: 3,
+                purchaseUnitPrice: 80);
+            ValidateProductCatalogEntry(
+                paintProductConfig,
+                paintDeliveryConfig,
+                ProductTypeId.PaintBucket,
+                unitPrice: 340,
+                mass: 16f,
+                carryMovementSpeed: 3.4f,
+                productDropCollisionRadius: 0.49f,
+                deliveryCount: 3,
+                purchaseUnitPrice: 140);
+            ValidateProductCatalogEntry(
+                insulationProductConfig,
+                insulationDeliveryConfig,
+                ProductTypeId.InsulationRoll,
+                unitPrice: 350,
+                mass: 8f,
+                carryMovementSpeed: 3.3f,
+                productDropCollisionRadius: 0.72f,
+                deliveryCount: 3,
+                purchaseUnitPrice: 150);
             ValidateSingleProductProject(
                 cementProjectConfig,
                 CustomerProjectTypeId.CementFoundation,
@@ -6446,6 +7006,62 @@ namespace HardwareStore.Editor
                 customerVehicleConfig,
                 productConfigs,
                 deliveryConfigs);
+            ValidateMixedProject(
+                gardenWallProjectConfig,
+                CustomerProjectTypeId.GardenWall,
+                ProductTypeId.BrickPack,
+                ProductTypeId.CementBag,
+                customerVehicleConfig,
+                productConfigs,
+                deliveryConfigs,
+                new[]
+                {
+                    new ProjectOfferMetrics(2, 390, 680, 290),
+                    new ProjectOfferMetrics(3, 580, 1010, 430),
+                    new ProjectOfferMetrics(3, 590, 1030, 440)
+                });
+            ValidateMixedProject(
+                drywallPartitionProjectConfig,
+                CustomerProjectTypeId.DrywallPartition,
+                ProductTypeId.DrywallSheet,
+                ProductTypeId.BoardBundle,
+                customerVehicleConfig,
+                productConfigs,
+                deliveryConfigs,
+                new[]
+                {
+                    new ProjectOfferMetrics(2, 340, 740, 400),
+                    new ProjectOfferMetrics(3, 420, 1000, 580),
+                    new ProjectOfferMetrics(3, 600, 1220, 620)
+                });
+            ValidateMixedProject(
+                workshopRenovationProjectConfig,
+                CustomerProjectTypeId.WorkshopRenovation,
+                ProductTypeId.PaintBucket,
+                ProductTypeId.DrywallSheet,
+                customerVehicleConfig,
+                productConfigs,
+                deliveryConfigs,
+                new[]
+                {
+                    new ProjectOfferMetrics(2, 220, 600, 380),
+                    new ProjectOfferMetrics(3, 360, 940, 580),
+                    new ProjectOfferMetrics(3, 300, 860, 560)
+                });
+            ValidateMixedProject(
+                garageInsulationProjectConfig,
+                CustomerProjectTypeId.GarageInsulation,
+                ProductTypeId.InsulationRoll,
+                ProductTypeId.BoardBundle,
+                customerVehicleConfig,
+                productConfigs,
+                deliveryConfigs,
+                new[]
+                {
+                    new ProjectOfferMetrics(2, 410, 830, 420),
+                    new ProjectOfferMetrics(3, 560, 1180, 620),
+                    new ProjectOfferMetrics(3, 670, 1310, 640)
+                });
 
             Require(economyConfig.InitialMoney == 1100,
                 $"{EconomyConfigPath} must start the prototype with 1100.");
@@ -6538,31 +7154,68 @@ namespace HardwareStore.Editor
             Require(Mathf.Approximately(customerConfig.WaypointTolerance, 0.08f),
                 $"{CustomerConfigPath} must use a waypoint tolerance of 0.08.");
 
-            GameObject cementProductPrefab = RequireAsset<GameObject>(CementProductPrefabPath);
-            GameObject boardProductPrefab = RequireAsset<GameObject>(BoardProductPrefabPath);
-            Vector3 cementGeometry = ValidateProductPrefab(
+            ProductConfig[] orderedProductConfigs =
+            {
                 cementProductConfig,
-                CementProductConfigPath,
-                cementProductPrefab,
-                CementProductPrefabPath,
-                requireUnitScale: false);
-            Vector3 boardGeometry = ValidateProductPrefab(
                 boardProductConfig,
+                brickProductConfig,
+                drywallProductConfig,
+                paintProductConfig,
+                insulationProductConfig
+            };
+            string[] orderedProductConfigPaths =
+            {
+                CementProductConfigPath,
                 BoardProductConfigPath,
-                boardProductPrefab,
+                BrickProductConfigPath,
+                DrywallProductConfigPath,
+                PaintProductConfigPath,
+                InsulationProductConfigPath
+            };
+            string[] productPrefabPaths =
+            {
+                CementProductPrefabPath,
                 BoardProductPrefabPath,
-                requireUnitScale: true);
-            float cementBoundingRadius = ReadSolidProductBoundingRadius(
-                cementProductPrefab,
-                CementProductPrefabPath);
-            float boardBoundingRadius = ReadSolidProductBoundingRadius(
-                boardProductPrefab,
-                BoardProductPrefabPath);
-            Require(cementProductConfig.ProductDropCollisionRadius >=
-                    cementBoundingRadius &&
-                    boardProductConfig.ProductDropCollisionRadius >= boardBoundingRadius,
-                "Each configured product drop radius must conservatively contain every corner " +
-                "of its solid collider.");
+                BrickProductPrefabPath,
+                DrywallProductPrefabPath,
+                PaintProductPrefabPath,
+                InsulationProductPrefabPath
+            };
+            GameObject[] productPrefabs = productPrefabPaths
+                .Select(RequireAsset<GameObject>)
+                .ToArray();
+            Vector3[] productGeometry = new Vector3[productPrefabs.Length];
+            for (int index = 0; index < productPrefabs.Length; index++)
+            {
+                productGeometry[index] = ValidateProductPrefab(
+                    orderedProductConfigs[index],
+                    orderedProductConfigPaths[index],
+                    productPrefabs[index],
+                    productPrefabPaths[index],
+                    requireUnitScale: index != 0);
+                float boundingRadius = ReadSolidProductBoundingRadius(
+                    productPrefabs[index],
+                    productPrefabPaths[index]);
+                Require(orderedProductConfigs[index].ProductDropCollisionRadius >=
+                        boundingRadius,
+                    $"{orderedProductConfigPaths[index]} must conservatively contain every " +
+                    $"corner of the solid collider from {productPrefabPaths[index]}.");
+            }
+
+            GameObject cementProductPrefab = productPrefabs[0];
+            GameObject boardProductPrefab = productPrefabs[1];
+            Vector3 cementGeometry = productGeometry[0];
+            Vector3 boardGeometry = productGeometry[1];
+            Require(Vector3.Distance(productGeometry[2], new Vector3(0.82f, 0.34f, 0.52f)) <
+                        0.001f &&
+                    Vector3.Distance(productGeometry[3], new Vector3(1.55f, 0.18f, 0.46f)) <
+                        0.001f &&
+                    Vector3.Distance(productGeometry[4], new Vector3(0.52f, 0.58f, 0.52f)) <
+                        0.001f &&
+                    Vector3.Distance(productGeometry[5], new Vector3(1.15f, 0.58f, 0.58f)) <
+                        0.001f,
+                "Brick, drywall, paint and insulation prefabs must preserve their frozen " +
+                "solid BoxCollider dimensions.");
             float boardLength = Mathf.Max(boardGeometry.x, boardGeometry.z);
             float cementLength = Mathf.Max(cementGeometry.x, cementGeometry.z);
             Require(boardLength >= 1.4f && boardLength <= 1.6f,
@@ -6571,6 +7224,14 @@ namespace HardwareStore.Editor
                 "Board bundle and cement bag must have materially distinct geometry.");
             Require(boardProductPrefab.GetComponentsInChildren<Renderer>(true).Length >= 6,
                 $"{BoardProductPrefabPath} must visibly contain four boards and retaining straps.");
+            ValidateExpandedProductVisuals(productPrefabs, productPrefabPaths);
+
+            Vector3 maximumProductGeometry = productGeometry.Aggregate(
+                Vector3.zero,
+                (maximum, geometry) => new Vector3(
+                    Mathf.Max(maximum.x, geometry.x),
+                    Mathf.Max(maximum.y, geometry.y),
+                    Mathf.Max(maximum.z, geometry.z)));
 
             GameObject deliveryPrefab = RequireAsset<GameObject>(DeliveryVehiclePrefabPath);
             ValidatePrefabRoot(deliveryPrefab, DeliveryVehiclePrefabPath, requireUnitScale: true);
@@ -6586,13 +7247,54 @@ namespace HardwareStore.Editor
                     deliveryTransforms[0].gameObject == deliveryPrefab &&
                     deliverySlotRegistrars[0].gameObject == deliveryPrefab,
                 $"The delivery view and registrars in {DeliveryVehiclePrefabPath} must be on its root.");
-            int maximumDeliverySize = deliveryConfigs.Max(config => config.ProductCount);
-            Require(deliverySlots.Length == maximumDeliverySize,
-                $"{DeliveryVehiclePrefabPath} must expose exactly {maximumDeliverySize} cargo slots.");
+            Require(ProcurementCartFactory.CurrentDeliveryPackageCapacity == 3,
+                "The frozen mixed-delivery cart must allow exactly three packages.");
+            int maximumDeliverySize = checked(
+                deliveryConfigs.Max(config => config.ProductCount) *
+                ProcurementCartFactory.CurrentDeliveryPackageCapacity);
+            Require(deliverySlots.Length == maximumDeliverySize && maximumDeliverySize == 9,
+                $"{DeliveryVehiclePrefabPath} must expose exactly {maximumDeliverySize} cargo slots " +
+                "for three packages of three product units.");
             Require(deliverySlots.All(slot => slot.IsChildOf(deliveryPrefab.transform)),
                 $"Every cargo slot in {DeliveryVehiclePrefabPath} must belong to the prefab hierarchy.");
-            Require(!ContainsPrefabInstance(deliveryPrefab, cementProductPrefab) &&
-                    !ContainsPrefabInstance(deliveryPrefab, boardProductPrefab),
+            Transform cargoPallet = deliveryPrefab.transform.Find("Cargo Pallet");
+            Require(cargoPallet != null &&
+                    maximumProductGeometry.x <= cargoPallet.localScale.x &&
+                    maximumProductGeometry.z <= 0.92f,
+                $"The pallet and cargo spacing in {DeliveryVehiclePrefabPath} must contain every " +
+                "catalog product hull.");
+            float palletTop = cargoPallet.localPosition.y + cargoPallet.localScale.y * 0.5f;
+            for (int index = 0; index < deliverySlots.Length; index++)
+            {
+                int levelIndex = index / 3;
+                int positionIndex = index % 3;
+                Vector3 expectedPosition = new(
+                    0f,
+                    1.5f + levelIndex * 0.67f,
+                    -1.8f + positionIndex * 0.92f);
+                Require(deliverySlots[index].name == $"Cargo Slot {index + 1}" &&
+                        Vector3.Distance(deliverySlots[index].localPosition, expectedPosition) <
+                        0.001f,
+                    $"{DeliveryVehiclePrefabPath} cargo slot {index + 1} must preserve the " +
+                    "three-by-three mixed-delivery layout.");
+                if (levelIndex == 0)
+                {
+                    Require(deliverySlots[index].localPosition.y -
+                            maximumProductGeometry.y * 0.5f >= palletTop + 0.04f,
+                        $"The lower cargo layer in {DeliveryVehiclePrefabPath} must clear the " +
+                        "visible pallet for every product hull.");
+                }
+                else
+                {
+                    float previousLevelY = deliverySlots[index - 3].localPosition.y;
+                    Require(deliverySlots[index].localPosition.y - previousLevelY >=
+                            maximumProductGeometry.y + 0.08f,
+                        $"Adjacent cargo layers in {DeliveryVehiclePrefabPath} must retain at " +
+                        "least 0.08 metres of hull clearance.");
+                }
+            }
+            Require(productPrefabs.All(productPrefab =>
+                    !ContainsPrefabInstance(deliveryPrefab, productPrefab)),
                 $"{DeliveryVehiclePrefabPath} must be empty before runtime cargo spawning.");
             Require(deliveryConfigs.All(config => config.ViewPrefab == deliveryViews[0]),
                 $"Every DeliveryConfig must reference the EntityBehaviour root from " +
@@ -6692,8 +7394,8 @@ namespace HardwareStore.Editor
                 new SerializedObject(customerViews[0]).FindProperty("_highlight");
             Require(customerHighlight?.objectReferenceValue == customerHighlights[0],
                 $"The InteractionView in {CustomerVehiclePrefabPath} must reference its loading highlight.");
-            Require(!ContainsPrefabInstance(customerVehiclePrefab, cementProductPrefab) &&
-                    !ContainsPrefabInstance(customerVehiclePrefab, boardProductPrefab),
+            Require(productPrefabs.All(productPrefab =>
+                    !ContainsPrefabInstance(customerVehiclePrefab, productPrefab)),
                 $"{CustomerVehiclePrefabPath} must be empty before runtime order loading.");
             Require(customerVehicleConfig.ViewPrefab == customerViews[0],
                 $"{CustomerVehicleConfigPath} must reference the InteractionView root from " +
@@ -7058,8 +7760,8 @@ namespace HardwareStore.Editor
             Require(warehouseWorkerConfig.TrolleyViewPrefab == workerTrolleyViews[0],
                 $"{WarehouseWorkerConfigPath} must reference the EntityBehaviour root from " +
                 $"{WarehouseWorkerTrolleyPrefabPath}.");
-            Require(!ContainsPrefabInstance(workerTrolleyPrefab, cementProductPrefab) &&
-                    !ContainsPrefabInstance(workerTrolleyPrefab, boardProductPrefab),
+            Require(productPrefabs.All(productPrefab =>
+                    !ContainsPrefabInstance(workerTrolleyPrefab, productPrefab)),
                 $"{WarehouseWorkerTrolleyPrefabPath} must be empty before runtime cargo " +
                 "placement.");
 
@@ -7205,8 +7907,8 @@ namespace HardwareStore.Editor
             Require(platformTrolleyConfig.ViewPrefab == trolleyViews[0],
                 $"{PlatformTrolleyConfigPath} must reference the InteractionView root from " +
                 $"{PlatformTrolleyPrefabPath}.");
-            Require(!ContainsPrefabInstance(trolleyPrefab, cementProductPrefab) &&
-                    !ContainsPrefabInstance(trolleyPrefab, boardProductPrefab),
+            Require(productPrefabs.All(productPrefab =>
+                    !ContainsPrefabInstance(trolleyPrefab, productPrefab)),
                 $"{PlatformTrolleyPrefabPath} must be empty before runtime cargo placement.");
         }
 
@@ -7325,6 +8027,63 @@ namespace HardwareStore.Editor
                 Require(!Dominates(metrics[left], metrics[right]),
                     $"{path} offer {left} dominates offer {right}; every consultation choice " +
                     "must preserve a visible cost/capacity/profit trade-off.");
+            }
+        }
+
+        private static void ValidateMixedProject(
+            CustomerProjectConfig project,
+            CustomerProjectTypeId expectedProjectType,
+            ProductTypeId primaryProductType,
+            ProductTypeId secondaryProductType,
+            CustomerVehicleConfig vehicle,
+            IReadOnlyCollection<ProductConfig> products,
+            IReadOnlyCollection<DeliveryConfig> deliveries,
+            IReadOnlyList<ProjectOfferMetrics> expectedMetrics)
+        {
+            string path = AssetDatabase.GetAssetPath(project);
+            Require(project.ProjectType == expectedProjectType &&
+                    project.DefaultOfferIndex == 1 && project.Offers.Count == 3,
+                $"{path} must expose its frozen three-offer mixed project.");
+
+            (int Primary, int Secondary)[] expectedSignatures =
+            {
+                (1, 1),
+                (2, 1),
+                (1, 2)
+            };
+            for (int offerIndex = 0; offerIndex < project.Offers.Count; offerIndex++)
+            {
+                CustomerProjectOfferDefinition offer = project.Offers[offerIndex];
+                Require(offer.Lines.Count == CustomerProjectConfig.MaxLinesPerOffer &&
+                        offer.Lines.Select(line => line.ProductType).Distinct().Count() == 2 &&
+                        offer.Lines.Any(line => line.ProductType == primaryProductType) &&
+                        offer.Lines.Any(line => line.ProductType == secondaryProductType),
+                    $"{path} offer {offerIndex} must contain one {primaryProductType} and " +
+                    $"one {secondaryProductType} line.");
+                int primaryCount = offer.Lines
+                    .Single(line => line.ProductType == primaryProductType)
+                    .RequiredCount;
+                int secondaryCount = offer.Lines
+                    .Single(line => line.ProductType == secondaryProductType)
+                    .RequiredCount;
+                Require((primaryCount, secondaryCount) == expectedSignatures[offerIndex],
+                    $"{path} offer {offerIndex} has an incorrect mixed-product signature.");
+            }
+
+            ValidateProjectOffers(project, vehicle, products, deliveries);
+            ProjectOfferMetrics[] actualMetrics = project.Offers
+                .Select(offer => CalculateOfferMetrics(offer, products, deliveries))
+                .ToArray();
+            Require(actualMetrics.SequenceEqual(expectedMetrics),
+                $"{path} mixed offers have incorrect cost, revenue or profit.");
+            for (int left = 0; left < actualMetrics.Length; left++)
+            for (int right = 0; right < actualMetrics.Length; right++)
+            {
+                if (left == right)
+                    continue;
+                Require(!Dominates(actualMetrics[left], actualMetrics[right]),
+                    $"{path} offer {left} dominates offer {right}; every choice must " +
+                    "preserve a cost/profit trade-off.");
             }
         }
 
@@ -7500,6 +8259,71 @@ namespace HardwareStore.Editor
             return ReadSolidProductGeometry(productPrefab, productPrefabPath);
         }
 
+        private static void ValidateExpandedProductVisuals(
+            IReadOnlyList<GameObject> productPrefabs,
+            IReadOnlyList<string> productPrefabPaths)
+        {
+            Require(productPrefabs.Count == ExpectedProductTypes.Length &&
+                    productPrefabPaths.Count == ExpectedProductTypes.Length,
+                "Expanded product visual validation requires the complete ordered catalog.");
+
+            Renderer[] brickRenderers =
+                productPrefabs[2].GetComponentsInChildren<Renderer>(true);
+            Require(brickRenderers.Length == 8 &&
+                    brickRenderers.Count(renderer =>
+                        renderer.name.StartsWith("Brick ", StringComparison.Ordinal) &&
+                        renderer.sharedMaterial.name == "Brick") == 6 &&
+                    brickRenderers.Count(renderer =>
+                        renderer.name.EndsWith("Strap", StringComparison.Ordinal) &&
+                        renderer.sharedMaterial.name == "DarkMetal") == 2,
+                $"{productPrefabPaths[2]} must visibly contain six terracotta bricks and two " +
+                "dark retaining straps.");
+
+            Renderer[] drywallRenderers =
+                productPrefabs[3].GetComponentsInChildren<Renderer>(true);
+            Require(drywallRenderers.Length == 5 &&
+                    drywallRenderers.Count(renderer =>
+                        renderer.name.StartsWith("Drywall Layer ", StringComparison.Ordinal) &&
+                        renderer.sharedMaterial.name == "Drywall") == 3 &&
+                    drywallRenderers.Count(renderer =>
+                        renderer.name.EndsWith("Edge", StringComparison.Ordinal) &&
+                        renderer.sharedMaterial.name == "DrywallEdge") == 2,
+                $"{productPrefabPaths[3]} must visibly contain three warm-white sheets and two " +
+                "blue edges.");
+
+            Renderer[] paintRenderers =
+                productPrefabs[4].GetComponentsInChildren<Renderer>(true);
+            Require(paintRenderers.Length == 5 &&
+                    paintRenderers.Count(renderer =>
+                        renderer.name == "Bucket Body" &&
+                        renderer.sharedMaterial.name == "BrandBlue") == 1 &&
+                    paintRenderers.Count(renderer =>
+                        renderer.name == "Bucket Lid" &&
+                        renderer.sharedMaterial.name == "White") == 1 &&
+                    paintRenderers.Count(renderer =>
+                        renderer.name.StartsWith("Handle ", StringComparison.Ordinal) &&
+                        renderer.sharedMaterial.name == "DarkMetal") == 3,
+                $"{productPrefabPaths[4]} must visibly contain one blue bucket, a white lid " +
+                "and a three-piece dark handle.");
+
+            Renderer[] insulationRenderers =
+                productPrefabs[5].GetComponentsInChildren<Renderer>(true);
+            Require(insulationRenderers.Length == 3 &&
+                    insulationRenderers.Count(renderer =>
+                        renderer.name == "Insulation Roll Visual" &&
+                        renderer.sharedMaterial.name == "SafetyYellow") == 1 &&
+                    insulationRenderers.Count(renderer =>
+                        renderer.name.EndsWith("Strap", StringComparison.Ordinal) &&
+                        renderer.sharedMaterial.name == "DarkMetal") == 2,
+                $"{productPrefabPaths[5]} must visibly contain one yellow roll and two dark " +
+                "retaining straps.");
+
+            Require(productPrefabs.Skip(2).All(prefab =>
+                    prefab.GetComponentsInChildren<CapsuleCollider>(true).Length == 0),
+                "Cylinder-based product visuals must not retain primitive CapsuleColliders; " +
+                "only the authored root BoxCollider may be solid.");
+        }
+
         private static Vector3 ReadSolidProductGeometry(GameObject productPrefab,
             string productPrefabPath)
         {
@@ -7666,12 +8490,22 @@ namespace HardwareStore.Editor
                 Require(cameraRegistrars.Length == 0,
                     $"{PrototypeScenePath} must not contain CameraRegistrar; " +
                     "the player view is instantiated from its prefab at runtime.");
-                GameObject cementProductPrefab = RequireAsset<GameObject>(CementProductPrefabPath);
-                GameObject boardProductPrefab = RequireAsset<GameObject>(BoardProductPrefabPath);
+                string[] productPrefabPaths =
+                {
+                    CementProductPrefabPath,
+                    BoardProductPrefabPath,
+                    BrickProductPrefabPath,
+                    DrywallProductPrefabPath,
+                    PaintProductPrefabPath,
+                    InsulationProductPrefabPath
+                };
+                GameObject[] productPrefabs = productPrefabPaths
+                    .Select(RequireAsset<GameObject>)
+                    .ToArray();
                 GameObject workerTrolleyPrefab =
                     RequireAsset<GameObject>(WarehouseWorkerTrolleyPrefabPath);
-                Require(!ContainsPrefabInstance(scene, cementProductPrefab) &&
-                        !ContainsPrefabInstance(scene, boardProductPrefab) &&
+                Require(productPrefabs.All(productPrefab =>
+                            !ContainsPrefabInstance(scene, productPrefab)) &&
                         !ContainsPrefabInstance(scene, workerTrolleyPrefab),
                     $"{PrototypeScenePath} must not contain product or worker-trolley prefab " +
                     "instances; both are spawned at runtime.");
@@ -8337,19 +9171,37 @@ namespace HardwareStore.Editor
                 Require(storageSlotsRegistrar != null,
                     "The storage scene view must have a SlotsRegistrar.");
                 Transform[] storageSlots = ReadSlots(storageSlotsRegistrar, PrototypeScenePath);
-                Require(storageSlots.Length >= RequiredStorageSlotCapacity,
-                    $"Storage must expose at least {RequiredStorageSlotCapacity} unique slots.");
+                Require(storageSlots.Length == RequiredStorageSlotCapacity,
+                    $"Storage must expose exactly {RequiredStorageSlotCapacity} unique slots.");
                 ValidateBoundedProcurementSolvencyPolicy(storageSlots.Length);
-                Vector3 cementGeometry = ReadSolidProductGeometry(
-                    cementProductPrefab,
-                    CementProductPrefabPath);
-                Vector3 boardGeometry = ReadSolidProductGeometry(
-                    boardProductPrefab,
-                    BoardProductPrefabPath);
-                Vector3 maximumGeometry = new(
-                    Mathf.Max(cementGeometry.x, boardGeometry.x),
-                    Mathf.Max(cementGeometry.y, boardGeometry.y),
-                    Mathf.Max(cementGeometry.z, boardGeometry.z));
+                Vector3 maximumGeometry = productPrefabs
+                    .Select((productPrefab, index) => ReadSolidProductGeometry(
+                        productPrefab,
+                        productPrefabPaths[index]))
+                    .Aggregate(
+                        Vector3.zero,
+                        (maximum, geometry) => new Vector3(
+                            Mathf.Max(maximum.x, geometry.x),
+                            Mathf.Max(maximum.y, geometry.y),
+                            Mathf.Max(maximum.z, geometry.z)));
+                Transform materialsStorage = storage.transform.parent;
+                for (int index = 0; index < storageSlots.Length; index++)
+                {
+                    int levelIndex = index / 9;
+                    int levelSlotIndex = index % 9;
+                    int columnIndex = levelSlotIndex % 3;
+                    int rowIndex = levelSlotIndex / 3;
+                    Vector3 expectedPosition = new(
+                        2.4f + columnIndex * 1.9f,
+                        0.68f + levelIndex * 1.27f,
+                        4.4f + rowIndex * 2.05f);
+                    Require(storageSlots[index].name == $"Stock Slot {index + 1}" &&
+                            storageSlots[index].IsChildOf(materialsStorage) &&
+                            Vector3.Distance(storageSlots[index].position, expectedPosition) <
+                            0.001f,
+                        $"Storage slot {index + 1} must preserve the authored 3 x 3 x 2 " +
+                        "shelf layout.");
+                }
                 for (int first = 0; first < storageSlots.Length; first++)
                 {
                     Bounds firstBounds = new(storageSlots[first].position, maximumGeometry);
@@ -8358,12 +9210,32 @@ namespace HardwareStore.Editor
                         Bounds secondBounds = new(storageSlots[second].position, maximumGeometry);
                         Require(!firstBounds.Intersects(secondBounds),
                             $"Storage slots {storageSlots[first].name} and " +
-                            $"{storageSlots[second].name} overlap for board-bundle geometry.");
+                            $"{storageSlots[second].name} overlap for the largest product hull.");
                     }
                 }
+                Transform[] upperPalletBeams = allSceneTransforms
+                    .Where(candidate => candidate.parent == materialsStorage &&
+                        candidate.name.StartsWith(
+                            "Upper Pallet Beam ",
+                            StringComparison.Ordinal))
+                    .ToArray();
+                Require(upperPalletBeams.Length == 6 &&
+                        upperPalletBeams.All(beam =>
+                            beam.gameObject.activeInHierarchy &&
+                            beam.GetComponent<Renderer>() != null &&
+                            Mathf.Approximately(beam.position.y, 1.55f)),
+                    "The expanded storage must visibly expose six authored beams for its " +
+                    "second shelf tier.");
+                float upperBeamTop = upperPalletBeams
+                    .Max(beam => beam.GetComponent<Renderer>().bounds.max.y);
+                Require(storageSlots.Skip(9).All(slot =>
+                        slot.position.y - maximumGeometry.y * 0.5f >=
+                        upperBeamTop + 0.019f),
+                    "Every upper storage slot must clear its visible shelf beams for the " +
+                    "largest product hull.");
                 Require(storage.name == "Storage Intake Target" &&
-                        storage.transform.parent != null &&
-                        storage.transform.parent.name == "Materials Storage" &&
+                        materialsStorage != null &&
+                        materialsStorage.name == "Materials Storage" &&
                         storage.transform.position == new Vector3(5f, 1.8f, 6.5f) &&
                         storage.transform.rotation == Quaternion.identity &&
                         storage.transform.lossyScale == Vector3.one,

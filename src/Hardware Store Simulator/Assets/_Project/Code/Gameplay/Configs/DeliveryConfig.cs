@@ -13,7 +13,7 @@ namespace HardwareStore.Gameplay.Configs
         [Header("Cargo")]
         [SerializeField] private ProductTypeId _productType = ProductTypeId.CementBag;
         [SerializeField, Min(1)] private int _productCount = 3;
-        [SerializeField, Min(0)] private int _purchaseUnitPrice = 200;
+        [SerializeField, Min(1)] private int _purchaseUnitPrice = 200;
 
         public EntityBehaviour ViewPrefab => _viewPrefab;
         public ProductTypeId ProductType => _productType;
@@ -27,7 +27,7 @@ namespace HardwareStore.Gameplay.Configs
             ConfigValidation.RequireReference(_viewPrefab, owner, nameof(ViewPrefab));
             ConfigValidation.RequireDefined(_productType, owner, nameof(ProductType));
             ConfigValidation.RequirePositive(_productCount, owner, nameof(ProductCount));
-            ConfigValidation.RequireNonNegative(
+            ConfigValidation.RequirePositive(
                 _purchaseUnitPrice,
                 owner,
                 nameof(PurchaseUnitPrice));

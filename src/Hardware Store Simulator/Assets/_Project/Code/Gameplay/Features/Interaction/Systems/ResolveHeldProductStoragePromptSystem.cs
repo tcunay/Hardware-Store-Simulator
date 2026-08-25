@@ -1,5 +1,6 @@
 using System;
 using Entitas;
+using HardwareStore.Gameplay.Common;
 using HardwareStore.Gameplay.Components;
 using HardwareStore.Gameplay.Localization;
 
@@ -70,6 +71,8 @@ namespace HardwareStore.Gameplay.Features.Interaction.Systems
                         false);
                     continue;
                 }
+
+                InboundProductManifestValidator.Validate(_gameContext, heldProduct);
 
                 GameEntity terminal = _gameContext.GetEntityWithEntityId(
                     store.ProcurementTerminalEntityId);

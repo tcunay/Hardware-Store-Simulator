@@ -19,10 +19,21 @@ namespace HardwareStore.Gameplay.Factories
             _staticData = staticData;
         }
 
-        public GameEntity CreateInbound(ProductTypeId productType, Pose at, int deliveryEntityId,
-            int deliverySlotIndex)
+        public GameEntity CreateInbound(ProductTypeId productType, Pose at,
+            int deliveryEntityId, int deliverySlotIndex, int purchaseOrderLineEntityId)
         {
+            if (deliveryEntityId <= 0)
+                throw new System.ArgumentOutOfRangeException(nameof(deliveryEntityId));
+            if (deliverySlotIndex < 0)
+                throw new System.ArgumentOutOfRangeException(nameof(deliverySlotIndex));
+            if (purchaseOrderLineEntityId <= 0)
+                throw new System.ArgumentOutOfRangeException(
+                    nameof(purchaseOrderLineEntityId));
+
             ProductConfig config = _staticData.GetProduct(productType);
+            if (config.ProductType != productType)
+                throw new System.InvalidOperationException(
+                    $"Product config for {productType} exposes {config.ProductType}.");
             return CreateEntity.Empty(_identifiers.Next())
                 .AddViewPrefab(config.ViewPrefab)
                 .AddSpawnPosition(at.position)
@@ -41,7 +52,8 @@ namespace HardwareStore.Gameplay.Factories
                 .With(x => x.isProduct = true)
                 .With(x => x.isInboundProduct = true)
                 .With(x => x.isProductPlacementDirty = true)
-                .With(x => x.isInteractable = true);
+                .With(x => x.isInteractable = true)
+                .AddPurchaseOrderLineEntityId(purchaseOrderLineEntityId);
         }
     }
 }

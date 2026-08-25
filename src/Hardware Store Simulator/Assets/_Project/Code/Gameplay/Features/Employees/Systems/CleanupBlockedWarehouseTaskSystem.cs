@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using Entitas;
+using HardwareStore.Gameplay.Common;
 using HardwareStore.Gameplay.Components;
 
 namespace HardwareStore.Gameplay.Features.Employees.Systems
@@ -56,10 +57,14 @@ namespace HardwareStore.Gameplay.Features.Employees.Systems
             }
         }
 
-        private static bool ShouldAwaitInboundHandoff(GameEntity product) =>
-            product != null && !product.isDestructed &&
-            product.isInboundProduct && product.hasDeliverySlotIndex &&
-            product.isInteractable;
+        private bool ShouldAwaitInboundHandoff(GameEntity product)
+        {
+            if (product == null || product.isDestructed || !product.isInboundProduct)
+                return false;
+
+            InboundProductManifestValidator.Validate(_gameContext, product);
+            return product.hasDeliverySlotIndex && product.isInteractable;
+        }
 
         private bool ShouldAwaitCustomerHandoff(GameEntity task,
             GameEntity product)

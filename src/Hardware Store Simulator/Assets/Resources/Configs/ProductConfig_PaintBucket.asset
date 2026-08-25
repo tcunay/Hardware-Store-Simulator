@@ -1,0 +1,24 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 8f3664830aaf64d9cb268e44c0bfa16c, type: 3}
+  m_Name: ProductConfig_PaintBucket
+  m_EditorClassIdentifier: Assembly-CSharp::HardwareStore.Gameplay.Configs.ProductConfig
+  _viewPrefab: {fileID: 4706185862076536077, guid: f197aab4fdb824a5f911e1a2dfb60523, type: 3}
+  _productType: 4
+  _unitPrice: 340
+  _mass: 16
+  _carryMovementSpeed: 3.4
+  _heldRotationEuler: {x: 0, y: 0, z: 0}
+  _dropForwardDistance: 1.05
+  _productDropCollisionRadius: 0.49
+  _worldInterpolation: 1
+  _worldCollisionDetection: 3

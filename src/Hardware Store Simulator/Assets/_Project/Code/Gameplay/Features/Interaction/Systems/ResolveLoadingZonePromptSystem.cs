@@ -1,6 +1,7 @@
 using System;
 using System.Linq;
 using Entitas;
+using HardwareStore.Gameplay.Common;
 using HardwareStore.Gameplay.Components;
 using HardwareStore.Gameplay.Localization;
 
@@ -137,6 +138,8 @@ namespace HardwareStore.Gameplay.Features.Interaction.Systems
 
                 GameEntity heldProduct =
                     _gameContext.GetEntityWithCarrierEntityId(player.EntityId);
+                if (heldProduct.isInboundProduct)
+                    InboundProductManifestValidator.Validate(_gameContext, heldProduct);
                 GameEntity matchingLine = lines.FirstOrDefault(line =>
                     line.ProductType == heldProduct.ProductType);
                 if (heldProduct.isInStock &&

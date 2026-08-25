@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using Entitas;
+using HardwareStore.Gameplay.Common;
 using HardwareStore.Gameplay.Common.Navigation;
 using HardwareStore.Gameplay.Components;
 using HardwareStore.Gameplay.Configs;
@@ -254,10 +255,29 @@ namespace HardwareStore.Gameplay.Features.Employees.Systems
             GameEntity product = _gameContext.GetEntityWithEntityId(
                 task.WarehouseTaskProductEntityId);
             if (product == null || !product.isProduct || product.isDestructed ||
-                !product.hasProductType)
+                !product.hasProductType || !product.hasDeliveryEntityId ||
+                !product.hasPurchaseOrderLineEntityId)
             {
                 throw new InvalidOperationException(
                     $"Warehouse task {task.EntityId} references missing product.");
+            }
+
+            InboundProductManifestValidator.Validate(_gameContext, product);
+            GameEntity delivery = _gameContext.GetEntityWithEntityId(
+                product.DeliveryEntityId);
+            GameEntity line = _gameContext.GetEntityWithEntityId(
+                product.PurchaseOrderLineEntityId);
+            if (delivery == null || !delivery.isDelivery ||
+                !delivery.isDeliveryActive || delivery.isDestructed ||
+                !delivery.hasDeliveryPurchaseOrderEntityId ||
+                line == null || !line.isPurchaseOrderLine || line.isDestructed ||
+                !line.hasPurchaseOrderEntityId ||
+                line.PurchaseOrderEntityId != delivery.DeliveryPurchaseOrderEntityId ||
+                !line.hasProductType || line.ProductType != product.ProductType)
+            {
+                throw new InvalidOperationException(
+                    $"Warehouse task {task.EntityId} product has an invalid purchase " +
+                    "manifest relation.");
             }
             return product;
         }

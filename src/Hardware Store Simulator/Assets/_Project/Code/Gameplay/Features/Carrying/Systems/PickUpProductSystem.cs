@@ -1,5 +1,6 @@
 using System;
 using Entitas;
+using HardwareStore.Gameplay.Common;
 using HardwareStore.Gameplay.Components;
 using HardwareStore.Gameplay.Factories;
 
@@ -75,9 +76,7 @@ namespace HardwareStore.Gameplay.Features.Carrying.Systems
 
         private bool CanPickUpInbound(GameEntity product, GameEntity player)
         {
-            if (!product.hasDeliveryEntityId)
-                throw new InvalidOperationException(
-                    $"Inbound product {product.EntityId} has no delivery relation.");
+            InboundProductManifestValidator.Validate(_gameContext, product);
 
             GameEntity delivery = _gameContext.GetEntityWithEntityId(product.DeliveryEntityId);
             if (delivery == null || !delivery.isDelivery || !delivery.isDeliveryActive ||

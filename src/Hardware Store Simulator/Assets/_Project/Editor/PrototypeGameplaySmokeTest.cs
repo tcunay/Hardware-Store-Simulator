@@ -997,12 +997,26 @@ namespace HardwareStore.Editor
                 visit.Entity,
                 project.Offers[selectedOffer.OfferIndex]);
             OpenProcurement(runtime, scenario);
+            foreach (ProductTypeId cartProduct in new[]
+                     {
+                         ProductTypeId.BrickPack,
+                         ProductTypeId.DrywallSheet,
+                         ProductTypeId.PaintBucket
+                     })
+            {
+                SelectProcurementProduct(runtime, scenario, cartProduct);
+                AdjustProcurementCartQuantity(runtime, scenario, increase: true);
+            }
+            SelectProcurementProduct(
+                runtime,
+                scenario,
+                runtime.StaticData.ProductTypes[^1]);
             runtime.Systems.Create<PresentProcurementSystem>().Execute();
 
             Debug.Log(
                 $"[Hardware Store] Procurement visual check prepared: customer project " +
-                $"'{runtime.Localization.Resolve(LocalizedTexts.ProjectTitle(visit.Entity.CustomerProjectType))}', selected product " +
-                $"{scenario.ProcurementTerminal.SelectedProductType}.");
+                $"'{runtime.Localization.Resolve(LocalizedTexts.ProjectTitle(visit.Entity.CustomerProjectType))}', mixed cart 3/3 and " +
+                $"last catalog product {scenario.ProcurementTerminal.SelectedProductType}.");
         }
 
         [MenuItem("Tools/Hardware Store/Prepare Platform Trolley Visual Check")]
@@ -1287,15 +1301,30 @@ namespace HardwareStore.Editor
             ValidateRuntimePlayerView(scenario.Player);
             Require(scenario.Player.WalkSpeed < scenario.Player.SprintSpeed,
                 "Player movement config must define walking < sprinting speeds.");
-            Require(runtime.StaticData.ProductTypes.SequenceEqual(new[] { cement, boards }),
-                "The smoke test requires the stable CementBag -> BoardBundle order sequence.");
+            Require(runtime.StaticData.ProductTypes.SequenceEqual(new[]
+                {
+                    cement,
+                    boards,
+                    ProductTypeId.BrickPack,
+                    ProductTypeId.DrywallSheet,
+                    ProductTypeId.PaintBucket,
+                    ProductTypeId.InsulationRoll
+                }),
+                "The smoke test requires the stable six-product append-only catalog sequence.");
             Require(runtime.StaticData.ProjectTypes.SequenceEqual(new[]
                 {
                     CustomerProjectTypeId.CementFoundation,
                     CustomerProjectTypeId.LumberShelving,
-                    CustomerProjectTypeId.WorkbenchFoundation
+                    CustomerProjectTypeId.WorkbenchFoundation,
+                    CustomerProjectTypeId.GardenWall,
+                    CustomerProjectTypeId.DrywallPartition,
+                    CustomerProjectTypeId.WorkshopRenovation,
+                    CustomerProjectTypeId.GarageInsulation
                 }),
-                "The smoke test requires the stable cement -> lumber -> workbench sequence.");
+                "The smoke test requires the stable seven-project append-only sequence.");
+            ValidateExpandedCatalog(runtime);
+            Require(scenario.StorageZone.Slots.Length == 18,
+                "The expanded mixed-material catalog requires exactly 18 authored storage slots.");
             Require(ReferenceEquals(
                     runtime.ProcurementSolvency,
                     runtime.EconomySolvency),
@@ -1500,15 +1529,15 @@ namespace HardwareStore.Editor
             ProcurementProductSnapshot requiredSkuCard = confirmedSnapshot.Products
                 .Single(product => product.ProductType == boards);
             Require(confirmedSnapshot.DemandKind == ProcurementDemandKind.ConfirmedOrder &&
-                    safeWrongSkuCard.PurchaseAvailable &&
                     safeWrongSkuCard.RemainingRequiredProductCount == 0 &&
-                    safeWrongSkuCard.DeficitProductCount == 0 &&
-                    requiredSkuCard.PurchaseAvailable &&
+                    safeWrongSkuCard.ProjectedDeficitProductCount == 0 &&
                     requiredSkuCard.MinimumRequiredProductCount == boardOrderCount &&
                     requiredSkuCard.MaximumRequiredProductCount == boardOrderCount &&
                     requiredSkuCard.RemainingRequiredProductCount == boardOrderCount &&
-                    requiredSkuCard.DeficitProductCount == boardOrderCount,
-                "A solvent active order did not expose exact demand or allow both safe SKUs.");
+                    requiredSkuCard.ProjectedDeficitProductCount == boardOrderCount &&
+                    confirmedSnapshot.Cart.PackageCount == 0 &&
+                    !confirmedSnapshot.Cart.CanCheckout,
+                "An active order did not expose exact per-SKU demand and an empty cart.");
             CancelProcurement(runtime, scenario, scenario.Store.Money);
 
             DeliveryArrival reserveCementArrival = PurchaseAndPrepareArrival(
@@ -1606,7 +1635,7 @@ namespace HardwareStore.Editor
                 thirdVisit.Entity);
             Require(thirdVisit.Entity.CustomerProjectType ==
                     CustomerProjectTypeId.WorkbenchFoundation &&
-                    scenario.Store.NextProjectSequenceIndex == 0,
+                    scenario.Store.NextProjectSequenceIndex == 3,
                 "The third customer visit did not receive the mixed workbench project.");
             ValidateConsultationLineAvailability(runtime, scenario, thirdVisit.Entity);
 
@@ -1795,6 +1824,172 @@ namespace HardwareStore.Editor
                 $"08:00-20:00 day, mandatory report, fade and Day 2 persistence, " +
                 $"stock {expectedFinalStock}, balance " +
                 $"{expectedFinalMoney - cementDelivery.TotalCost:N0} ₽.");
+        }
+
+        [MenuItem("Tools/Hardware Store/Run Mixed Procurement Smoke Test")]
+        public static void RunMixedProcurementSmokeTest()
+        {
+            Runtime runtime = ResolveRuntime();
+            Scenario scenario = ResolveFreshScenario(runtime);
+            OpenStoreForSmoke(runtime, scenario);
+            UnlockWarehouseWorkerHiring(runtime, scenario);
+            GameEntity worker = HireWarehouseWorker(runtime, scenario);
+            const int testRevenue = 5000;
+            scenario.Store.ReplaceDayRevenue(checked(
+                scenario.Store.DayRevenue + testRevenue));
+            scenario.Store.ReplaceMoney(checked(scenario.Store.Money + testRevenue));
+            runtime.Systems.Create<ValidateStoreDayStateSystem>().Execute();
+
+            OpenProcurement(runtime, scenario);
+            SelectProcurementProduct(runtime, scenario, ProductTypeId.CementBag);
+            AdjustProcurementCartQuantity(runtime, scenario, increase: true);
+            SelectProcurementProduct(runtime, scenario, ProductTypeId.BoardBundle);
+            AdjustProcurementCartQuantity(runtime, scenario, increase: true);
+            AdjustProcurementCartQuantity(runtime, scenario, increase: true);
+
+            DeliveryConfig cement = runtime.StaticData.GetDelivery(ProductTypeId.CementBag);
+            DeliveryConfig boards = runtime.StaticData.GetDelivery(ProductTypeId.BoardBundle);
+            int expectedCost = checked(cement.TotalCost + boards.TotalCost * 2);
+            ProcurementSnapshot snapshot = CaptureProcurementSnapshot(runtime, scenario);
+            Require(snapshot.Products.Count == 6 &&
+                    snapshot.Cart.PackageCount == 3 &&
+                    snapshot.Cart.PackageCapacity == 3 &&
+                    snapshot.Cart.ProductCount == 9 &&
+                    snapshot.Cart.RequiredStorageSlotCount == 9 &&
+                    snapshot.Cart.TotalCost == expectedCost &&
+                    snapshot.Cart.Lines.Count == 2 &&
+                    snapshot.Cart.CanCheckout,
+                "Mixed procurement cart did not expose C1+B2 as 3 packages / 9 products.");
+
+            int moneyBefore = scenario.Store.Money;
+            int expensesBefore = scenario.Store.DayProcurementExpenses;
+            scenario.Input.isConfirmPressed = true;
+            runtime.Systems.Create<ProcurementFeature>().Execute();
+            GameEntity request = RequireSingle(
+                runtime.Game.GetGroup(GameMatcher.AllOf(
+                    GameMatcher.PurchaseDeliveryRequest,
+                    GameMatcher.SourceEntityId,
+                    GameMatcher.TargetEntityId)),
+                "mixed purchase request");
+            runtime.Systems.Create<PurchaseDeliverySystem>().Execute();
+            GameEntity delivery = runtime.Game
+                .GetEntityWithDeliveryProcurementTerminalEntityId(
+                    scenario.ProcurementTerminal.EntityId);
+            Require(delivery != null && request.isPurchaseDeliverySucceeded &&
+                    delivery.DeliveryProductCount == 9 &&
+                    delivery.DeliveryCost == expectedCost &&
+                    scenario.Store.Money == moneyBefore - expectedCost &&
+                    scenario.Store.DayProcurementExpenses ==
+                    expensesBefore + expectedCost &&
+                    GetActiveProcurementCartLines(runtime, scenario).Length == 0,
+                "Mixed checkout did not charge once, clear the cart and create nine cargo units.");
+
+            GameEntity purchaseOrder = runtime.Game.GetEntityWithEntityId(
+                delivery.DeliveryPurchaseOrderEntityId);
+            GameEntity[] lines = ReadDeliveryManifestLines(runtime, delivery);
+            Require(purchaseOrder.PurchaseOrderPackageCount == 3 &&
+                    purchaseOrder.PurchaseOrderProductCount == 9 &&
+                    purchaseOrder.PurchaseOrderCost == expectedCost &&
+                    lines.Length == 2 &&
+                    lines[0].PurchaseOrderLineIndex == 0 &&
+                    lines[0].ProductType == ProductTypeId.CementBag &&
+                    lines[0].PurchaseOrderLinePackageCount == 1 &&
+                    lines[0].PurchaseOrderLineProductCount == 3 &&
+                    lines[1].PurchaseOrderLineIndex == 1 &&
+                    lines[1].ProductType == ProductTypeId.BoardBundle &&
+                    lines[1].PurchaseOrderLinePackageCount == 2 &&
+                    lines[1].PurchaseOrderLineProductCount == 6,
+                "Mixed purchase order did not preserve deterministic per-SKU manifest lines.");
+
+            runtime.Systems.Create<PurchaseDeliverySystem>().Execute();
+            Require(scenario.Store.Money == moneyBefore - expectedCost &&
+                    scenario.Store.DayProcurementExpenses == expensesBefore + expectedCost &&
+                    runtime.Game.GetGroup(GameMatcher.Delivery).count == 1,
+                "Re-executing mixed checkout duplicated its charge or delivery.");
+            runtime.Systems.Create<CloseProcurementAfterPurchaseSystem>().Execute();
+            CleanupEvents(runtime);
+            runtime.Systems.Create<BindEntityViewFromPrefabSystem>().Execute();
+            EntityBehaviour deliveryView = RequireRuntimeView(
+                delivery,
+                cement.ViewPrefab,
+                $"mixed delivery {delivery.EntityId}");
+            runtime.Systems.Create<SpawnDeliveryProductsSystem>().Execute();
+            runtime.Systems.Create<BindEntityViewFromPrefabSystem>().Execute();
+            ExecuteProductPlacement(runtime);
+            GameEntity[] products = FindDeliveryProducts(runtime.Game, delivery.EntityId);
+            Require(products.Length == 9 &&
+                    products.Count(product =>
+                        product.ProductType == ProductTypeId.CementBag) == 3 &&
+                    products.Count(product =>
+                        product.ProductType == ProductTypeId.BoardBundle) == 6 &&
+                    products.All(product => lines.Any(line =>
+                        line.EntityId == product.PurchaseOrderLineEntityId &&
+                        line.ProductType == product.ProductType)),
+                "Mixed delivery products did not preserve their Product -> manifest-line links.");
+
+            var capture = new CaptureHudService();
+            new PresentHudSystem(runtime.Game, runtime.StaticData, capture).Execute();
+            DeliveryProgressSnapshot? initialProgress = capture.Hud?.Delivery;
+            Require(initialProgress.HasValue &&
+                    initialProgress.Value.Lines.Count == 2 &&
+                    initialProgress.Value.ProductCount == 9 &&
+                    initialProgress.Value.StockedProductCount == 0 &&
+                    initialProgress.Value.IncompleteLineCount == 2,
+                "HUD did not expose aggregate mixed-delivery progress and both manifest lines.");
+
+            var arrival = new DeliveryArrival(delivery, deliveryView, products);
+            GameEntity manualProduct = products
+                .OrderBy(product => product.DeliverySlotIndex)
+                .First();
+            GameEntity manualLine = runtime.Game.GetEntityWithEntityId(
+                manualProduct.PurchaseOrderLineEntityId);
+            StoreOneInboundProductManually(
+                runtime,
+                scenario,
+                arrival,
+                manualProduct);
+            Require(manualLine.PurchaseOrderLineStockedProductCount == 1 &&
+                    lines.Where(line => line != manualLine)
+                        .All(line => line.PurchaseOrderLineStockedProductCount == 0),
+                "Manual mixed stocking did not increment only its own manifest line.");
+            capture = new CaptureHudService();
+            new PresentHudSystem(runtime.Game, runtime.StaticData, capture).Execute();
+            DeliveryProgressSnapshot? manualProgress = capture.Hud?.Delivery;
+            Require(manualProgress.HasValue &&
+                    manualProgress.Value.StockedProductCount == 1 &&
+                    manualProgress.Value.IncompleteLineCount == 2 &&
+                    manualProgress.Value.Lines.Single(line =>
+                        line.ProductType == manualProduct.ProductType)
+                        .StockedProductCount == 1,
+                "HUD did not refresh mixed line and aggregate progress after manual stocking.");
+
+            int purchaseOrderId = purchaseOrder.EntityId;
+            int[] purchaseOrderLineIds = lines
+                .Select(line => line.EntityId)
+                .ToArray();
+            StoreDeliveryWithWarehouseWorker(
+                runtime,
+                scenario,
+                worker,
+                arrival);
+            Require(delivery.isDestructed && purchaseOrder.isDestructed &&
+                    lines.All(line => line.isDestructed) &&
+                    products.All(product => product.isInStock &&
+                        !product.isInboundProduct &&
+                        !product.hasDeliveryEntityId &&
+                        !product.hasPurchaseOrderLineEntityId),
+                "Completed mixed delivery did not destruct its delivery/order/line graph or " +
+                "release every product manifest relation.");
+            CleanupCompletedDelivery(runtime, scenario, arrival);
+            Require(runtime.Game.GetEntityWithEntityId(purchaseOrderId) == null &&
+                    purchaseOrderLineIds.All(lineId =>
+                        runtime.Game.GetEntityWithEntityId(lineId) == null),
+                "Completed mixed purchase order or manifest lines survived cleanup.");
+
+            Debug.Log(
+                "[Hardware Store] Mixed procurement smoke passed: six-card catalog, persistent " +
+                "3-package cart, C1+B2 deterministic manifest, one charge, nine products, " +
+                "manual + worker stocking, aggregate HUD progress and full graph cleanup.");
         }
 
         private static void ValidateEditorMoneyOverride(Runtime runtime,
@@ -3310,15 +3505,16 @@ namespace HardwareStore.Editor
             Scenario scenario,
             GameEntity worker)
         {
-            Require(scenario.StorageZone.Slots.Length == 9 &&
+            const int expandedStorageCapacity = 18;
+            Require(scenario.StorageZone.Slots.Length == expandedStorageCapacity &&
                     scenario.StorageZone.StorageProductCount == 0 &&
                     scenario.StorageZone.OccupiedStorageSlotCount == 0,
-                "Warehouse worker storage-full smoke requires nine empty authored slots.");
+                "Warehouse worker storage-full smoke requires 18 empty authored slots.");
             int firstSentinelId = runtime.Game
                 .GetGroup(GameMatcher.EntityId)
                 .GetEntities()
-                .Min(entity => entity.EntityId) - 9;
-            GameEntity[] occupyingProducts = Enumerable.Range(0, 9)
+                .Min(entity => entity.EntityId) - expandedStorageCapacity;
+            GameEntity[] occupyingProducts = Enumerable.Range(0, expandedStorageCapacity)
                 .Select(slotIndex => CreateEntity.Empty(firstSentinelId + slotIndex)
                     .AddProductType(ProductTypeId.CementBag)
                     .AddStorageZoneEntityId(scenario.StorageZone.EntityId)
@@ -3334,9 +3530,11 @@ namespace HardwareStore.Editor
             ExecuteStorageState(runtime);
             try
             {
-                Require(scenario.StorageZone.StorageProductCount == 9 &&
-                        scenario.StorageZone.OccupiedStorageSlotCount == 9,
-                    "Nine real stocked products did not occupy all authored storage slots.");
+                Require(scenario.StorageZone.StorageProductCount ==
+                            expandedStorageCapacity &&
+                        scenario.StorageZone.OccupiedStorageSlotCount ==
+                            expandedStorageCapacity,
+                    "Eighteen real stocked products did not occupy all authored storage slots.");
                 runtime.Systems.Create<GenerateInboundStorageTaskSystem>().Execute();
                 Require(worker.WarehouseWorkerStatus ==
                         WarehouseWorkerStatusId.StorageFull &&
@@ -3353,7 +3551,7 @@ namespace HardwareStore.Editor
 
             Require(scenario.StorageZone.StorageProductCount == 0 &&
                     scenario.StorageZone.OccupiedStorageSlotCount == 0,
-                "Storage-full smoke did not release its nine occupied slots.");
+                "Storage-full smoke did not release its 18 occupied slots.");
             runtime.Systems.Create<GenerateInboundStorageTaskSystem>().Execute();
             GameEntity task = RequireSingle(runtime.Game.GetGroup(GameMatcher.AllOf(
                     GameMatcher.WarehouseTask,
@@ -3486,6 +3684,8 @@ namespace HardwareStore.Editor
             DeliveryArrival arrival)
         {
             int initialStock = scenario.StorageZone.StorageProductCount;
+            int inboundProductCount = arrival.Products.Count(product =>
+                product.isInboundProduct && !product.isDestructed);
             WarpWarehouseWorker(worker, worker.WarehouseWorkerStoragePosition);
             Require((worker.Transform.position -
                      worker.WarehouseWorkerPickupPosition).sqrMagnitude >
@@ -3493,7 +3693,7 @@ namespace HardwareStore.Editor
                     runtime.StaticData.WarehouseWorker.StoppingDistance,
                 "Automatic stocking smoke requires the worker away from the pickup point.");
             for (int productIndex = 0;
-                 productIndex < arrival.Products.Length;
+                 productIndex < inboundProductCount;
                  productIndex++)
             {
                 runtime.Systems.Create<WarehouseWorkerFeature>().Execute();
@@ -3557,7 +3757,7 @@ namespace HardwareStore.Editor
                     arrival.Products.All(product => product.isInStock) &&
                     arrival.Products.Select(product => product.StorageSlotIndex)
                         .Distinct().Count() == arrival.Products.Length,
-                "Worker did not complete and uniquely store the full three-product delivery.");
+                "Worker did not complete and uniquely store every remaining delivery product.");
         }
 
         private static void ValidateWarehouseWorkerActiveTaskBlocksReport(
@@ -5922,6 +6122,7 @@ namespace HardwareStore.Editor
                 OpenProcurement(runtime, scenario);
             }
             SelectProcurementProduct(runtime, scenario, productType);
+            AdjustProcurementCartQuantity(runtime, scenario, increase: true);
             var deliveryConfig = runtime.StaticData.GetDelivery(productType);
             var productConfig = runtime.StaticData.GetProduct(productType);
             int moneyBeforePurchase = scenario.Store.Money;
@@ -5950,13 +6151,30 @@ namespace HardwareStore.Editor
                     delivery.DeliveryProcurementTerminalEntityId ==
                     scenario.ProcurementTerminal.EntityId &&
                     delivery.isDeliveryActive &&
-                    delivery.ProductType == productType &&
+                    delivery.hasDeliveryPurchaseOrderEntityId &&
                     delivery.DeliveryProductCount == deliveryConfig.ProductCount &&
                     delivery.DeliveryCost == deliveryConfig.TotalCost &&
                     scenario.Store.Money == moneyBeforePurchase - deliveryConfig.TotalCost &&
                     scenario.Store.DayProcurementExpenses == checked(
                         expensesBeforePurchase + deliveryConfig.TotalCost),
                 "Purchasing did not create an indexed active delivery.");
+            GameEntity purchaseOrder = runtime.Game.GetEntityWithEntityId(
+                delivery.DeliveryPurchaseOrderEntityId);
+            GameEntity[] manifestLines = ReadDeliveryManifestLines(runtime, delivery);
+            Require(purchaseOrder != null && purchaseOrder.isPurchaseOrder &&
+                    purchaseOrder.PurchaseOrderPackageCount == 1 &&
+                    purchaseOrder.PurchaseOrderProductCount ==
+                    deliveryConfig.ProductCount &&
+                    purchaseOrder.PurchaseOrderCost == deliveryConfig.TotalCost &&
+                    manifestLines.Length == 1 &&
+                    manifestLines[0].ProductType == productType &&
+                    manifestLines[0].PurchaseOrderLineIndex == 0 &&
+                    manifestLines[0].PurchaseOrderLinePackageCount == 1 &&
+                    manifestLines[0].PurchaseOrderLineProductCount ==
+                    deliveryConfig.ProductCount &&
+                    manifestLines[0].PurchaseOrderLineCost == deliveryConfig.TotalCost,
+                "The active single-product delivery did not preserve its purchase-order " +
+                "manifest.");
 
             runtime.Systems.Create<PurchaseDeliverySystem>().Execute();
             Require(ReferenceEquals(
@@ -5986,11 +6204,10 @@ namespace HardwareStore.Editor
                         runtime,
                         scenario.Player,
                         LocalizedTexts.Text(
-                            LocalizationKey.PromptDeliveryBeingStocked,
-                            LocalizedTexts.ProductName(productType),
+                            LocalizationKey.PromptMixedDeliveryBeingStocked,
                             0,
                             deliveryConfig.ProductCount,
-                            LocalizedTexts.ProductUnit(productType))),
+                            1)),
                 "An active delivery did not expose its localized procurement-blocking prompt.");
             scenario.Player.RemoveFocusedEntityId();
             ExecuteInteractionPrompts(runtime);
@@ -6000,9 +6217,9 @@ namespace HardwareStore.Editor
                 delivery,
                 deliveryConfig.ViewPrefab,
                 $"delivery {delivery.EntityId}");
-            Require(delivery.hasSlots &&
+            Require(delivery.hasSlots && delivery.Slots.Length == 9 &&
                     delivery.Slots.Length >= delivery.DeliveryProductCount,
-                "The delivery view did not register enough cargo slots.");
+                "The delivery view did not register the frozen nine-slot mixed cargo layout.");
 
             runtime.Systems.Create<SpawnDeliveryProductsSystem>().Execute();
             Require(delivery.isDeliveryProductsSpawned,
@@ -6028,6 +6245,7 @@ namespace HardwareStore.Editor
                             productConfig.CarryMovementSpeed) &&
                         product.isInboundProduct &&
                         product.DeliveryEntityId == delivery.EntityId &&
+                        product.PurchaseOrderLineEntityId == manifestLines[0].EntityId &&
                         product.hasDeliverySlotIndex &&
                         !product.hasReservedDeliverySlotIndex &&
                         !product.hasReservedStorageSlotIndex &&
@@ -6057,16 +6275,19 @@ namespace HardwareStore.Editor
         {
             OpenProcurement(runtime, scenario);
             SelectProcurementProduct(runtime, scenario, selectedProductType);
+            AdjustProcurementCartQuantity(runtime, scenario, increase: true);
             ProcurementSnapshot snapshot = CaptureProcurementSnapshot(runtime, scenario);
             ProcurementProductSnapshot selectedCard = snapshot.Products.Single(product =>
                 product.ProductType == selectedProductType);
             ProcurementProductSnapshot safeCard = snapshot.Products.Single(product =>
                 product.ProductType == safeProductType);
             Require(snapshot.DemandKind == expectedDemandKind &&
-                    selectedCard.PurchaseState ==
+                    snapshot.Cart.PurchaseState ==
                     ProcurementPurchaseState.PlanWouldBecomeUnfulfillable &&
-                    !selectedCard.PurchaseAvailable,
-                "An unsafe purchase did not expose its plan-safety reason in the card.");
+                    !snapshot.Cart.CanCheckout &&
+                    snapshot.Cart.PackageCount == 1 &&
+                    selectedCard.CartPackageCount == 1,
+                "An unsafe purchase did not expose its aggregate plan-safety reason in the cart.");
             if (expectedDemandKind == ProcurementDemandKind.ProjectForecast)
             {
                 CustomerProjectConfig project = runtime.StaticData.GetProject(
@@ -6082,17 +6303,15 @@ namespace HardwareStore.Editor
                     out int selectedMinimum,
                     out int selectedMaximum);
                 Require(snapshot.ProjectType == CustomerProjectTypeId.CementFoundation &&
-                        safeCard.PurchaseAvailable &&
                         safeCard.MinimumRequiredProductCount == safeMinimum &&
                         safeCard.MaximumRequiredProductCount == safeMaximum &&
                         selectedCard.MinimumRequiredProductCount == selectedMinimum &&
                         selectedCard.MaximumRequiredProductCount == selectedMaximum &&
                         safeCard.RemainingRequiredProductCount == 0 &&
-                        safeCard.DeficitProductCount == 0 &&
+                        safeCard.ProjectedDeficitProductCount == 0 &&
                         selectedCard.RemainingRequiredProductCount == 0 &&
-                        selectedCard.DeficitProductCount == 0,
-                    "The no-customer forecast cards did not show safe prebuy availability " +
-                    "and the configured min-max demand.");
+                        selectedCard.ProjectedDeficitProductCount == 0,
+                    "The no-customer forecast cards did not show the configured min-max demand.");
             }
 
             int moneyBefore = scenario.Store.Money;
@@ -6119,6 +6338,9 @@ namespace HardwareStore.Editor
                     runtime.Game.GetGroup(GameMatcher.NotificationMessage).count > 0,
                 failureMessage);
             CleanupEvents(runtime);
+            AdjustProcurementCartQuantity(runtime, scenario, increase: false);
+            Require(CaptureProcurementSnapshot(runtime, scenario).Cart.PackageCount == 0,
+                "A rejected purchase could not be removed from its persistent cart.");
             CancelProcurement(runtime, scenario, moneyBefore);
         }
 
@@ -6222,13 +6444,116 @@ namespace HardwareStore.Editor
             CleanupEvents(runtime);
         }
 
+        private static void AdjustProcurementCartQuantity(
+            Runtime runtime,
+            Scenario scenario,
+            bool increase)
+        {
+            Require(scenario.Player.isModalOpen &&
+                    scenario.Player.hasProcurementTerminalEntityId,
+                "Procurement quantity can only change while its modal is open.");
+            scenario.Input.isIncreasePressed = increase;
+            scenario.Input.isDecreasePressed = !increase;
+            runtime.Systems.Create<ProcurementFeature>().Execute();
+            CleanupEvents(runtime);
+        }
+
+        private static GameEntity[] GetActiveProcurementCartLines(
+            Runtime runtime,
+            Scenario scenario)
+        {
+            GameEntity cart = runtime.Game.GetEntityWithProcurementCartTerminalEntityId(
+                scenario.ProcurementTerminal.EntityId);
+            Require(cart != null && cart.isProcurementCart && !cart.isDestructed &&
+                    cart.ProcurementCartPackageCapacity ==
+                    ProcurementCartFactory.CurrentDeliveryPackageCapacity,
+                "Procurement terminal has no valid persistent cart.");
+            return runtime.Game.GetEntitiesWithProcurementCartEntityId(cart.EntityId)
+                .Where(line => line.isProcurementCartLine && !line.isDestructed)
+                .OrderBy(line => (int)line.ProductType)
+                .ToArray();
+        }
+
         private static void ValidateProcurementModalControls(
             Runtime runtime,
             Scenario scenario)
         {
             ProductTypeId[] productTypes = runtime.StaticData.ProductTypes.ToArray();
-            Require(productTypes.Length == 2,
-                "The procurement modal smoke requires exactly two product cards.");
+            Require(productTypes.Length == 6,
+                "The procurement modal smoke requires exactly six product cards.");
+
+            Require(GetActiveProcurementCartLines(runtime, scenario).Length == 0,
+                "Procurement control smoke requires an initially empty cart.");
+            scenario.Input.isConfirmPressed = true;
+            runtime.Systems.Create<ProcurementFeature>().Execute();
+            Require(runtime.Game.GetGroup(GameMatcher.PurchaseDeliveryRequest).count == 0,
+                "Enter emitted a purchase request for an empty cart.");
+            CleanupEvents(runtime);
+
+            var countingSolvency = new CountingProcurementSolvencyService(
+                runtime.ProcurementSolvency);
+            var cachedCapture = new CaptureHudService();
+            var cachedPresentation = new PresentProcurementSystem(
+                runtime.Game,
+                runtime.StaticData,
+                countingSolvency,
+                cachedCapture);
+            cachedPresentation.Execute();
+            Require(cachedCapture.Procurement.HasValue &&
+                    countingSolvency.TotalEvaluationCount == 1,
+                "Initial procurement presentation did not evaluate the empty-cart SKU once.");
+            cachedPresentation.Execute();
+            Require(countingSolvency.TotalEvaluationCount == 1,
+                "An unchanged procurement frame reran the solvency projection instead of " +
+                "using its exact fingerprint cache.");
+            CycleProcurementProduct(runtime, scenario, next: true);
+            cachedPresentation.Execute();
+            Require(countingSolvency.TotalEvaluationCount == 2,
+                "A changed procurement selection did not invalidate the source fingerprint.");
+            cachedPresentation.Execute();
+            Require(countingSolvency.TotalEvaluationCount == 2,
+                "The refreshed procurement fingerprint did not become stable on the next " +
+                "unchanged frame.");
+
+            SelectProcurementProduct(runtime, scenario, productTypes[0]);
+            AdjustProcurementCartQuantity(runtime, scenario, increase: true);
+            AdjustProcurementCartQuantity(runtime, scenario, increase: true);
+            Require(CaptureProcurementSnapshot(runtime, scenario).Cart.PackageCount == 2,
+                "Up did not increment the selected SKU package count twice.");
+            AdjustProcurementCartQuantity(runtime, scenario, increase: false);
+            AdjustProcurementCartQuantity(runtime, scenario, increase: false);
+            Require(GetActiveProcurementCartLines(runtime, scenario).Length == 0,
+                "Down did not decrement and remove the selected cart line at zero.");
+
+            for (int index = 0; index < 3; index++)
+            {
+                SelectProcurementProduct(runtime, scenario, productTypes[index]);
+                AdjustProcurementCartQuantity(runtime, scenario, increase: true);
+            }
+            ProcurementSnapshot fullCart = CaptureProcurementSnapshot(runtime, scenario);
+            SelectProcurementProduct(runtime, scenario, productTypes[3]);
+            AdjustProcurementCartQuantity(runtime, scenario, increase: true);
+            Require(fullCart.Cart.PackageCount == 3 &&
+                    fullCart.Cart.PackageCapacity == 3 &&
+                    fullCart.Cart.Lines.Count == 3 &&
+                    GetActiveProcurementCartLines(runtime, scenario).Length == 3,
+                "The cart did not enforce its frozen three-package capacity.");
+            for (int index = 0; index < 3; index++)
+            {
+                SelectProcurementProduct(runtime, scenario, productTypes[index]);
+                AdjustProcurementCartQuantity(runtime, scenario, increase: false);
+            }
+
+            SelectProcurementProduct(runtime, scenario, productTypes[0]);
+            AdjustProcurementCartQuantity(runtime, scenario, increase: true);
+            CancelProcurement(runtime, scenario, scenario.Store.Money);
+            OpenProcurement(runtime, scenario);
+            Require(GetActiveProcurementCartLines(runtime, scenario).Single()
+                        .ProductType == productTypes[0],
+                "Cancel/reopen did not preserve the procurement cart.");
+            AdjustProcurementCartQuantity(runtime, scenario, increase: false);
+            Require(GetActiveProcurementCartLines(runtime, scenario).Length == 0,
+                "Persistent cart cleanup did not return the control smoke to empty.");
 
             SelectProcurementProduct(runtime, scenario, productTypes[0]);
             CycleProcurementProduct(runtime, scenario, next: false);
@@ -6836,6 +7161,37 @@ namespace HardwareStore.Editor
                     .Distinct()
                     .Count() == arrival.Products.Length,
                 "Delivered products occupy duplicate storage slots.");
+        }
+
+        private static void StoreOneInboundProductManually(
+            Runtime runtime,
+            Scenario scenario,
+            DeliveryArrival arrival,
+            GameEntity product)
+        {
+            Require(arrival.Products.Contains(product) && product.isInboundProduct &&
+                    product.hasDeliveryEntityId &&
+                    product.DeliveryEntityId == arrival.Delivery.EntityId,
+                "Manual mixed stocking requires a live product from that delivery.");
+            int stockBefore = scenario.StorageZone.StorageProductCount;
+            PickUpProduct(runtime, scenario, product);
+            RequestInteraction(scenario.Player, scenario.StorageZone);
+            runtime.Systems.Create<StoreInboundProductSystem>().Execute();
+            Require(product.isProductStocked && product.isInStock &&
+                    product.hasPurchaseOrderLineEntityId,
+                "Manual mixed stocking did not raise ProductStocked with its manifest link.");
+            runtime.Systems.Create<RegisterStockedProductSystem>().Execute();
+            runtime.Systems.Create<CompleteDeliverySystem>().Execute();
+            ExecuteProductPlacement(runtime);
+            ExecuteStorageState(runtime);
+            CleanupEvents(runtime);
+            Require(product.isInStock && !product.isInboundProduct &&
+                    !product.hasDeliveryEntityId &&
+                    !product.hasPurchaseOrderLineEntityId &&
+                    scenario.StorageZone.StorageProductCount == stockBefore + 1 &&
+                    arrival.Delivery.StockedProductCount == 1 &&
+                    arrival.Delivery.isDeliveryActive,
+                "Manual mixed stocking did not update line/delivery/storage progress once.");
         }
 
         private static void CleanupCompletedDelivery(
@@ -8828,14 +9184,26 @@ namespace HardwareStore.Editor
             GameEntity activeDelivery =
                 runtime.Game.GetEntityWithDeliveryProcurementTerminalEntityId(
                     scenario.ProcurementTerminal.EntityId);
-            LocalizedText expectedTerminalPrompt = activeDelivery == null
-                ? LocalizedTexts.Text(LocalizationKey.PromptOpenProcurement)
-                : LocalizedTexts.Text(
-                    LocalizationKey.PromptDeliveryBeingStocked,
-                    LocalizedTexts.ProductName(activeDelivery.ProductType),
+            LocalizedText expectedTerminalPrompt;
+            if (activeDelivery == null)
+            {
+                expectedTerminalPrompt =
+                    LocalizedTexts.Text(LocalizationKey.PromptOpenProcurement);
+            }
+            else
+            {
+                GameEntity[] manifestLines = ReadDeliveryManifestLines(
+                    runtime,
+                    activeDelivery);
+                int incompleteLineCount = manifestLines.Count(line =>
+                    line.PurchaseOrderLineStockedProductCount <
+                    line.PurchaseOrderLineProductCount);
+                expectedTerminalPrompt = LocalizedTexts.Text(
+                    LocalizationKey.PromptMixedDeliveryBeingStocked,
                     activeDelivery.StockedProductCount,
                     activeDelivery.DeliveryProductCount,
-                    LocalizedTexts.ProductUnit(activeDelivery.ProductType));
+                    incompleteLineCount);
+            }
             Require(PromptMatches(
                         runtime,
                         scenario.Player,
@@ -9214,6 +9582,146 @@ namespace HardwareStore.Editor
             runtime.Localization.Resolve(player.InteractionPrompt) ==
             runtime.Localization.Resolve(expected);
 
+        private static void ValidateExpandedCatalog(Runtime runtime)
+        {
+            var expectedProducts = new[]
+            {
+                (ProductType: ProductTypeId.CementBag, UnitPrice: 350,
+                    PurchaseUnitPrice: 200, Mass: 25f, CarrySpeed: 3.2f,
+                    DropDistance: 1.15f, DropRadius: 0.51f),
+                (ProductType: ProductTypeId.BoardBundle, UnitPrice: 480,
+                    PurchaseUnitPrice: 260, Mass: 18f, CarrySpeed: 2.6f,
+                    DropDistance: 1.35f, DropRadius: 0.86f),
+                (ProductType: ProductTypeId.BrickPack, UnitPrice: 330,
+                    PurchaseUnitPrice: 190, Mass: 24f, CarrySpeed: 2.9f,
+                    DropDistance: 1.2f, DropRadius: 0.53f),
+                (ProductType: ProductTypeId.DrywallSheet, UnitPrice: 260,
+                    PurchaseUnitPrice: 80, Mass: 14f, CarrySpeed: 2.8f,
+                    DropDistance: 1.35f, DropRadius: 0.84f),
+                (ProductType: ProductTypeId.PaintBucket, UnitPrice: 340,
+                    PurchaseUnitPrice: 140, Mass: 16f, CarrySpeed: 3.4f,
+                    DropDistance: 1.05f, DropRadius: 0.49f),
+                (ProductType: ProductTypeId.InsulationRoll, UnitPrice: 350,
+                    PurchaseUnitPrice: 150, Mass: 8f, CarrySpeed: 3.3f,
+                    DropDistance: 1.25f, DropRadius: 0.72f)
+            };
+
+            EntityBehaviour sharedDeliveryView = null;
+            foreach (var expected in expectedProducts)
+            {
+                ProductConfig product = runtime.StaticData.GetProduct(expected.ProductType);
+                DeliveryConfig delivery = runtime.StaticData.GetDelivery(expected.ProductType);
+                Require(product.ProductType == expected.ProductType &&
+                        product.UnitPrice == expected.UnitPrice &&
+                        Mathf.Approximately(product.Mass, expected.Mass) &&
+                        Mathf.Approximately(
+                            product.CarryMovementSpeed,
+                            expected.CarrySpeed) &&
+                        Mathf.Approximately(
+                            product.DropForwardDistance,
+                            expected.DropDistance) &&
+                        Mathf.Approximately(
+                            product.ProductDropCollisionRadius,
+                            expected.DropRadius),
+                    $"Runtime product catalog values changed for {expected.ProductType}.");
+                Require(delivery.ProductType == expected.ProductType &&
+                        delivery.ProductCount == 3 &&
+                        delivery.PurchaseUnitPrice == expected.PurchaseUnitPrice &&
+                        delivery.TotalCost == expected.PurchaseUnitPrice * 3,
+                    $"Runtime delivery catalog values changed for {expected.ProductType}.");
+                if (sharedDeliveryView == null)
+                    sharedDeliveryView = delivery.ViewPrefab;
+                Require(delivery.ViewPrefab == sharedDeliveryView,
+                    "Every runtime delivery catalog entry must share one mixed-cargo truck.");
+            }
+
+            Require(ProcurementCartFactory.CurrentDeliveryPackageCapacity == 3,
+                "The runtime procurement cart must preserve the three-package delivery cap.");
+            Require(expectedProducts.Skip(2).All(expected =>
+                    Quaternion.Angle(
+                        runtime.StaticData.GetProduct(expected.ProductType)
+                            .HeldRotationOffset,
+                        Quaternion.identity) < 0.01f),
+                "Every newly added product must preserve its neutral held orientation.");
+
+            ValidateExpandedProject(
+                runtime,
+                CustomerProjectTypeId.GardenWall,
+                ProductTypeId.BrickPack,
+                ProductTypeId.CementBag,
+                new[] { (2, 390, 680, 290), (3, 580, 1010, 430), (3, 590, 1030, 440) });
+            ValidateExpandedProject(
+                runtime,
+                CustomerProjectTypeId.DrywallPartition,
+                ProductTypeId.DrywallSheet,
+                ProductTypeId.BoardBundle,
+                new[] { (2, 340, 740, 400), (3, 420, 1000, 580), (3, 600, 1220, 620) });
+            ValidateExpandedProject(
+                runtime,
+                CustomerProjectTypeId.WorkshopRenovation,
+                ProductTypeId.PaintBucket,
+                ProductTypeId.DrywallSheet,
+                new[] { (2, 220, 600, 380), (3, 360, 940, 580), (3, 300, 860, 560) });
+            ValidateExpandedProject(
+                runtime,
+                CustomerProjectTypeId.GarageInsulation,
+                ProductTypeId.InsulationRoll,
+                ProductTypeId.BoardBundle,
+                new[] { (2, 410, 830, 420), (3, 560, 1180, 620), (3, 670, 1310, 640) });
+        }
+
+        private static void ValidateExpandedProject(
+            Runtime runtime,
+            CustomerProjectTypeId projectType,
+            ProductTypeId primaryProductType,
+            ProductTypeId secondaryProductType,
+            IReadOnlyList<(int TotalUnits, int ProductCost, int Revenue, int Profit)>
+                expectedMetrics)
+        {
+            CustomerProjectConfig project = runtime.StaticData.GetProject(projectType);
+            int[,] expectedQuantities =
+            {
+                { 1, 1 },
+                { 2, 1 },
+                { 1, 2 }
+            };
+            Require(project.ProjectType == projectType &&
+                    project.DefaultOfferIndex == 1 &&
+                    project.Offers.Count == 3 &&
+                    expectedMetrics.Count == 3,
+                $"Expanded project {projectType} must preserve three offers and default offer 2.");
+
+            for (int offerIndex = 0; offerIndex < project.Offers.Count; offerIndex++)
+            {
+                CustomerProjectOfferDefinition offer = project.Offers[offerIndex];
+                Require(offer.Lines.Count == 2 &&
+                        offer.Lines[0].ProductType == primaryProductType &&
+                        offer.Lines[0].RequiredCount ==
+                        expectedQuantities[offerIndex, 0] &&
+                        offer.Lines[1].ProductType == secondaryProductType &&
+                        offer.Lines[1].RequiredCount ==
+                        expectedQuantities[offerIndex, 1],
+                    $"Expanded project {projectType} offer {offerIndex + 1} changed its " +
+                    "mixed-product requirements.");
+
+                int totalUnits = offer.Lines.Sum(line => line.RequiredCount);
+                int productCost = offer.Lines.Sum(line =>
+                    runtime.StaticData.GetDelivery(line.ProductType).PurchaseUnitPrice *
+                    line.RequiredCount);
+                int revenue = offer.Lines.Sum(line =>
+                    runtime.StaticData.GetProduct(line.ProductType).UnitPrice *
+                    line.RequiredCount);
+                var expected = expectedMetrics[offerIndex];
+                Require(totalUnits == expected.TotalUnits &&
+                        totalUnits <= runtime.StaticData.CustomerVehicle.CargoCapacity &&
+                        productCost == expected.ProductCost &&
+                        revenue == expected.Revenue &&
+                        revenue - productCost == expected.Profit,
+                    $"Expanded project {projectType} offer {offerIndex + 1} changed its " +
+                    "frozen cargo size, revenue or margin.");
+            }
+        }
+
         private static void RequireNotificationKey(Runtime runtime,
             LocalizationKey expectedKey)
         {
@@ -9237,6 +9745,54 @@ namespace HardwareStore.Editor
                         LocalizedTexts.ProductName(ProductTypeId.CementBag)) ==
                     "Цемент 25 кг",
                 "The Russian catalog did not resolve representative product content.");
+            ProductTypeId[] expandedProductTypes =
+            {
+                ProductTypeId.BrickPack,
+                ProductTypeId.DrywallSheet,
+                ProductTypeId.PaintBucket,
+                ProductTypeId.InsulationRoll
+            };
+            string[] expandedProductNames =
+            {
+                "Пачка кирпича",
+                "Лист гипсокартона",
+                "Ведро краски",
+                "Рулон утеплителя"
+            };
+            Require(expandedProductTypes.Select((productType, index) =>
+                        localization.Resolve(LocalizedTexts.ProductName(productType)) ==
+                        expandedProductNames[index] &&
+                        localization.Resolve(LocalizedTexts.ProductUnit(productType)) ==
+                        "шт.")
+                    .All(matches => matches),
+                "The Russian catalog did not resolve all four expanded product names and units.");
+            CustomerProjectTypeId[] expandedProjectTypes =
+            {
+                CustomerProjectTypeId.GardenWall,
+                CustomerProjectTypeId.DrywallPartition,
+                CustomerProjectTypeId.WorkshopRenovation,
+                CustomerProjectTypeId.GarageInsulation
+            };
+            string[] expandedProjectTitles =
+            {
+                "Садовая стенка",
+                "Перегородка в мастерской",
+                "Обновление мастерской",
+                "Утепление гаража"
+            };
+            Require(expandedProjectTypes.Select((projectType, projectIndex) =>
+                        localization.Resolve(LocalizedTexts.ProjectTitle(projectType)) ==
+                        expandedProjectTitles[projectIndex] &&
+                        !string.IsNullOrWhiteSpace(localization.Resolve(
+                            LocalizedTexts.ProjectRequest(projectType))) &&
+                        Enumerable.Range(0, 3).All(offerIndex =>
+                            !string.IsNullOrWhiteSpace(localization.Resolve(
+                                LocalizedTexts.OfferTitle(projectType, offerIndex))) &&
+                            !string.IsNullOrWhiteSpace(localization.Resolve(
+                                LocalizedTexts.OfferDescription(projectType, offerIndex)))))
+                    .All(matches => matches),
+                "The Russian catalog did not resolve every expanded project title, request " +
+                "and offer.");
             Require(localization.Resolve(LocalizedTexts.Text(
                         LocalizationKey.PromptPickStockProduct,
                         LocalizedTexts.ProductName(ProductTypeId.BoardBundle))) ==
@@ -9444,6 +10000,36 @@ namespace HardwareStore.Editor
             int storeEntityId) =>
             FindCustomerVisits(context, storeEntityId).Length == 0;
 
+        private static GameEntity[] ReadDeliveryManifestLines(
+            Runtime runtime,
+            GameEntity delivery)
+        {
+            Require(delivery != null && delivery.isDelivery &&
+                    !delivery.isDestructed && delivery.hasEntityId &&
+                    delivery.hasDeliveryPurchaseOrderEntityId,
+                "A delivery manifest requires one live delivery with a purchase-order relation.");
+            GameEntity purchaseOrder = runtime.Game.GetEntityWithEntityId(
+                delivery.DeliveryPurchaseOrderEntityId);
+            Require(purchaseOrder != null && purchaseOrder.isPurchaseOrder &&
+                    !purchaseOrder.isDestructed && purchaseOrder.hasEntityId,
+                $"Delivery {delivery.EntityId} references an invalid purchase order.");
+            GameEntity[] lines = runtime.Game
+                .GetEntitiesWithPurchaseOrderEntityId(purchaseOrder.EntityId)
+                .Where(line => line.isPurchaseOrderLine && !line.isDestructed &&
+                               line.hasEntityId && line.hasProductType &&
+                               line.hasPurchaseOrderLineIndex &&
+                               line.hasPurchaseOrderLineProductCount &&
+                               line.hasPurchaseOrderLineStockedProductCount)
+                .OrderBy(line => line.PurchaseOrderLineIndex)
+                .ToArray();
+            Require(lines.Length > 0 &&
+                    lines.Select((line, index) =>
+                        line.PurchaseOrderLineIndex == index)
+                        .All(matches => matches),
+                $"Delivery {delivery.EntityId} must expose a contiguous non-empty manifest.");
+            return lines;
+        }
+
         private static GameEntity[] FindDeliveryProducts(
             GameContext context,
             int deliveryEntityId) =>
@@ -9623,6 +10209,38 @@ namespace HardwareStore.Editor
 
             public void PresentProcurement(ProcurementSnapshot? snapshot) =>
                 Procurement = snapshot;
+        }
+
+        private sealed class CountingProcurementSolvencyService :
+            IProcurementSolvencyService
+        {
+            private readonly IProcurementSolvencyService _inner;
+
+            public CountingProcurementSolvencyService(
+                IProcurementSolvencyService inner) =>
+                _inner = inner ?? throw new ArgumentNullException(nameof(inner));
+
+            public int CartEvaluationCount { get; private set; }
+            public int PurchaseEvaluationCount { get; private set; }
+            public int TotalEvaluationCount => checked(
+                CartEvaluationCount + PurchaseEvaluationCount);
+
+            public ProcurementPurchaseEvaluation EvaluateCart(
+                int procurementCartEntityId)
+            {
+                CartEvaluationCount = checked(CartEvaluationCount + 1);
+                return _inner.EvaluateCart(procurementCartEntityId);
+            }
+
+            public ProcurementPurchaseEvaluation EvaluatePurchase(
+                int procurementTerminalEntityId,
+                ProductTypeId productType)
+            {
+                PurchaseEvaluationCount = checked(PurchaseEvaluationCount + 1);
+                return _inner.EvaluatePurchase(
+                    procurementTerminalEntityId,
+                    productType);
+            }
         }
 
         private sealed class CaptureNotificationService : INotificationService

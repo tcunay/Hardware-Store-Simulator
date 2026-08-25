@@ -13,6 +13,8 @@ namespace HardwareStore.Gameplay.Components
     [Input] public class TrolleyPressed : IComponent { }
     [Input] public class PreviousPressed : IComponent { }
     [Input] public class NextPressed : IComponent { }
+    [Input] public class IncreasePressed : IComponent { }
+    [Input] public class DecreasePressed : IComponent { }
     [Input] public class ToggleCursorPressed : IComponent { }
     [Input] public class PointerLook : IComponent { }
 }

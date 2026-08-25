@@ -34,14 +34,17 @@ namespace HardwareStore.Gameplay
 #if UNITY_EDITOR
             Add(systems.Create<ReconcileEditorMoneyOverrideSystem>());
 #endif
+            Add(systems.Create<StorageStateFeature>());
             Add(systems.Create<InteractionFeature>());
             Add(systems.Create<EmployeeFeature>());
+            Add(systems.Create<StorageStateFeature>());
             Add(systems.Create<StoreDayFeature>());
             Add(systems.Create<ProcurementFeature>());
             Add(systems.Create<ConsultationFeature>());
             Add(systems.Create<DeliveryFeature>());
             Add(systems.Create<CarryingFeature>());
             Add(systems.Create<OrderProgressFeature>());
+            Add(systems.Create<StorageStateFeature>());
             Add(systems.Create<TrolleyFeature>());
             Add(systems.Create<StorageStateFeature>());
             Add(systems.Create<ProductPlacementFeature>());

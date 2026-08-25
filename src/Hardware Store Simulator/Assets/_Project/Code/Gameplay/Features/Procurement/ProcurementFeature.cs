@@ -7,7 +7,9 @@ namespace HardwareStore.Gameplay.Features.Procurement
     {
         public ProcurementFeature(ISystemFactory systems)
         {
+            Add(systems.Create<EnsureProcurementCartSystem>());
             Add(systems.Create<ChangeProcurementSelectionSystem>());
+            Add(systems.Create<ChangeProcurementCartQuantitySystem>());
             Add(systems.Create<EmitPurchaseDeliveryRequestSystem>());
             Add(systems.Create<CancelProcurementSystem>());
             Add(systems.Create<OpenProcurementSystem>());

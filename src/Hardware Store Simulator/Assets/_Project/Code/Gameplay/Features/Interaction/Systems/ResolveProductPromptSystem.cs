@@ -1,6 +1,7 @@
 using System;
 using System.Linq;
 using Entitas;
+using HardwareStore.Gameplay.Common;
 using HardwareStore.Gameplay.Components;
 using HardwareStore.Gameplay.Localization;
 
@@ -30,6 +31,8 @@ namespace HardwareStore.Gameplay.Features.Interaction.Systems
 
                 GameEntity product =
                     _gameContext.GetEntityWithEntityId(player.FocusedEntityId);
+                if (product.isInboundProduct)
+                    InboundProductManifestValidator.Validate(_gameContext, product);
                 LocalizedText productName = LocalizedTexts.ProductName(product.ProductType);
                 GameEntity store =
                     _gameContext.GetEntityWithEntityId(player.StoreEntityId);

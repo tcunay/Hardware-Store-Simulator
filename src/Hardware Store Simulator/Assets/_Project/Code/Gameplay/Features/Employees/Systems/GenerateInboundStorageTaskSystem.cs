@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using Entitas;
+using HardwareStore.Gameplay.Common;
 using HardwareStore.Gameplay.Components;
 using HardwareStore.Gameplay.Factories;
 
@@ -39,6 +40,7 @@ namespace HardwareStore.Gameplay.Features.Employees.Systems
                     GameMatcher.ProductType,
                     GameMatcher.InboundProduct,
                     GameMatcher.DeliveryEntityId,
+                    GameMatcher.PurchaseOrderLineEntityId,
                     GameMatcher.DeliverySlotIndex,
                     GameMatcher.Interactable,
                     GameMatcher.View,
@@ -266,12 +268,13 @@ namespace HardwareStore.Gameplay.Features.Employees.Systems
         private bool IsAvailableInboundProduct(GameEntity product,
             int storeEntityId)
         {
+            InboundProductManifestValidator.Validate(_gameContext, product);
             GameEntity delivery = _gameContext.GetEntityWithEntityId(
                 product.DeliveryEntityId);
             if (delivery == null || delivery.isDestructed ||
                 !delivery.isDelivery || !delivery.isDeliveryActive ||
                 !delivery.hasEntityId || !delivery.hasStoreEntityId ||
-                !delivery.hasSlots ||
+                !delivery.hasSlots || !delivery.hasDeliveryPurchaseOrderEntityId ||
                 delivery.EntityId != product.DeliveryEntityId)
             {
                 throw new InvalidOperationException(

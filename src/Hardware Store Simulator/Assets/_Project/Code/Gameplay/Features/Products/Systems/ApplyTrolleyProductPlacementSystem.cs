@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using Entitas;
+using HardwareStore.Gameplay.Common;
 
 namespace HardwareStore.Gameplay.Features.Products.Systems
 {
@@ -67,11 +68,15 @@ namespace HardwareStore.Gameplay.Features.Products.Systems
             }
         }
 
-        private static void ValidateReservationState(GameEntity product)
+        private void ValidateReservationState(GameEntity product)
         {
+            if (product.isInboundProduct)
+                InboundProductManifestValidator.Validate(_gameContext, product);
+
             bool validInbound = product.isInboundProduct &&
                                 !product.isInStock &&
                                 product.hasDeliveryEntityId &&
+                                product.hasPurchaseOrderLineEntityId &&
                                 product.hasReservedDeliverySlotIndex &&
                                 !product.hasStorageZoneEntityId &&
                                 !product.hasReservedStorageSlotIndex &&

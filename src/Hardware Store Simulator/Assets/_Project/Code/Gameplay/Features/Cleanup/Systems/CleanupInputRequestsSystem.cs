@@ -19,6 +19,8 @@ namespace HardwareStore.Gameplay.Features.Cleanup.Systems
                 input.isTrolleyPressed = false;
                 input.isPreviousPressed = false;
                 input.isNextPressed = false;
+                input.isIncreasePressed = false;
+                input.isDecreasePressed = false;
                 input.isToggleCursorPressed = false;
             }
         }

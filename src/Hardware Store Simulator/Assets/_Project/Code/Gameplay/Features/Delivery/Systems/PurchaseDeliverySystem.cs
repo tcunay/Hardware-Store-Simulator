@@ -12,16 +12,19 @@ namespace HardwareStore.Gameplay.Features.Delivery.Systems
     {
         private readonly GameContext _gameContext;
         private readonly IProcurementSolvencyService _solvency;
+        private readonly IPurchaseOrderFactory _purchaseOrders;
         private readonly IDeliveryFactory _deliveryFactory;
         private readonly IGameEventFactory _events;
         private readonly IGroup<GameEntity> _requests;
 
         public PurchaseDeliverySystem(GameContext gameContext,
             IProcurementSolvencyService solvency,
+            IPurchaseOrderFactory purchaseOrders,
             IDeliveryFactory deliveryFactory, IGameEventFactory events)
         {
             _gameContext = gameContext;
             _solvency = solvency;
+            _purchaseOrders = purchaseOrders;
             _deliveryFactory = deliveryFactory;
             _events = events;
             _requests = gameContext.GetGroup(GameMatcher.AllOf(
@@ -68,12 +71,29 @@ namespace HardwareStore.Gameplay.Features.Delivery.Systems
                         LocalizationKey.NotificationAcceptCurrentDeliveryFirst));
                     continue;
                 }
+                if (_gameContext.GetEntityWithPurchaseOrderProcurementTerminalEntityId(
+                        terminal.EntityId) != null)
+                {
+                    throw new InvalidOperationException(
+                        $"Procurement terminal {terminal.EntityId} has an orphaned " +
+                        "purchase order.");
+                }
 
                 GameEntity store =
                     _gameContext.GetEntityWithEntityId(terminal.StoreEntityId);
-                ProcurementPurchaseEvaluation evaluation = _solvency.EvaluatePurchase(
-                    terminal.EntityId,
-                    terminal.SelectedProductType);
+                GameEntity cart =
+                    _gameContext.GetEntityWithProcurementCartTerminalEntityId(
+                        terminal.EntityId);
+                if (cart == null)
+                {
+                    throw new InvalidOperationException(
+                        $"Procurement terminal {terminal.EntityId} has no cart.");
+                }
+                bool hasCartLines = ValidateCartAndHasLines(cart, terminal);
+                if (!hasCartLines)
+                    continue;
+                ProcurementPurchaseEvaluation evaluation =
+                    _solvency.EvaluateCart(cart.EntityId);
                 if (evaluation.Availability ==
                     ProcurementPurchaseAvailability.InsufficientStorage)
                 {
@@ -138,8 +158,20 @@ namespace HardwareStore.Gameplay.Features.Delivery.Systems
                 var deliveryPose = new Pose(
                     terminal.DeliverySpawnPosition,
                     terminal.DeliverySpawnRotation);
+                GameEntity order = _purchaseOrders.Create(
+                    cart.EntityId,
+                    terminal.EntityId,
+                    store.EntityId);
+                if (order.PurchaseOrderProductCount != evaluation.DeliveryProductCount ||
+                    order.PurchaseOrderCost != evaluation.DeliveryCost)
+                {
+                    throw new InvalidOperationException(
+                        $"Purchase order {order.EntityId} disagrees with its solvency " +
+                        "evaluation.");
+                }
+
                 GameEntity delivery = _deliveryFactory.Create(
-                    terminal.SelectedProductType,
+                    order.EntityId,
                     terminal.EntityId,
                     store.EntityId,
                     deliveryPose);
@@ -154,13 +186,56 @@ namespace HardwareStore.Gameplay.Features.Delivery.Systems
                 store.ReplaceMoney(moneyAfterPurchase);
                 store.ReplaceDayProcurementExpenses(procurementExpensesAfterPurchase);
                 _events.EmitNotification(LocalizedTexts.Text(
-                    LocalizationKey.NotificationDeliveryOrdered,
-                    LocalizedTexts.ProductName(delivery.ProductType),
-                    delivery.DeliveryProductCount,
-                    LocalizedTexts.ProductUnit(delivery.ProductType),
-                    delivery.DeliveryCost));
+                    LocalizationKey.NotificationMixedDeliveryOrdered,
+                    order.PurchaseOrderPackageCount,
+                    order.PurchaseOrderProductCount,
+                    order.PurchaseOrderCost));
                 _events.EmitAudio(AudioCueId.DeliveryPurchased);
+                ClearCart(cart);
                 request.isPurchaseDeliverySucceeded = true;
+            }
+        }
+
+        private bool ValidateCartAndHasLines(GameEntity cart, GameEntity terminal)
+        {
+            if (!cart.isProcurementCart || cart.isDestructed || !cart.hasEntityId ||
+                !cart.hasProcurementCartTerminalEntityId ||
+                cart.ProcurementCartTerminalEntityId != terminal.EntityId ||
+                !cart.hasStoreEntityId || cart.StoreEntityId != terminal.StoreEntityId ||
+                !cart.hasProcurementCartPackageCapacity ||
+                cart.ProcurementCartPackageCapacity <= 0 ||
+                cart.ProcurementCartPackageCapacity >
+                ProcurementCartFactory.CurrentDeliveryPackageCapacity)
+            {
+                throw new InvalidOperationException(
+                    $"Procurement terminal {terminal.EntityId} owns an invalid cart.");
+            }
+
+            bool hasLines = false;
+            foreach (GameEntity line in _gameContext.GetEntitiesWithProcurementCartEntityId(
+                         cart.EntityId))
+            {
+                if (line.isDestructed)
+                    continue;
+                if (!line.isProcurementCartLine || !line.hasEntityId ||
+                    !line.hasProductType || !line.hasProcurementPackageCount ||
+                    line.ProcurementPackageCount <= 0)
+                {
+                    throw new InvalidOperationException(
+                        $"Procurement cart {cart.EntityId} contains an invalid line.");
+                }
+                hasLines = true;
+            }
+            return hasLines;
+        }
+
+        private void ClearCart(GameEntity cart)
+        {
+            foreach (GameEntity line in _gameContext.GetEntitiesWithProcurementCartEntityId(
+                         cart.EntityId))
+            {
+                if (!line.isDestructed)
+                    line.isDestructed = true;
             }
         }
 

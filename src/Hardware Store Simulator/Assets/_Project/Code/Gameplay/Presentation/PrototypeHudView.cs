@@ -544,10 +544,14 @@ namespace HardwareStore.Gameplay.Presentation
         {
             DrawPanel(
                 new Rect(0f, 0f, _canvasWidth, _canvasHeight),
-                new Color(0.015f, 0.02f, 0.025f, 0.92f));
+                new Color(0.015f, 0.02f, 0.025f, 1f));
 
-            float panelWidth = Mathf.Min(1180f, _canvasWidth - 48f);
-            float panelHeight = Mathf.Min(700f, _canvasHeight - 64f);
+            const int cardsPerPage = 6;
+            const int cardColumnCount = 3;
+            const float contentGap = 24f;
+            const float cartWidth = 416f;
+            float panelWidth = Mathf.Min(1520f, _canvasWidth - 48f);
+            float panelHeight = Mathf.Min(840f, _canvasHeight - 48f);
             Rect panel = new(
                 (_canvasWidth - panelWidth) * 0.5f,
                 (_canvasHeight - panelHeight) * 0.5f,
@@ -556,11 +560,11 @@ namespace HardwareStore.Gameplay.Presentation
             DrawPanel(panel, new Color(0.055f, 0.065f, 0.075f, 0.98f));
 
             GUI.Label(
-                new Rect(panel.x + 32f, panel.y + 24f, panel.width - 64f, 34f),
+                new Rect(panel.x + 32f, panel.y + 18f, panel.width - 64f, 34f),
                 Resolve(LocalizationKey.HudProcurementTitle),
                 _titleStyle);
             GUI.Label(
-                new Rect(panel.x + 32f, panel.y + 58f, panel.width - 64f, 34f),
+                new Rect(panel.x + 32f, panel.y + 52f, panel.width - 64f, 34f),
                 Resolve(
                     procurement.DemandKind == ProcurementDemandKind.ProjectForecast
                         ? LocalizationKey.HudProcurementForecastTitle
@@ -568,29 +572,51 @@ namespace HardwareStore.Gameplay.Presentation
                     LocalizedTexts.ProjectTitle(procurement.ProjectType)),
                 _centerStyle);
             GUI.Label(
-                new Rect(panel.x + 32f, panel.y + 98f, panel.width - 64f, 30f),
+                new Rect(panel.x + 32f, panel.y + 86f, panel.width - 64f, 30f),
                 Resolve(LocalizationKey.HudProcurementBalanceStorage,
                     procurement.Money, procurement.FreeStorageSlotCount),
                 _promptStyle);
 
-            const float cardGap = 24f;
+            float contentTop = panel.y + 134f;
+            float contentHeight = panel.height - 236f;
             float cardsLeft = panel.x + 32f;
-            float cardsWidth = panel.width - 64f;
-            float cardWidth = (cardsWidth - cardGap) * 0.5f;
-            float cardTop = panel.y + 142f;
-            float cardHeight = panel.height - 220f;
-            for (int index = 0; index < procurement.Products.Count; index++)
+            float cardsWidth = panel.width - 64f - contentGap - cartWidth;
+            float cartLeft = cardsLeft + cardsWidth + contentGap;
+            int pageIndex = procurement.SelectedProductIndex / cardsPerPage;
+            int pageCount = Mathf.CeilToInt(
+                procurement.Products.Count / (float)cardsPerPage);
+            GUI.Label(
+                new Rect(cardsLeft + cardsWidth - 180f, panel.y + 18f, 180f, 28f),
+                Resolve(LocalizationKey.HudProcurementPage,
+                    pageIndex + 1, pageCount),
+                _cardMetaStyle);
+
+            const float cardGap = 16f;
+            float cardWidth =
+                (cardsWidth - cardGap * (cardColumnCount - 1)) / cardColumnCount;
+            float cardHeight = (contentHeight - cardGap) * 0.5f;
+            int firstProductIndex = pageIndex * cardsPerPage;
+            int finalProductIndex = Math.Min(
+                firstProductIndex + cardsPerPage,
+                procurement.Products.Count);
+            for (int index = firstProductIndex; index < finalProductIndex; index++)
             {
                 ProcurementProductSnapshot product = procurement.Products[index];
+                int visibleIndex = index - firstProductIndex;
+                int column = visibleIndex % cardColumnCount;
+                int row = visibleIndex / cardColumnCount;
+                bool selected = product.Index == procurement.SelectedProductIndex;
                 Rect border = new(
-                    cardsLeft + index * (cardWidth + cardGap),
-                    cardTop,
+                    cardsLeft + column * (cardWidth + cardGap),
+                    contentTop + row * (cardHeight + cardGap),
                     cardWidth,
                     cardHeight);
                 DrawPanel(
                     border,
-                    product.Selected
+                    selected
                         ? new Color(1f, 0.56f, 0.12f, 1f)
+                        : product.CartPackageCount > 0
+                            ? new Color(0.28f, 0.54f, 0.34f, 1f)
                         : new Color(0.16f, 0.18f, 0.2f, 1f));
                 Rect card = new(
                     border.x + 3f,
@@ -599,64 +625,138 @@ namespace HardwareStore.Gameplay.Presentation
                     border.height - 6f);
                 DrawPanel(
                     card,
-                    product.Selected
+                    selected
                         ? new Color(0.13f, 0.095f, 0.055f, 0.98f)
                         : new Color(0.075f, 0.085f, 0.095f, 0.98f));
 
                 GUI.Label(
-                    new Rect(card.x + 24f, card.y + 20f, card.width - 48f, 38f),
+                    new Rect(card.x + 16f, card.y + 12f, card.width - 32f, 34f),
                     Resolve(LocalizedTexts.ProductName(product.ProductType))
                         .ToUpper(_localization.Culture),
                     _cardTitleStyle);
-
-                string details = procurement.DemandKind ==
-                                 ProcurementDemandKind.ProjectForecast
-                    ? Resolve(
-                        LocalizationKey.HudProcurementForecastProductDetails,
-                        product.DeliveryProductCount,
-                        LocalizedTexts.ProductUnit(product.ProductType),
-                        product.DeliveryCost,
-                        product.MoneyAfterPurchase,
-                        product.MinimumRequiredProductCount,
-                        product.MaximumRequiredProductCount,
-                        product.AvailableProductCount)
-                    : Resolve(
-                        LocalizationKey.HudProcurementProductDetails,
-                        product.DeliveryProductCount,
-                        LocalizedTexts.ProductUnit(product.ProductType),
-                        product.DeliveryCost,
-                        product.MoneyAfterPurchase,
-                        product.RemainingRequiredProductCount,
-                        product.AvailableProductCount,
-                        product.DeficitProductCount);
                 GUI.Label(
-                    new Rect(card.x + 24f, card.y + 76f, card.width - 48f, 250f),
-                    details,
+                    new Rect(card.x + 16f, card.y + 48f, card.width - 32f, 42f),
+                    Resolve(
+                        LocalizationKey.HudProcurementPackageDetails,
+                        product.PackageProductCount,
+                        LocalizedTexts.ProductUnit(product.ProductType),
+                        product.PackageCost),
                     _cardMetaStyle);
-
-                Color previousColor = GUI.color;
-                GUI.color = product.PurchaseAvailable
-                    ? new Color(1f, 0.7f, 0.25f)
-                    : new Color(0.78f, 0.82f, 0.86f);
                 GUI.Label(
-                    new Rect(card.x + 24f, card.yMax - 90f, card.width - 48f, 54f),
-                    ResolvePurchaseStatus(procurement, product),
+                    new Rect(card.x + 16f, card.y + 90f, card.width - 32f, 78f),
+                    ResolveProductCounts(procurement, product),
+                    _cardMetaStyle);
+                GUI.Label(
+                    new Rect(card.x + 16f, card.yMax - 82f, card.width - 32f, 38f),
+                    Resolve(
+                        LocalizationKey.HudProcurementCardCartQuantity,
+                        product.CartPackageCount,
+                        product.CartProductCount,
+                        LocalizedTexts.ProductUnit(product.ProductType)),
                     _promptStyle);
-                GUI.color = previousColor;
 
-                if (product.Selected)
+                if (selected)
                 {
                     GUI.Label(
-                        new Rect(card.x + 24f, card.yMax - 46f, card.width - 48f, 30f),
+                        new Rect(card.x + 16f, card.yMax - 42f, card.width - 32f, 28f),
                         Resolve(LocalizationKey.HudSelected),
                         _promptStyle);
                 }
             }
 
+            DrawProcurementCart(
+                procurement,
+                new Rect(cartLeft, contentTop, cartWidth, contentHeight));
             GUI.Label(
-                new Rect(panel.x + 28f, panel.yMax - 58f, panel.width - 56f, 34f),
+                new Rect(panel.x + 28f, panel.yMax - 66f, panel.width - 56f, 34f),
                 Resolve(LocalizationKey.HudProcurementControls),
                 _promptStyle);
+        }
+
+        private void DrawProcurementCart(ProcurementSnapshot procurement, Rect rect)
+        {
+            DrawPanel(rect, new Color(0.035f, 0.043f, 0.052f, 0.98f));
+            ProcurementCartSnapshot cart = procurement.Cart;
+            GUI.Label(
+                new Rect(rect.x + 18f, rect.y + 14f, rect.width - 36f, 34f),
+                Resolve(LocalizationKey.HudProcurementCartTitle,
+                    cart.PackageCount, cart.PackageCapacity),
+                _cardTitleStyle);
+
+            float lineTop = rect.y + 56f;
+            float maximumLineAreaHeight = 246f;
+            float lineHeight = cart.Lines.Count == 0
+                ? 0f
+                : Mathf.Min(82f, maximumLineAreaHeight / cart.Lines.Count);
+            for (int index = 0; index < cart.Lines.Count; index++)
+            {
+                ProcurementCartLineSnapshot line = cart.Lines[index];
+                Rect lineRect = new(
+                    rect.x + 14f,
+                    lineTop + index * lineHeight,
+                    rect.width - 28f,
+                    lineHeight - 6f);
+                DrawPanel(lineRect, new Color(0.075f, 0.085f, 0.095f, 0.98f));
+                GUI.Label(
+                    new Rect(
+                        lineRect.x + 12f,
+                        lineRect.y + 6f,
+                        lineRect.width - 24f,
+                        lineRect.height - 12f),
+                    Resolve(
+                        LocalizationKey.HudProcurementCartLine,
+                        LocalizedTexts.ProductName(line.ProductType),
+                        line.PackageCount,
+                        line.ProductCount,
+                        LocalizedTexts.ProductUnit(line.ProductType),
+                        line.LineCost),
+                    _cardMetaStyle);
+            }
+
+            ProductTypeId unitProductType = cart.Lines.Count > 0
+                ? cart.Lines[0].ProductType
+                : procurement.Products[procurement.SelectedProductIndex].ProductType;
+            float summaryTop = rect.yMax - 238f;
+            GUI.Label(
+                new Rect(rect.x + 18f, summaryTop, rect.width - 36f, 28f),
+                Resolve(LocalizationKey.HudProcurementCartProductTotal,
+                    cart.ProductCount,
+                    LocalizedTexts.ProductUnit(unitProductType)),
+                _cardMetaStyle);
+            GUI.Label(
+                new Rect(rect.x + 18f, summaryTop + 30f, rect.width - 36f, 28f),
+                Resolve(LocalizationKey.HudProcurementCartStorage,
+                    cart.RequiredStorageSlotCount,
+                    procurement.FreeStorageSlotCount),
+                _cardMetaStyle);
+            GUI.Label(
+                new Rect(rect.x + 18f, summaryTop + 64f, rect.width - 36f, 30f),
+                Resolve(LocalizationKey.HudProcurementCartCost, cart.TotalCost),
+                _bodyStyle);
+            GUI.Label(
+                new Rect(rect.x + 18f, summaryTop + 96f, rect.width - 36f, 30f),
+                Resolve(LocalizationKey.HudProcurementCartBalanceAfter,
+                    cart.MoneyAfterPurchase),
+                _bodyStyle);
+
+            Color previousColor = GUI.color;
+            GUI.color = cart.CanCheckout
+                ? new Color(1f, 0.7f, 0.25f)
+                : new Color(0.86f, 0.46f, 0.32f);
+            GUI.Label(
+                new Rect(rect.x + 18f, rect.yMax - 92f, rect.width - 36f, 66f),
+                ResolveCartStatus(procurement),
+                _promptStyle);
+            GUI.color = previousColor;
+
+            if (cart.PackageCount == cart.PackageCapacity && cart.PackageCount > 0)
+            {
+                GUI.Label(
+                    new Rect(rect.x + 18f, summaryTop - 34f, rect.width - 36f, 28f),
+                    Resolve(LocalizationKey.HudProcurementCartCapacityReached,
+                        cart.PackageCapacity),
+                    _promptStyle);
+            }
         }
 
         private void DrawNotification()
@@ -689,15 +789,16 @@ namespace HardwareStore.Gameplay.Presentation
                 return Resolve(LocalizationKey.HudObjectiveClosing);
             }
 
-            if (_snapshot.HasActiveDelivery &&
-                _snapshot.DeliveryStockedCount < _snapshot.DeliveryProductCount)
+            if (_snapshot.Delivery.HasValue &&
+                _snapshot.Delivery.Value.StockedProductCount <
+                _snapshot.Delivery.Value.ProductCount)
             {
+                DeliveryProgressSnapshot delivery = _snapshot.Delivery.Value;
                 return Resolve(
-                    LocalizationKey.HudObjectiveDelivery,
-                    LocalizedTexts.ProductName(_snapshot.DeliveryProductType),
-                    _snapshot.DeliveryStockedCount,
-                    _snapshot.DeliveryProductCount,
-                    LocalizedTexts.ProductUnit(_snapshot.DeliveryProductType));
+                    LocalizationKey.HudObjectiveMixedDelivery,
+                    delivery.StockedProductCount,
+                    delivery.ProductCount,
+                    delivery.IncompleteLineCount);
             }
 
             return _snapshot.OrderState switch
@@ -780,18 +881,38 @@ namespace HardwareStore.Gameplay.Presentation
             return string.Join(Environment.NewLine, lines);
         }
 
-        private string ResolvePurchaseStatus(
+        private string ResolveProductCounts(
             ProcurementSnapshot procurement,
             ProcurementProductSnapshot product) =>
-            product.PurchaseState switch
+            Resolve(
+                procurement.DemandKind == ProcurementDemandKind.ProjectForecast
+                    ? LocalizationKey.HudProcurementForecastCounts
+                    : LocalizationKey.HudProcurementConfirmedCounts,
+                product.StockProductCount,
+                product.InTransitProductCount,
+                procurement.DemandKind == ProcurementDemandKind.ProjectForecast
+                    ? product.MinimumRequiredProductCount
+                    : product.RemainingRequiredProductCount,
+                procurement.DemandKind == ProcurementDemandKind.ProjectForecast
+                    ? product.MaximumRequiredProductCount
+                    : product.ProjectedDeficitProductCount,
+                LocalizedTexts.ProductUnit(product.ProductType));
+
+        private string ResolveCartStatus(ProcurementSnapshot procurement)
+        {
+            ProcurementCartSnapshot cart = procurement.Cart;
+            if (cart.PackageCount == 0)
+                return Resolve(LocalizationKey.HudProcurementCartEmpty);
+
+            return cart.PurchaseState switch
             {
                 ProcurementPurchaseState.InsufficientStorage => Resolve(
                     LocalizationKey.ProcurementStatusInsufficientStorage,
                     procurement.FreeStorageSlotCount,
-                    product.DeliveryProductCount),
+                    cart.RequiredStorageSlotCount),
                 ProcurementPurchaseState.InsufficientMoney => Resolve(
                     LocalizationKey.ProcurementStatusInsufficientMoney,
-                    product.DeliveryCost),
+                    cart.TotalCost),
                 ProcurementPurchaseState.PlanWouldBecomeUnfulfillable => Resolve(
                     procurement.DemandKind == ProcurementDemandKind.ConfirmedOrder
                         ? LocalizationKey.ProcurementStatusPlanWouldBlockOrder
@@ -802,6 +923,7 @@ namespace HardwareStore.Gameplay.Presentation
                         : LocalizationKey.ProcurementStatusAvailable),
                 _ => throw new ArgumentOutOfRangeException()
             };
+        }
 
         private string Resolve(LocalizationKey key) =>
             _localization.Resolve(key);

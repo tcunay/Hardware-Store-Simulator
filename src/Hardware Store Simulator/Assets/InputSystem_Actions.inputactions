@@ -78,6 +78,24 @@
                     "initialStateCheck": false
                 },
                 {
+                    "name": "Increase",
+                    "type": "Button",
+                    "id": "af4f5eb1-2f52-4c55-9f31-b206cad5a6d0",
+                    "expectedControlType": "Button",
+                    "processors": "",
+                    "interactions": "",
+                    "initialStateCheck": false
+                },
+                {
+                    "name": "Decrease",
+                    "type": "Button",
+                    "id": "6c0b7478-e626-4851-90ad-bdb48df03e6a",
+                    "expectedControlType": "Button",
+                    "processors": "",
+                    "interactions": "",
+                    "initialStateCheck": false
+                },
+                {
                     "name": "Sprint",
                     "type": "Button",
                     "id": "641cd816-40e6-41b4-8c3d-04687c349290",
@@ -279,6 +297,50 @@
                     "processors": "",
                     "groups": "Gamepad",
                     "action": "Next",
+                    "isComposite": false,
+                    "isPartOfComposite": false
+                },
+                {
+                    "name": "",
+                    "id": "f855ae54-44a7-47ea-b027-72a375f6bd7b",
+                    "path": "<Keyboard>/upArrow",
+                    "interactions": "",
+                    "processors": "",
+                    "groups": "Keyboard&Mouse",
+                    "action": "Increase",
+                    "isComposite": false,
+                    "isPartOfComposite": false
+                },
+                {
+                    "name": "",
+                    "id": "2ba3fcfd-7704-46f5-92e0-ce63c9e93e8f",
+                    "path": "<Gamepad>/dpad/up",
+                    "interactions": "",
+                    "processors": "",
+                    "groups": "Gamepad",
+                    "action": "Increase",
+                    "isComposite": false,
+                    "isPartOfComposite": false
+                },
+                {
+                    "name": "",
+                    "id": "08d88f65-3b44-48b3-9d6c-e48d602997c7",
+                    "path": "<Keyboard>/downArrow",
+                    "interactions": "",
+                    "processors": "",
+                    "groups": "Keyboard&Mouse",
+                    "action": "Decrease",
+                    "isComposite": false,
+                    "isPartOfComposite": false
+                },
+                {
+                    "name": "",
+                    "id": "201b408e-b3c6-4147-bb6b-b8872605a281",
+                    "path": "<Gamepad>/dpad/down",
+                    "interactions": "",
+                    "processors": "",
+                    "groups": "Gamepad",
+                    "action": "Decrease",
                     "isComposite": false,
                     "isPartOfComposite": false
                 },

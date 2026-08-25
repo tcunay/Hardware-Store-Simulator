@@ -13,6 +13,8 @@ namespace HardwareStore.Gameplay.Common.Input
         bool TrolleyPressedThisFrame { get; }
         bool PreviousPressedThisFrame { get; }
         bool NextPressedThisFrame { get; }
+        bool IncreasePressedThisFrame { get; }
+        bool DecreasePressedThisFrame { get; }
         bool ToggleCursorPressedThisFrame { get; }
         bool LookUsesPointer { get; }
     }

@@ -85,6 +85,8 @@ namespace HardwareStore.Infrastructure.Installers
             Container.Bind<IConsultationOfferFactory>().To<ConsultationOfferFactory>().AsSingle();
             Container.Bind<IOrderFactory>().To<OrderFactory>().AsSingle();
             Container.Bind<IProductFactory>().To<ProductFactory>().AsSingle();
+            Container.Bind<IProcurementCartFactory>().To<ProcurementCartFactory>().AsSingle();
+            Container.Bind<IPurchaseOrderFactory>().To<PurchaseOrderFactory>().AsSingle();
             Container.Bind<IDeliveryFactory>().To<DeliveryFactory>().AsSingle();
             Container.Bind<IPlatformTrolleyFactory>().To<PlatformTrolleyFactory>().AsSingle();
             Container.Bind<IWarehouseWorkerFactory>().To<WarehouseWorkerFactory>().AsSingle();

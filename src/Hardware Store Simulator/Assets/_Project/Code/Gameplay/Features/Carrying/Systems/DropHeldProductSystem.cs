@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using Entitas;
+using HardwareStore.Gameplay.Common;
 using HardwareStore.Gameplay.Common.Physics;
 using HardwareStore.Gameplay.Components;
 using HardwareStore.Gameplay.Factories;
@@ -73,7 +74,7 @@ namespace HardwareStore.Gameplay.Features.Carrying.Systems
             }
         }
 
-        private static void ValidatePlacementState(GameEntity product)
+        private void ValidatePlacementState(GameEntity product)
         {
             if (!product.isProduct || product.isDestructed || !product.hasEntityId ||
                 !product.hasDropForwardDistance || !product.hasProductDropCollisionRadius)
@@ -92,7 +93,9 @@ namespace HardwareStore.Gameplay.Features.Carrying.Systems
 
             if (product.isInboundProduct)
             {
+                InboundProductManifestValidator.Validate(_gameContext, product);
                 if (!product.hasDeliveryEntityId ||
+                    !product.hasPurchaseOrderLineEntityId ||
                     !product.hasReservedDeliverySlotIndex ||
                     product.isInStock || product.hasStorageZoneEntityId ||
                     product.hasReservedStorageSlotIndex ||

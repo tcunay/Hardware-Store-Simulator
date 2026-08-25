@@ -4,6 +4,7 @@ using System.Linq;
 using Entitas;
 using HardwareStore.Gameplay.Components;
 using HardwareStore.Gameplay.Configs;
+using HardwareStore.Gameplay.Factories;
 using HardwareStore.Gameplay.StaticData;
 
 namespace HardwareStore.Gameplay.Common.Economy
@@ -12,11 +13,13 @@ namespace HardwareStore.Gameplay.Common.Economy
         IProcurementSolvencyService,
         IEconomySolvencyService
     {
-        private const int MaximumProjectionLeafCount = 4096;
+        private const int MaximumProjectionStateCount = 131072;
 
         private readonly GameContext _gameContext;
         private readonly IStaticDataService _staticData;
         private readonly IGroup<GameEntity> _stockedProducts;
+        private readonly List<CandidateLine> _candidateLines = new(
+            ProcurementCartFactory.CurrentDeliveryPackageCapacity);
 
         public ProcurementSolvencyService(
             GameContext gameContext,
@@ -48,6 +51,150 @@ namespace HardwareStore.Gameplay.Common.Economy
                     $"{candidateDelivery.ProductType}.");
             }
 
+            _candidateLines.Clear();
+            _candidateLines.Add(new CandidateLine(
+                productType,
+                candidateDelivery.ProductCount,
+                candidateDelivery.TotalCost));
+            return EvaluateCandidate(
+                terminalState,
+                _candidateLines,
+                candidateDelivery.ProductCount,
+                candidateDelivery.TotalCost);
+        }
+
+        public ProcurementPurchaseEvaluation EvaluateCart(int procurementCartEntityId)
+        {
+            GameEntity cart = _gameContext.GetEntityWithEntityId(
+                procurementCartEntityId);
+            if (cart == null || !cart.isProcurementCart || cart.isDestructed ||
+                !cart.hasEntityId || !cart.hasProcurementCartTerminalEntityId ||
+                !cart.hasStoreEntityId || !cart.hasProcurementCartPackageCapacity ||
+                cart.ProcurementCartPackageCapacity <= 0 ||
+                cart.ProcurementCartPackageCapacity >
+                ProcurementCartFactory.CurrentDeliveryPackageCapacity)
+            {
+                throw new InvalidOperationException(
+                    $"Procurement solvency requires a configured cart " +
+                    $"{procurementCartEntityId}.");
+            }
+
+            GameEntity terminal = _gameContext.GetEntityWithEntityId(
+                cart.ProcurementCartTerminalEntityId);
+            TerminalState terminalState = ValidateAndResolveTerminal(terminal);
+            if (cart.StoreEntityId != terminalState.Store.EntityId ||
+                _gameContext.GetEntityWithProcurementCartTerminalEntityId(
+                    terminal.EntityId) != cart)
+            {
+                throw new InvalidOperationException(
+                    $"Procurement cart {cart.EntityId} belongs to another store.");
+            }
+
+            _candidateLines.Clear();
+            int packageCount = 0;
+            int productCount = 0;
+            int cost = 0;
+            foreach (GameEntity line in _gameContext.GetEntitiesWithProcurementCartEntityId(
+                         cart.EntityId))
+            {
+                if (line.isDestructed)
+                    continue;
+                if (!line.isProcurementCartLine || !line.hasEntityId ||
+                    !line.hasProcurementCartEntityId ||
+                    line.ProcurementCartEntityId != cart.EntityId ||
+                    !line.hasProductType || !line.hasProcurementPackageCount ||
+                    line.ProcurementPackageCount <= 0)
+                {
+                    throw new InvalidOperationException(
+                        $"Procurement cart {cart.EntityId} contains an invalid line.");
+                }
+
+                for (int index = 0; index < _candidateLines.Count; index++)
+                {
+                    if (_candidateLines[index].ProductType == line.ProductType)
+                    {
+                        throw new InvalidOperationException(
+                            $"Procurement cart {cart.EntityId} contains duplicate " +
+                            $"{line.ProductType} lines.");
+                    }
+                }
+
+                DeliveryConfig config = _staticData.GetDelivery(line.ProductType);
+                if (config.ProductType != line.ProductType)
+                {
+                    throw new InvalidOperationException(
+                        $"Delivery config for {line.ProductType} exposes " +
+                        $"{config.ProductType}.");
+                }
+                int lineProductCount = checked(
+                    line.ProcurementPackageCount * config.ProductCount);
+                int lineCost = checked(
+                    line.ProcurementPackageCount * config.TotalCost);
+                packageCount = checked(
+                    packageCount + line.ProcurementPackageCount);
+                productCount = checked(productCount + lineProductCount);
+                cost = checked(cost + lineCost);
+                _candidateLines.Add(new CandidateLine(
+                    line.ProductType,
+                    lineProductCount,
+                    lineCost));
+            }
+            if (_candidateLines.Count == 0)
+            {
+                throw new InvalidOperationException(
+                    $"Procurement cart {cart.EntityId} is empty.");
+            }
+            if (packageCount > cart.ProcurementCartPackageCapacity)
+            {
+                throw new InvalidOperationException(
+                    $"Procurement cart {cart.EntityId} contains {packageCount} packages; " +
+                    $"capacity is {cart.ProcurementCartPackageCapacity}.");
+            }
+
+            return EvaluateCandidate(
+                terminalState,
+                _candidateLines,
+                productCount,
+                cost);
+        }
+
+        private ProcurementPurchaseEvaluation EvaluateCandidate(
+            TerminalState terminalState,
+            IReadOnlyList<CandidateLine> candidateLines,
+            int candidateProductCount,
+            int candidateCost)
+        {
+            if (candidateLines.Count <= 0 || candidateProductCount <= 0 ||
+                candidateCost <= 0)
+            {
+                throw new InvalidOperationException(
+                    "Procurement purchase candidate is invalid.");
+            }
+            int validatedProductCount = 0;
+            int validatedCost = 0;
+            for (int index = 0; index < candidateLines.Count; index++)
+            {
+                CandidateLine line = candidateLines[index];
+                for (int previousIndex = 0; previousIndex < index; previousIndex++)
+                {
+                    if (candidateLines[previousIndex].ProductType == line.ProductType)
+                    {
+                        throw new InvalidOperationException(
+                            $"Procurement purchase candidate contains duplicate " +
+                            $"{line.ProductType} lines.");
+                    }
+                }
+                validatedProductCount = checked(
+                    validatedProductCount + line.ProductCount);
+                validatedCost = checked(validatedCost + line.Cost);
+            }
+            if (validatedProductCount != candidateProductCount ||
+                validatedCost != candidateCost)
+            {
+                throw new InvalidOperationException(
+                    "Procurement purchase candidate aggregate totals are invalid.");
+            }
+
             ProjectionState state = CreateCurrentState(
                 terminalState.Store,
                 terminalState.StorageZone);
@@ -57,7 +204,7 @@ namespace HardwareStore.Gameplay.Common.Economy
             int moneyAfterPurchase;
             try
             {
-                moneyAfterPurchase = checked(state.Money - candidateDelivery.TotalCost);
+                moneyAfterPurchase = checked(state.Money - candidateCost);
             }
             catch (OverflowException exception)
             {
@@ -68,7 +215,7 @@ namespace HardwareStore.Gameplay.Common.Economy
 
             ProcurementPurchaseAvailability availability;
             if (state.Capacity - state.OccupiedSlotCount <
-                candidateDelivery.ProductCount)
+                candidateProductCount)
             {
                 availability = ProcurementPurchaseAvailability.InsufficientStorage;
             }
@@ -82,10 +229,21 @@ namespace HardwareStore.Gameplay.Common.Economy
                 afterCandidate.Money = moneyAfterPurchase;
                 afterCandidate.OccupiedSlotCount = checked(
                     afterCandidate.OccupiedSlotCount +
-                    candidateDelivery.ProductCount);
-                afterCandidate.Stock[productType] = checked(
-                    afterCandidate.Stock[productType] +
-                    candidateDelivery.ProductCount);
+                    candidateProductCount);
+                for (int index = 0; index < candidateLines.Count; index++)
+                {
+                    CandidateLine line = candidateLines[index];
+                    if (!afterCandidate.Stock.TryGetValue(
+                            line.ProductType,
+                            out int currentCount))
+                    {
+                        throw new InvalidOperationException(
+                            $"Purchase candidate references unconfigured product " +
+                            $"{line.ProductType}.");
+                    }
+                    afterCandidate.Stock[line.ProductType] = checked(
+                        currentCount + line.ProductCount);
+                }
 
                 availability = IsProtectedDemandSolvent(
                         afterCandidate,
@@ -99,8 +257,8 @@ namespace HardwareStore.Gameplay.Common.Economy
                 demandPlan.Summary.Kind,
                 demandPlan.Summary.ProjectType,
                 demandPlan.Summary.VisitEntityId,
-                candidateDelivery.ProductCount,
-                candidateDelivery.TotalCost,
+                candidateProductCount,
+                candidateCost,
                 moneyAfterPurchase);
         }
 
@@ -164,6 +322,13 @@ namespace HardwareStore.Gameplay.Common.Economy
                 throw new InvalidOperationException(
                     $"Procurement terminal {terminal.EntityId} cannot evaluate another " +
                     "purchase while a delivery is active.");
+            }
+            if (_gameContext.GetEntityWithPurchaseOrderProcurementTerminalEntityId(
+                    terminal.EntityId) != null)
+            {
+                throw new InvalidOperationException(
+                    $"Procurement terminal {terminal.EntityId} cannot evaluate another " +
+                    "purchase while a purchase order is active.");
             }
 
             GameEntity store =
@@ -247,23 +412,71 @@ namespace HardwareStore.Gameplay.Common.Economy
                 return;
             if (!delivery.isDelivery || !delivery.isDeliveryActive ||
                 !delivery.hasEntityId || !delivery.hasStoreEntityId ||
-                !delivery.hasProductType || !delivery.hasDeliveryProductCount ||
-                !delivery.hasStockedProductCount ||
+                !delivery.hasDeliveryPurchaseOrderEntityId ||
+                !delivery.hasDeliveryProductCount || !delivery.hasStockedProductCount ||
                 delivery.StoreEntityId != terminal.StoreEntityId ||
                 delivery.DeliveryProductCount <= 0 ||
                 delivery.StockedProductCount < 0 ||
-                delivery.StockedProductCount > delivery.DeliveryProductCount ||
-                !state.Stock.ContainsKey(delivery.ProductType))
+                delivery.StockedProductCount > delivery.DeliveryProductCount)
             {
                 throw new InvalidOperationException(
                     $"Procurement terminal {terminal.EntityId} has an invalid committed " +
                     "delivery.");
             }
 
-            int committedProductCount = checked(
-                delivery.DeliveryProductCount - delivery.StockedProductCount);
-            state.Stock[delivery.ProductType] = checked(
-                state.Stock[delivery.ProductType] + committedProductCount);
+            GameEntity order = _gameContext.GetEntityWithEntityId(
+                delivery.DeliveryPurchaseOrderEntityId);
+            if (order == null || !order.isPurchaseOrder || order.isDestructed ||
+                !order.hasEntityId || !order.hasStoreEntityId ||
+                order.StoreEntityId != terminal.StoreEntityId ||
+                !order.hasPurchaseOrderProcurementTerminalEntityId ||
+                order.PurchaseOrderProcurementTerminalEntityId != terminal.EntityId ||
+                !order.hasPurchaseOrderProductCount ||
+                order.PurchaseOrderProductCount != delivery.DeliveryProductCount)
+            {
+                throw new InvalidOperationException(
+                    $"Committed delivery {delivery.EntityId} has an invalid purchase order.");
+            }
+
+            int committedProductCount = 0;
+            int registeredProductCount = 0;
+            foreach (GameEntity line in _gameContext.GetEntitiesWithPurchaseOrderEntityId(
+                         order.EntityId))
+            {
+                if (!line.isPurchaseOrderLine || line.isDestructed ||
+                    !line.hasEntityId || !line.hasProductType ||
+                    !line.hasPurchaseOrderLineProductCount ||
+                    !line.hasPurchaseOrderLineStockedProductCount ||
+                    line.PurchaseOrderLineProductCount <= 0 ||
+                    line.PurchaseOrderLineStockedProductCount < 0 ||
+                    line.PurchaseOrderLineStockedProductCount >
+                    line.PurchaseOrderLineProductCount ||
+                    !state.Stock.ContainsKey(line.ProductType))
+                {
+                    throw new InvalidOperationException(
+                        $"Purchase order {order.EntityId} contains an invalid committed line.");
+                }
+
+                int lineCommittedCount = checked(
+                    line.PurchaseOrderLineProductCount -
+                    line.PurchaseOrderLineStockedProductCount);
+                state.Stock[line.ProductType] = checked(
+                    state.Stock[line.ProductType] + lineCommittedCount);
+                committedProductCount = checked(
+                    committedProductCount + lineCommittedCount);
+                registeredProductCount = checked(
+                    registeredProductCount +
+                    line.PurchaseOrderLineStockedProductCount);
+            }
+            if (committedProductCount != checked(
+                    delivery.DeliveryProductCount - delivery.StockedProductCount) ||
+                registeredProductCount != delivery.StockedProductCount)
+            {
+                throw new InvalidOperationException(
+                    $"Committed delivery {delivery.EntityId} aggregate counters disagree " +
+                    "with its manifest.");
+            }
+
             state.OccupiedSlotCount = checked(
                 state.OccupiedSlotCount + committedProductCount);
             if (state.OccupiedSlotCount > state.Capacity)
@@ -458,7 +671,7 @@ namespace HardwareStore.Gameplay.Common.Economy
                 summary,
                 store.NextProjectSequenceIndex,
                 _staticData.ProjectTypes.Count);
-            ValidateProjectionBound(demandPlan);
+            ValidateProjectionPlan(demandPlan);
             return demandPlan;
         }
 
@@ -471,10 +684,14 @@ namespace HardwareStore.Gameplay.Common.Economy
 
             try
             {
+                var memo = new ProjectionMemo(
+                    _staticData.ProductTypes,
+                    MaximumProjectionStateCount);
                 return AreProtectedDemandsSolvent(
                     afterCandidate,
                     demandPlan,
-                    demandIndex: 0);
+                    demandIndex: 0,
+                    memo);
             }
             catch (OverflowException exception)
             {
@@ -487,14 +704,28 @@ namespace HardwareStore.Gameplay.Common.Economy
         private bool AreProtectedDemandsSolvent(
             ProjectionState state,
             DemandPlan demandPlan,
-            int demandIndex)
+            int demandIndex,
+            ProjectionMemo memo)
         {
+            ProjectionKey key = memo.CreateKey(
+                ProjectionPhase.ProtectedDemand,
+                demandIndex,
+                secondaryStage: 0,
+                state);
+            if (memo.TryGetCompleted(key, out bool cachedResult))
+                return cachedResult;
+            memo.Register(key);
+
+            bool result;
             if (demandIndex == demandPlan.ProtectedDemands.Count)
             {
-                return AreForecastPathsSolvent(
+                result = AreForecastPathsSolvent(
                     state,
                     demandPlan.FutureProjectSequenceIndex,
-                    demandPlan.FutureProjectCount);
+                    demandPlan.FutureProjectCount,
+                    memo);
+                memo.Complete(key, result);
+                return result;
             }
 
             ProtectedDemand demand = demandPlan.ProtectedDemands[demandIndex];
@@ -506,13 +737,17 @@ namespace HardwareStore.Gameplay.Common.Economy
                         demand.Reward,
                         out ProjectionState afterOrder))
                 {
+                    memo.Complete(key, result: false);
                     return false;
                 }
 
-                return AreProtectedDemandsSolvent(
+                result = AreProtectedDemandsSolvent(
                     afterOrder,
                     demandPlan,
-                    demandIndex + 1);
+                    demandIndex + 1,
+                    memo);
+                memo.Complete(key, result);
+                return result;
             }
 
             CustomerProjectConfig project = _staticData.GetProject(demand.ProjectType);
@@ -522,6 +757,7 @@ namespace HardwareStore.Gameplay.Common.Economy
                     $"Customer project {project.ProjectType} has no offers to project.");
             }
 
+            result = true;
             foreach (CustomerProjectOfferDefinition offer in project.Offers)
             {
                 Dictionary<ProductTypeId, int> requirements =
@@ -535,22 +771,38 @@ namespace HardwareStore.Gameplay.Common.Economy
                     !AreProtectedDemandsSolvent(
                         afterOffer,
                         demandPlan,
-                        demandIndex + 1))
+                        demandIndex + 1,
+                        memo))
                 {
-                    return false;
+                    result = false;
+                    break;
                 }
             }
 
-            return true;
+            memo.Complete(key, result);
+            return result;
         }
 
         private bool AreForecastPathsSolvent(
             ProjectionState state,
             int projectSequenceIndex,
-            int remainingProjectCount)
+            int remainingProjectCount,
+            ProjectionMemo memo)
         {
+            ProjectionKey key = memo.CreateKey(
+                ProjectionPhase.Forecast,
+                projectSequenceIndex,
+                remainingProjectCount,
+                state);
+            if (memo.TryGetCompleted(key, out bool cachedResult))
+                return cachedResult;
+            memo.Register(key);
+
             if (remainingProjectCount == 0)
+            {
+                memo.Complete(key, result: true);
                 return true;
+            }
 
             CustomerProjectConfig project = _staticData.GetProject(
                 _staticData.ProjectTypes[projectSequenceIndex]);
@@ -560,6 +812,7 @@ namespace HardwareStore.Gameplay.Common.Economy
                     $"Customer project {project.ProjectType} has no offers to project.");
             }
 
+            bool result = true;
             foreach (CustomerProjectOfferDefinition offer in project.Offers)
             {
                 Dictionary<ProductTypeId, int> requirements =
@@ -571,19 +824,23 @@ namespace HardwareStore.Gameplay.Common.Economy
                         reward,
                         out ProjectionState afterOffer))
                 {
-                    return false;
+                    result = false;
+                    break;
                 }
 
                 if (!AreForecastPathsSolvent(
                         afterOffer,
                         NextSequenceIndex(projectSequenceIndex),
-                        remainingProjectCount - 1))
+                        remainingProjectCount - 1,
+                        memo))
                 {
-                    return false;
+                    result = false;
+                    break;
                 }
             }
 
-            return true;
+            memo.Complete(key, result);
+            return result;
         }
 
         private bool TryCompleteRequirements(
@@ -767,7 +1024,7 @@ namespace HardwareStore.Gameplay.Common.Economy
             return reward;
         }
 
-        private void ValidateProjectionBound(DemandPlan demandPlan)
+        private void ValidateProjectionPlan(DemandPlan demandPlan)
         {
             ValidateSequenceIndex(demandPlan.FutureProjectSequenceIndex);
             if (demandPlan.FutureProjectCount < 0 ||
@@ -777,7 +1034,6 @@ namespace HardwareStore.Gameplay.Common.Economy
                     nameof(demandPlan.FutureProjectCount));
             }
 
-            int leafCount = 1;
             for (int index = 0; index < demandPlan.ProtectedDemands.Count; index++)
             {
                 ProtectedDemand demand = demandPlan.ProtectedDemands[index];
@@ -785,7 +1041,7 @@ namespace HardwareStore.Gameplay.Common.Economy
                     continue;
 
                 CustomerProjectConfig project = _staticData.GetProject(demand.ProjectType);
-                MultiplyProjectionLeafCount(ref leafCount, project);
+                ValidateProjectionProject(project);
             }
 
             int sequenceIndex = demandPlan.FutureProjectSequenceIndex;
@@ -793,14 +1049,12 @@ namespace HardwareStore.Gameplay.Common.Economy
             {
                 CustomerProjectConfig project = _staticData.GetProject(
                     _staticData.ProjectTypes[sequenceIndex]);
-                MultiplyProjectionLeafCount(ref leafCount, project);
+                ValidateProjectionProject(project);
                 sequenceIndex = NextSequenceIndex(sequenceIndex);
             }
         }
 
-        private static void MultiplyProjectionLeafCount(
-            ref int leafCount,
-            CustomerProjectConfig project)
+        private static void ValidateProjectionProject(CustomerProjectConfig project)
         {
             int offerCount = project.Offers.Count;
             if (offerCount <= 0)
@@ -808,14 +1062,6 @@ namespace HardwareStore.Gameplay.Common.Economy
                 throw new InvalidOperationException(
                     $"Customer project {project.ProjectType} has no offers to project.");
             }
-            if (leafCount > MaximumProjectionLeafCount / offerCount)
-            {
-                throw new InvalidOperationException(
-                    $"Procurement solvency projection expands to more than " +
-                    $"{MaximumProjectionLeafCount} offer paths.");
-            }
-
-            leafCount *= offerCount;
         }
 
         private void ValidateVisit(GameEntity visit, GameEntity store)
@@ -911,6 +1157,186 @@ namespace HardwareStore.Gameplay.Common.Economy
             int boundedStepCount = stepCount % _staticData.ProjectTypes.Count;
             return (int)(((long)sequenceIndex + boundedStepCount) %
                          _staticData.ProjectTypes.Count);
+        }
+
+        private enum ProjectionPhase
+        {
+            ProtectedDemand = 0,
+            Forecast = 1
+        }
+
+        private readonly struct CandidateLine
+        {
+            public CandidateLine(ProductTypeId productType, int productCount, int cost)
+            {
+                if (productCount <= 0)
+                    throw new ArgumentOutOfRangeException(nameof(productCount));
+                if (cost <= 0)
+                    throw new ArgumentOutOfRangeException(nameof(cost));
+
+                ProductType = productType;
+                ProductCount = productCount;
+                Cost = cost;
+            }
+
+            public ProductTypeId ProductType { get; }
+            public int ProductCount { get; }
+            public int Cost { get; }
+        }
+
+        private sealed class ProjectionMemo
+        {
+            private const byte Pending = 0;
+            private const byte CompletedFalse = 1;
+            private const byte CompletedTrue = 2;
+
+            private readonly IReadOnlyList<ProductTypeId> _productTypes;
+            private readonly int _maximumStateCount;
+            private readonly Dictionary<ProjectionKey, byte> _results = new();
+
+            public ProjectionMemo(IReadOnlyList<ProductTypeId> productTypes,
+                int maximumStateCount)
+            {
+                if (productTypes == null || productTypes.Count == 0)
+                    throw new ArgumentException("Projection product catalog is empty.",
+                        nameof(productTypes));
+                if (maximumStateCount <= 0)
+                    throw new ArgumentOutOfRangeException(nameof(maximumStateCount));
+
+                _productTypes = productTypes;
+                _maximumStateCount = maximumStateCount;
+            }
+
+            public ProjectionKey CreateKey(ProjectionPhase phase, int primaryStage,
+                int secondaryStage, ProjectionState state)
+            {
+                var stock = new int[_productTypes.Count];
+                for (int index = 0; index < _productTypes.Count; index++)
+                {
+                    ProductTypeId productType = _productTypes[index];
+                    if (!state.Stock.TryGetValue(productType, out int count) || count < 0)
+                    {
+                        throw new InvalidOperationException(
+                            $"Projection state has invalid stock for {productType}.");
+                    }
+                    stock[index] = count;
+                }
+
+                return new ProjectionKey(
+                    phase,
+                    primaryStage,
+                    secondaryStage,
+                    state.Money,
+                    state.OccupiedSlotCount,
+                    state.Capacity,
+                    stock);
+            }
+
+            public bool TryGetCompleted(ProjectionKey key, out bool result)
+            {
+                if (!_results.TryGetValue(key, out byte value))
+                {
+                    result = false;
+                    return false;
+                }
+                if (value == Pending)
+                {
+                    throw new InvalidOperationException(
+                        "Procurement projection unexpectedly reached a cyclic state.");
+                }
+
+                result = value == CompletedTrue;
+                return true;
+            }
+
+            public void Register(ProjectionKey key)
+            {
+                if (_results.Count >= _maximumStateCount)
+                {
+                    throw new InvalidOperationException(
+                        $"Procurement solvency projection explored " +
+                        $"{_results.Count} unique states and reached its strict " +
+                        $"{_maximumStateCount}-state limit.");
+                }
+                if (!_results.TryAdd(key, Pending))
+                    throw new InvalidOperationException("Projection state was registered twice.");
+            }
+
+            public void Complete(ProjectionKey key, bool result)
+            {
+                if (!_results.TryGetValue(key, out byte value) || value != Pending)
+                {
+                    throw new InvalidOperationException(
+                        "Projection state completion does not match its registration.");
+                }
+                _results[key] = result ? CompletedTrue : CompletedFalse;
+            }
+        }
+
+        private sealed class ProjectionKey : IEquatable<ProjectionKey>
+        {
+            private readonly int[] _stock;
+            private readonly int _hashCode;
+
+            public ProjectionKey(ProjectionPhase phase, int primaryStage,
+                int secondaryStage, int money, int occupiedSlotCount, int capacity,
+                int[] stock)
+            {
+                Phase = phase;
+                PrimaryStage = primaryStage;
+                SecondaryStage = secondaryStage;
+                Money = money;
+                OccupiedSlotCount = occupiedSlotCount;
+                Capacity = capacity;
+                _stock = stock ?? throw new ArgumentNullException(nameof(stock));
+
+                unchecked
+                {
+                    int hash = 17;
+                    hash = hash * 31 + (int)phase;
+                    hash = hash * 31 + primaryStage;
+                    hash = hash * 31 + secondaryStage;
+                    hash = hash * 31 + money;
+                    hash = hash * 31 + occupiedSlotCount;
+                    hash = hash * 31 + capacity;
+                    for (int index = 0; index < _stock.Length; index++)
+                        hash = hash * 31 + _stock[index];
+                    _hashCode = hash;
+                }
+            }
+
+            private ProjectionPhase Phase { get; }
+            private int PrimaryStage { get; }
+            private int SecondaryStage { get; }
+            private int Money { get; }
+            private int OccupiedSlotCount { get; }
+            private int Capacity { get; }
+
+            public bool Equals(ProjectionKey other)
+            {
+                if (ReferenceEquals(this, other))
+                    return true;
+                if (other == null || Phase != other.Phase ||
+                    PrimaryStage != other.PrimaryStage ||
+                    SecondaryStage != other.SecondaryStage ||
+                    Money != other.Money ||
+                    OccupiedSlotCount != other.OccupiedSlotCount ||
+                    Capacity != other.Capacity ||
+                    _stock.Length != other._stock.Length)
+                {
+                    return false;
+                }
+
+                for (int index = 0; index < _stock.Length; index++)
+                {
+                    if (_stock[index] != other._stock[index])
+                        return false;
+                }
+                return true;
+            }
+
+            public override bool Equals(object obj) => Equals(obj as ProjectionKey);
+            public override int GetHashCode() => _hashCode;
         }
 
         private sealed class ProjectionState

@@ -7,59 +7,55 @@ namespace HardwareStore.Gameplay.Presentation
 {
     public readonly struct ProcurementSnapshot
     {
-        private const int ProductCardCount = 2;
-
         public ProcurementSnapshot(
             ProcurementDemandKind demandKind,
             CustomerProjectTypeId projectType,
             int money,
             int freeStorageSlotCount,
-            ProcurementProductSnapshot[] products)
+            int selectedProductIndex,
+            ProcurementProductSnapshot[] products,
+            ProcurementCartSnapshot cart)
         {
             if (!Enum.IsDefined(typeof(ProcurementDemandKind), demandKind))
                 throw new ArgumentOutOfRangeException(nameof(demandKind));
             if (!Enum.IsDefined(typeof(CustomerProjectTypeId), projectType))
                 throw new ArgumentOutOfRangeException(nameof(projectType));
-            DemandKind = demandKind;
-            ProjectType = projectType;
             if (money < 0)
                 throw new ArgumentOutOfRangeException(nameof(money));
             if (freeStorageSlotCount < 0)
                 throw new ArgumentOutOfRangeException(nameof(freeStorageSlotCount));
             if (products == null)
                 throw new ArgumentNullException(nameof(products));
-            if (products.Length != ProductCardCount)
-            {
+            if (products.Length == 0)
                 throw new ArgumentException(
-                    $"The procurement catalog must present exactly {ProductCardCount} products.",
+                    "The procurement catalog must present at least one product.",
                     nameof(products));
-            }
+            if (selectedProductIndex < 0 || selectedProductIndex >= products.Length)
+                throw new ArgumentOutOfRangeException(nameof(selectedProductIndex));
 
-            int selectedCount = 0;
             for (int index = 0; index < products.Length; index++)
             {
-                if (products[index].Index != index)
+                ProcurementProductSnapshot product = products[index];
+                if (product.Index != index)
                 {
                     throw new ArgumentException(
                         "Procurement product indices must be contiguous and ordered.",
                         nameof(products));
                 }
-                if (products[index].Selected)
-                    selectedCount++;
                 if (demandKind == ProcurementDemandKind.ProjectForecast)
                 {
-                    if (products[index].RemainingRequiredProductCount != 0 ||
-                        products[index].DeficitProductCount != 0)
+                    if (product.RemainingRequiredProductCount != 0 ||
+                        product.ProjectedDeficitProductCount != 0)
                     {
                         throw new ArgumentException(
                             "Forecast procurement cards cannot contain confirmed-order counts.",
                             nameof(products));
                     }
                 }
-                else if (products[index].MinimumRequiredProductCount !=
-                         products[index].RemainingRequiredProductCount ||
-                         products[index].MaximumRequiredProductCount !=
-                         products[index].RemainingRequiredProductCount)
+                else if (product.MinimumRequiredProductCount !=
+                         product.RemainingRequiredProductCount ||
+                         product.MaximumRequiredProductCount !=
+                         product.RemainingRequiredProductCount)
                 {
                     throw new ArgumentException(
                         "Confirmed-order procurement cards must expose one exact demand count.",
@@ -67,7 +63,7 @@ namespace HardwareStore.Gameplay.Presentation
                 }
                 for (int previous = 0; previous < index; previous++)
                 {
-                    if (products[previous].ProductType == products[index].ProductType)
+                    if (products[previous].ProductType == product.ProductType)
                     {
                         throw new ArgumentException(
                             "The procurement catalog cannot contain duplicate product types.",
@@ -76,22 +72,73 @@ namespace HardwareStore.Gameplay.Presentation
                 }
             }
 
-            if (selectedCount != 1)
-            {
-                throw new ArgumentException(
-                    "The procurement catalog must have exactly one selected product.",
-                    nameof(products));
-            }
-
+            ValidateCartProducts(products, cart);
+            DemandKind = demandKind;
+            ProjectType = projectType;
             Money = money;
             FreeStorageSlotCount = freeStorageSlotCount;
+            SelectedProductIndex = selectedProductIndex;
             Products = Array.AsReadOnly((ProcurementProductSnapshot[])products.Clone());
+            Cart = cart;
         }
 
         public ProcurementDemandKind DemandKind { get; }
         public CustomerProjectTypeId ProjectType { get; }
         public int Money { get; }
         public int FreeStorageSlotCount { get; }
+        public int SelectedProductIndex { get; }
         public IReadOnlyList<ProcurementProductSnapshot> Products { get; }
+        public ProcurementCartSnapshot Cart { get; }
+
+        private static void ValidateCartProducts(
+            ProcurementProductSnapshot[] products,
+            ProcurementCartSnapshot cart)
+        {
+            int matchedLineCount = 0;
+            for (int productIndex = 0; productIndex < products.Length; productIndex++)
+            {
+                ProcurementProductSnapshot product = products[productIndex];
+                ProcurementCartLineSnapshot? matchingLine = null;
+                for (int lineIndex = 0; lineIndex < cart.Lines.Count; lineIndex++)
+                {
+                    ProcurementCartLineSnapshot line = cart.Lines[lineIndex];
+                    if (line.ProductType != product.ProductType)
+                        continue;
+
+                    matchingLine = line;
+                    matchedLineCount++;
+                    break;
+                }
+
+                if (!matchingLine.HasValue)
+                {
+                    if (product.CartPackageCount != 0)
+                    {
+                        throw new ArgumentException(
+                            "A product card references packages missing from the cart.",
+                            nameof(products));
+                    }
+                    continue;
+                }
+
+                ProcurementCartLineSnapshot cartLine = matchingLine.Value;
+                if (product.CartPackageCount != cartLine.PackageCount ||
+                    product.PackageProductCount != cartLine.PackageProductCount ||
+                    product.PackageCost != cartLine.PackageCost ||
+                    product.CartProductCount != cartLine.ProductCount)
+                {
+                    throw new ArgumentException(
+                        "Product card cart totals disagree with the matching cart line.",
+                        nameof(products));
+                }
+            }
+
+            if (matchedLineCount != cart.Lines.Count)
+            {
+                throw new ArgumentException(
+                    "The cart contains a product absent from the procurement catalog.",
+                    nameof(cart));
+            }
+        }
     }
 }

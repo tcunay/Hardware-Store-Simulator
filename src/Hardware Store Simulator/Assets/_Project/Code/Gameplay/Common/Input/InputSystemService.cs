@@ -16,6 +16,8 @@ namespace HardwareStore.Gameplay.Common.Input
         private InputAction _trolley;
         private InputAction _previous;
         private InputAction _next;
+        private InputAction _increase;
+        private InputAction _decrease;
         private InputAction _sprint;
 
         public Vector2 Move => _move.ReadValue<Vector2>();
@@ -27,6 +29,8 @@ namespace HardwareStore.Gameplay.Common.Input
         public bool TrolleyPressedThisFrame => _trolley.WasPressedThisFrame();
         public bool PreviousPressedThisFrame => _previous.WasPressedThisFrame();
         public bool NextPressedThisFrame => _next.WasPressedThisFrame();
+        public bool IncreasePressedThisFrame => _increase.WasPressedThisFrame();
+        public bool DecreasePressedThisFrame => _decrease.WasPressedThisFrame();
         public bool ToggleCursorPressedThisFrame =>
             Keyboard.current != null && Keyboard.current.escapeKey.wasPressedThisFrame;
         public bool LookUsesPointer => _look.activeControl?.device is Pointer;
@@ -42,6 +46,8 @@ namespace HardwareStore.Gameplay.Common.Input
             _trolley = _playerMap.FindAction("Trolley", true);
             _previous = _playerMap.FindAction("Previous", true);
             _next = _playerMap.FindAction("Next", true);
+            _increase = _playerMap.FindAction("Increase", true);
+            _decrease = _playerMap.FindAction("Decrease", true);
             _sprint = _playerMap.FindAction("Sprint", true);
             _playerMap.Enable();
         }

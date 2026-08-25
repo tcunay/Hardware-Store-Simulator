@@ -9,6 +9,8 @@ namespace HardwareStore.Gameplay.Features.StorageState.Systems
         private readonly IGroup<GameEntity> _storageZones;
         private readonly IGroup<GameEntity> _inStockProducts;
         private readonly IGroup<GameEntity> _inStockProductsWithoutStorage;
+        private readonly Dictionary<int, StorageZoneState> _storageZonesById = new(4);
+        private bool _storageZoneTopologyCaptured;
 
         public RefreshStorageProductCountSystem(GameContext gameContext)
         {
@@ -35,27 +37,73 @@ namespace HardwareStore.Gameplay.Features.StorageState.Systems
                 throw new InvalidOperationException(
                     $"In-stock product {product.EntityId} has no storage ownership relation.");
 
-            var productsByStorage = new Dictionary<int, int>(_storageZones.count);
-            foreach (GameEntity storageZone in _storageZones)
-                productsByStorage.Add(storageZone.EntityId, 0);
+            CaptureOrValidateStorageZoneTopology();
+            foreach (StorageZoneState state in _storageZonesById.Values)
+                state.ProductCount = 0;
 
             foreach (GameEntity product in _inStockProducts)
             {
-                if (!productsByStorage.TryGetValue(
+                if (!_storageZonesById.TryGetValue(
                         product.StorageZoneEntityId,
-                        out int productCount))
+                        out StorageZoneState storageZone))
                 {
                     throw new InvalidOperationException(
                         $"In-stock product {product.EntityId} references missing storage zone " +
                         $"{product.StorageZoneEntityId}.");
                 }
 
-                productsByStorage[product.StorageZoneEntityId] = productCount + 1;
+                storageZone.ProductCount = checked(storageZone.ProductCount + 1);
             }
 
             foreach (GameEntity storageZone in _storageZones)
                 storageZone.ReplaceStorageProductCount(
-                    productsByStorage[storageZone.EntityId]);
+                    _storageZonesById[storageZone.EntityId].ProductCount);
+        }
+
+        private void CaptureOrValidateStorageZoneTopology()
+        {
+            if (!_storageZoneTopologyCaptured)
+            {
+                foreach (GameEntity storageZone in _storageZones)
+                {
+                    if (!_storageZonesById.TryAdd(
+                            storageZone.EntityId,
+                            new StorageZoneState(storageZone)))
+                    {
+                        throw new InvalidOperationException(
+                            $"Storage zone entity id {storageZone.EntityId} is not unique.");
+                    }
+                }
+
+                _storageZoneTopologyCaptured = true;
+                return;
+            }
+
+            if (_storageZones.count != _storageZonesById.Count)
+            {
+                throw new InvalidOperationException(
+                    "Storage zone topology cannot change after storage-state refresh starts.");
+            }
+
+            foreach (GameEntity storageZone in _storageZones)
+            {
+                if (!_storageZonesById.TryGetValue(
+                        storageZone.EntityId,
+                        out StorageZoneState state) ||
+                    !ReferenceEquals(state.Entity, storageZone))
+                {
+                    throw new InvalidOperationException(
+                        $"Storage zone {storageZone.EntityId} changed its runtime topology.");
+                }
+            }
+        }
+
+        private sealed class StorageZoneState
+        {
+            public readonly GameEntity Entity;
+            public int ProductCount;
+
+            public StorageZoneState(GameEntity entity) => Entity = entity;
         }
     }
 }
