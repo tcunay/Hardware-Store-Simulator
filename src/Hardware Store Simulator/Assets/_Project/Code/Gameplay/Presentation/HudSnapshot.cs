@@ -11,10 +11,11 @@ namespace HardwareStore.Gameplay.Presentation
             CustomerProjectTypeId? projectType,
             OrderLineSnapshot[] orderLines, int totalAvailableProductCount,
             int totalLoadedProductCount, int totalRequiredProductCount,
-            int money, int stockCount, DeliveryProgressSnapshot? delivery,
+            int money, int stockCount, bool customerDemandUnavailable,
+            DeliveryProgressSnapshot? delivery,
             ProductTypeId? carriedProductType,
             LocalizedText prompt, bool hasFocus, bool canInteract, bool hasItem,
-            bool isPushingTrolley, bool cursorLocked,
+            bool isPushingTrolley, bool isDrivingForklift, bool cursorLocked,
             CustomerFlowSnapshot customerFlow,
             WarehouseWorkerStatusSnapshot? warehouseWorkerStatus)
         {
@@ -36,6 +37,7 @@ namespace HardwareStore.Gameplay.Presentation
             TotalRequiredProductCount = totalRequiredProductCount;
             Money = money;
             StockCount = stockCount;
+            CustomerDemandUnavailable = customerDemandUnavailable;
             Delivery = delivery;
             CarriedProductType = carriedProductType;
             Prompt = prompt;
@@ -43,6 +45,7 @@ namespace HardwareStore.Gameplay.Presentation
             CanInteract = canInteract;
             HasItem = hasItem;
             IsPushingTrolley = isPushingTrolley;
+            IsDrivingForklift = isDrivingForklift;
             CursorLocked = cursorLocked;
             CustomerFlow = customerFlow;
             WarehouseWorkerStatus = warehouseWorkerStatus;
@@ -57,6 +60,7 @@ namespace HardwareStore.Gameplay.Presentation
         public int TotalRequiredProductCount { get; }
         public int Money { get; }
         public int StockCount { get; }
+        public bool CustomerDemandUnavailable { get; }
         public DeliveryProgressSnapshot? Delivery { get; }
         public bool HasActiveDelivery => Delivery.HasValue;
         public ProductTypeId? CarriedProductType { get; }
@@ -65,6 +69,7 @@ namespace HardwareStore.Gameplay.Presentation
         public bool CanInteract { get; }
         public bool HasItem { get; }
         public bool IsPushingTrolley { get; }
+        public bool IsDrivingForklift { get; }
         public bool CursorLocked { get; }
         public CustomerFlowSnapshot CustomerFlow { get; }
         public WarehouseWorkerStatusSnapshot? WarehouseWorkerStatus { get; }

@@ -25,6 +25,9 @@ namespace HardwareStore.Gameplay.StaticData
         public EconomyConfig Economy { get; private set; }
         public ProductRecoveryConfig ProductRecovery { get; private set; }
         public PlatformTrolleyConfig PlatformTrolley { get; private set; }
+        public ForkliftConfig Forklift { get; private set; }
+        public FreightTruckConfig FreightTruck { get; private set; }
+        public PalletConfig Pallet { get; private set; }
         public WarehouseWorkerConfig WarehouseWorker { get; private set; }
         public StoreDayConfig StoreDay { get; private set; }
         public CustomerFlowConfig CustomerFlow { get; private set; }
@@ -46,6 +49,10 @@ namespace HardwareStore.Gameplay.StaticData
                 Load<ProductRecoveryConfig>(nameof(ProductRecoveryConfig));
             PlatformTrolleyConfig platformTrolley =
                 Load<PlatformTrolleyConfig>(nameof(PlatformTrolleyConfig));
+            ForkliftConfig forklift = Load<ForkliftConfig>(nameof(ForkliftConfig));
+            FreightTruckConfig freightTruck =
+                Load<FreightTruckConfig>(nameof(FreightTruckConfig));
+            PalletConfig pallet = Load<PalletConfig>(nameof(PalletConfig));
             WarehouseWorkerConfig warehouseWorker =
                 Load<WarehouseWorkerConfig>(nameof(WarehouseWorkerConfig));
             StoreDayConfig storeDay = Load<StoreDayConfig>(nameof(StoreDayConfig));
@@ -73,6 +80,9 @@ namespace HardwareStore.Gameplay.StaticData
             economy.Validate();
             productRecovery.Validate();
             platformTrolley.Validate();
+            forklift.Validate();
+            freightTruck.Validate();
+            pallet.Validate();
             warehouseWorker.Validate();
             storeDay.Validate();
             customerFlow.Validate();
@@ -102,6 +112,9 @@ namespace HardwareStore.Gameplay.StaticData
             Economy = economy;
             ProductRecovery = productRecovery;
             PlatformTrolley = platformTrolley;
+            Forklift = forklift;
+            FreightTruck = freightTruck;
+            Pallet = pallet;
             WarehouseWorker = warehouseWorker;
             StoreDay = storeDay;
             CustomerFlow = customerFlow;

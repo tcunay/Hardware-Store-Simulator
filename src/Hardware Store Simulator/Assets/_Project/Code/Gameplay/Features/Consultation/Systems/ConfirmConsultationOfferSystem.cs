@@ -11,7 +11,7 @@ namespace HardwareStore.Gameplay.Features.Consultation.Systems
 {
     public sealed class ConfirmConsultationOfferSystem : IExecuteSystem
     {
-        private const int OfferCount = 3;
+        private const int OfferCount = 1;
 
         private readonly GameContext _gameContext;
         private readonly IOrderFactory _orderFactory;

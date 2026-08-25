@@ -19,7 +19,8 @@ namespace HardwareStore.Gameplay.Features.Movement.Systems
                 GameMatcher.Gravity,
                 GameMatcher.MoveDirection,
                 GameMatcher.MovementSpeed,
-                GameMatcher.HorizontalSpeed));
+                GameMatcher.HorizontalSpeed)
+                .NoneOf(GameMatcher.DrivingForklift));
         }
 
         public void Execute()

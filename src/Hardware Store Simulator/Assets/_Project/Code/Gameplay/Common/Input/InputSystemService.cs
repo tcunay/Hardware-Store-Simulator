@@ -18,6 +18,8 @@ namespace HardwareStore.Gameplay.Common.Input
         private InputAction _next;
         private InputAction _increase;
         private InputAction _decrease;
+        private InputAction _forkliftLift;
+        private InputAction _forkliftTransfer;
         private InputAction _sprint;
 
         public Vector2 Move => _move.ReadValue<Vector2>();
@@ -31,6 +33,8 @@ namespace HardwareStore.Gameplay.Common.Input
         public bool NextPressedThisFrame => _next.WasPressedThisFrame();
         public bool IncreasePressedThisFrame => _increase.WasPressedThisFrame();
         public bool DecreasePressedThisFrame => _decrease.WasPressedThisFrame();
+        public float ForkliftLiftInput => _forkliftLift.ReadValue<float>();
+        public bool ForkliftTransferPressed => _forkliftTransfer.WasPressedThisFrame();
         public bool ToggleCursorPressedThisFrame =>
             Keyboard.current != null && Keyboard.current.escapeKey.wasPressedThisFrame;
         public bool LookUsesPointer => _look.activeControl?.device is Pointer;
@@ -48,6 +52,8 @@ namespace HardwareStore.Gameplay.Common.Input
             _next = _playerMap.FindAction("Next", true);
             _increase = _playerMap.FindAction("Increase", true);
             _decrease = _playerMap.FindAction("Decrease", true);
+            _forkliftLift = _playerMap.FindAction("ForkliftLift", true);
+            _forkliftTransfer = _playerMap.FindAction("ForkliftTransfer", true);
             _sprint = _playerMap.FindAction("Sprint", true);
             _playerMap.Enable();
         }

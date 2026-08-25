@@ -23,9 +23,11 @@ namespace HardwareStore.Gameplay.Features.Trolley.Systems
             {
                 bool carryingProduct = player.isCarryingProduct;
                 bool pushingTrolley = player.isPushingTrolley;
+                bool drivingForklift = player.isDrivingForklift;
                 bool hasExactlyOneHandlingRole = carryingProduct ^ pushingTrolley;
                 if (player.isHandsOccupied != hasExactlyOneHandlingRole ||
-                    player.isModalOpen && hasExactlyOneHandlingRole)
+                    player.isModalOpen && hasExactlyOneHandlingRole ||
+                    drivingForklift && (hasExactlyOneHandlingRole || player.isModalOpen))
                 {
                     throw new InvalidOperationException(
                         $"Player {player.EntityId} has inconsistent hand occupancy state.");

@@ -73,7 +73,11 @@ namespace HardwareStore.Gameplay.Common.Physics
                 PoseTolerance)
             {
                 throw new InvalidOperationException(
-                    "Trolley Rigidbody and Transform poses are out of sync.");
+                    $"Kinematic Rigidbody '{trolleyBody.name}' and Transform poses " +
+                    $"are out of sync: position delta " +
+                    $"{Vector3.Distance(trolleyBody.position, trolleyTransform.position):F6}, " +
+                    $"rotation delta " +
+                    $"{Quaternion.Angle(trolleyBody.rotation, trolleyTransform.rotation):F6} degrees.");
             }
 
             Pose currentPose = new(trolleyBody.position, trolleyBody.rotation);

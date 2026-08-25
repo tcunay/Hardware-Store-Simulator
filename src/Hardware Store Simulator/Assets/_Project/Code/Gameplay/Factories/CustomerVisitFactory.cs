@@ -27,7 +27,8 @@ namespace HardwareStore.Gameplay.Factories
         }
 
         public GameEntity Create(GameEntity store, GameEntity parkingSpot,
-            GameEntity trafficLane)
+            GameEntity trafficLane, CustomerProjectTypeId projectType,
+            int offerIndex, int arrivalSequence)
         {
             ValidateStore(store);
             ValidateParkingSpot(store, parkingSpot);
@@ -35,21 +36,11 @@ namespace HardwareStore.Gameplay.Factories
 
             CustomerVehicleConfig config = _staticData.CustomerVehicle;
             Pose[] arrival = (Pose[])parkingSpot.CustomerVehicleArrivalRoute.Clone();
-            int projectSequenceIndex = store.NextProjectSequenceIndex;
-            if (projectSequenceIndex < 0 ||
-                projectSequenceIndex >= _staticData.ProjectTypes.Count)
-            {
-                throw new InvalidOperationException(
-                    $"Store {store.EntityId} has invalid next project sequence index " +
-                    $"{projectSequenceIndex} for {_staticData.ProjectTypes.Count} projects.");
-            }
-            if (store.NextCustomerArrivalSequence < 0)
-                throw new InvalidOperationException(
-                    $"Store {store.EntityId} has invalid customer arrival sequence.");
-
-            CustomerProjectTypeId projectType =
-                _staticData.ProjectTypes[projectSequenceIndex];
-            int arrivalSequence = store.NextCustomerArrivalSequence;
+            CustomerProjectConfig project = _staticData.GetProject(projectType);
+            if (offerIndex < 0 || offerIndex >= project.Offers.Count)
+                throw new ArgumentOutOfRangeException(nameof(offerIndex));
+            if (arrivalSequence < 0)
+                throw new ArgumentOutOfRangeException(nameof(arrivalSequence));
             GameEntity customerVisit = CreateEntity.Empty(_identifiers.Next())
                 .AddViewPrefab(config.ViewPrefab)
                 .AddSpawnPosition(arrival[0].position)
@@ -73,10 +64,7 @@ namespace HardwareStore.Gameplay.Factories
                 .With(x => x.isRouteMover = true)
                 .With(x => x.isLoadingZone = true);
 
-            _consultationOffers.CreateOffers(customerVisit);
-            store.ReplaceNextProjectSequenceIndex(
-                (projectSequenceIndex + 1) % _staticData.ProjectTypes.Count);
-            store.ReplaceNextCustomerArrivalSequence(checked(arrivalSequence + 1));
+            _consultationOffers.CreateOffer(customerVisit, offerIndex);
             return customerVisit;
         }
 
@@ -85,8 +73,7 @@ namespace HardwareStore.Gameplay.Factories
             if (store == null)
                 throw new ArgumentNullException(nameof(store));
             if (!store.isStore || !store.isStoreOpen || !store.hasEntityId ||
-                !store.hasStorageZoneEntityId || !store.hasNextProjectSequenceIndex ||
-                !store.hasNextCustomerArrivalSequence ||
+                !store.hasStorageZoneEntityId ||
                 !store.hasCustomerCooldownRemaining)
             {
                 throw new InvalidOperationException(

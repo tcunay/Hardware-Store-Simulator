@@ -16,10 +16,12 @@ namespace HardwareStore.Gameplay.Components
     [Game] public class MoveDirection : IComponent { public Vector3 Value; }
     [Game] public class MovementSpeed : IComponent { public float Value; }
     [Game] public class ViewPitch : IComponent { public float Value; }
+    [Game] public class CameraOrbitYaw : IComponent { public float Value; }
     [Game] public class MouseSensitivity : IComponent { public float Value; }
     [Game] public class GamepadLookSpeed : IComponent { public float Value; }
     [Game] public class MaxPitch : IComponent { public float Value; }
     [Game] public class HandsOccupied : IComponent { }
     [Game] public class ModalOpen : IComponent { }
     [Game] public class CursorLocked : IComponent { }
+    [Game] public class ThirdPersonCameraActive : IComponent { }
 }

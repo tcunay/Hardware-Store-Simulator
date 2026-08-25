@@ -1,9 +1,11 @@
 using HardwareStore.Gameplay.Features.Carrying;
+using HardwareStore.Gameplay.Features.Cameras;
 using HardwareStore.Gameplay.Features.Cleanup;
 using HardwareStore.Gameplay.Features.Consultation;
 using HardwareStore.Gameplay.Features.Customers;
 using HardwareStore.Gameplay.Features.Delivery;
 using HardwareStore.Gameplay.Features.Employees;
+using HardwareStore.Gameplay.Features.Forklift;
 using HardwareStore.Gameplay.Features.Input;
 using HardwareStore.Gameplay.Features.Interaction;
 using HardwareStore.Gameplay.Features.Movement;
@@ -47,10 +49,12 @@ namespace HardwareStore.Gameplay
             Add(systems.Create<StorageStateFeature>());
             Add(systems.Create<TrolleyFeature>());
             Add(systems.Create<StorageStateFeature>());
+            Add(systems.Create<ForkliftFeature>());
             Add(systems.Create<ProductPlacementFeature>());
             Add(systems.Create<CustomerFeature>());
             Add(systems.Create<MovementFeature>());
             Add(systems.Create<TrolleyMovementFeature>());
+            Add(systems.Create<VehicleCameraFeature>());
             Add(systems.Create<InteractionPromptFeature>());
             Add(systems.Create<ValidateStoreDayStateSystem>());
             Add(systems.Create<PresentationFeature>());

@@ -19,60 +19,61 @@ namespace HardwareStore.Gameplay.Factories
             _staticData = staticData;
         }
 
-        public void CreateOffers(GameEntity customerVisit)
+        public GameEntity CreateOffer(GameEntity customerVisit, int offerIndex)
         {
             ValidateCustomerVisit(customerVisit);
 
             CustomerProjectConfig project =
                 _staticData.GetProject(customerVisit.CustomerProjectType);
-            for (int offerIndex = 0; offerIndex < project.Offers.Count; offerIndex++)
+            if (offerIndex < 0 || offerIndex >= project.Offers.Count)
+                throw new ArgumentOutOfRangeException(nameof(offerIndex));
+
+            CustomerProjectOfferDefinition definition = project.Offers[offerIndex];
+            int reward = 0;
+            int procurementCost = 0;
+            try
             {
-                CustomerProjectOfferDefinition definition = project.Offers[offerIndex];
-                int reward = 0;
-                int procurementCost = 0;
-                try
+                foreach (CustomerProjectLineDefinition line in definition.Lines)
                 {
-                    foreach (CustomerProjectLineDefinition line in definition.Lines)
-                    {
-                        ProductConfig product = _staticData.GetProduct(line.ProductType);
-                        DeliveryConfig delivery = _staticData.GetDelivery(line.ProductType);
-                        reward = checked(
-                            reward + checked(product.UnitPrice * line.RequiredCount));
-                        procurementCost = checked(
-                            procurementCost +
-                            checked(delivery.PurchaseUnitPrice * line.RequiredCount));
-                    }
-                }
-                catch (OverflowException exception)
-                {
-                    throw new InvalidOperationException(
-                        $"Customer project {project.ProjectType} offer {offerIndex} totals must " +
-                        "fit a 32-bit signed integer.",
-                        exception);
-                }
-
-                GameEntity offer = CreateEntity.Empty(_identifiers.Next())
-                    .AddConsultationOfferVisitEntityId(customerVisit.EntityId)
-                    .AddOfferIndex(offerIndex)
-                    .AddOrderReward(reward)
-                    .AddExpectedProfit(checked(reward - procurementCost))
-                    .With(x => x.isConsultationOffer = true)
-                    .With(x => x.isSelectedConsultationOffer =
-                        offerIndex == project.DefaultOfferIndex);
-
-                for (int lineIndex = 0; lineIndex < definition.Lines.Count; lineIndex++)
-                {
-                    CustomerProjectLineDefinition line = definition.Lines[lineIndex];
-                    CreateEntity.Empty(_identifiers.Next())
-                        .AddConsultationOfferEntityId(offer.EntityId)
-                        .AddStorageZoneEntityId(customerVisit.StorageZoneEntityId)
-                        .AddLineIndex(lineIndex)
-                        .AddProductType(line.ProductType)
-                        .AddRequiredProductCount(line.RequiredCount)
-                        .AddAvailableProductCount(0)
-                        .With(x => x.isConsultationOfferLine = true);
+                    ProductConfig product = _staticData.GetProduct(line.ProductType);
+                    DeliveryConfig delivery = _staticData.GetDelivery(line.ProductType);
+                    reward = checked(
+                        reward + checked(product.UnitPrice * line.RequiredCount));
+                    procurementCost = checked(
+                        procurementCost +
+                        checked(delivery.PurchaseUnitPrice * line.RequiredCount));
                 }
             }
+            catch (OverflowException exception)
+            {
+                throw new InvalidOperationException(
+                    $"Customer project {project.ProjectType} offer {offerIndex} totals must " +
+                    "fit a 32-bit signed integer.",
+                    exception);
+            }
+
+            GameEntity offer = CreateEntity.Empty(_identifiers.Next())
+                .AddConsultationOfferVisitEntityId(customerVisit.EntityId)
+                .AddOfferIndex(offerIndex)
+                .AddOrderReward(reward)
+                .AddExpectedProfit(checked(reward - procurementCost))
+                .With(x => x.isConsultationOffer = true)
+                .With(x => x.isSelectedConsultationOffer = true);
+
+            for (int lineIndex = 0; lineIndex < definition.Lines.Count; lineIndex++)
+            {
+                CustomerProjectLineDefinition line = definition.Lines[lineIndex];
+                CreateEntity.Empty(_identifiers.Next())
+                    .AddConsultationOfferEntityId(offer.EntityId)
+                    .AddStorageZoneEntityId(customerVisit.StorageZoneEntityId)
+                    .AddLineIndex(lineIndex)
+                    .AddProductType(line.ProductType)
+                    .AddRequiredProductCount(line.RequiredCount)
+                    .AddAvailableProductCount(0)
+                    .With(x => x.isConsultationOfferLine = true);
+            }
+
+            return offer;
         }
 
         private static void ValidateCustomerVisit(GameEntity customerVisit)

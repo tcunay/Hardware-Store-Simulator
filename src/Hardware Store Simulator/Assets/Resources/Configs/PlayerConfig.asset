@@ -19,3 +19,9 @@ MonoBehaviour:
   _mouseSensitivity: 0.1
   _gamepadLookSpeed: 150
   _maxPitch: 85
+  _vehicleCameraDistance: 5.2
+  _vehicleCameraDefaultPitch: 18
+  _vehicleCameraMinPitch: -10
+  _vehicleCameraMaxPitch: 55
+  _vehicleCameraCollisionRadius: 0.22
+  _vehicleCameraCollisionPadding: 0.08

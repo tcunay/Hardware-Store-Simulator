@@ -36,6 +36,7 @@ namespace HardwareStore.Gameplay.Factories
                 .AddMoveDirection(Vector3.zero)
                 .AddMovementSpeed(player.WalkSpeed)
                 .AddViewPitch(0f)
+                .AddCameraOrbitYaw(0f)
                 .AddMouseSensitivity(player.MouseSensitivity)
                 .AddGamepadLookSpeed(player.GamepadLookSpeed)
                 .AddMaxPitch(player.MaxPitch)

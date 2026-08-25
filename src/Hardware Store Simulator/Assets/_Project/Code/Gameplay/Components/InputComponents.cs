@@ -15,6 +15,8 @@ namespace HardwareStore.Gameplay.Components
     [Input] public class NextPressed : IComponent { }
     [Input] public class IncreasePressed : IComponent { }
     [Input] public class DecreasePressed : IComponent { }
+    [Input] public class ForkliftLiftInput : IComponent { public float Value; }
+    [Input] public class ForkliftTransferPressed : IComponent { }
     [Input] public class ToggleCursorPressed : IComponent { }
     [Input] public class PointerLook : IComponent { }
 }

@@ -24,6 +24,9 @@ namespace HardwareStore.Gameplay.Components
     [Game] public class QueueSpotIndex : IComponent { public int Value; }
     [Game] public class CustomerArrivalSequence : IComponent { public int Value; }
     [Game] public class NextCustomerArrivalSequence : IComponent { public int Value; }
+    [Game] public class CustomerDemandProjectType : IComponent { public CustomerProjectTypeId Value; }
+    [Game] public class CustomerDemandOfferIndex : IComponent { public int Value; }
+    [Game] public class CustomerDemandUnavailable : IComponent { }
 
     [Game] public class CustomerVehicleArrivalRoute : IComponent { public Pose[] Value; }
     [Game] public class CustomerVehicleToLoadingRoute : IComponent { public Pose[] Value; }

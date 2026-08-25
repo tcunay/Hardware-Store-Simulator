@@ -422,7 +422,9 @@ namespace HardwareStore.Gameplay.Presentation
 
         private void DrawControls()
         {
-            string controls = _snapshot.IsPushingTrolley
+            string controls = _snapshot.IsDrivingForklift
+                ? Resolve(LocalizationKey.HudControlsForklift)
+                : _snapshot.IsPushingTrolley
                 ? Resolve(LocalizationKey.HudControlsPushingTrolley)
                 : _snapshot.HasItem
                 ? Resolve(
@@ -467,9 +469,13 @@ namespace HardwareStore.Gameplay.Presentation
                 _promptStyle);
 
             const float cardGap = 18f;
-            float cardsLeft = panel.x + 28f;
             float cardsWidth = panel.width - 56f;
-            float cardWidth = (cardsWidth - cardGap * 2f) / 3f;
+            float cardWidth = consultation.Offers.Count == 1
+                ? Mathf.Min(760f, cardsWidth)
+                : (cardsWidth - cardGap * 2f) / 3f;
+            float cardsLeft = consultation.Offers.Count == 1
+                ? panel.center.x - cardWidth * 0.5f
+                : panel.x + 28f;
             float cardTop = panel.y + 178f;
             float cardHeight = panel.height - 254f;
             for (int index = 0; index < consultation.Offers.Count; index++)
@@ -500,7 +506,6 @@ namespace HardwareStore.Gameplay.Presentation
                     new Rect(card.x + 18f, card.y + 16f, card.width - 36f, 34f),
                     Resolve(
                         LocalizationKey.HudConsultationOfferHeader,
-                        offer.Index + 1,
                         LocalizedTexts.OfferTitle(
                             consultation.ProjectType,
                             offer.Index)),
@@ -542,6 +547,8 @@ namespace HardwareStore.Gameplay.Presentation
 
         private void DrawProcurement(ProcurementSnapshot procurement)
         {
+            bool isExactCustomerOrder =
+                IsExactProcurementDemand(procurement.DemandKind);
             DrawPanel(
                 new Rect(0f, 0f, _canvasWidth, _canvasHeight),
                 new Color(0.015f, 0.02f, 0.025f, 1f));
@@ -566,9 +573,9 @@ namespace HardwareStore.Gameplay.Presentation
             GUI.Label(
                 new Rect(panel.x + 32f, panel.y + 52f, panel.width - 64f, 34f),
                 Resolve(
-                    procurement.DemandKind == ProcurementDemandKind.ProjectForecast
-                        ? LocalizationKey.HudProcurementForecastTitle
-                        : LocalizationKey.HudProcurementOrderTitle,
+                    isExactCustomerOrder
+                        ? LocalizationKey.HudProcurementOrderTitle
+                        : LocalizationKey.HudProcurementForecastTitle,
                     LocalizedTexts.ProjectTitle(procurement.ProjectType)),
                 _centerStyle);
             GUI.Label(
@@ -801,6 +808,13 @@ namespace HardwareStore.Gameplay.Presentation
                     delivery.IncompleteLineCount);
             }
 
+            if (_snapshot.OrderState == HudOrderState.NoCustomer &&
+                _snapshot.CustomerDemandUnavailable)
+            {
+                return Resolve(
+                    LocalizationKey.HudObjectiveCustomerDemandUnavailable);
+            }
+
             return _snapshot.OrderState switch
             {
                 HudOrderState.NoCustomer => Resolve(LocalizationKey.HudObjectiveNoCustomer),
@@ -820,7 +834,15 @@ namespace HardwareStore.Gameplay.Presentation
         private string ResolveStockStatus()
         {
             if (_snapshot.OrderState == HudOrderState.NoCustomer)
-                return Resolve(LocalizationKey.HudStockNoCustomer, _snapshot.StockCount);
+            {
+                return _snapshot.CustomerDemandUnavailable
+                    ? Resolve(
+                        LocalizationKey.HudStockCustomerDemandUnavailable,
+                        _snapshot.StockCount)
+                    : Resolve(
+                        LocalizationKey.HudStockNoCustomer,
+                        _snapshot.StockCount);
+            }
 
             if (_snapshot.OrderState is HudOrderState.Arriving or HudOrderState.Consulting)
                 return Resolve(
@@ -883,23 +905,29 @@ namespace HardwareStore.Gameplay.Presentation
 
         private string ResolveProductCounts(
             ProcurementSnapshot procurement,
-            ProcurementProductSnapshot product) =>
-            Resolve(
-                procurement.DemandKind == ProcurementDemandKind.ProjectForecast
-                    ? LocalizationKey.HudProcurementForecastCounts
-                    : LocalizationKey.HudProcurementConfirmedCounts,
+            ProcurementProductSnapshot product)
+        {
+            bool isExactCustomerOrder =
+                IsExactProcurementDemand(procurement.DemandKind);
+            return Resolve(
+                isExactCustomerOrder
+                    ? LocalizationKey.HudProcurementConfirmedCounts
+                    : LocalizationKey.HudProcurementForecastCounts,
                 product.StockProductCount,
                 product.InTransitProductCount,
-                procurement.DemandKind == ProcurementDemandKind.ProjectForecast
-                    ? product.MinimumRequiredProductCount
-                    : product.RemainingRequiredProductCount,
-                procurement.DemandKind == ProcurementDemandKind.ProjectForecast
-                    ? product.MaximumRequiredProductCount
-                    : product.ProjectedDeficitProductCount,
+                isExactCustomerOrder
+                    ? product.RemainingRequiredProductCount
+                    : product.MinimumRequiredProductCount,
+                isExactCustomerOrder
+                    ? product.ProjectedDeficitProductCount
+                    : product.MaximumRequiredProductCount,
                 LocalizedTexts.ProductUnit(product.ProductType));
+        }
 
         private string ResolveCartStatus(ProcurementSnapshot procurement)
         {
+            bool isExactCustomerOrder =
+                IsExactProcurementDemand(procurement.DemandKind);
             ProcurementCartSnapshot cart = procurement.Cart;
             if (cart.PackageCount == 0)
                 return Resolve(LocalizationKey.HudProcurementCartEmpty);
@@ -914,16 +942,26 @@ namespace HardwareStore.Gameplay.Presentation
                     LocalizationKey.ProcurementStatusInsufficientMoney,
                     cart.TotalCost),
                 ProcurementPurchaseState.PlanWouldBecomeUnfulfillable => Resolve(
-                    procurement.DemandKind == ProcurementDemandKind.ConfirmedOrder
+                    isExactCustomerOrder
                         ? LocalizationKey.ProcurementStatusPlanWouldBlockOrder
                         : LocalizationKey.ProcurementStatusPlanWouldBlockForecast),
                 ProcurementPurchaseState.Available =>
-                    Resolve(procurement.DemandKind == ProcurementDemandKind.ProjectForecast
-                        ? LocalizationKey.ProcurementStatusPrepurchaseAvailable
-                        : LocalizationKey.ProcurementStatusAvailable),
+                    Resolve(isExactCustomerOrder
+                        ? LocalizationKey.ProcurementStatusAvailable
+                        : LocalizationKey.ProcurementStatusPrepurchaseAvailable),
                 _ => throw new ArgumentOutOfRangeException()
             };
         }
+
+        private static bool IsExactProcurementDemand(ProcurementDemandKind demandKind) =>
+            demandKind switch
+            {
+                ProcurementDemandKind.ConfirmedOrder => true,
+                ProcurementDemandKind.SelectedCustomerOrder => true,
+                ProcurementDemandKind.ProjectForecast => false,
+                _ => throw new ArgumentOutOfRangeException(
+                    nameof(demandKind), demandKind, null)
+            };
 
         private string Resolve(LocalizationKey key) =>
             _localization.Resolve(key);

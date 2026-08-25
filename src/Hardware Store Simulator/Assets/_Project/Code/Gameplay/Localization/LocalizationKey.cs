@@ -150,6 +150,9 @@ namespace HardwareStore.Gameplay.Localization
         HudProcurementCartEmpty = 1079,
         HudProcurementCartCapacityReached = 1080,
         HudObjectiveMixedDelivery = 1081,
+        HudControlsForklift = 1082,
+        HudObjectiveCustomerDemandUnavailable = 1083,
+        HudStockCustomerDemandUnavailable = 1084,
         ProcurementStatusNotRequired = 1100,
         ProcurementStatusStockSufficient = 1101,
         ProcurementStatusInsufficientStorage = 1102,
@@ -254,6 +257,8 @@ namespace HardwareStore.Gameplay.Localization
         PromptCustomerLeftImpatient = 2098,
         PromptMixedDeliveryBeingStocked = 2099,
         PromptBringMixedDeliveryToIntake = 2100,
+        PromptEnterForklift = 2101,
+        PromptForkliftHandsOccupied = 2102,
 
         NotificationAcceptCurrentDeliveryFirst = 3000,
         NotificationWaitForCustomer = 3001,
@@ -296,6 +301,7 @@ namespace HardwareStore.Gameplay.Localization
         NotificationCustomerPatienceLow = 3041,
         NotificationCustomerLeftImpatient = 3042,
         NotificationMixedDeliveryOrdered = 3043,
+        NotificationForkliftExitBlocked = 3044,
 
         WorldOrderCounter = 4000,
         WorldProcurement = 4001,

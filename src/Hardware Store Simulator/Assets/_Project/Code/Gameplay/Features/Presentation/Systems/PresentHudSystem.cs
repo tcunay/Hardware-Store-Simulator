@@ -119,6 +119,7 @@ namespace HardwareStore.Gameplay.Features.Presentation.Systems
                 totalRequiredProductCount,
                 store.Money,
                 storageZone.StorageProductCount,
+                store.isCustomerDemandUnavailable,
                 deliveryProgress,
                 carriedProductType,
                 player.hasInteractionPrompt ? player.InteractionPrompt : null,
@@ -126,6 +127,7 @@ namespace HardwareStore.Gameplay.Features.Presentation.Systems
                 player.isFocusInteractionAvailable,
                 player.isCarryingProduct,
                 player.isPushingTrolley,
+                player.isDrivingForklift,
                 player.isCursorLocked,
                 customerFlow,
                 warehouseWorkerStatus));

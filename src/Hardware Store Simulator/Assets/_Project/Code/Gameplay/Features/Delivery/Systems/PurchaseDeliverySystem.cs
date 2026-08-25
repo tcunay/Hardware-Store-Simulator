@@ -129,10 +129,19 @@ namespace HardwareStore.Gameplay.Features.Delivery.Systems
                 if (evaluation.Availability ==
                     ProcurementPurchaseAvailability.DemandWouldBecomeInsolvent)
                 {
+                    LocalizationKey blockedNotification = evaluation.DemandKind switch
+                    {
+                        ProcurementDemandKind.ConfirmedOrder =>
+                            LocalizationKey.NotificationPurchaseWouldBlockOrder,
+                        ProcurementDemandKind.SelectedCustomerOrder =>
+                            LocalizationKey.NotificationPurchaseWouldBlockOrder,
+                        ProcurementDemandKind.ProjectForecast =>
+                            LocalizationKey.NotificationPurchaseWouldBlockForecast,
+                        _ => throw new ArgumentOutOfRangeException(
+                            nameof(evaluation.DemandKind), evaluation.DemandKind, null)
+                    };
                     _events.EmitNotification(LocalizedTexts.Text(
-                        evaluation.DemandKind == ProcurementDemandKind.ConfirmedOrder
-                            ? LocalizationKey.NotificationPurchaseWouldBlockOrder
-                            : LocalizationKey.NotificationPurchaseWouldBlockForecast));
+                        blockedNotification));
                     continue;
                 }
                 if (!evaluation.CanPurchase)

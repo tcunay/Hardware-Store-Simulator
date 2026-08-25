@@ -52,6 +52,12 @@ namespace HardwareStore.Editor
             "Assets/_Project/Prefabs/Gameplay/WarehouseWorkerTrolley.prefab";
         private const string PlatformTrolleyPrefabPath =
             "Assets/_Project/Prefabs/Gameplay/PlatformTrolley.prefab";
+        private const string ForkliftPrefabPath =
+            "Assets/_Project/Prefabs/Gameplay/Forklift.prefab";
+        private const string FreightTruckPrefabPath =
+            "Assets/_Project/Prefabs/Gameplay/FreightTruck.prefab";
+        private const string PalletPrefabPath =
+            "Assets/_Project/Prefabs/Gameplay/Pallet.prefab";
         private const string WarehouseWorkerNavMeshAssetName = "NavMesh-Navigation";
         private const string WarehouseWorkerNavMeshPath =
             "Assets/Scenes/Prototype_Yard/" + WarehouseWorkerNavMeshAssetName + ".asset";
@@ -84,12 +90,16 @@ namespace HardwareStore.Editor
         private const string ProductRecoveryConfigName = "ProductRecoveryConfig";
         private const string PlatformTrolleyConfigName = "PlatformTrolleyConfig";
         private const string WarehouseWorkerConfigName = "WarehouseWorkerConfig";
+        private const string ForkliftConfigName = "ForkliftConfig";
+        private const string FreightTruckConfigName = "FreightTruckConfig";
+        private const string PalletConfigName = "PalletConfig";
         private const string StoreDayConfigName = "StoreDayConfig";
         private const string CustomerFlowConfigName = "CustomerFlowConfig";
         private const string LegacyCementOrderConfigName = "OrderConfig";
         private const string LegacyBoardOrderConfigName = "OrderConfig_BoardBundle";
         private const int CustomerVehicleCargoCapacity = 3;
         private const int StorageSlotCapacity = 18;
+        private const int FreightPalletSlotCapacity = 4;
         private static readonly ILocalizationService RussianPreviewLocalization =
             CreateRussianPreviewLocalization();
 
@@ -135,6 +145,10 @@ namespace HardwareStore.Editor
                 LoadConfig<PlatformTrolleyConfig>(PlatformTrolleyConfigName);
             WarehouseWorkerConfig warehouseWorkerConfig =
                 LoadConfig<WarehouseWorkerConfig>(WarehouseWorkerConfigName);
+            ForkliftConfig forkliftConfig = LoadConfig<ForkliftConfig>(ForkliftConfigName);
+            FreightTruckConfig freightTruckConfig =
+                LoadConfig<FreightTruckConfig>(FreightTruckConfigName);
+            PalletConfig palletConfig = LoadConfig<PalletConfig>(PalletConfigName);
             StoreDayConfig storeDayConfig = LoadConfig<StoreDayConfig>(StoreDayConfigName);
             ProductConfig cementProductConfig =
                 LoadConfig<ProductConfig>(CementProductConfigName);
@@ -255,6 +269,17 @@ namespace HardwareStore.Editor
                 brandOrange,
                 darkMetal,
                 timber);
+            EnsureForkliftPrefab(
+                forkliftConfig,
+                yellow,
+                darkMetal,
+                glass);
+            EnsureFreightTruckPrefab(
+                freightTruckConfig,
+                truckPaint,
+                darkMetal,
+                glass);
+            EnsurePalletPrefab(palletConfig, timber, darkMetal);
 
             Scene scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
             ConfigureEnvironment();
@@ -263,6 +288,17 @@ namespace HardwareStore.Editor
             NavMeshSurface navigation = BuildNavigation(environment.transform);
             (Light sun, Light[] indoorLights) = BuildLighting(environment.transform);
             BuildYard(environment.transform, asphalt, concrete, brandBlue, white, yellow);
+            (SpawnPointMarker forkliftSpawnPoint,
+                    SpawnPointMarker freightTruckSpawnPoint,
+                    SpawnPointMarker inboundPalletSpawnPoint,
+                    SceneViewMarker freightStagingZone) =
+                BuildFreightYard(
+                    environment.transform,
+                    asphalt,
+                    concrete,
+                    brandBlue,
+                    yellow,
+                    loadingGreen);
             (SceneViewMarker orderCounter, SceneViewMarker procurementTerminal) =
                 BuildShop(environment.transform, concrete, brandBlue, brandOrange, darkMetal, glass);
             SceneViewMarker storeControlTerminal = BuildStoreControlTerminal(
@@ -322,7 +358,10 @@ namespace HardwareStore.Editor
                     workerStorageAccessPoint,
                     workerCustomerLoadingAccessPoint,
                     workerTrolleyHomePoint,
-                    workerTrolleyCustomerLoadingAccessPoint
+                    workerTrolleyCustomerLoadingAccessPoint,
+                    forkliftSpawnPoint,
+                    freightTruckSpawnPoint,
+                    inboundPalletSpawnPoint
                 },
                 Array.Empty<SceneRouteMarker>(),
                 customerFlowLayout,
@@ -332,7 +371,8 @@ namespace HardwareStore.Editor
                     procurementTerminal,
                     storageZone,
                     trolleyUpgradeTerminal,
-                    storeControlTerminal
+                    storeControlTerminal,
+                    freightStagingZone
                 },
                 hud,
                 audio,
@@ -427,8 +467,10 @@ namespace HardwareStore.Editor
                 brandBlue);
             CreateCube("West Fence", yard.transform, new Vector3(-16f, 1.15f, 0f), new Vector3(0.18f, 2.3f, 32f),
                 brandBlue);
-            CreateCube("East Fence", yard.transform, new Vector3(16f, 1.15f, 0f), new Vector3(0.18f, 2.3f, 32f),
-                brandBlue);
+            CreateCube("East Fence North", yard.transform, new Vector3(16f, 1.15f, 10.5f),
+                new Vector3(0.18f, 2.3f, 11f), brandBlue);
+            CreateCube("East Fence South", yard.transform, new Vector3(16f, 1.15f, -11f),
+                new Vector3(0.18f, 2.3f, 10f), brandBlue);
             CreateCube("South Fence Far Left", yard.transform, new Vector3(-12.25f, 1.15f, -16f),
                 new Vector3(7.5f, 2.3f, 0.18f), brandBlue);
             CreateCube("South Fence Mid Left", yard.transform, new Vector3(-5f, 1.15f, -16f),
@@ -456,6 +498,136 @@ namespace HardwareStore.Editor
 
             CreateCube("Shop Walkway", yard.transform, new Vector3(-9f, 0.02f, -0.95f),
                 new Vector3(6.5f, 0.04f, 3f), concrete, false);
+        }
+
+        private static (SpawnPointMarker Forklift, SpawnPointMarker FreightTruck,
+                SpawnPointMarker InboundPallet, SceneViewMarker StagingZone)
+            BuildFreightYard(
+                Transform parent,
+                Material asphalt,
+                Material concrete,
+                Material fence,
+                Material safetyYellow,
+                Material stagingGreen)
+        {
+            GameObject freightYard = CreateEmpty("East Freight Yard", parent);
+            CreateCube(
+                "Freight Yard Surface",
+                freightYard.transform,
+                new Vector3(24f, -0.12f, 0f),
+                new Vector3(16f, 0.24f, 34f),
+                asphalt);
+            CreateCube(
+                "Freight Approach Road",
+                freightYard.transform,
+                new Vector3(24f, -0.12f, -29.5f),
+                new Vector3(12f, 0.24f, 25f),
+                asphalt);
+            CreateCube(
+                "Freight Staging Pad",
+                freightYard.transform,
+                new Vector3(18.5f, 0.015f, 0f),
+                new Vector3(4.5f, 0.03f, 10f),
+                concrete,
+                false);
+            CreateCube(
+                "Freight Bay Stop Line",
+                freightYard.transform,
+                new Vector3(24f, 0.035f, 6.2f),
+                new Vector3(5.5f, 0.04f, 0.18f),
+                safetyYellow,
+                false);
+            CreateCube(
+                "Freight Lane Left",
+                freightYard.transform,
+                new Vector3(21.25f, 0.035f, -18f),
+                new Vector3(0.14f, 0.04f, 48f),
+                safetyYellow,
+                false);
+            CreateCube(
+                "Freight Lane Right",
+                freightYard.transform,
+                new Vector3(26.75f, 0.035f, -18f),
+                new Vector3(0.14f, 0.04f, 48f),
+                safetyYellow,
+                false);
+            CreateCube(
+                "East Freight Fence",
+                freightYard.transform,
+                new Vector3(32f, 1.15f, 0f),
+                new Vector3(0.18f, 2.3f, 34f),
+                fence);
+            CreateCube(
+                "North Freight Fence",
+                freightYard.transform,
+                new Vector3(24f, 1.15f, 16f),
+                new Vector3(16f, 2.3f, 0.18f),
+                fence);
+
+            GameObject navigationExclusion = CreateEmpty(
+                "Freight Navigation Exclusion", freightYard.transform);
+            navigationExclusion.transform.position = new Vector3(24f, 0f, -13f);
+            NavMeshModifierVolume modifier =
+                navigationExclusion.AddComponent<NavMeshModifierVolume>();
+            modifier.center = new Vector3(0f, 1.5f, 0f);
+            modifier.size = new Vector3(15.5f, 3f, 59f);
+            modifier.area = NavMesh.GetAreaFromName("Not Walkable");
+
+            GameObject stagingZoneObject = CreateEmpty(
+                "Freight Staging Zone", freightYard.transform);
+            stagingZoneObject.AddComponent<EntityBehaviour>();
+            stagingZoneObject.AddComponent<TransformRegistrar>();
+            var stagingSlots = new Transform[FreightPalletSlotCapacity];
+            for (int index = 0; index < stagingSlots.Length; index++)
+            {
+                float slotZ = -3.3f + index * 2.2f;
+                CreateCube(
+                    $"Staging Slot Marking {index + 1}",
+                    stagingZoneObject.transform,
+                    new Vector3(18.5f, 0.04f, slotZ),
+                    new Vector3(1.6f, 0.05f, 1.45f),
+                    stagingGreen,
+                    false);
+                GameObject slot = CreateEmpty(
+                    $"Pallet Slot {index + 1}", stagingZoneObject.transform);
+                slot.transform.position = new Vector3(18.5f, 0.03f, slotZ);
+                slot.transform.rotation = Quaternion.Euler(0f, 90f, 0f);
+                stagingSlots[index] = slot.transform;
+            }
+
+            SlotsRegistrar slotsRegistrar =
+                stagingZoneObject.AddComponent<SlotsRegistrar>();
+            slotsRegistrar.Configure(stagingSlots);
+            SceneViewMarker stagingZone =
+                stagingZoneObject.AddComponent<SceneViewMarker>();
+            stagingZone.Configure(SceneViewId.FreightStagingZone);
+
+            SpawnPointMarker forklift = CreateSpawnPoint(
+                "Forklift Spawn Point",
+                freightYard.transform,
+                SpawnPointId.Forklift,
+                new Vector3(18.5f, 0.02f, -10.5f),
+                Quaternion.identity);
+            Pose truckPose = new(
+                new Vector3(24f, 0.02f, 0f),
+                Quaternion.Euler(0f, 180f, 0f));
+            SpawnPointMarker freightTruck = CreateSpawnPoint(
+                "Freight Truck Spawn Point",
+                freightYard.transform,
+                SpawnPointId.FreightTruck,
+                truckPose.position,
+                truckPose.rotation);
+            Vector3 palletPosition = truckPose.position +
+                                     truckPose.rotation *
+                                     GetFreightTruckPalletSlotLocalPosition(0);
+            SpawnPointMarker inboundPallet = CreateSpawnPoint(
+                "Inbound Pallet Spawn Point",
+                freightYard.transform,
+                SpawnPointId.InboundPallet,
+                palletPosition,
+                truckPose.rotation * Quaternion.Euler(0f, -90f, 0f));
+
+            return (forklift, freightTruck, inboundPallet, stagingZone);
         }
 
         private static (SceneViewMarker OrderCounter, SceneViewMarker ProcurementTerminal) BuildShop(
@@ -2069,6 +2241,462 @@ namespace HardwareStore.Editor
             }
         }
 
+        private static void EnsureForkliftPrefab(
+            ForkliftConfig config,
+            Material safetyYellow,
+            Material darkMetal,
+            Material glass)
+        {
+            const float initialForkHeight = 0.15f;
+            GameObject forklift = CreateEmpty("Forklift");
+
+            try
+            {
+                forklift.transform.SetLocalPositionAndRotation(
+                    Vector3.zero, Quaternion.identity);
+                forklift.transform.localScale = Vector3.one;
+                forklift.SetActive(true);
+
+                Rigidbody body = forklift.AddComponent<Rigidbody>();
+                body.mass = 3500f;
+                body.isKinematic = true;
+                body.useGravity = false;
+                body.detectCollisions = true;
+                body.interpolation = RigidbodyInterpolation.None;
+                body.collisionDetectionMode =
+                    CollisionDetectionMode.ContinuousSpeculative;
+                body.constraints = RigidbodyConstraints.FreezeRotationX |
+                                   RigidbodyConstraints.FreezeRotationZ;
+
+                BoxCollider hull = forklift.AddComponent<BoxCollider>();
+                hull.center = new Vector3(0f, 1.05f, -0.25f);
+                hull.size = new Vector3(1.85f, 2.1f, 3.1f);
+
+                GameObject bodyVisual = CreateCube(
+                    "Body",
+                    forklift.transform,
+                    new Vector3(0f, 0.82f, -0.35f),
+                    new Vector3(1.75f, 1.05f, 1.85f),
+                    safetyYellow,
+                    false,
+                    true);
+                InteractionHighlight highlight =
+                    bodyVisual.AddComponent<InteractionHighlight>();
+                CreateCube(
+                    "Counterweight",
+                    forklift.transform,
+                    new Vector3(0f, 0.78f, -1.28f),
+                    new Vector3(1.8f, 1.15f, 0.65f),
+                    darkMetal,
+                    false,
+                    true);
+                CreateCube(
+                    "Overhead Guard",
+                    forklift.transform,
+                    new Vector3(0f, 2.25f, -0.35f),
+                    new Vector3(1.7f, 0.12f, 1.7f),
+                    darkMetal,
+                    false,
+                    true);
+                CreateCube(
+                    "Guard Left",
+                    forklift.transform,
+                    new Vector3(-0.72f, 1.55f, -0.35f),
+                    new Vector3(0.12f, 1.5f, 1.55f),
+                    darkMetal,
+                    false,
+                    true);
+                CreateCube(
+                    "Guard Right",
+                    forklift.transform,
+                    new Vector3(0.72f, 1.55f, -0.35f),
+                    new Vector3(0.12f, 1.5f, 1.55f),
+                    darkMetal,
+                    false,
+                    true);
+                CreateCube(
+                    "Windshield",
+                    forklift.transform,
+                    new Vector3(0f, 1.65f, 0.43f),
+                    new Vector3(1.25f, 0.9f, 0.06f),
+                    glass,
+                    false,
+                    true);
+                CreateCube(
+                    "Mast Left",
+                    forklift.transform,
+                    new Vector3(-0.67f, 1.45f, 1.02f),
+                    new Vector3(0.16f, 2.7f, 0.18f),
+                    darkMetal,
+                    false,
+                    true);
+                CreateCube(
+                    "Mast Right",
+                    forklift.transform,
+                    new Vector3(0.67f, 1.45f, 1.02f),
+                    new Vector3(0.16f, 2.7f, 0.18f),
+                    darkMetal,
+                    false,
+                    true);
+
+                CreateLocalWheel(
+                    "Front Left Wheel",
+                    forklift.transform,
+                    new Vector3(-0.92f, 0.48f, 0.72f),
+                    darkMetal);
+                CreateLocalWheel(
+                    "Front Right Wheel",
+                    forklift.transform,
+                    new Vector3(0.92f, 0.48f, 0.72f),
+                    darkMetal);
+                CreateLocalWheel(
+                    "Rear Left Wheel",
+                    forklift.transform,
+                    new Vector3(-0.92f, 0.42f, -1.02f),
+                    darkMetal);
+                CreateLocalWheel(
+                    "Rear Right Wheel",
+                    forklift.transform,
+                    new Vector3(0.92f, 0.42f, -1.02f),
+                    darkMetal);
+
+                GameObject driverSeat = CreateEmpty(
+                    "Driver Seat Anchor", forklift.transform);
+                // The anchor stores the player root pose. The player camera sits
+                // 1.65 m above it, so this keeps the first-person view below the
+                // overhead guard instead of placing it inside the roof mesh.
+                driverSeat.transform.localPosition = new Vector3(0f, 0.2f, -0.55f);
+                driverSeat.AddComponent<DriverSeatAnchorRegistrar>();
+                GameObject driverExit = CreateEmpty(
+                    "Driver Exit Anchor", forklift.transform);
+                driverExit.transform.localPosition = new Vector3(-1.65f, 0f, -0.35f);
+                driverExit.transform.localRotation = Quaternion.Euler(0f, -90f, 0f);
+                driverExit.AddComponent<DriverExitAnchorRegistrar>();
+
+                GameObject lift = CreateEmpty("Lift", forklift.transform);
+                lift.transform.localPosition = new Vector3(0f, initialForkHeight, 0f);
+                lift.AddComponent<LiftTransformRegistrar>();
+                CreateCube(
+                    "Lift Carriage",
+                    lift.transform,
+                    new Vector3(0f, 0.42f, 1.05f),
+                    new Vector3(1.5f, 0.75f, 0.12f),
+                    darkMetal,
+                    false,
+                    true);
+                CreateCube(
+                    "Left Fork",
+                    lift.transform,
+                    new Vector3(-0.5f, 0.06f, 1.75f),
+                    new Vector3(0.16f, 0.12f, 1.55f),
+                    darkMetal,
+                    false,
+                    true);
+                CreateCube(
+                    "Right Fork",
+                    lift.transform,
+                    new Vector3(0.5f, 0.06f, 1.75f),
+                    new Vector3(0.16f, 0.12f, 1.55f),
+                    darkMetal,
+                    false,
+                    true);
+                GameObject cargoAnchor = CreateEmpty("Cargo Anchor", lift.transform);
+                cargoAnchor.transform.localPosition = new Vector3(0f, 0.14f, 1.75f);
+                cargoAnchor.AddComponent<CargoAnchorRegistrar>();
+                GameObject cargoCollisionHull = CreateEmpty(
+                    "Fork And Cargo Collision Hull", lift.transform);
+                BoxCollider cargoCollider =
+                    cargoCollisionHull.AddComponent<BoxCollider>();
+                cargoCollider.center = new Vector3(0f, 0.25f, 1.75f);
+                cargoCollider.size = new Vector3(1.3f, 0.5f, 1.1f);
+
+                InteractionView interactionView =
+                    forklift.AddComponent<InteractionView>();
+                interactionView.Configure(highlight);
+                forklift.AddComponent<TransformRegistrar>();
+                forklift.AddComponent<RigidbodyRegistrar>();
+                forklift.AddComponent<CollidersRegistrar>();
+                forklift.AddComponent<InteractionViewRegistrar>();
+
+                GameObject prefab = PrefabUtility.SaveAsPrefabAsset(
+                    forklift, ForkliftPrefabPath);
+                if (prefab == null)
+                {
+                    throw new InvalidOperationException(
+                        $"Could not create forklift prefab at {ForkliftPrefabPath}.");
+                }
+
+                EntityBehaviour prefabView = prefab.GetComponent<EntityBehaviour>() ??
+                                             throw new InvalidOperationException(
+                                                 $"Forklift prefab at {ForkliftPrefabPath} " +
+                                                 "has no EntityBehaviour root.");
+                config.Configure(
+                    prefabView,
+                    forwardSpeed: 4.5f,
+                    reverseSpeed: 3f,
+                    steeringSpeed: 70f,
+                    liftSpeed: 1.25f,
+                    minForkHeight: initialForkHeight,
+                    maxForkHeight: 2.4f,
+                    initialForkHeight: initialForkHeight,
+                    transferDistance: 1.25f,
+                    transferHeightTolerance: 0.35f,
+                    transferMaxAlignmentAngle: 25f);
+                EditorUtility.SetDirty(config);
+            }
+            finally
+            {
+                Object.DestroyImmediate(forklift);
+            }
+        }
+
+        private static void EnsureFreightTruckPrefab(
+            FreightTruckConfig config,
+            Material truckPaint,
+            Material darkMetal,
+            Material glass)
+        {
+            GameObject truck = CreateEmpty("Freight Truck");
+
+            try
+            {
+                truck.transform.SetLocalPositionAndRotation(
+                    Vector3.zero, Quaternion.identity);
+                truck.transform.localScale = Vector3.one;
+                truck.SetActive(true);
+
+                CreateCube(
+                    "Cab",
+                    truck.transform,
+                    new Vector3(0f, 1.45f, 3.75f),
+                    new Vector3(2.55f, 2.55f, 2.3f),
+                    truckPaint,
+                    true,
+                    true);
+                CreateCube(
+                    "Hood",
+                    truck.transform,
+                    new Vector3(0f, 0.95f, 5.3f),
+                    new Vector3(2.45f, 1.1f, 1.2f),
+                    truckPaint,
+                    true,
+                    true);
+                CreateCube(
+                    "Windshield",
+                    truck.transform,
+                    new Vector3(0f, 1.85f, 4.93f),
+                    new Vector3(2.05f, 0.82f, 0.08f),
+                    glass,
+                    false,
+                    true);
+                CreateCube(
+                    "Chassis",
+                    truck.transform,
+                    new Vector3(0f, 0.66f, 0f),
+                    new Vector3(2.25f, 0.3f, 11f),
+                    darkMetal,
+                    true,
+                    true);
+                CreateCube(
+                    "Trailer Deck",
+                    truck.transform,
+                    new Vector3(0f, 1f, -2f),
+                    new Vector3(2.55f, 0.22f, 7.8f),
+                    darkMetal,
+                    false,
+                    true);
+                CreateCube(
+                    "Trailer Left Rail",
+                    truck.transform,
+                    new Vector3(-1.2f, 1.48f, -2f),
+                    new Vector3(0.14f, 0.85f, 7.8f),
+                    truckPaint,
+                    true,
+                    true);
+                const float trailerMinimumZ = -5.9f;
+                const float trailerMaximumZ = 1.9f;
+                const float loadingGateHalfWidth = 0.775f;
+                float railSegmentStart = trailerMinimumZ;
+                for (int index = 0; index < FreightPalletSlotCapacity; index++)
+                {
+                    float slotZ = GetFreightTruckPalletSlotLocalPosition(index).z;
+                    float gateStart = Mathf.Max(
+                        trailerMinimumZ,
+                        slotZ - loadingGateHalfWidth);
+                    if (gateStart > railSegmentStart)
+                    {
+                        CreateTrailerRailSegment(
+                            truck.transform,
+                            index + 1,
+                            railSegmentStart,
+                            gateStart,
+                            truckPaint);
+                    }
+
+                    railSegmentStart = Mathf.Min(
+                        trailerMaximumZ,
+                        slotZ + loadingGateHalfWidth);
+                }
+                if (railSegmentStart < trailerMaximumZ)
+                {
+                    CreateTrailerRailSegment(
+                        truck.transform,
+                        FreightPalletSlotCapacity + 1,
+                        railSegmentStart,
+                        trailerMaximumZ,
+                        truckPaint);
+                }
+
+                CreateLocalWheel(
+                    "Front Left Wheel", truck.transform,
+                    new Vector3(-1.3f, 0.55f, 4.3f), darkMetal);
+                CreateLocalWheel(
+                    "Front Right Wheel", truck.transform,
+                    new Vector3(1.3f, 0.55f, 4.3f), darkMetal);
+                CreateLocalWheel(
+                    "Middle Left Wheel", truck.transform,
+                    new Vector3(-1.3f, 0.55f, -0.4f), darkMetal);
+                CreateLocalWheel(
+                    "Middle Right Wheel", truck.transform,
+                    new Vector3(1.3f, 0.55f, -0.4f), darkMetal);
+                CreateLocalWheel(
+                    "Rear Left Wheel", truck.transform,
+                    new Vector3(-1.3f, 0.55f, -4.6f), darkMetal);
+                CreateLocalWheel(
+                    "Rear Right Wheel", truck.transform,
+                    new Vector3(1.3f, 0.55f, -4.6f), darkMetal);
+
+                GameObject slotsRoot = CreateEmpty("Pallet Slots", truck.transform);
+                var slots = new Transform[FreightPalletSlotCapacity];
+                for (int index = 0; index < slots.Length; index++)
+                {
+                    GameObject slot = CreateEmpty(
+                        $"Pallet Slot {index + 1}", slotsRoot.transform);
+                    slot.transform.localPosition =
+                        GetFreightTruckPalletSlotLocalPosition(index);
+                    slot.transform.localRotation =
+                        Quaternion.Euler(0f, -90f, 0f);
+                    slots[index] = slot.transform;
+                }
+
+                truck.AddComponent<EntityBehaviour>();
+                truck.AddComponent<TransformRegistrar>();
+                SlotsRegistrar slotsRegistrar = truck.AddComponent<SlotsRegistrar>();
+                slotsRegistrar.Configure(slots);
+
+                GameObject prefab = PrefabUtility.SaveAsPrefabAsset(
+                    truck, FreightTruckPrefabPath);
+                if (prefab == null)
+                {
+                    throw new InvalidOperationException(
+                        $"Could not create freight truck prefab at " +
+                        $"{FreightTruckPrefabPath}.");
+                }
+
+                EntityBehaviour prefabView = prefab.GetComponent<EntityBehaviour>() ??
+                                             throw new InvalidOperationException(
+                                                 $"Freight truck prefab at " +
+                                                 $"{FreightTruckPrefabPath} has no " +
+                                                 "EntityBehaviour root.");
+                config.Configure(prefabView);
+                EditorUtility.SetDirty(config);
+            }
+            finally
+            {
+                Object.DestroyImmediate(truck);
+            }
+        }
+
+        private static Vector3 GetFreightTruckPalletSlotLocalPosition(int index)
+        {
+            if (index < 0 || index >= FreightPalletSlotCapacity)
+                throw new ArgumentOutOfRangeException(nameof(index));
+
+            return new Vector3(0f, 1.11f, -4.5f + index * 2f);
+        }
+
+        private static void CreateTrailerRailSegment(Transform truck,
+            int index, float startZ, float endZ, Material material)
+        {
+            if (endZ <= startZ)
+            {
+                throw new ArgumentOutOfRangeException(
+                    nameof(endZ),
+                    "Trailer rail segment end must be greater than its start.");
+            }
+
+            CreateCube(
+                $"Trailer Loading Rail Segment {index}",
+                truck,
+                new Vector3(1.2f, 1.48f, (startZ + endZ) * 0.5f),
+                new Vector3(0.14f, 0.85f, endZ - startZ),
+                material,
+                true,
+                true);
+        }
+
+        private static void EnsurePalletPrefab(
+            PalletConfig config,
+            Material timber,
+            Material darkMetal)
+        {
+            GameObject pallet = CreateEmpty("Pallet");
+
+            try
+            {
+                pallet.transform.SetLocalPositionAndRotation(
+                    Vector3.zero, Quaternion.identity);
+                pallet.transform.localScale = Vector3.one;
+                pallet.SetActive(true);
+
+                for (int index = 0; index < 3; index++)
+                {
+                    CreateCube(
+                        $"Runner {index + 1}",
+                        pallet.transform,
+                        new Vector3(-0.46f + index * 0.46f, 0.07f, 0f),
+                        new Vector3(0.16f, 0.14f, 1.05f),
+                        darkMetal,
+                        false,
+                        true);
+                }
+
+                for (int index = 0; index < 5; index++)
+                {
+                    CreateCube(
+                        $"Deck Board {index + 1}",
+                        pallet.transform,
+                        new Vector3(0f, 0.18f, -0.42f + index * 0.21f),
+                        new Vector3(1.25f, 0.08f, 0.17f),
+                        timber,
+                        false,
+                        true);
+                }
+
+                pallet.AddComponent<EntityBehaviour>();
+                pallet.AddComponent<TransformRegistrar>();
+
+                GameObject prefab = PrefabUtility.SaveAsPrefabAsset(
+                    pallet, PalletPrefabPath);
+                if (prefab == null)
+                {
+                    throw new InvalidOperationException(
+                        $"Could not create pallet prefab at {PalletPrefabPath}.");
+                }
+
+                EntityBehaviour prefabView = prefab.GetComponent<EntityBehaviour>() ??
+                                             throw new InvalidOperationException(
+                                                 $"Pallet prefab at {PalletPrefabPath} " +
+                                                 "has no EntityBehaviour root.");
+                config.Configure(prefabView);
+                EditorUtility.SetDirty(config);
+            }
+            finally
+            {
+                Object.DestroyImmediate(pallet);
+            }
+        }
+
         private static void EnsurePlayerPrefab(PlayerConfig playerConfig)
         {
             GameObject player = CreateEmpty("Player");
@@ -2584,6 +3212,9 @@ namespace HardwareStore.Editor
             EnsureConfigAsset<ProductRecoveryConfig>(ProductRecoveryConfigName);
             EnsureConfigAsset<PlatformTrolleyConfig>(PlatformTrolleyConfigName);
             EnsureConfigAsset<WarehouseWorkerConfig>(WarehouseWorkerConfigName);
+            EnsureConfigAsset<ForkliftConfig>(ForkliftConfigName);
+            EnsureConfigAsset<FreightTruckConfig>(FreightTruckConfigName);
+            EnsureConfigAsset<PalletConfig>(PalletConfigName);
             EnsureConfigAsset<StoreDayConfig>(StoreDayConfigName);
         }
 

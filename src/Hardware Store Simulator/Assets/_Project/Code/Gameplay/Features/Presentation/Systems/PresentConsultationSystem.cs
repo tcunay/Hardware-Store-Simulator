@@ -9,7 +9,7 @@ namespace HardwareStore.Gameplay.Features.Presentation.Systems
 {
     public sealed class PresentConsultationSystem : IExecuteSystem
     {
-        private const int OfferCount = 3;
+        private const int OfferCount = 1;
         private readonly GameContext _gameContext;
         private readonly IStaticDataService _staticData;
         private readonly IHudService _hud;
@@ -120,13 +120,15 @@ namespace HardwareStore.Gameplay.Features.Presentation.Systems
                     $"Consulting customer visit {visit.EntityId} has no cargo slots.");
         }
 
-        private static void ValidateOffers(GameEntity visit, GameEntity[] offers)
+        private void ValidateOffers(GameEntity visit, GameEntity[] offers)
         {
             if (offers.Length != OfferCount)
                 throw new InvalidOperationException(
                     $"Customer visit {visit.EntityId} must expose exactly {OfferCount} " +
                     $"consultation offers, found {offers.Length}.");
 
+            CustomerProjectConfig project = _staticData.GetProject(
+                visit.CustomerProjectType);
             int selectedCount = 0;
             for (int index = 0; index < offers.Length; index++)
             {
@@ -140,11 +142,12 @@ namespace HardwareStore.Gameplay.Features.Presentation.Systems
                         $"{visit.EntityId} is not fully configured.");
                 }
                 if (offer.ConsultationOfferVisitEntityId != visit.EntityId ||
-                    offer.OfferIndex != index)
+                    offer.OfferIndex < 0 ||
+                    offer.OfferIndex >= project.Offers.Count)
                 {
                     throw new InvalidOperationException(
-                        $"Customer visit {visit.EntityId} must expose offer indices 0, 1 and " +
-                        "2 exactly once.");
+                        $"Customer visit {visit.EntityId} exposes invalid exact offer " +
+                        $"index {offer.OfferIndex}.");
                 }
                 if (offer.isSelectedConsultationOffer)
                     selectedCount++;

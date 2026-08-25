@@ -8,7 +8,7 @@ namespace HardwareStore.Gameplay.Features.Customers.Systems
 {
     public sealed class BeginCustomerAbandonmentSystem : IExecuteSystem
     {
-        private const int ExpectedOfferCount = 3;
+        private const int ExpectedOfferCount = 1;
 
         private readonly GameContext _gameContext;
         private readonly IGameEventFactory _events;

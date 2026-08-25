@@ -22,6 +22,9 @@ namespace HardwareStore.Gameplay.Features.Presentation.Systems
         private readonly List<GameEntity> _playerBuffer = new(1);
         private readonly List<GameEntity> _cartLineEntityBuffer = new(8);
         private readonly List<GameEntity> _orderLineEntityBuffer = new(8);
+        private readonly List<GameEntity> _consultationOfferEntityBuffer = new(3);
+        private readonly List<GameEntity> _consultationLineEntityBuffer = new(3);
+        private readonly List<ExactDemandLine> _exactDemandLineBuffer = new(3);
         private readonly List<GameEntity> _visitBuffer = new(8);
         private readonly List<int> _sourceFingerprint = new(128);
         private readonly List<int> _cachedFingerprint = new(128);
@@ -130,22 +133,30 @@ namespace HardwareStore.Gameplay.Features.Presentation.Systems
                     terminal.SelectedProductType)
                 : _solvency.EvaluateCart(cart.EntityId);
 
-            _orderLineEntityBuffer.Clear();
-            if (evaluation.DemandKind == ProcurementDemandKind.ConfirmedOrder)
+            _exactDemandLineBuffer.Clear();
+            switch (evaluation.DemandKind)
             {
-                if (!evaluation.DemandVisitEntityId.HasValue)
-                {
-                    throw new InvalidOperationException(
-                        "Confirmed procurement demand does not identify its customer visit.");
-                }
-
-                GameEntity visit = _gameContext.GetEntityWithEntityId(
-                    evaluation.DemandVisitEntityId.Value);
-                CollectConfirmedOrderLines(
-                    visit,
-                    store,
-                    storageZone,
-                    evaluation.ProjectType);
+                case ProcurementDemandKind.ProjectForecast:
+                    break;
+                case ProcurementDemandKind.SelectedCustomerOrder:
+                    CollectSelectedCustomerOrderLines(
+                        ResolveDemandVisit(evaluation),
+                        store,
+                        storageZone,
+                        evaluation.ProjectType);
+                    break;
+                case ProcurementDemandKind.ConfirmedOrder:
+                    CollectConfirmedOrderLines(
+                        ResolveDemandVisit(evaluation),
+                        store,
+                        storageZone,
+                        evaluation.ProjectType);
+                    break;
+                default:
+                    throw new ArgumentOutOfRangeException(
+                        nameof(evaluation.DemandKind),
+                        evaluation.DemandKind,
+                        null);
             }
 
             CustomerProjectConfig project = _staticData.GetProject(
@@ -161,7 +172,7 @@ namespace HardwareStore.Gameplay.Features.Presentation.Systems
                     terminal,
                     evaluation.DemandKind,
                     project,
-                    _orderLineEntityBuffer,
+                    _exactDemandLineBuffer,
                     cartLines);
             }
 
@@ -188,38 +199,41 @@ namespace HardwareStore.Gameplay.Features.Presentation.Systems
             GameEntity terminal,
             ProcurementDemandKind demandKind,
             CustomerProjectConfig project,
-            IReadOnlyList<GameEntity> orderLines,
+            IReadOnlyList<ExactDemandLine> exactDemandLines,
             ProcurementCartLineSnapshot[] cartLines)
         {
-            GameEntity orderLine = null;
-            for (int lineIndex = 0; lineIndex < orderLines.Count; lineIndex++)
+            ExactDemandLine? exactDemandLine = null;
+            for (int lineIndex = 0;
+                 lineIndex < exactDemandLines.Count;
+                 lineIndex++)
             {
-                if (orderLines[lineIndex].ProductType != productType)
+                if (exactDemandLines[lineIndex].ProductType != productType)
                     continue;
 
-                orderLine = orderLines[lineIndex];
+                exactDemandLine = exactDemandLines[lineIndex];
                 break;
             }
 
             int stockProductCount = _stockProductCountBuffer[index];
-            if (orderLine != null &&
-                orderLine.AvailableProductCount != stockProductCount)
+            if (exactDemandLine.HasValue &&
+                exactDemandLine.Value.AvailableProductCount != stockProductCount)
             {
                 throw new InvalidOperationException(
-                    $"Order line {orderLine.EntityId} has stale product availability.");
+                    $"Customer demand line {exactDemandLine.Value.EntityId} has stale " +
+                    "product availability.");
             }
 
-            int remainingRequiredProductCount = orderLine == null
+            int remainingRequiredProductCount = !exactDemandLine.HasValue
                 ? 0
-                : checked(orderLine.RequiredProductCount - orderLine.LoadedProductCount);
+                : exactDemandLine.Value.RemainingRequiredProductCount;
             int inTransitProductCount = CountInTransitProducts(
                 terminal.EntityId,
                 productType);
             DeliveryConfig delivery = _staticData.GetDelivery(productType);
             int cartPackageCount = FindCartPackageCount(cartLines, productType);
             int cartProductCount = checked(cartPackageCount * delivery.ProductCount);
-            int projectedDeficitProductCount = demandKind ==
-                                              ProcurementDemandKind.ConfirmedOrder
+            int projectedDeficitProductCount = demandKind !=
+                                              ProcurementDemandKind.ProjectForecast
                 ? Math.Max(
                     0,
                     remainingRequiredProductCount - stockProductCount -
@@ -520,9 +534,7 @@ namespace HardwareStore.Gameplay.Features.Presentation.Systems
                 AddFingerprintValue(visit.hasReservedCustomerLoadingBayEntityId
                     ? visit.ReservedCustomerLoadingBayEntityId
                     : int.MinValue);
-                AddFingerprintValue(
-                    _gameContext.GetEntitiesWithConsultationOfferVisitEntityId(
-                        visit.EntityId).Count);
+                CaptureConsultationOffersFingerprint(visit);
 
                 _orderLineEntityBuffer.Clear();
                 foreach (GameEntity line in
@@ -558,6 +570,85 @@ namespace HardwareStore.Gameplay.Features.Presentation.Systems
                         : int.MinValue);
                     AddFingerprintValue(line.hasOrderEntityId
                         ? line.OrderEntityId
+                        : int.MinValue);
+                    AddFingerprintValue(line.hasStorageZoneEntityId
+                        ? line.StorageZoneEntityId
+                        : int.MinValue);
+                }
+            }
+        }
+
+        private void CaptureConsultationOffersFingerprint(GameEntity visit)
+        {
+            _consultationOfferEntityBuffer.Clear();
+            foreach (GameEntity offer in
+                     _gameContext.GetEntitiesWithConsultationOfferVisitEntityId(
+                         visit.EntityId))
+            {
+                _consultationOfferEntityBuffer.Add(offer);
+            }
+            _consultationOfferEntityBuffer.Sort(ConsultationOfferComparer.Instance);
+            AddFingerprintValue(_consultationOfferEntityBuffer.Count);
+            for (int offerIndex = 0;
+                 offerIndex < _consultationOfferEntityBuffer.Count;
+                 offerIndex++)
+            {
+                GameEntity offer = _consultationOfferEntityBuffer[offerIndex];
+                AddFingerprintValue(offer.hasEntityId
+                    ? offer.EntityId
+                    : int.MinValue);
+                AddFingerprintValue(offer.isDestructed ? 1 : 0);
+                AddFingerprintValue(offer.isConsultationOffer ? 1 : 0);
+                AddFingerprintValue(offer.isSelectedConsultationOffer ? 1 : 0);
+                AddFingerprintValue(offer.hasOfferIndex
+                    ? offer.OfferIndex
+                    : int.MinValue);
+                AddFingerprintValue(offer.hasOrderReward
+                    ? offer.OrderReward
+                    : int.MinValue);
+                AddFingerprintValue(offer.hasExpectedProfit
+                    ? offer.ExpectedProfit
+                    : int.MinValue);
+                AddFingerprintValue(offer.hasConsultationOfferVisitEntityId
+                    ? offer.ConsultationOfferVisitEntityId
+                    : int.MinValue);
+
+                _consultationLineEntityBuffer.Clear();
+                if (offer.hasEntityId)
+                {
+                    foreach (GameEntity line in
+                             _gameContext.GetEntitiesWithConsultationOfferEntityId(
+                                 offer.EntityId))
+                    {
+                        _consultationLineEntityBuffer.Add(line);
+                    }
+                }
+                _consultationLineEntityBuffer.Sort(OrderLineComparer.Instance);
+                AddFingerprintValue(_consultationLineEntityBuffer.Count);
+                for (int lineIndex = 0;
+                     lineIndex < _consultationLineEntityBuffer.Count;
+                     lineIndex++)
+                {
+                    GameEntity line = _consultationLineEntityBuffer[lineIndex];
+                    AddFingerprintValue(line.hasEntityId
+                        ? line.EntityId
+                        : int.MinValue);
+                    AddFingerprintValue(line.isDestructed ? 1 : 0);
+                    AddFingerprintValue(line.isConsultationOfferLine ? 1 : 0);
+                    AddFingerprintValue(line.hasLineIndex
+                        ? line.LineIndex
+                        : int.MinValue);
+                    AddFingerprintValue(line.hasProductType
+                        ? (int)line.ProductType
+                        : int.MinValue);
+                    AddFingerprintValue(line.hasRequiredProductCount
+                        ? line.RequiredProductCount
+                        : int.MinValue);
+                    AddFingerprintValue(line.hasAvailableProductCount
+                        ? line.AvailableProductCount
+                        : int.MinValue);
+                    AddFingerprintValue(line.hasConsultationOfferEntityId
+                        ? line.ConsultationOfferEntityId
                         : int.MinValue);
                     AddFingerprintValue(line.hasStorageZoneEntityId
                         ? line.StorageZoneEntityId
@@ -674,7 +765,8 @@ namespace HardwareStore.Gameplay.Features.Presentation.Systems
             out int minimumRequiredProductCount,
             out int maximumRequiredProductCount)
         {
-            if (demandKind == ProcurementDemandKind.ConfirmedOrder)
+            if (demandKind == ProcurementDemandKind.ConfirmedOrder ||
+                demandKind == ProcurementDemandKind.SelectedCustomerOrder)
             {
                 minimumRequiredProductCount = remainingRequiredProductCount;
                 maximumRequiredProductCount = remainingRequiredProductCount;
@@ -803,6 +895,88 @@ namespace HardwareStore.Gameplay.Features.Presentation.Systems
             }
         }
 
+        private GameEntity ResolveDemandVisit(
+            ProcurementPurchaseEvaluation evaluation)
+        {
+            if (!evaluation.DemandVisitEntityId.HasValue)
+            {
+                throw new InvalidOperationException(
+                    $"Exact procurement demand {evaluation.DemandKind} does not " +
+                    "identify its customer visit.");
+            }
+
+            return _gameContext.GetEntityWithEntityId(
+                evaluation.DemandVisitEntityId.Value);
+        }
+
+        private void CollectSelectedCustomerOrderLines(
+            GameEntity visit,
+            GameEntity store,
+            GameEntity storageZone,
+            CustomerProjectTypeId projectType)
+        {
+            ValidateSelectedCustomerOrder(
+                visit,
+                store,
+                storageZone,
+                projectType);
+
+            _consultationOfferEntityBuffer.Clear();
+            foreach (GameEntity offer in
+                     _gameContext.GetEntitiesWithConsultationOfferVisitEntityId(
+                         visit.EntityId))
+            {
+                if (!offer.isDestructed)
+                    _consultationOfferEntityBuffer.Add(offer);
+            }
+            if (_consultationOfferEntityBuffer.Count != 1)
+            {
+                throw new InvalidOperationException(
+                    $"Selected customer order {visit.EntityId} must own exactly one " +
+                    "active consultation offer.");
+            }
+
+            GameEntity selectedOffer = _consultationOfferEntityBuffer[0];
+            if (!selectedOffer.isConsultationOffer ||
+                !selectedOffer.isSelectedConsultationOffer ||
+                !selectedOffer.hasEntityId ||
+                !selectedOffer.hasConsultationOfferVisitEntityId ||
+                selectedOffer.ConsultationOfferVisitEntityId != visit.EntityId ||
+                !selectedOffer.hasOfferIndex ||
+                !selectedOffer.hasOrderReward ||
+                !selectedOffer.hasExpectedProfit)
+            {
+                throw new InvalidOperationException(
+                    $"Selected customer order {visit.EntityId} owns an invalid offer.");
+            }
+
+            _consultationLineEntityBuffer.Clear();
+            foreach (GameEntity line in
+                     _gameContext.GetEntitiesWithConsultationOfferEntityId(
+                         selectedOffer.EntityId))
+            {
+                if (!line.isDestructed)
+                    _consultationLineEntityBuffer.Add(line);
+            }
+            _consultationLineEntityBuffer.Sort(OrderLineComparer.Instance);
+            ValidateConsultationLines(
+                visit,
+                selectedOffer,
+                storageZone,
+                _consultationLineEntityBuffer);
+            for (int index = 0;
+                 index < _consultationLineEntityBuffer.Count;
+                 index++)
+            {
+                GameEntity line = _consultationLineEntityBuffer[index];
+                _exactDemandLineBuffer.Add(new ExactDemandLine(
+                    line.EntityId,
+                    line.ProductType,
+                    line.RequiredProductCount,
+                    line.AvailableProductCount));
+            }
+        }
+
         private void CollectConfirmedOrderLines(
             GameEntity visit,
             GameEntity store,
@@ -824,6 +998,41 @@ namespace HardwareStore.Gameplay.Features.Presentation.Systems
 
             _orderLineEntityBuffer.Sort(OrderLineComparer.Instance);
             ValidateOrderLines(visit, storageZone, _orderLineEntityBuffer);
+            for (int index = 0; index < _orderLineEntityBuffer.Count; index++)
+            {
+                GameEntity line = _orderLineEntityBuffer[index];
+                _exactDemandLineBuffer.Add(new ExactDemandLine(
+                    line.EntityId,
+                    line.ProductType,
+                    checked(line.RequiredProductCount - line.LoadedProductCount),
+                    line.AvailableProductCount));
+            }
+        }
+
+        private static void ValidateSelectedCustomerOrder(
+            GameEntity visit,
+            GameEntity store,
+            GameEntity storageZone,
+            CustomerProjectTypeId projectType)
+        {
+            if (visit == null || !visit.isCustomerVisit || visit.isDestructed ||
+                visit.isOrder || visit.isOrderRewarded || !visit.hasEntityId ||
+                !visit.hasCustomerVisitStoreEntityId ||
+                !visit.hasCustomerProjectType || !visit.hasStorageZoneEntityId ||
+                !visit.hasCustomerArrivalSequence ||
+                visit.CustomerVisitStoreEntityId != store.EntityId ||
+                visit.CustomerProjectType != projectType ||
+                visit.StorageZoneEntityId != storageZone.EntityId ||
+                (!visit.isCustomerVisitArriving &&
+                 !visit.isCustomerVisitQueued &&
+                 !visit.isCustomerVisitConsulting))
+            {
+                throw new InvalidOperationException(
+                    $"Store {store.EntityId} cannot present procurement without an " +
+                    "active selected customer order.");
+            }
+
+            ValidateVisitLifecycle(visit);
         }
 
         private static void ValidateOrder(
@@ -915,6 +1124,83 @@ namespace HardwareStore.Gameplay.Features.Presentation.Systems
             }
         }
 
+        private static void ValidateConsultationLines(
+            GameEntity visit,
+            GameEntity offer,
+            GameEntity storageZone,
+            IReadOnlyList<GameEntity> lines)
+        {
+            if (lines.Count == 0 ||
+                lines.Count > CustomerProjectConfig.MaxLinesPerOffer)
+            {
+                throw new InvalidOperationException(
+                    $"Selected customer order {visit.EntityId} must expose between one " +
+                    $"and {CustomerProjectConfig.MaxLinesPerOffer} product lines, found " +
+                    $"{lines.Count}.");
+            }
+
+            for (int index = 0; index < lines.Count; index++)
+            {
+                GameEntity line = lines[index];
+                if (!line.isConsultationOfferLine || line.isDestructed ||
+                    !line.hasEntityId || !line.hasConsultationOfferEntityId ||
+                    !line.hasStorageZoneEntityId || !line.hasLineIndex ||
+                    !line.hasProductType || !line.hasRequiredProductCount ||
+                    !line.hasAvailableProductCount ||
+                    line.ConsultationOfferEntityId != offer.EntityId ||
+                    line.StorageZoneEntityId != storageZone.EntityId ||
+                    line.LineIndex != index || line.RequiredProductCount <= 0 ||
+                    line.AvailableProductCount < 0)
+                {
+                    throw new InvalidOperationException(
+                        $"Selected customer order {visit.EntityId} has an invalid " +
+                        $"line at position {index}.");
+                }
+
+                for (int previous = 0; previous < index; previous++)
+                {
+                    if (lines[previous].ProductType == line.ProductType)
+                    {
+                        throw new InvalidOperationException(
+                            $"Selected customer order {visit.EntityId} contains duplicate " +
+                            $"product type {line.ProductType}.");
+                    }
+                }
+            }
+        }
+
+        private readonly struct ExactDemandLine
+        {
+            public ExactDemandLine(
+                int entityId,
+                ProductTypeId productType,
+                int remainingRequiredProductCount,
+                int availableProductCount)
+            {
+                if (entityId <= 0)
+                    throw new ArgumentOutOfRangeException(nameof(entityId));
+                if (!Enum.IsDefined(typeof(ProductTypeId), productType))
+                    throw new ArgumentOutOfRangeException(nameof(productType));
+                if (remainingRequiredProductCount < 0)
+                {
+                    throw new ArgumentOutOfRangeException(
+                        nameof(remainingRequiredProductCount));
+                }
+                if (availableProductCount < 0)
+                    throw new ArgumentOutOfRangeException(nameof(availableProductCount));
+
+                EntityId = entityId;
+                ProductType = productType;
+                RemainingRequiredProductCount = remainingRequiredProductCount;
+                AvailableProductCount = availableProductCount;
+            }
+
+            public int EntityId { get; }
+            public ProductTypeId ProductType { get; }
+            public int RemainingRequiredProductCount { get; }
+            public int AvailableProductCount { get; }
+        }
+
         private sealed class CartLineComparer : IComparer<GameEntity>
         {
             public static readonly CartLineComparer Instance = new();
@@ -941,6 +1227,21 @@ namespace HardwareStore.Gameplay.Features.Presentation.Systems
                     return result;
 
                 result = CompareOptionalProductType(left, right);
+                return result != 0 ? result : CompareEntityId(left, right);
+            }
+        }
+
+        private sealed class ConsultationOfferComparer : IComparer<GameEntity>
+        {
+            public static readonly ConsultationOfferComparer Instance = new();
+
+            public int Compare(GameEntity left, GameEntity right)
+            {
+                int result = CompareOptionalInt(
+                    left.hasOfferIndex,
+                    left.hasOfferIndex ? left.OfferIndex : 0,
+                    right.hasOfferIndex,
+                    right.hasOfferIndex ? right.OfferIndex : 0);
                 return result != 0 ? result : CompareEntityId(left, right);
             }
         }

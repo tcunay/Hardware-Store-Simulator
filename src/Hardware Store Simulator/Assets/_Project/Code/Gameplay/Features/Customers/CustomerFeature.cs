@@ -19,6 +19,7 @@ namespace HardwareStore.Gameplay.Features.Customers
             Add(systems.Create<BeginCustomerReturnSystem>());
             Add(systems.Create<AdvanceCustomerQueueSystem>());
             Add(systems.Create<MoveCustomerVehicleToLoadingBaySystem>());
+            Add(systems.Create<RefreshCustomerDemandSystem>());
             Add(systems.Create<SpawnCustomerVisitSystem>());
             Add(systems.Create<MoveRouteSystem>());
             Add(systems.Create<ReleaseDepartedOrderContentSystem>());

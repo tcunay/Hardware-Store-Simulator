@@ -14,9 +14,10 @@ namespace HardwareStore.Gameplay.Presentation
                 throw new ArgumentOutOfRangeException(nameof(cargoCapacity));
             if (offers == null)
                 throw new ArgumentNullException(nameof(offers));
-            if (offers.Length != 3)
+            if (offers.Length != 1)
                 throw new ArgumentException(
-                    "A consultation must present exactly three offers.", nameof(offers));
+                    "A consultation must present exactly one customer order.",
+                    nameof(offers));
 
             CargoCapacity = cargoCapacity;
             Offers = Array.AsReadOnly((ConsultationOfferSnapshot[])offers.Clone());

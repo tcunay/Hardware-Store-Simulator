@@ -58,6 +58,8 @@ namespace HardwareStore.Gameplay.Features.Interaction.Systems
                 return InteractionTypeId.PlatformTrolley;
             if (target.isStoreControlTerminal)
                 return InteractionTypeId.StoreControlTerminal;
+            if (target.isForklift)
+                return InteractionTypeId.Forklift;
 
             throw new InvalidOperationException(
                 $"Entity {target.EntityId} is interactable without a supported role.");

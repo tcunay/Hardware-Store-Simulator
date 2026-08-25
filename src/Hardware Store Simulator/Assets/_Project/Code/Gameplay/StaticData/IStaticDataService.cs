@@ -11,6 +11,9 @@ namespace HardwareStore.Gameplay.StaticData
         EconomyConfig Economy { get; }
         ProductRecoveryConfig ProductRecovery { get; }
         PlatformTrolleyConfig PlatformTrolley { get; }
+        ForkliftConfig Forklift { get; }
+        FreightTruckConfig FreightTruck { get; }
+        PalletConfig Pallet { get; }
         WarehouseWorkerConfig WarehouseWorker { get; }
         StoreDayConfig StoreDay { get; }
         CustomerFlowConfig CustomerFlow { get; }

@@ -22,12 +22,28 @@ namespace HardwareStore.Gameplay.Common.Economy
                 throw new ArgumentOutOfRangeException(nameof(projectType));
             if (demandVisitEntityId.HasValue && demandVisitEntityId.Value <= 0)
                 throw new ArgumentOutOfRangeException(nameof(demandVisitEntityId));
-            if (demandKind == ProcurementDemandKind.ConfirmedOrder &&
-                !demandVisitEntityId.HasValue)
+            switch (demandKind)
             {
-                throw new ArgumentException(
-                    "Confirmed procurement demand must identify its customer visit.",
-                    nameof(demandVisitEntityId));
+                case ProcurementDemandKind.ConfirmedOrder:
+                case ProcurementDemandKind.SelectedCustomerOrder:
+                    if (!demandVisitEntityId.HasValue)
+                    {
+                        throw new ArgumentException(
+                            "Exact procurement demand must identify its customer visit.",
+                            nameof(demandVisitEntityId));
+                    }
+                    break;
+                case ProcurementDemandKind.ProjectForecast:
+                    if (demandVisitEntityId.HasValue)
+                    {
+                        throw new ArgumentException(
+                            "Project forecast cannot identify an active customer visit.",
+                            nameof(demandVisitEntityId));
+                    }
+                    break;
+                default:
+                    throw new ArgumentOutOfRangeException(
+                        nameof(demandKind), demandKind, null);
             }
             if (deliveryProductCount <= 0)
                 throw new ArgumentOutOfRangeException(nameof(deliveryProductCount));

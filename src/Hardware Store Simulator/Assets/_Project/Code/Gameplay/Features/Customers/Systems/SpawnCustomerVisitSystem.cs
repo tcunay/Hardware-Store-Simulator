@@ -2,7 +2,9 @@ using System;
 using System.Collections.Generic;
 using Entitas;
 using HardwareStore.Gameplay.Common.Customers;
+using HardwareStore.Gameplay.Configs;
 using HardwareStore.Gameplay.Factories;
+using HardwareStore.Gameplay.StaticData;
 
 namespace HardwareStore.Gameplay.Features.Customers.Systems
 {
@@ -11,17 +13,20 @@ namespace HardwareStore.Gameplay.Features.Customers.Systems
         private readonly GameContext _gameContext;
         private readonly ICustomerVisitFactory _customerVisitFactory;
         private readonly ICustomerArrivalSchedule _arrivalSchedule;
+        private readonly IStaticDataService _staticData;
         private readonly IGroup<GameEntity> _stores;
         private readonly List<GameEntity> _storeBuffer = new(1);
         private readonly List<GameEntity> _parkingBuffer = new(4);
 
         public SpawnCustomerVisitSystem(GameContext gameContext,
             ICustomerVisitFactory customerVisitFactory,
-            ICustomerArrivalSchedule arrivalSchedule)
+            ICustomerArrivalSchedule arrivalSchedule,
+            IStaticDataService staticData)
         {
             _gameContext = gameContext;
             _customerVisitFactory = customerVisitFactory;
             _arrivalSchedule = arrivalSchedule;
+            _staticData = staticData;
             _stores = gameContext.GetGroup(GameMatcher.AllOf(
                     GameMatcher.Store,
                     GameMatcher.StoreOpen,
@@ -30,8 +35,12 @@ namespace HardwareStore.Gameplay.Features.Customers.Systems
                     GameMatcher.NextProjectSequenceIndex,
                     GameMatcher.NextCustomerArrivalSequence,
                     GameMatcher.CurrentDayMinute,
-                    GameMatcher.CustomerCooldownRemaining)
-                .NoneOf(GameMatcher.Destructed));
+                    GameMatcher.CustomerCooldownRemaining,
+                    GameMatcher.CustomerDemandProjectType,
+                    GameMatcher.CustomerDemandOfferIndex)
+                .NoneOf(
+                    GameMatcher.CustomerDemandUnavailable,
+                    GameMatcher.Destructed));
         }
 
         public void Execute()
@@ -41,6 +50,7 @@ namespace HardwareStore.Gameplay.Features.Customers.Systems
                 ValidateCooldown(store);
                 if (store.CustomerCooldownRemaining > 0f)
                     continue;
+                int projectIndex = ValidateDemand(store);
 
                 float nextDelay = _arrivalSchedule.GetDelay(store.CurrentDayMinute);
 
@@ -53,11 +63,65 @@ namespace HardwareStore.Gameplay.Features.Customers.Systems
                 {
                     GameEntity parkingSpot = FindAvailableParkingSpot(store);
                     if (parkingSpot != null)
-                        _customerVisitFactory.Create(store, parkingSpot, trafficLane);
+                    {
+                        int arrivalSequence = store.NextCustomerArrivalSequence;
+                        _customerVisitFactory.Create(
+                            store,
+                            parkingSpot,
+                            trafficLane,
+                            store.CustomerDemandProjectType,
+                            store.CustomerDemandOfferIndex,
+                            arrivalSequence);
+                        store.ReplaceNextProjectSequenceIndex(
+                            (projectIndex + 1) % _staticData.ProjectTypes.Count);
+                        store.ReplaceNextCustomerArrivalSequence(
+                            checked(arrivalSequence + 1));
+                    }
                 }
 
                 store.ReplaceCustomerCooldownRemaining(nextDelay);
             }
+        }
+
+        private int ValidateDemand(GameEntity store)
+        {
+            int projectIndex = -1;
+            for (int index = 0; index < _staticData.ProjectTypes.Count; index++)
+            {
+                if (_staticData.ProjectTypes[index] !=
+                    store.CustomerDemandProjectType)
+                {
+                    continue;
+                }
+
+                projectIndex = index;
+                break;
+            }
+
+            if (projectIndex < 0)
+            {
+                throw new InvalidOperationException(
+                    $"Store {store.EntityId} selected unknown customer project " +
+                    $"{store.CustomerDemandProjectType}.");
+            }
+
+            CustomerProjectConfig project = _staticData.GetProject(
+                store.CustomerDemandProjectType);
+            if (store.CustomerDemandOfferIndex < 0 ||
+                store.CustomerDemandOfferIndex >= project.Offers.Count)
+            {
+                throw new InvalidOperationException(
+                    $"Store {store.EntityId} selected invalid offer " +
+                    $"{store.CustomerDemandOfferIndex} for " +
+                    $"{store.CustomerDemandProjectType}.");
+            }
+            if (store.NextCustomerArrivalSequence < 0)
+            {
+                throw new InvalidOperationException(
+                    $"Store {store.EntityId} has invalid customer arrival sequence.");
+            }
+
+            return projectIndex;
         }
 
         private GameEntity FindAvailableParkingSpot(GameEntity store)

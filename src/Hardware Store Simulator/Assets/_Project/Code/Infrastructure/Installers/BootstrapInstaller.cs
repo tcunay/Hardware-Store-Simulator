@@ -48,6 +48,9 @@ namespace HardwareStore.Infrastructure.Installers
             Container.Bind<IInteractionPhysicsService>().To<InteractionPhysicsService>().AsSingle();
             Container.Bind<IProductDropPhysicsService>().To<ProductDropPhysicsService>().AsSingle();
             Container.Bind<ITrolleyMotionService>().To<TrolleyMotionService>().AsSingle();
+            Container.Bind<IForkliftMotionService>().To<ForkliftMotionService>().AsSingle();
+            Container.Bind<IThirdPersonCameraCollisionService>()
+                .To<ThirdPersonCameraCollisionService>().AsSingle();
             Container.Bind<IWorkerNavigationService>().To<NavMeshWorkerNavigationService>().AsSingle();
             Container.Bind<ICustomerArrivalSchedule>().To<CustomerArrivalSchedule>().AsSingle();
             Container.Bind<ISceneLoader>().To<SceneLoader>().AsSingle();
@@ -89,6 +92,8 @@ namespace HardwareStore.Infrastructure.Installers
             Container.Bind<IPurchaseOrderFactory>().To<PurchaseOrderFactory>().AsSingle();
             Container.Bind<IDeliveryFactory>().To<DeliveryFactory>().AsSingle();
             Container.Bind<IPlatformTrolleyFactory>().To<PlatformTrolleyFactory>().AsSingle();
+            Container.Bind<IForkliftFactory>().To<ForkliftFactory>().AsSingle();
+            Container.Bind<IFreightFoundationFactory>().To<FreightFoundationFactory>().AsSingle();
             Container.Bind<IWarehouseWorkerFactory>().To<WarehouseWorkerFactory>().AsSingle();
             Container.Bind<IWarehouseWorkerTrolleyFactory>()
                 .To<WarehouseWorkerTrolleyFactory>().AsSingle();

@@ -7,7 +7,6 @@ namespace HardwareStore.Gameplay.Features.Consultation
     {
         public ConsultationFeature(ISystemFactory systems)
         {
-            Add(systems.Create<CycleConsultationOfferSystem>());
             Add(systems.Create<ConfirmConsultationOfferSystem>());
             Add(systems.Create<CancelConsultationSystem>());
             Add(systems.Create<OpenConsultationSystem>());

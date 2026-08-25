@@ -225,31 +225,9 @@ namespace HardwareStore.Gameplay.Common.Economy
             }
             else
             {
-                ProjectionState afterCandidate = state.Clone();
-                afterCandidate.Money = moneyAfterPurchase;
-                afterCandidate.OccupiedSlotCount = checked(
-                    afterCandidate.OccupiedSlotCount +
-                    candidateProductCount);
-                for (int index = 0; index < candidateLines.Count; index++)
-                {
-                    CandidateLine line = candidateLines[index];
-                    if (!afterCandidate.Stock.TryGetValue(
-                            line.ProductType,
-                            out int currentCount))
-                    {
-                        throw new InvalidOperationException(
-                            $"Purchase candidate references unconfigured product " +
-                            $"{line.ProductType}.");
-                    }
-                    afterCandidate.Stock[line.ProductType] = checked(
-                        currentCount + line.ProductCount);
-                }
-
-                availability = IsProtectedDemandSolvent(
-                        afterCandidate,
-                        demandPlan)
-                    ? ProcurementPurchaseAvailability.Available
-                    : ProcurementPurchaseAvailability.DemandWouldBecomeInsolvent;
+                // Demand projections inform the terminal, but do not authorize purchases.
+                // The player may buy any cart they can pay for and physically store.
+                availability = ProcurementPurchaseAvailability.Available;
             }
 
             return new ProcurementPurchaseEvaluation(
@@ -555,7 +533,6 @@ namespace HardwareStore.Gameplay.Common.Economy
                 .ToArray();
             var protectedDemands = new List<ProtectedDemand>(visits.Length);
             int previousArrivalSequence = -1;
-            int previousProjectIndex = -1;
             foreach (GameEntity visit in visits)
             {
                 if (visit.CustomerArrivalSequence == previousArrivalSequence)
@@ -565,33 +542,16 @@ namespace HardwareStore.Gameplay.Common.Economy
                         $"sequence {visit.CustomerArrivalSequence}.");
                 }
 
-                int projectIndex = GetProjectIndex(visit.CustomerProjectType);
-                if (previousProjectIndex >= 0)
+                GetProjectIndex(visit.CustomerProjectType);
+                if (previousArrivalSequence >= 0 &&
+                    visit.CustomerArrivalSequence <= previousArrivalSequence)
                 {
-                    int arrivalSequenceDelta =
-                        visit.CustomerArrivalSequence - previousArrivalSequence;
-                    if (arrivalSequenceDelta <= 0)
-                    {
-                        throw new InvalidOperationException(
-                            $"Store {store.EntityId} customer arrival sequences must be " +
-                            "strictly increasing.");
-                    }
-
-                    int expectedProjectIndex = AdvanceSequenceIndex(
-                        previousProjectIndex,
-                        arrivalSequenceDelta);
-                    if (projectIndex != expectedProjectIndex)
-                    {
-                        throw new InvalidOperationException(
-                            $"Customer visit {visit.EntityId} project " +
-                            $"{visit.CustomerProjectType} breaks the store " +
-                            $"{store.EntityId} arrival sequence across a gap of " +
-                            $"{arrivalSequenceDelta} visits.");
-                    }
+                    throw new InvalidOperationException(
+                        $"Store {store.EntityId} customer arrival sequences must be " +
+                        "strictly increasing.");
                 }
 
                 previousArrivalSequence = visit.CustomerArrivalSequence;
-                previousProjectIndex = projectIndex;
                 if (IsAbandonedPreOrderVisit(visit))
                 {
                     ValidateAbandonedPreOrderVisit(visit);
@@ -633,31 +593,12 @@ namespace HardwareStore.Gameplay.Common.Economy
                         $"Pre-order customer visit {visit.EntityId} has invalid lifecycle.");
                 }
 
-                protectedDemands.Add(ProtectedDemand.ProjectForecast(visit));
-            }
-
-            if (previousProjectIndex >= 0)
-            {
-                int remainingArrivalSequenceCount =
-                    store.NextCustomerArrivalSequence - previousArrivalSequence;
-                if (remainingArrivalSequenceCount <= 0)
-                {
-                    throw new InvalidOperationException(
-                        $"Store {store.EntityId} next customer arrival sequence must follow " +
-                        "its latest active visit.");
-                }
-
-                int expectedNextProjectIndex = AdvanceSequenceIndex(
-                    previousProjectIndex,
-                    remainingArrivalSequenceCount);
-                if (store.NextProjectSequenceIndex != expectedNextProjectIndex)
-                {
-                    throw new InvalidOperationException(
-                        $"Store {store.EntityId} next project sequence index " +
-                        $"{store.NextProjectSequenceIndex} does not account for all " +
-                        $"{remainingArrivalSequenceCount} arrivals since its latest " +
-                        "active customer visit.");
-                }
+                IReadOnlyDictionary<ProductTypeId, int> requirements =
+                    CollectPreOrderRequirements(visit, out int reward);
+                protectedDemands.Add(ProtectedDemand.SelectedCustomerOrder(
+                    visit,
+                    requirements,
+                    reward));
             }
 
             DemandSummary summary = protectedDemands.Count > 0
@@ -670,7 +611,7 @@ namespace HardwareStore.Gameplay.Common.Economy
                 protectedDemands,
                 summary,
                 store.NextProjectSequenceIndex,
-                _staticData.ProjectTypes.Count);
+                futureProjectCount: 0);
             ValidateProjectionPlan(demandPlan);
             return demandPlan;
         }
@@ -679,9 +620,6 @@ namespace HardwareStore.Gameplay.Common.Economy
             ProjectionState afterCandidate,
             DemandPlan demandPlan)
         {
-            if (demandPlan.FutureProjectCount <= 0)
-                throw new InvalidOperationException("Customer project catalog is empty.");
-
             try
             {
                 var memo = new ProjectionMemo(
@@ -729,7 +667,7 @@ namespace HardwareStore.Gameplay.Common.Economy
             }
 
             ProtectedDemand demand = demandPlan.ProtectedDemands[demandIndex];
-            if (demand.Kind == ProcurementDemandKind.ConfirmedOrder)
+            if (demand.ExactRequirements != null)
             {
                 if (!TryCompleteRequirements(
                         state,
@@ -918,6 +856,82 @@ namespace HardwareStore.Gameplay.Common.Economy
             }
 
             return true;
+        }
+
+        private Dictionary<ProductTypeId, int> CollectPreOrderRequirements(
+            GameEntity visit,
+            out int reward)
+        {
+            GameEntity[] offers = _gameContext
+                .GetEntitiesWithConsultationOfferVisitEntityId(visit.EntityId)
+                .Where(offer => !offer.isDestructed)
+                .ToArray();
+            if (offers.Length != 1)
+            {
+                throw new InvalidOperationException(
+                    $"Pre-order customer visit {visit.EntityId} must own exactly one " +
+                    "customer demand offer.");
+            }
+
+            GameEntity offer = offers[0];
+            if (!offer.isConsultationOffer ||
+                !offer.isSelectedConsultationOffer ||
+                !offer.hasEntityId ||
+                !offer.hasConsultationOfferVisitEntityId ||
+                offer.ConsultationOfferVisitEntityId != visit.EntityId ||
+                !offer.hasOfferIndex || !offer.hasOrderReward ||
+                !offer.hasExpectedProfit || offer.OrderReward <= 0)
+            {
+                throw new InvalidOperationException(
+                    $"Pre-order customer visit {visit.EntityId} has an invalid exact " +
+                    "customer demand offer.");
+            }
+
+            GameEntity[] lines = _gameContext
+                .GetEntitiesWithConsultationOfferEntityId(offer.EntityId)
+                .Where(line => !line.isDestructed)
+                .OrderBy(line => line.LineIndex)
+                .ToArray();
+            if (lines.Length == 0 ||
+                lines.Length > CustomerProjectConfig.MaxLinesPerOffer)
+            {
+                throw new InvalidOperationException(
+                    $"Customer demand offer {offer.EntityId} has invalid line count " +
+                    $"{lines.Length}.");
+            }
+
+            var requirements = new Dictionary<ProductTypeId, int>(lines.Length);
+            for (int index = 0; index < lines.Length; index++)
+            {
+                GameEntity line = lines[index];
+                if (!line.isConsultationOfferLine ||
+                    !line.hasConsultationOfferEntityId ||
+                    line.ConsultationOfferEntityId != offer.EntityId ||
+                    !line.hasStorageZoneEntityId ||
+                    line.StorageZoneEntityId != visit.StorageZoneEntityId ||
+                    !line.hasLineIndex || line.LineIndex != index ||
+                    !line.hasProductType ||
+                    !line.hasRequiredProductCount ||
+                    line.RequiredProductCount <= 0 ||
+                    !requirements.TryAdd(
+                        line.ProductType,
+                        line.RequiredProductCount))
+                {
+                    throw new InvalidOperationException(
+                        $"Customer demand offer {offer.EntityId} has an invalid line " +
+                        $"at index {index}.");
+                }
+            }
+
+            reward = CalculateReward(requirements);
+            if (offer.OrderReward != reward)
+            {
+                throw new InvalidOperationException(
+                    $"Customer demand offer {offer.EntityId} reward " +
+                    $"{offer.OrderReward} does not match exact product value {reward}.");
+            }
+
+            return requirements;
         }
 
         private Dictionary<ProductTypeId, int> CollectRemainingOrderRequirements(
@@ -1434,13 +1448,16 @@ namespace HardwareStore.Gameplay.Common.Economy
                     exactRequirements,
                     visit.OrderReward);
 
-            public static ProtectedDemand ProjectForecast(GameEntity visit) =>
+            public static ProtectedDemand SelectedCustomerOrder(
+                GameEntity visit,
+                IReadOnlyDictionary<ProductTypeId, int> exactRequirements,
+                int reward) =>
                 new(
-                    ProcurementDemandKind.ProjectForecast,
+                    ProcurementDemandKind.SelectedCustomerOrder,
                     visit.CustomerProjectType,
                     visit.EntityId,
-                    null,
-                    0);
+                    exactRequirements,
+                    reward);
 
             public DemandSummary CreateSummary() =>
                 new(Kind, ProjectType, VisitEntityId);

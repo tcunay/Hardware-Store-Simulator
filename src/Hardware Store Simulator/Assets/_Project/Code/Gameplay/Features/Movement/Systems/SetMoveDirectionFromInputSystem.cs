@@ -24,7 +24,7 @@ namespace HardwareStore.Gameplay.Features.Movement.Systems
             foreach (InputEntity input in _inputs)
             foreach (GameEntity player in _players)
             {
-                Vector2 move = player.isModalOpen
+                Vector2 move = player.isModalOpen || player.isDrivingForklift
                     ? Vector2.zero
                     : Vector2.ClampMagnitude(input.MoveInput, 1f);
                 Transform playerTransform = player.Transform;

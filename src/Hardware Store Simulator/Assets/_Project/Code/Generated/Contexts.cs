@@ -73,8 +73,15 @@ public partial class Contexts {
     public const string DeliveryProcurementTerminalEntityId = "DeliveryProcurementTerminalEntityId";
     public const string DeliveryPurchaseOrderEntityId = "DeliveryPurchaseOrderEntityId";
     public const string EntityId = "EntityId";
+    public const string ForkliftCarrierEntityId = "ForkliftCarrierEntityId";
+    public const string ForkliftDriverEntityId = "ForkliftDriverEntityId";
+    public const string ForkliftStoreEntityId = "ForkliftStoreEntityId";
+    public const string FreightStagingZoneStoreEntityId = "FreightStagingZoneStoreEntityId";
+    public const string FreightTruckStoreEntityId = "FreightTruckStoreEntityId";
     public const string OrderEntityId = "OrderEntityId";
     public const string OrderLineEntityId = "OrderLineEntityId";
+    public const string PalletBayEntityId = "PalletBayEntityId";
+    public const string PalletStoreEntityId = "PalletStoreEntityId";
     public const string ProcurementCartEntityId = "ProcurementCartEntityId";
     public const string ProcurementCartTerminalEntityId = "ProcurementCartTerminalEntityId";
     public const string PurchaseOrderEntityId = "PurchaseOrderEntityId";
@@ -177,6 +184,31 @@ public partial class Contexts {
             game.GetGroup(GameMatcher.EntityId),
             (e, c) => ((HardwareStore.Gameplay.Components.EntityId)c).Value));
 
+        game.AddEntityIndex(new Entitas.PrimaryEntityIndex<GameEntity, int>(
+            ForkliftCarrierEntityId,
+            game.GetGroup(GameMatcher.ForkliftCarrierEntityId),
+            (e, c) => ((HardwareStore.Gameplay.Components.ForkliftCarrierEntityId)c).Value));
+
+        game.AddEntityIndex(new Entitas.PrimaryEntityIndex<GameEntity, int>(
+            ForkliftDriverEntityId,
+            game.GetGroup(GameMatcher.ForkliftDriverEntityId),
+            (e, c) => ((HardwareStore.Gameplay.Components.ForkliftDriverEntityId)c).Value));
+
+        game.AddEntityIndex(new Entitas.EntityIndex<GameEntity, int>(
+            ForkliftStoreEntityId,
+            game.GetGroup(GameMatcher.ForkliftStoreEntityId),
+            (e, c) => ((HardwareStore.Gameplay.Components.ForkliftStoreEntityId)c).Value));
+
+        game.AddEntityIndex(new Entitas.PrimaryEntityIndex<GameEntity, int>(
+            FreightStagingZoneStoreEntityId,
+            game.GetGroup(GameMatcher.FreightStagingZoneStoreEntityId),
+            (e, c) => ((HardwareStore.Gameplay.Components.FreightStagingZoneStoreEntityId)c).Value));
+
+        game.AddEntityIndex(new Entitas.EntityIndex<GameEntity, int>(
+            FreightTruckStoreEntityId,
+            game.GetGroup(GameMatcher.FreightTruckStoreEntityId),
+            (e, c) => ((HardwareStore.Gameplay.Components.FreightTruckStoreEntityId)c).Value));
+
         game.AddEntityIndex(new Entitas.EntityIndex<GameEntity, int>(
             OrderEntityId,
             game.GetGroup(GameMatcher.OrderEntityId),
@@ -186,6 +218,16 @@ public partial class Contexts {
             OrderLineEntityId,
             game.GetGroup(GameMatcher.OrderLineEntityId),
             (e, c) => ((HardwareStore.Gameplay.Components.OrderLineEntityId)c).Value));
+
+        game.AddEntityIndex(new Entitas.EntityIndex<GameEntity, int>(
+            PalletBayEntityId,
+            game.GetGroup(GameMatcher.PalletBayEntityId),
+            (e, c) => ((HardwareStore.Gameplay.Components.PalletBayEntityId)c).Value));
+
+        game.AddEntityIndex(new Entitas.EntityIndex<GameEntity, int>(
+            PalletStoreEntityId,
+            game.GetGroup(GameMatcher.PalletStoreEntityId),
+            (e, c) => ((HardwareStore.Gameplay.Components.PalletStoreEntityId)c).Value));
 
         game.AddEntityIndex(new Entitas.EntityIndex<GameEntity, int>(
             ProcurementCartEntityId,
@@ -371,12 +413,40 @@ public static class ContextsExtensions {
         return ((Entitas.PrimaryEntityIndex<GameEntity, int>)context.GetEntityIndex(Contexts.EntityId)).GetEntity(Value);
     }
 
+    public static GameEntity GetEntityWithForkliftCarrierEntityId(this GameContext context, int Value) {
+        return ((Entitas.PrimaryEntityIndex<GameEntity, int>)context.GetEntityIndex(Contexts.ForkliftCarrierEntityId)).GetEntity(Value);
+    }
+
+    public static GameEntity GetEntityWithForkliftDriverEntityId(this GameContext context, int Value) {
+        return ((Entitas.PrimaryEntityIndex<GameEntity, int>)context.GetEntityIndex(Contexts.ForkliftDriverEntityId)).GetEntity(Value);
+    }
+
+    public static System.Collections.Generic.HashSet<GameEntity> GetEntitiesWithForkliftStoreEntityId(this GameContext context, int Value) {
+        return ((Entitas.EntityIndex<GameEntity, int>)context.GetEntityIndex(Contexts.ForkliftStoreEntityId)).GetEntities(Value);
+    }
+
+    public static GameEntity GetEntityWithFreightStagingZoneStoreEntityId(this GameContext context, int Value) {
+        return ((Entitas.PrimaryEntityIndex<GameEntity, int>)context.GetEntityIndex(Contexts.FreightStagingZoneStoreEntityId)).GetEntity(Value);
+    }
+
+    public static System.Collections.Generic.HashSet<GameEntity> GetEntitiesWithFreightTruckStoreEntityId(this GameContext context, int Value) {
+        return ((Entitas.EntityIndex<GameEntity, int>)context.GetEntityIndex(Contexts.FreightTruckStoreEntityId)).GetEntities(Value);
+    }
+
     public static System.Collections.Generic.HashSet<GameEntity> GetEntitiesWithOrderEntityId(this GameContext context, int Value) {
         return ((Entitas.EntityIndex<GameEntity, int>)context.GetEntityIndex(Contexts.OrderEntityId)).GetEntities(Value);
     }
 
     public static System.Collections.Generic.HashSet<GameEntity> GetEntitiesWithOrderLineEntityId(this GameContext context, int Value) {
         return ((Entitas.EntityIndex<GameEntity, int>)context.GetEntityIndex(Contexts.OrderLineEntityId)).GetEntities(Value);
+    }
+
+    public static System.Collections.Generic.HashSet<GameEntity> GetEntitiesWithPalletBayEntityId(this GameContext context, int Value) {
+        return ((Entitas.EntityIndex<GameEntity, int>)context.GetEntityIndex(Contexts.PalletBayEntityId)).GetEntities(Value);
+    }
+
+    public static System.Collections.Generic.HashSet<GameEntity> GetEntitiesWithPalletStoreEntityId(this GameContext context, int Value) {
+        return ((Entitas.EntityIndex<GameEntity, int>)context.GetEntityIndex(Contexts.PalletStoreEntityId)).GetEntities(Value);
     }
 
     public static System.Collections.Generic.HashSet<GameEntity> GetEntitiesWithProcurementCartEntityId(this GameContext context, int Value) {

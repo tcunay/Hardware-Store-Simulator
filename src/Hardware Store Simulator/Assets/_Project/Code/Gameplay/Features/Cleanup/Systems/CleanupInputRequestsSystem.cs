@@ -21,6 +21,7 @@ namespace HardwareStore.Gameplay.Features.Cleanup.Systems
                 input.isNextPressed = false;
                 input.isIncreasePressed = false;
                 input.isDecreasePressed = false;
+                input.isForkliftTransferPressed = false;
                 input.isToggleCursorPressed = false;
             }
         }

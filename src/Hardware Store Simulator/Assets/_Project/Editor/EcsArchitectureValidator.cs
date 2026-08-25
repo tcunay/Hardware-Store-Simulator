@@ -81,6 +81,12 @@ namespace HardwareStore.Editor
             "Assets/Resources/Configs/ProductRecoveryConfig.asset";
         private const string PlatformTrolleyConfigPath =
             "Assets/Resources/Configs/PlatformTrolleyConfig.asset";
+        private const string ForkliftConfigPath =
+            "Assets/Resources/Configs/ForkliftConfig.asset";
+        private const string FreightTruckConfigPath =
+            "Assets/Resources/Configs/FreightTruckConfig.asset";
+        private const string PalletConfigPath =
+            "Assets/Resources/Configs/PalletConfig.asset";
         private const string WarehouseWorkerConfigPath =
             "Assets/Resources/Configs/WarehouseWorkerConfig.asset";
         private const string StoreDayConfigPath =
@@ -120,6 +126,12 @@ namespace HardwareStore.Editor
             "Assets/_Project/Prefabs/Gameplay/Customer.prefab";
         private const string PlatformTrolleyPrefabPath =
             "Assets/_Project/Prefabs/Gameplay/PlatformTrolley.prefab";
+        private const string ForkliftPrefabPath =
+            "Assets/_Project/Prefabs/Gameplay/Forklift.prefab";
+        private const string FreightTruckPrefabPath =
+            "Assets/_Project/Prefabs/Gameplay/FreightTruck.prefab";
+        private const string PalletPrefabPath =
+            "Assets/_Project/Prefabs/Gameplay/Pallet.prefab";
         private const string WarehouseWorkerPrefabPath =
             "Assets/_Project/Prefabs/Gameplay/WarehouseWorker.prefab";
         private const string WarehouseWorkerTrolleyPrefabPath =
@@ -127,6 +139,7 @@ namespace HardwareStore.Editor
         private const string WarehouseWorkerNavMeshPath =
             "Assets/Scenes/Prototype_Yard/NavMesh-Navigation.asset";
         private const int RequiredStorageSlotCapacity = 18;
+        private const int RequiredFreightPalletSlotCapacity = 4;
 
         private static readonly ProductTypeId[] ExpectedProductTypes =
         {
@@ -163,6 +176,8 @@ namespace HardwareStore.Editor
             typeof(NextPressed),
             typeof(IncreasePressed),
             typeof(DecreasePressed),
+            typeof(ForkliftLiftInput),
+            typeof(ForkliftTransferPressed),
             typeof(ToggleCursorPressed),
             typeof(PointerLook)
         };
@@ -241,6 +256,9 @@ namespace HardwareStore.Editor
             typeof(ProductConfig),
             typeof(ProductRecoveryConfig),
             typeof(PlatformTrolleyConfig),
+            typeof(ForkliftConfig),
+            typeof(FreightTruckConfig),
+            typeof(PalletConfig),
             typeof(WarehouseWorkerConfig),
             typeof(StoreDayConfig)
         };
@@ -255,6 +273,9 @@ namespace HardwareStore.Editor
             (typeof(CustomerFlowConfig), CustomerFlowConfigPath),
             (typeof(ProductRecoveryConfig), ProductRecoveryConfigPath),
             (typeof(PlatformTrolleyConfig), PlatformTrolleyConfigPath),
+            (typeof(ForkliftConfig), ForkliftConfigPath),
+            (typeof(FreightTruckConfig), FreightTruckConfigPath),
+            (typeof(PalletConfig), PalletConfigPath),
             (typeof(WarehouseWorkerConfig), WarehouseWorkerConfigPath),
             (typeof(StoreDayConfig), StoreDayConfigPath)
         };
@@ -301,6 +322,7 @@ namespace HardwareStore.Editor
             ValidateJennyPipeline();
             ValidateProjectContextPrefab();
             ValidatePlayerPrefab();
+            ValidateForkliftPrefab();
             ValidateSupplyChainAssets();
             ValidatePrototypeSceneComposition();
             ValidateBuildSettings();
@@ -383,11 +405,14 @@ namespace HardwareStore.Editor
             InputAction interact = playerMap.FindAction("Interact");
             InputAction drop = playerMap.FindAction("Drop");
             InputAction trolley = playerMap.FindAction("Trolley");
+            InputAction forkliftLift = playerMap.FindAction("ForkliftLift");
+            InputAction forkliftTransfer = playerMap.FindAction("ForkliftTransfer");
             Require(move != null && previous != null && next != null &&
                     increase != null && decrease != null && confirm != null &&
-                    interact != null && drop != null && trolley != null,
+                    interact != null && drop != null && trolley != null &&
+                    forkliftLift != null && forkliftTransfer != null,
                 "Player input must expose Move, catalog navigation and quantity controls, " +
-                "E interaction, G drop and the dedicated F trolley action.");
+                "E interaction, G drop, F trolley and forklift controls.");
 
             Require(HasBinding(previous, "<Keyboard>/leftArrow") &&
                     HasBinding(next, "<Keyboard>/rightArrow"),
@@ -455,12 +480,28 @@ namespace HardwareStore.Editor
                         "<Gamepad>/buttonEast"),
                 "E must remain the world/product action and G must remain product drop; " +
                 "neither action may alias the dedicated trolley input.");
+            Require(forkliftLift.type == InputActionType.Value &&
+                    string.Equals(
+                        forkliftLift.expectedControlType,
+                        "Axis",
+                        StringComparison.Ordinal) &&
+                    HasBinding(forkliftLift, "<Keyboard>/c") &&
+                    HasBinding(forkliftLift, "<Keyboard>/r"),
+                "Forklift lift must use the C/R one-dimensional axis.");
+            Require(forkliftTransfer.type == InputActionType.Button &&
+                    string.Equals(
+                        forkliftTransfer.expectedControlType,
+                        "Button",
+                        StringComparison.Ordinal) &&
+                    HasOnlyBindings(forkliftTransfer, "<Keyboard>/space"),
+                "Forklift pallet transfer must use only Space in the first vertical slice.");
 
             foreach (string propertyName in new[]
                      {
                          nameof(IInputService.TrolleyPressedThisFrame),
                          nameof(IInputService.IncreasePressedThisFrame),
-                         nameof(IInputService.DecreasePressedThisFrame)
+                         nameof(IInputService.DecreasePressedThisFrame),
+                         nameof(IInputService.ForkliftTransferPressed)
                      })
             {
                 PropertyInfo pressedProperty = typeof(IInputService).GetProperty(
@@ -471,28 +512,41 @@ namespace HardwareStore.Editor
                     $"{nameof(IInputService)} must expose one-frame {propertyName} input " +
                     "explicitly.");
             }
+            PropertyInfo forkliftLiftProperty = typeof(IInputService).GetProperty(
+                nameof(IInputService.ForkliftLiftInput),
+                BindingFlags.Instance | BindingFlags.Public |
+                BindingFlags.DeclaredOnly);
+            Require(forkliftLiftProperty?.PropertyType == typeof(float),
+                $"{nameof(IInputService)} must expose the continuous forklift lift axis.");
             string inputServiceSource = ReadRuntimeSource(
                 "Gameplay", "Common", "Input", nameof(InputSystemService) + ".cs");
             RequireSourceContains(inputServiceSource,
                 "_playerMap.FindAction(\"Trolley\", true)",
                 "_playerMap.FindAction(\"Increase\", true)",
                 "_playerMap.FindAction(\"Decrease\", true)",
+                "_playerMap.FindAction(\"ForkliftLift\", true)",
+                "_playerMap.FindAction(\"ForkliftTransfer\", true)",
                 "TrolleyPressedThisFrame => _trolley.WasPressedThisFrame()",
                 "IncreasePressedThisFrame => _increase.WasPressedThisFrame()",
-                "DecreasePressedThisFrame => _decrease.WasPressedThisFrame()");
+                "DecreasePressedThisFrame => _decrease.WasPressedThisFrame()",
+                "ForkliftLiftInput => _forkliftLift.ReadValue<float>()",
+                "ForkliftTransferPressed => _forkliftTransfer.WasPressedThisFrame()");
             string emitInputSource = ReadRuntimeSource(
                 "Gameplay", "Features", "Input", "Systems", "EmitInputSystem.cs");
             RequireSourceContains(emitInputSource,
                 "input.isTrolleyPressed = _inputService.TrolleyPressedThisFrame",
                 "input.isIncreasePressed = _inputService.IncreasePressedThisFrame",
-                "input.isDecreasePressed = _inputService.DecreasePressedThisFrame");
+                "input.isDecreasePressed = _inputService.DecreasePressedThisFrame",
+                "input.ReplaceForkliftLiftInput(_inputService.ForkliftLiftInput)",
+                "input.isForkliftTransferPressed = _inputService.ForkliftTransferPressed");
             string cleanupInputSource = ReadRuntimeSource(
                 "Gameplay", "Features", "Cleanup", "Systems",
                 "CleanupInputRequestsSystem.cs");
             RequireSourceContains(cleanupInputSource,
                 "input.isTrolleyPressed = false",
                 "input.isIncreasePressed = false",
-                "input.isDecreasePressed = false");
+                "input.isDecreasePressed = false",
+                "input.isForkliftTransferPressed = false");
         }
 
         private static bool HasBinding(InputAction action, string path) =>
@@ -645,10 +699,10 @@ namespace HardwareStore.Editor
                 runtimeTypes,
                 "GetEntityWithDayReportStoreEntityId",
                 typeof(GameEntity));
-            Require(GameComponentsLookup.componentTypes.Length == 275 &&
-                    InputComponentsLookup.componentTypes.Length == 14,
+            Require(GameComponentsLookup.componentTypes.Length == 307 &&
+                    InputComponentsLookup.componentTypes.Length == 16,
                 "The mixed-procurement slice must expose the exact generated registry sizes " +
-                "of 275 Game components and 14 Input components.");
+                "of 307 Game components and 16 Input components.");
 
             Type featureType = runtimeTypes.SingleOrDefault(type =>
                 type.Name == "StoreDayFeature");
@@ -1750,7 +1804,10 @@ namespace HardwareStore.Editor
                 typeof(GameEntity),
                 typeof(GameEntity),
                 typeof(GameEntity),
-                typeof(GameEntity));
+                typeof(GameEntity),
+                typeof(CustomerProjectTypeId),
+                typeof(int),
+                typeof(int));
             RequireMethod(
                 typeof(IOrderFactory),
                 nameof(IOrderFactory.AddOrderComponents),
@@ -1763,9 +1820,10 @@ namespace HardwareStore.Editor
                 $"{nameof(IConsultationOfferFactory)}.");
             RequireMethod(
                 typeof(IConsultationOfferFactory),
-                nameof(IConsultationOfferFactory.CreateOffers),
-                typeof(void),
-                typeof(GameEntity));
+                nameof(IConsultationOfferFactory.CreateOffer),
+                typeof(GameEntity),
+                typeof(GameEntity),
+                typeof(int));
             Require(typeof(ICustomerFactory).IsAssignableFrom(typeof(CustomerFactory)),
                 $"{nameof(CustomerFactory)} must implement {nameof(ICustomerFactory)}.");
             RequireMethod(
@@ -1829,7 +1887,7 @@ namespace HardwareStore.Editor
                 "AddReservedCustomerTrafficLaneEntityId",
                 "AddCustomerProjectType",
                 "AddCustomerPatienceRemaining(",
-                "_consultationOffers.CreateOffers");
+                "_consultationOffers.CreateOffer");
             Require(!customerVisitFactorySource.Contains(
                         "AddCustomerProjectTitle",
                         StringComparison.Ordinal) &&
@@ -1877,6 +1935,7 @@ namespace HardwareStore.Editor
             string consultationOfferFactorySource = ReadRuntimeSource(
                 "Gameplay", "Factories", "ConsultationOfferFactory.cs");
             RequireSourceContains(consultationOfferFactorySource,
+                "CustomerProjectOfferDefinition definition = project.Offers[offerIndex]",
                 "CreateEntity.Empty",
                 "AddConsultationOfferVisitEntityId",
                 "AddConsultationOfferEntityId",
@@ -1889,6 +1948,14 @@ namespace HardwareStore.Editor
                 "isConsultationOffer = true",
                 "isConsultationOfferLine = true",
                 "isSelectedConsultationOffer");
+            Require(CountOccurrences(
+                        consultationOfferFactorySource,
+                        "AddConsultationOfferVisitEntityId") == 1 &&
+                    !consultationOfferFactorySource.Contains(
+                        "foreach (CustomerProjectOfferDefinition",
+                        StringComparison.Ordinal),
+                "ConsultationOfferFactory must create one preselected exact order, not every " +
+                "catalog alternative.");
             Require(!consultationOfferFactorySource.Contains(
                         "AddOfferTitle",
                         StringComparison.Ordinal) &&
@@ -2036,7 +2103,10 @@ namespace HardwareStore.Editor
                 typeof(CustomerAbandonedEvent),
                 typeof(CustomerEventVisitEntityId),
                 typeof(CustomerPatienceRemaining),
-                typeof(CustomerDissatisfactionViewComponent)
+                typeof(CustomerDissatisfactionViewComponent),
+                typeof(CustomerDemandProjectType),
+                typeof(CustomerDemandOfferIndex),
+                typeof(CustomerDemandUnavailable)
             };
             foreach (Type component in patienceComponents)
             {
@@ -2097,6 +2167,7 @@ namespace HardwareStore.Editor
                 "BeginCustomerReturnSystem",
                 "AdvanceCustomerQueueSystem",
                 "MoveCustomerVehicleToLoadingBaySystem",
+                "RefreshCustomerDemandSystem",
                 "SpawnCustomerVisitSystem",
                 "MoveRouteSystem",
                 "ReleaseDepartedOrderContentSystem",
@@ -2130,6 +2201,26 @@ namespace HardwareStore.Editor
             string spawnSource = ReadRuntimeSource(
                 "Gameplay", "Features", "Customers", "Systems",
                 "SpawnCustomerVisitSystem.cs");
+            string refreshDemandSource = ReadRuntimeSource(
+                "Gameplay", "Features", "Customers", "Systems",
+                "RefreshCustomerDemandSystem.cs");
+            RequireSourceContains(refreshDemandSource,
+                "_ownedProducts = gameContext.GetGroup",
+                "_shelfProducts = gameContext.GetGroup",
+                "GameMatcher.StorageSlotIndex",
+                "GameMatcher.Interactable",
+                "GameMatcher.ConsultationOfferLine",
+                "GameMatcher.OrderLine",
+                "GetEntitiesWithReservedOrderLineEntityId(line.EntityId)",
+                "line.RequiredProductCount - line.LoadedProductCount",
+                "freeOwnedCount < line.RequiredCount",
+                "shelfCount < line.RequiredCount",
+                "ReserveProducts(",
+                "store.NextProjectSequenceIndex + projectOffset",
+                "unitCount <= selectedUnitCount",
+                "store.isCustomerDemandUnavailable = true",
+                "becameAvailable && store.isStoreOpen",
+                "_staticData.CustomerFlow.FirstArrivalDelay");
             RequireSourceContains(spawnSource,
                 "GameMatcher.StoreOpen",
                 "GetEntitiesWithCustomerParkingSpotStoreEntityId",
@@ -2137,11 +2228,17 @@ namespace HardwareStore.Editor
                 "GetEntityWithCustomerTrafficLaneStoreEntityId",
                 "GetEntityWithReservedCustomerTrafficLaneEntityId",
                 "float nextDelay = _arrivalSchedule.GetDelay(store.CurrentDayMinute)",
-                "_customerVisitFactory.Create(store, parkingSpot, trafficLane)",
+                "GameMatcher.CustomerDemandProjectType",
+                "GameMatcher.CustomerDemandOfferIndex",
+                ".NoneOf(",
+                "GameMatcher.CustomerDemandUnavailable",
+                "_customerVisitFactory.Create(",
+                "store.ReplaceNextProjectSequenceIndex(",
+                "store.ReplaceNextCustomerArrivalSequence(",
                 "store.ReplaceCustomerCooldownRemaining(nextDelay)");
             RequireSourceOrder(
                 spawnSource,
-                "_customerVisitFactory.Create(store, parkingSpot, trafficLane)",
+                "_customerVisitFactory.Create(",
                 "store.ReplaceCustomerCooldownRemaining(nextDelay)",
                 "A due customer attempt must reschedule after either spawning or finding " +
                 "customer infrastructure occupied.");
@@ -3488,7 +3585,10 @@ namespace HardwareStore.Editor
                 "Gameplay", "Features", "Interaction", "Systems",
                 "EmitInteractionRequestSystem.cs");
             RequireSourceContains(emitInteractionSource,
-                ".NoneOf(GameMatcher.ModalOpen, GameMatcher.PushingTrolley)");
+                ".NoneOf(",
+                "GameMatcher.ModalOpen,",
+                "GameMatcher.PushingTrolley,",
+                "GameMatcher.DrivingForklift)");
             string procurementSource = ReadRuntimeSource(
                 "Gameplay", "Features", "Procurement", "Systems",
                 "OpenProcurementSystem.cs");
@@ -5136,7 +5236,6 @@ namespace HardwareStore.Editor
 
             string[] executeSystemNames =
             {
-                "CycleConsultationOfferSystem",
                 "ConfirmConsultationOfferSystem",
                 "CancelConsultationSystem",
                 "OpenConsultationSystem"
@@ -5160,6 +5259,12 @@ namespace HardwareStore.Editor
                     $"ConsultationFeature must execute {string.Join(" -> ", executeSystemNames)}.");
                 previousSystemPosition = systemPosition;
             }
+            Require(runtimeTypes.All(type =>
+                        type.Name != "CycleConsultationOfferSystem") &&
+                    !consultationFeatureSource.Contains(
+                        "CycleConsultationOfferSystem",
+                        StringComparison.Ordinal),
+                "A single exact customer order must not retain offer-cycling runtime logic.");
 
             string storeFeatureSource = ReadRuntimeSource("Gameplay", "StoreFeature.cs");
             RequireSourceContains(storeFeatureSource, "ConsultationFeature");
@@ -5231,17 +5336,6 @@ namespace HardwareStore.Editor
                 "Vector3.zero");
             Require(openSource.Contains("isHandsOccupied", StringComparison.Ordinal),
                 "Consultation must not open while the player carries a product.");
-
-            string cycleSource = ReadRuntimeSource(
-                "Gameplay", "Features", "Consultation", "Systems",
-                "CycleConsultationOfferSystem.cs");
-            RequireSourceContains(cycleSource,
-                "InputMatcher.PreviousPressed",
-                "InputMatcher.NextPressed",
-                "GameMatcher.ModalOpen",
-                "GameMatcher.ConsultationVisitEntityId",
-                "GetEntitiesWithConsultationOfferVisitEntityId",
-                "isSelectedConsultationOffer");
 
             string confirmSource = ReadRuntimeSource(
                 "Gameplay", "Features", "Consultation", "Systems",
@@ -5385,7 +5479,7 @@ namespace HardwareStore.Editor
                 });
             Require(consultationSnapshotConstructor != null,
                 $"{nameof(ConsultationSnapshot)} must expose semantic project identity, cargo " +
-                "capacity and three offer cards.");
+                "capacity and one exact customer-order card.");
             Require(typeof(ConsultationOfferLineSnapshot).GetConstructor(new[]
                     {
                         typeof(int),
@@ -5427,9 +5521,11 @@ namespace HardwareStore.Editor
                         typeof(int),
                         typeof(int),
                         typeof(int),
+                        typeof(bool),
                         typeof(DeliveryProgressSnapshot?),
                         typeof(ProductTypeId?),
                         typeof(LocalizedText),
+                        typeof(bool),
                         typeof(bool),
                         typeof(bool),
                         typeof(bool),
@@ -5451,6 +5547,7 @@ namespace HardwareStore.Editor
                 (nameof(HudSnapshot.TotalRequiredProductCount), typeof(int)),
                 (nameof(HudSnapshot.Money), typeof(int)),
                 (nameof(HudSnapshot.StockCount), typeof(int)),
+                (nameof(HudSnapshot.CustomerDemandUnavailable), typeof(bool)),
                 (nameof(HudSnapshot.Delivery), typeof(DeliveryProgressSnapshot?)),
                 (nameof(HudSnapshot.HasActiveDelivery), typeof(bool)),
                 (nameof(HudSnapshot.CarriedProductType), typeof(ProductTypeId?)),
@@ -5459,6 +5556,7 @@ namespace HardwareStore.Editor
                 (nameof(HudSnapshot.CanInteract), typeof(bool)),
                 (nameof(HudSnapshot.HasItem), typeof(bool)),
                 (nameof(HudSnapshot.IsPushingTrolley), typeof(bool)),
+                (nameof(HudSnapshot.IsDrivingForklift), typeof(bool)),
                 (nameof(HudSnapshot.CursorLocked), typeof(bool)),
                 (nameof(HudSnapshot.CustomerFlow), typeof(CustomerFlowSnapshot)),
                 (nameof(HudSnapshot.WarehouseWorkerStatus),
@@ -5725,6 +5823,8 @@ namespace HardwareStore.Editor
                 "SelectOpeningProduct(terminal)",
                 "_solvency.EvaluatePurchase(",
                 "ProcurementDemandKind.ProjectForecast",
+                "ProcurementDemandKind.SelectedCustomerOrder",
+                "GetEntitiesWithConsultationOfferEntityId",
                 "AddProcurementTerminalEntityId",
                 "isModalOpen = true",
                 "ReplaceMoveDirection(Vector3.zero)");
@@ -5796,6 +5896,9 @@ namespace HardwareStore.Editor
                 "ProcurementPurchaseAvailability.InsufficientStorage",
                 "ProcurementPurchaseAvailability.InsufficientMoney",
                 "ProcurementPurchaseAvailability.DemandWouldBecomeInsolvent",
+                "ProcurementDemandKind.ConfirmedOrder =>",
+                "ProcurementDemandKind.SelectedCustomerOrder",
+                "ProcurementDemandKind.ProjectForecast =>",
                 "LocalizationKey.NotificationPurchaseWouldBlockOrder",
                 "LocalizationKey.NotificationPurchaseWouldBlockForecast",
                 "_purchaseOrders.Create(",
@@ -5969,6 +6072,16 @@ namespace HardwareStore.Editor
                 typeof(EconomyDebitEvaluation),
                 typeof(int),
                 typeof(int));
+            string purchaseEvaluationSource = ReadRuntimeSource(
+                "Gameplay", "Common", "Economy",
+                nameof(ProcurementPurchaseEvaluation) + ".cs");
+            RequireSourceContains(purchaseEvaluationSource,
+                "switch (demandKind)",
+                "ProcurementDemandKind.ConfirmedOrder",
+                "ProcurementDemandKind.SelectedCustomerOrder",
+                "!demandVisitEntityId.HasValue",
+                "ProcurementDemandKind.ProjectForecast",
+                "demandVisitEntityId.HasValue");
             string solvencySource = ReadRuntimeSource(
                 "Gameplay", "Common", "Economy",
                 nameof(ProcurementSolvencyService) + ".cs");
@@ -5982,21 +6095,17 @@ namespace HardwareStore.Editor
                 "GetEntitiesWithCustomerVisitStoreEntityId(",
                 "OrderBy(visit => visit.CustomerArrivalSequence)",
                 "new List<ProtectedDemand>(visits.Length)",
-                "int arrivalSequenceDelta =",
-                "AdvanceSequenceIndex(",
-                "previousProjectIndex,",
-                "arrivalSequenceDelta);",
-                "int remainingArrivalSequenceCount =",
-                "remainingArrivalSequenceCount);",
-                "if (stepCount <= 0)",
-                "stepCount % _staticData.ProjectTypes.Count",
                 "ProtectedDemand.ConfirmedOrder(",
                 "CollectRemainingOrderRequirements(visit, stock)",
-                "ProtectedDemand.ProjectForecast(visit)",
+                "CollectPreOrderRequirements(visit, out int reward)",
+                "ProtectedDemand.SelectedCustomerOrder(",
+                "requirements,",
+                "reward));",
                 "store.NextProjectSequenceIndex,",
-                "_staticData.ProjectTypes.Count);",
+                "futureProjectCount: 0);",
                 "ValidateProjectionPlan(demandPlan)",
                 "AreProtectedDemandsSolvent(",
+                "if (demand.ExactRequirements != null)",
                 "demandIndex == demandPlan.ProtectedDemands.Count",
                 "AreForecastPathsSolvent(",
                 "remainingProjectCount - 1",
@@ -6021,22 +6130,15 @@ namespace HardwareStore.Editor
                 "Protected demand projection must preserve FIFO visit order.");
             RequireSourceOrder(
                 solvencySource,
-                "int arrivalSequenceDelta =",
-                "AdvanceSequenceIndex(",
-                "Project sequence validation must advance by the positive gap between " +
-                "surviving customer arrival sequences.");
-            RequireSourceOrder(
-                solvencySource,
-                "int remainingArrivalSequenceCount =",
-                "int expectedNextProjectIndex = AdvanceSequenceIndex(",
-                "The next store project must account for destroyed visits after the latest " +
-                "surviving customer arrival.");
-            RequireSourceOrder(
-                solvencySource,
                 "ProtectedDemand.ConfirmedOrder(",
-                "ProtectedDemand.ProjectForecast(visit)",
-                "Active confirmed orders must retain their exact requirements while pre-order " +
-                "visits branch across configured offers.");
+                "CollectPreOrderRequirements(visit, out int reward)",
+                "Active confirmed orders must be collected before exact pre-order customer " +
+                "requirements.");
+            RequireSourceOrder(
+                solvencySource,
+                "CollectPreOrderRequirements(visit, out int reward)",
+                "ProtectedDemand.SelectedCustomerOrder(",
+                "A pre-order customer must protect its single selected exact offer.");
             RequireSourceOrder(
                 solvencySource,
                 "var demandPlan = new DemandPlan(",
@@ -6214,7 +6316,9 @@ namespace HardwareStore.Editor
                 "_solvency.EvaluateCart(cart.EntityId)",
                 "ProcurementDemandKind.ProjectForecast",
                 "ProcurementDemandKind.ConfirmedOrder",
+                "ProcurementDemandKind.SelectedCustomerOrder",
                 "GetEntitiesWithOrderEntityId",
+                "GetEntitiesWithConsultationOfferEntityId",
                 "_productTypes = new ProductTypeId[staticData.ProductTypes.Count]",
                 "CollectCartLineEntities(cart)",
                 "CaptureSourceFingerprint(",
@@ -6822,6 +6926,11 @@ namespace HardwareStore.Editor
                 $"Camera, CameraRegistrar and AudioListener in {PlayerPrefabPath} must share one object.");
             Require(viewPivots[0].transform.IsChildOf(prefab.transform),
                 $"ViewPivotRegistrar in {PlayerPrefabPath} must belong to the player hierarchy.");
+            Require(cameras[0].transform.parent == viewPivots[0].transform &&
+                    cameras[0].transform.localPosition == Vector3.zero &&
+                    cameras[0].transform.localRotation == Quaternion.identity,
+                $"Camera in {PlayerPrefabPath} must be a direct zero-pose child of " +
+                "ViewPivot so first- and third-person modes can restore deterministically.");
             Require(carryAnchors[0].transform.IsChildOf(cameras[0].transform) &&
                     dropOrigins[0].transform.IsChildOf(cameras[0].transform),
                 $"Carry and drop anchors in {PlayerPrefabPath} must be children of the player camera.");
@@ -6831,6 +6940,38 @@ namespace HardwareStore.Editor
             Require(viewPrefab != null, $"{nameof(PlayerConfig)} must declare _viewPrefab.");
             Require(viewPrefab.objectReferenceValue == views[0],
                 $"{PlayerConfigPath} must reference the EntityBehaviour root from {PlayerPrefabPath}.");
+        }
+
+        private static void ValidateForkliftPrefab()
+        {
+            ForkliftConfig forkliftConfig =
+                AssetDatabase.LoadAssetAtPath<ForkliftConfig>(ForkliftConfigPath);
+            Require(forkliftConfig != null,
+                $"Forklift config is missing at {ForkliftConfigPath}.");
+
+            GameObject prefab =
+                AssetDatabase.LoadAssetAtPath<GameObject>(ForkliftPrefabPath);
+            Require(prefab != null,
+                $"Forklift prefab is missing at {ForkliftPrefabPath}.");
+            EntityBehaviour[] views =
+                RequireExactlyOneInPrefab<EntityBehaviour>(
+                    prefab,
+                    ForkliftPrefabPath);
+            Rigidbody[] rigidbodies =
+                RequireExactlyOneInPrefab<Rigidbody>(
+                    prefab,
+                    ForkliftPrefabPath);
+            Rigidbody body = rigidbodies[0];
+            Require(body.gameObject == prefab &&
+                    body.isKinematic &&
+                    !body.useGravity &&
+                    body.detectCollisions &&
+                    body.interpolation == RigidbodyInterpolation.None,
+                $"{ForkliftPrefabPath} must keep one deterministic, non-interpolated " +
+                "kinematic Rigidbody on its root.");
+            Require(forkliftConfig.ViewPrefab == views[0],
+                $"{ForkliftConfigPath} must reference the EntityBehaviour root from " +
+                $"{ForkliftPrefabPath}.");
         }
 
         private static void ValidateSupplyChainAssets()
@@ -8504,11 +8645,18 @@ namespace HardwareStore.Editor
                     .ToArray();
                 GameObject workerTrolleyPrefab =
                     RequireAsset<GameObject>(WarehouseWorkerTrolleyPrefabPath);
+                GameObject forkliftPrefab = RequireAsset<GameObject>(ForkliftPrefabPath);
+                GameObject freightTruckPrefab =
+                    RequireAsset<GameObject>(FreightTruckPrefabPath);
+                GameObject palletPrefab = RequireAsset<GameObject>(PalletPrefabPath);
                 Require(productPrefabs.All(productPrefab =>
                             !ContainsPrefabInstance(scene, productPrefab)) &&
-                        !ContainsPrefabInstance(scene, workerTrolleyPrefab),
-                    $"{PrototypeScenePath} must not contain product or worker-trolley prefab " +
-                    "instances; both are spawned at runtime.");
+                        !ContainsPrefabInstance(scene, workerTrolleyPrefab) &&
+                        !ContainsPrefabInstance(scene, forkliftPrefab) &&
+                        !ContainsPrefabInstance(scene, freightTruckPrefab) &&
+                        !ContainsPrefabInstance(scene, palletPrefab),
+                    $"{PrototypeScenePath} must not contain product, trolley or freight " +
+                    "prefab instances; all are spawned at runtime.");
 
                 var expectedSpawnIds = new HashSet<SpawnPointId>
                 {
@@ -8520,12 +8668,15 @@ namespace HardwareStore.Editor
                     SpawnPointId.WarehouseWorkerStorageAccess,
                     SpawnPointId.WarehouseWorkerCustomerLoadingAccess,
                     SpawnPointId.WarehouseWorkerTrolley,
-                    SpawnPointId.WarehouseWorkerTrolleyCustomerLoadingAccess
+                    SpawnPointId.WarehouseWorkerTrolleyCustomerLoadingAccess,
+                    SpawnPointId.Forklift,
+                    SpawnPointId.FreightTruck,
+                    SpawnPointId.InboundPallet
                 };
                 var actualSpawnIds = new HashSet<SpawnPointId>(spawnPoints.Select(marker => marker.Id));
                 Require(spawnPoints.Length == expectedSpawnIds.Count && actualSpawnIds.SetEquals(expectedSpawnIds),
                     $"{PrototypeScenePath} must contain one marker for every player, vehicle, " +
-                    "trolley and warehouse-worker access point.");
+                    "trolley, freight and warehouse-worker access point.");
 
                 Require(navigationSurfaces.Length == 1,
                     $"{PrototypeScenePath} must contain exactly one NavMeshSurface.");
@@ -9152,19 +9303,26 @@ namespace HardwareStore.Editor
                     SceneViewId.ProcurementTerminal,
                     SceneViewId.StorageZone,
                     SceneViewId.TrolleyUpgradeTerminal,
-                    SceneViewId.StoreControlTerminal
+                    SceneViewId.StoreControlTerminal,
+                    SceneViewId.FreightStagingZone
                 };
                 var actualSceneViewIds = new HashSet<SceneViewId>(sceneViews.Select(marker => marker.Id));
                 Require(sceneViews.Length == expectedSceneViewIds.Count &&
                         actualSceneViewIds.SetEquals(expectedSceneViewIds),
                     $"{PrototypeScenePath} must contain exactly one marker for every SceneViewId.");
-                Require(sceneViews.All(marker => marker.View is InteractionView),
-                    "Every static scene view marker must reference an InteractionView on the same object.");
+                Require(sceneViews
+                        .Where(marker => marker.Id != SceneViewId.FreightStagingZone)
+                        .All(marker => marker.View is InteractionView) &&
+                        sceneViews.Single(marker =>
+                            marker.Id == SceneViewId.FreightStagingZone).View is not InteractionView,
+                    "Interactive scene markers must reference InteractionView, while the " +
+                    "freight staging marker remains a non-interactive EntityBehaviour.");
                 Require(entityViews.Length == sceneViews.Length &&
                         new HashSet<EntityBehaviour>(sceneViews.Select(marker => marker.View)).SetEquals(entityViews),
-                    $"{PrototypeScenePath} must contain only the five marked static entity views.");
-                Require(slotRegistrars.Length == 1,
-                    $"{PrototypeScenePath} must contain scene slots only for storage.");
+                    $"{PrototypeScenePath} must contain only the marked static entity views.");
+                Require(slotRegistrars.Length == 2,
+                    $"{PrototypeScenePath} must contain scene slots only for storage and " +
+                    "freight staging.");
 
                 SceneViewMarker storage = sceneViews.Single(marker => marker.Id == SceneViewId.StorageZone);
                 SlotsRegistrar storageSlotsRegistrar = storage.GetComponent<SlotsRegistrar>();
@@ -9173,6 +9331,34 @@ namespace HardwareStore.Editor
                 Transform[] storageSlots = ReadSlots(storageSlotsRegistrar, PrototypeScenePath);
                 Require(storageSlots.Length == RequiredStorageSlotCapacity,
                     $"Storage must expose exactly {RequiredStorageSlotCapacity} unique slots.");
+                SceneViewMarker freightStaging = sceneViews.Single(marker =>
+                    marker.Id == SceneViewId.FreightStagingZone);
+                SlotsRegistrar freightSlotsRegistrar =
+                    freightStaging.GetComponent<SlotsRegistrar>();
+                Require(freightSlotsRegistrar != null &&
+                        freightStaging.GetComponent<TransformRegistrar>() != null &&
+                        freightStaging.GetComponent<InteractionViewRegistrar>() == null,
+                    "Freight staging must expose generic Transform and Slots registrars " +
+                    "without becoming an interaction target.");
+                Transform[] freightSlots = ReadSlots(
+                    freightSlotsRegistrar,
+                    PrototypeScenePath);
+                Require(freightSlots.Length == RequiredFreightPalletSlotCapacity,
+                    $"Freight staging must expose exactly " +
+                    $"{RequiredFreightPalletSlotCapacity} pallet slots.");
+                for (int index = 0; index < freightSlots.Length; index++)
+                {
+                    Vector3 expectedPosition = new(
+                        18.5f,
+                        0.03f,
+                        -3.3f + index * 2.2f);
+                    Require(freightSlots[index].name == $"Pallet Slot {index + 1}" &&
+                            freightSlots[index].IsChildOf(freightStaging.transform) &&
+                            Vector3.Distance(
+                                freightSlots[index].position,
+                                expectedPosition) < 0.001f,
+                        $"Freight staging slot {index + 1} must preserve its authored pose.");
+                }
                 ValidateBoundedProcurementSolvencyPolicy(storageSlots.Length);
                 Vector3 maximumGeometry = productPrefabs
                     .Select((productPrefab, index) => ReadSolidProductGeometry(

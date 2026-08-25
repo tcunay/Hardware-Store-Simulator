@@ -1,4 +1,5 @@
 using HardwareStore.Gameplay.Features.Interaction.Systems;
+using HardwareStore.Gameplay.Features.Forklift.Systems;
 using HardwareStore.Infrastructure.Systems;
 
 namespace HardwareStore.Gameplay.Features.Interaction
@@ -8,6 +9,7 @@ namespace HardwareStore.Gameplay.Features.Interaction
         public InteractionPromptFeature(ISystemFactory systems)
         {
             Add(systems.Create<ClearInteractionPromptSystem>());
+            Add(systems.Create<ResolveForkliftPromptSystem>());
             Add(systems.Create<ResolveProcurementTerminalPromptSystem>());
             Add(systems.Create<ResolveEmptyHandsStoragePromptSystem>());
             Add(systems.Create<ResolveHeldProductStoragePromptSystem>());

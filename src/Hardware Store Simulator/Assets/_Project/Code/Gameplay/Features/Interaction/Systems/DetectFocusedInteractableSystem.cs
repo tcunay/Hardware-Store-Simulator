@@ -24,7 +24,8 @@ namespace HardwareStore.Gameplay.Features.Interaction.Systems
                 GameMatcher.Camera,
                 GameMatcher.InteractionDistance,
                 GameMatcher.AimAssistRadius)
-                .NoneOf(GameMatcher.ModalOpen, GameMatcher.PushingTrolley));
+                .NoneOf(GameMatcher.ModalOpen, GameMatcher.PushingTrolley,
+                    GameMatcher.DrivingForklift));
         }
 
         public void Execute()

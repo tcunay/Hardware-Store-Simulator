@@ -155,10 +155,26 @@ namespace HardwareStore.Gameplay.Features.Procurement.Systems
 
             if (!evaluation.DemandVisitEntityId.HasValue)
                 throw new InvalidOperationException(
-                    $"Terminal {terminal.EntityId} resolved confirmed demand without a visit.");
+                    $"Terminal {terminal.EntityId} resolved exact demand without a visit.");
 
             GameEntity visit = _gameContext.GetEntityWithEntityId(
                 evaluation.DemandVisitEntityId.Value);
+            if (evaluation.DemandKind == ProcurementDemandKind.SelectedCustomerOrder)
+            {
+                SelectSelectedCustomerOrderProduct(
+                    terminal,
+                    evaluation,
+                    visit);
+                return;
+            }
+            if (evaluation.DemandKind != ProcurementDemandKind.ConfirmedOrder)
+            {
+                throw new ArgumentOutOfRangeException(
+                    nameof(evaluation.DemandKind),
+                    evaluation.DemandKind,
+                    null);
+            }
+
             ValidateConfirmedDemand(terminal, evaluation, visit);
 
             var indexedLines = _gameContext.GetEntitiesWithOrderEntityId(visit.EntityId);
@@ -185,6 +201,151 @@ namespace HardwareStore.Gameplay.Features.Procurement.Systems
 
                 terminal.ReplaceSelectedProductType(productType);
                 return;
+            }
+        }
+
+        private void SelectSelectedCustomerOrderProduct(
+            GameEntity terminal,
+            ProcurementPurchaseEvaluation evaluation,
+            GameEntity visit)
+        {
+            ValidateSelectedCustomerOrderDemand(terminal, evaluation, visit);
+
+            GameEntity[] offers = _gameContext
+                .GetEntitiesWithConsultationOfferVisitEntityId(visit.EntityId)
+                .ToArray();
+            if (offers.Length != 1)
+            {
+                throw new InvalidOperationException(
+                    $"Pre-order customer visit {visit.EntityId} must own exactly one " +
+                    $"consultation offer, found {offers.Length}.");
+            }
+            GameEntity selectedOffer = null;
+            foreach (GameEntity offer in offers)
+            {
+                if (!offer.isConsultationOffer || offer.isDestructed ||
+                    !offer.hasEntityId ||
+                    !offer.hasConsultationOfferVisitEntityId ||
+                    offer.ConsultationOfferVisitEntityId != visit.EntityId ||
+                    !offer.hasOfferIndex || !offer.hasOrderReward ||
+                    !offer.hasExpectedProfit)
+                {
+                    throw new InvalidOperationException(
+                        $"Pre-order customer visit {visit.EntityId} has an invalid " +
+                        "consultation offer.");
+                }
+                if (!offer.isSelectedConsultationOffer)
+                    continue;
+                if (selectedOffer != null)
+                {
+                    throw new InvalidOperationException(
+                        $"Pre-order customer visit {visit.EntityId} has more than one " +
+                        "selected consultation offer.");
+                }
+
+                selectedOffer = offer;
+            }
+            if (selectedOffer == null)
+                throw new InvalidOperationException(
+                    $"Pre-order customer visit {visit.EntityId} has no selected " +
+                    "consultation offer.");
+
+            var indexedLines = _gameContext.GetEntitiesWithConsultationOfferEntityId(
+                selectedOffer.EntityId);
+            foreach (GameEntity line in indexedLines)
+            {
+                if (!line.hasLineIndex)
+                {
+                    throw new InvalidOperationException(
+                        $"Consultation offer {selectedOffer.EntityId} contains a line " +
+                        "without an index.");
+                }
+            }
+
+            GameEntity[] lines = indexedLines
+                .OrderBy(line => line.LineIndex)
+                .ToArray();
+            ValidateSelectedCustomerOrderLines(visit, selectedOffer, lines);
+            foreach (GameEntity line in lines)
+            {
+                if (line.ProductType == terminal.SelectedProductType)
+                    return;
+            }
+
+            terminal.ReplaceSelectedProductType(lines[0].ProductType);
+        }
+
+        private static void ValidateSelectedCustomerOrderDemand(
+            GameEntity terminal,
+            ProcurementPurchaseEvaluation evaluation,
+            GameEntity visit)
+        {
+            if (visit == null || !visit.isCustomerVisit || visit.isDestructed ||
+                visit.isOrder || visit.isOrderRewarded || !visit.hasEntityId ||
+                !visit.hasCustomerVisitStoreEntityId ||
+                !visit.hasCustomerProjectType || !visit.hasStorageZoneEntityId ||
+                !visit.hasCustomerArrivalSequence ||
+                visit.CustomerVisitStoreEntityId != terminal.StoreEntityId ||
+                visit.CustomerProjectType != evaluation.ProjectType ||
+                visit.StorageZoneEntityId != terminal.StorageZoneEntityId)
+            {
+                throw new InvalidOperationException(
+                    $"Terminal {terminal.EntityId} resolved an invalid selected customer " +
+                    "order visit.");
+            }
+
+            ValidateVisitLifecycle(visit);
+            if (!visit.isCustomerVisitArriving &&
+                !visit.isCustomerVisitQueued &&
+                !visit.isCustomerVisitConsulting)
+            {
+                throw new InvalidOperationException(
+                    $"Selected customer order visit {visit.EntityId} is not an active " +
+                    "pre-order.");
+            }
+        }
+
+        private static void ValidateSelectedCustomerOrderLines(
+            GameEntity visit,
+            GameEntity selectedOffer,
+            GameEntity[] lines)
+        {
+            if (lines.Length == 0 ||
+                lines.Length > CustomerProjectConfig.MaxLinesPerOffer)
+            {
+                throw new InvalidOperationException(
+                    $"Selected consultation offer {selectedOffer.EntityId} has invalid " +
+                    $"line count {lines.Length}.");
+            }
+
+            for (int index = 0; index < lines.Length; index++)
+            {
+                GameEntity line = lines[index];
+                if (!line.isConsultationOfferLine || line.isDestructed ||
+                    !line.hasEntityId || !line.hasConsultationOfferEntityId ||
+                    line.ConsultationOfferEntityId != selectedOffer.EntityId ||
+                    !line.hasStorageZoneEntityId ||
+                    line.StorageZoneEntityId != visit.StorageZoneEntityId ||
+                    !line.hasLineIndex || line.LineIndex != index ||
+                    !line.hasProductType || !line.hasRequiredProductCount ||
+                    !line.hasAvailableProductCount ||
+                    line.RequiredProductCount <= 0 ||
+                    line.AvailableProductCount < 0)
+                {
+                    throw new InvalidOperationException(
+                        $"Selected consultation offer {selectedOffer.EntityId} has an " +
+                        $"invalid line at index {index}.");
+                }
+
+                for (int previous = 0; previous < index; previous++)
+                {
+                    if (lines[previous].ProductType == line.ProductType)
+                    {
+                        throw new InvalidOperationException(
+                            $"Selected consultation offer {selectedOffer.EntityId} " +
+                            $"contains duplicate product type {line.ProductType}.");
+                    }
+                }
             }
         }
 

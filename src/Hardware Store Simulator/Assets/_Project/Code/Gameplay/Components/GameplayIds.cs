@@ -10,7 +10,10 @@ namespace HardwareStore.Gameplay.Components
         WarehouseWorkerStorageAccess,
         WarehouseWorkerCustomerLoadingAccess,
         WarehouseWorkerTrolley,
-        WarehouseWorkerTrolleyCustomerLoadingAccess
+        WarehouseWorkerTrolleyCustomerLoadingAccess,
+        Forklift,
+        FreightTruck,
+        InboundPallet
     }
 
     public enum SceneViewId
@@ -19,7 +22,8 @@ namespace HardwareStore.Gameplay.Components
         ProcurementTerminal,
         StorageZone,
         TrolleyUpgradeTerminal,
-        StoreControlTerminal
+        StoreControlTerminal,
+        FreightStagingZone
     }
 
     public enum SceneRouteId
@@ -60,7 +64,8 @@ namespace HardwareStore.Gameplay.Components
         LoadingZone,
         TrolleyUpgradeTerminal,
         PlatformTrolley,
-        StoreControlTerminal
+        StoreControlTerminal,
+        Forklift
     }
 
     public enum AudioCueId

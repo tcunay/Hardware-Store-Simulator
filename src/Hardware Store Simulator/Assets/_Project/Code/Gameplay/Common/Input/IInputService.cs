@@ -15,6 +15,8 @@ namespace HardwareStore.Gameplay.Common.Input
         bool NextPressedThisFrame { get; }
         bool IncreasePressedThisFrame { get; }
         bool DecreasePressedThisFrame { get; }
+        float ForkliftLiftInput { get; }
+        bool ForkliftTransferPressed { get; }
         bool ToggleCursorPressedThisFrame { get; }
         bool LookUsesPointer { get; }
     }

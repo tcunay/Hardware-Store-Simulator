@@ -42,24 +42,33 @@ namespace HardwareStore.Gameplay.Presentation
                         "Procurement product indices must be contiguous and ordered.",
                         nameof(products));
                 }
-                if (demandKind == ProcurementDemandKind.ProjectForecast)
+                switch (demandKind)
                 {
-                    if (product.RemainingRequiredProductCount != 0 ||
-                        product.ProjectedDeficitProductCount != 0)
-                    {
-                        throw new ArgumentException(
-                            "Forecast procurement cards cannot contain confirmed-order counts.",
-                            nameof(products));
-                    }
-                }
-                else if (product.MinimumRequiredProductCount !=
-                         product.RemainingRequiredProductCount ||
-                         product.MaximumRequiredProductCount !=
-                         product.RemainingRequiredProductCount)
-                {
-                    throw new ArgumentException(
-                        "Confirmed-order procurement cards must expose one exact demand count.",
-                        nameof(products));
+                    case ProcurementDemandKind.ProjectForecast:
+                        if (product.RemainingRequiredProductCount != 0 ||
+                            product.ProjectedDeficitProductCount != 0)
+                        {
+                            throw new ArgumentException(
+                                "Forecast procurement cards cannot contain exact-order " +
+                                "counts.",
+                                nameof(products));
+                        }
+                        break;
+                    case ProcurementDemandKind.ConfirmedOrder:
+                    case ProcurementDemandKind.SelectedCustomerOrder:
+                        if (product.MinimumRequiredProductCount !=
+                            product.RemainingRequiredProductCount ||
+                            product.MaximumRequiredProductCount !=
+                            product.RemainingRequiredProductCount)
+                        {
+                            throw new ArgumentException(
+                                "Exact-order procurement cards must expose one demand count.",
+                                nameof(products));
+                        }
+                        break;
+                    default:
+                        throw new ArgumentOutOfRangeException(
+                            nameof(demandKind), demandKind, null);
                 }
                 for (int previous = 0; previous < index; previous++)
                 {

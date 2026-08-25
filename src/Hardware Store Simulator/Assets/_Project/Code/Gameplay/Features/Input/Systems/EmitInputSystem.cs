@@ -29,6 +29,8 @@ namespace HardwareStore.Gameplay.Features.Input.Systems
                 input.isNextPressed = _inputService.NextPressedThisFrame;
                 input.isIncreasePressed = _inputService.IncreasePressedThisFrame;
                 input.isDecreasePressed = _inputService.DecreasePressedThisFrame;
+                input.ReplaceForkliftLiftInput(_inputService.ForkliftLiftInput);
+                input.isForkliftTransferPressed = _inputService.ForkliftTransferPressed;
                 input.isToggleCursorPressed = _inputService.ToggleCursorPressedThisFrame;
                 input.isPointerLook = _inputService.LookUsesPointer;
             }

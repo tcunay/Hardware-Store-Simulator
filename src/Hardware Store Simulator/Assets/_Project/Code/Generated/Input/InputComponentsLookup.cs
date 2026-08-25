@@ -11,24 +11,28 @@ public static class InputComponentsLookup {
     public const int ConfirmPressed = 0;
     public const int DecreasePressed = 1;
     public const int DropPressed = 2;
-    public const int IncreasePressed = 3;
-    public const int InputState = 4;
-    public const int InteractPressed = 5;
-    public const int LookInput = 6;
-    public const int MoveInput = 7;
-    public const int NextPressed = 8;
-    public const int PointerLook = 9;
-    public const int PreviousPressed = 10;
-    public const int SprintHeld = 11;
-    public const int ToggleCursorPressed = 12;
-    public const int TrolleyPressed = 13;
+    public const int ForkliftLiftInput = 3;
+    public const int ForkliftTransferPressed = 4;
+    public const int IncreasePressed = 5;
+    public const int InputState = 6;
+    public const int InteractPressed = 7;
+    public const int LookInput = 8;
+    public const int MoveInput = 9;
+    public const int NextPressed = 10;
+    public const int PointerLook = 11;
+    public const int PreviousPressed = 12;
+    public const int SprintHeld = 13;
+    public const int ToggleCursorPressed = 14;
+    public const int TrolleyPressed = 15;
 
-    public const int TotalComponents = 14;
+    public const int TotalComponents = 16;
 
     public static readonly string[] componentNames = {
         "ConfirmPressed",
         "DecreasePressed",
         "DropPressed",
+        "ForkliftLiftInput",
+        "ForkliftTransferPressed",
         "IncreasePressed",
         "InputState",
         "InteractPressed",
@@ -46,6 +50,8 @@ public static class InputComponentsLookup {
         typeof(HardwareStore.Gameplay.Components.ConfirmPressed),
         typeof(HardwareStore.Gameplay.Components.DecreasePressed),
         typeof(HardwareStore.Gameplay.Components.DropPressed),
+        typeof(HardwareStore.Gameplay.Components.ForkliftLiftInput),
+        typeof(HardwareStore.Gameplay.Components.ForkliftTransferPressed),
         typeof(HardwareStore.Gameplay.Components.IncreasePressed),
         typeof(HardwareStore.Gameplay.Components.InputState),
         typeof(HardwareStore.Gameplay.Components.InteractPressed),
