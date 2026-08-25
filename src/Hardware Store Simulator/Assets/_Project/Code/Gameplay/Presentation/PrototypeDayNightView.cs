@@ -200,16 +200,25 @@ namespace HardwareStore.Gameplay.Presentation
             if (!_runtimeStateCaptured)
                 return;
 
-            _sun.transform.rotation = _initialSunRotation;
-            _sun.color = _initialSunColor;
-            _sun.intensity = _initialSunIntensity;
+            if (_sun != null)
+            {
+                _sun.transform.rotation = _initialSunRotation;
+                _sun.color = _initialSunColor;
+                _sun.intensity = _initialSunIntensity;
+            }
             RenderSettings.ambientSkyColor = _initialAmbientSkyColor;
             RenderSettings.ambientEquatorColor = _initialAmbientEquatorColor;
             RenderSettings.ambientGroundColor = _initialAmbientGroundColor;
             RenderSettings.fogColor = _initialFogColor;
             RenderSettings.sun = _initialRenderSun;
             for (int index = 0; index < _indoorLights.Length; index++)
-                _indoorLights[index].intensity = _indoorNightIntensities[index];
+            {
+                if (_indoorLights[index] != null)
+                {
+                    _indoorLights[index].intensity =
+                        _indoorNightIntensities[index];
+                }
+            }
 
             if (RenderSettings.skybox == _runtimeSkybox)
                 RenderSettings.skybox = _originalSkybox;
