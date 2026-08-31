@@ -14,6 +14,7 @@ namespace HardwareStore.Gameplay.Features.Trolley
             Add(systems.Create<StartPushingTrolleySystem>());
             Add(systems.Create<LoadHeldProductOnTrolleySystem>());
             Add(systems.Create<RefreshTrolleyOccupiedSlotCountSystem>());
+            Add(systems.Create<SyncTrolleyNavigationObstacleSystem>());
             Add(systems.Create<ValidatePlayerHandlingStateSystem>());
             Add(systems.Create<ValidatePlatformTrolleyStateSystem>());
         }

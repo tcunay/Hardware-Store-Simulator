@@ -1,3 +1,4 @@
+using System;
 using UnityEngine;
 
 namespace HardwareStore.Gameplay.Features.Products.Systems
@@ -46,6 +47,22 @@ namespace HardwareStore.Gameplay.Features.Products.Systems
             SnapToSlot(product, slot);
         }
 
+        public static void SyncSlotPose(GameEntity product, Transform slot)
+        {
+            Rigidbody body = product.Rigidbody;
+            Transform transform = product.Transform;
+            if (!body.isKinematic || body.useGravity || transform.parent != slot)
+            {
+                throw new InvalidOperationException(
+                    $"Slotted product {product.EntityId} has an invalid physics pose contract.");
+            }
+
+            transform.localPosition = Vector3.zero;
+            transform.localRotation = Quaternion.identity;
+            body.position = slot.position;
+            body.rotation = slot.rotation;
+        }
+
         private static void ConfigureKinematic(GameEntity product, bool collisionsEnabled,
             bool collidersEnabled)
         {
@@ -63,10 +80,7 @@ namespace HardwareStore.Gameplay.Features.Products.Systems
         {
             Transform transform = product.Transform;
             transform.SetParent(slot, worldPositionStays: false);
-            transform.localPosition = Vector3.zero;
-            transform.localRotation = Quaternion.identity;
-            product.Rigidbody.position = slot.position;
-            product.Rigidbody.rotation = slot.rotation;
+            SyncSlotPose(product, slot);
         }
 
         private static void StopMotion(Rigidbody body)

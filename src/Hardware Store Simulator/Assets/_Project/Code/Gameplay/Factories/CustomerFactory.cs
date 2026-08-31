@@ -2,6 +2,7 @@ using System;
 using HardwareStore.Common.Entity;
 using HardwareStore.Common.Extensions;
 using HardwareStore.Gameplay.Configs;
+using HardwareStore.Gameplay.Components;
 using HardwareStore.Gameplay.StaticData;
 using HardwareStore.Infrastructure.Identifiers;
 using UnityEngine;
@@ -45,7 +46,15 @@ namespace HardwareStore.Gameplay.Factories
                 .AddMovementSpeed(config.MovementSpeed)
                 .AddRotationSpeed(config.RotationSpeed)
                 .AddWaypointTolerance(config.WaypointTolerance)
+                .AddTrafficControlPolicy(TrafficControlPolicyId.BrakeOnly)
+                .AddTrafficPriority((int)TrafficPriorityId.CustomerPedestrian)
+                .AddTrafficDesiredVelocity(Vector3.zero)
+                .AddTrafficIntentDistance(0f)
+                .AddTrafficAngularIntent(0f)
+                .AddTrafficPreviousPosition(approach[0].position)
+                .AddTrafficCurrentSpeed(config.MovementSpeed)
                 .With(x => x.isCustomer = true)
+                .With(x => x.isTrafficParticipant = true)
                 .With(x => x.isCustomerApproachingCounter = true)
                 .With(x => x.isRouteMover = true);
         }

@@ -42,7 +42,6 @@ namespace HardwareStore.Gameplay.Factories
             if (arrivalSequence < 0)
                 throw new ArgumentOutOfRangeException(nameof(arrivalSequence));
             GameEntity customerVisit = CreateEntity.Empty(_identifiers.Next())
-                .AddViewPrefab(config.ViewPrefab)
                 .AddSpawnPosition(arrival[0].position)
                 .AddSpawnRotation(arrival[0].rotation)
                 .AddCustomerVisitStoreEntityId(store.EntityId)
@@ -58,10 +57,19 @@ namespace HardwareStore.Gameplay.Factories
                 .AddMovementSpeed(config.ArrivalSpeed)
                 .AddRotationSpeed(config.RotationSpeed)
                 .AddWaypointTolerance(config.WaypointTolerance)
+                .AddVehicleTrafficCommandSequence(0)
+                .AddTrafficControlPolicy(TrafficControlPolicyId.Uncontrolled)
+                .AddTrafficPriority((int)TrafficPriorityId.CustomerVehicle)
+                .AddTrafficDesiredVelocity(Vector3.zero)
+                .AddTrafficIntentDistance(0f)
+                .AddTrafficAngularIntent(0f)
+                .AddTrafficPreviousPosition(arrival[0].position)
+                .AddTrafficCurrentSpeed(0f)
                 .With(x => x.isCustomerVisit = true)
                 .With(x => x.isCustomerVehicle = true)
+                .With(x => x.isTrafficParticipant = true)
+                .With(x => x.isVehicleTrafficControlled = true)
                 .With(x => x.isCustomerVisitArriving = true)
-                .With(x => x.isRouteMover = true)
                 .With(x => x.isLoadingZone = true);
 
             _consultationOffers.CreateOffer(customerVisit, offerIndex);

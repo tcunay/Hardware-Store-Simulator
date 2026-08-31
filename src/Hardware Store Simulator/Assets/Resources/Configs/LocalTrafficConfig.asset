@@ -1,0 +1,22 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: d7a0726c0c53d4b3080eaded46cd707a, type: 3}
+  m_Name: LocalTrafficConfig
+  m_EditorClassIdentifier: Assembly-CSharp::HardwareStore.Gameplay.Configs.LocalTrafficConfig
+  _predictionHorizon: 1.75
+  _predictionStepCount: 32
+  _safetyClearance: 0.08
+  _releaseClearance: 0.16
+  _arrivalPriorityTolerance: 0.2
+  _stationarySpeed: 0.05
+  _vehicleAcceleration: 4.5
+  _vehicleBraking: 8

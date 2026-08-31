@@ -97,11 +97,17 @@ namespace HardwareStore.Gameplay.Features.Employees.Systems
             }
 
             _navigation.Stop(worker.NavigationAgent);
-            worker.Transform.rotation = worker.WarehouseWorkerStorageRotation;
+            _navigation.SetManualRotation(
+                worker.NavigationAgent, worker.WarehouseWorkerStorageRotation);
+            if (!_navigation.HasReachedRotation(worker.NavigationAgent,
+                    worker.WarehouseWorkerStorageRotation, 2f))
+                return;
             product.AddCarrierEntityId(worker.EntityId);
             product.isProductPlacementDirty = true;
             worker.isHandsOccupied = true;
             worker.isCarryingProduct = true;
+            _navigation.SetAutomaticRotation(
+                worker.NavigationAgent, enabled: true);
             task.ReplaceWarehouseTaskStep(
                 WarehouseTaskStepId.MovingToCustomerLoading);
             task.ReplaceWarehouseTaskTimeoutRemaining(_config.TaskTimeout);
@@ -136,10 +142,11 @@ namespace HardwareStore.Gameplay.Features.Employees.Systems
                 return;
             }
 
-            CompleteLoading(worker, task, visit, line, product);
+            if (!CompleteLoading(worker, task, visit, line, product))
+                return;
         }
 
-        private void CompleteLoading(GameEntity worker, GameEntity task,
+        private bool CompleteLoading(GameEntity worker, GameEntity task,
             GameEntity visit, GameEntity line, GameEntity product)
         {
             int linkedProductCount = CountLinkedProducts(line);
@@ -157,8 +164,11 @@ namespace HardwareStore.Gameplay.Features.Employees.Systems
             int slotIndex = task.WarehouseTaskReservedLoadingSlotIndex;
             ValidateLoadingSlotReservation(task, visit);
             _navigation.Stop(worker.NavigationAgent);
-            worker.Transform.rotation =
-                worker.WarehouseWorkerCustomerLoadingRotation;
+            _navigation.SetManualRotation(worker.NavigationAgent,
+                worker.WarehouseWorkerCustomerLoadingRotation);
+            if (!_navigation.HasReachedRotation(worker.NavigationAgent,
+                    worker.WarehouseWorkerCustomerLoadingRotation, 2f))
+                return false;
             worker.isHandsOccupied = false;
             worker.isCarryingProduct = false;
 
@@ -177,9 +187,12 @@ namespace HardwareStore.Gameplay.Features.Employees.Systems
             task.RemoveAssignedWorkerEntityId();
             task.RemoveWarehouseTaskReservedLoadingSlotIndex();
             task.isDestructed = true;
+            _navigation.SetAutomaticRotation(
+                worker.NavigationAgent, enabled: true);
             worker.ReplaceWarehouseWorkerStatus(worker.isWorkerShiftActive
                 ? WarehouseWorkerStatusId.Idle
                 : WarehouseWorkerStatusId.OffShift);
+            return true;
         }
 
         private GameEntity GetLoadingVisit(GameEntity task)

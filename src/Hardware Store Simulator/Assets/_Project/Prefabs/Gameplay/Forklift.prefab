@@ -132,7 +132,7 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: d9ac1117ab6d74057b0c7651b8976f0b, type: 3}
-  m_Name:
+  m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::HardwareStore.Gameplay.Registrars.DriverSeatAnchorRegistrar
 --- !u!1 &1004071393012679115
 GameObject:
@@ -176,7 +176,7 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 55011e11413654884bb5758d647a28ec, type: 3}
-  m_Name:
+  m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::HardwareStore.Gameplay.Registrars.CargoAnchorRegistrar
 --- !u!1 &1407279465616525354
 GameObject:
@@ -580,7 +580,7 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: b13dbdabf230f4b31a145d7eb7116d90, type: 3}
-  m_Name:
+  m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::HardwareStore.Gameplay.Registrars.DriverExitAnchorRegistrar
 --- !u!1 &4230496864550953402
 GameObject:
@@ -719,7 +719,7 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: ab79c10cb846641d4a6b76bf541ba732, type: 3}
-  m_Name:
+  m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::HardwareStore.Gameplay.Registrars.LiftTransformRegistrar
 --- !u!1 &4636279852744403069
 GameObject:
@@ -821,7 +821,7 @@ GameObject:
   m_Component:
   - component: {fileID: 1603237430874864663}
   - component: {fileID: 3483595636120282864}
-  m_Layer: 0
+  m_Layer: 11
   m_Name: Fork And Cargo Collision Hull
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -1240,7 +1240,7 @@ GameObject:
   - component: {fileID: 5786058774782121474}
   - component: {fileID: 8300110511475030840}
   - component: {fileID: 8730181420697294623}
-  m_Layer: 0
+  m_Layer: 11
   m_Name: Forklift
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -1335,7 +1335,7 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 3bcdc7b9f274942cc93326b17e53898c, type: 3}
-  m_Name:
+  m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::HardwareStore.Gameplay.Views.InteractionView
   _highlight: {fileID: 1045340336916461511}
 --- !u!114 &7992679415527882682
@@ -1348,7 +1348,7 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 79d813a84f7094e47974362085a04b0b, type: 3}
-  m_Name:
+  m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::HardwareStore.Gameplay.Common.Registrars.TransformRegistrar
 --- !u!114 &5786058774782121474
 MonoBehaviour:
@@ -1360,7 +1360,7 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 442ab7fc23dc24ea88e25745b3ad1fbb, type: 3}
-  m_Name:
+  m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::HardwareStore.Gameplay.Registrars.RigidbodyRegistrar
 --- !u!114 &8300110511475030840
 MonoBehaviour:
@@ -1372,7 +1372,7 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: f4aee97e96d94f778be7bac46748d1ec, type: 3}
-  m_Name:
+  m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::HardwareStore.Gameplay.Common.Registrars.CollidersRegistrar
 --- !u!114 &8730181420697294623
 MonoBehaviour:
@@ -1384,7 +1384,7 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: eb3264eb1881940859f105e8672a6d7c, type: 3}
-  m_Name:
+  m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::HardwareStore.Gameplay.Registrars.InteractionViewRegistrar
 --- !u!1 &7143721509328166762
 GameObject:
@@ -1667,7 +1667,7 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: bba444f359ac141c9b66d6775d772acd, type: 3}
-  m_Name:
+  m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::HardwareStore.Gameplay.Views.InteractionHighlight
 --- !u!1 &8451457198109713669
 GameObject:

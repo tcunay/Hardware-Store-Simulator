@@ -51,9 +51,7 @@ namespace HardwareStore.Gameplay.Features.Customers.Systems
             ValidateTrafficLane(visit, trafficLane);
             if (_gameContext.GetEntityWithReservedCustomerTrafficLaneEntityId(
                     trafficLane.EntityId) != null)
-            {
                 return;
-            }
 
             GameEntity parkingSpot = _gameContext.GetEntityWithEntityId(
                 visit.ReservedCustomerParkingSpotEntityId);
@@ -81,6 +79,7 @@ namespace HardwareStore.Gameplay.Features.Customers.Systems
             visit.AddRoute(route);
             visit.AddRouteWaypointIndex(1);
             visit.ReplaceMovementSpeed(_config.ArrivalSpeed);
+            visit.ReplaceTrafficCurrentSpeed(0f);
             visit.isCustomerVisitWaitingForLoadingBay = false;
             visit.isCustomerVisitMovingToLoadingBay = true;
         }

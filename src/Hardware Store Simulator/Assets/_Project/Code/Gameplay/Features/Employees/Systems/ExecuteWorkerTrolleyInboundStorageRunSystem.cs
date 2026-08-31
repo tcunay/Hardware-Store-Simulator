@@ -5,6 +5,7 @@ using HardwareStore.Gameplay.Common;
 using HardwareStore.Gameplay.Common.Navigation;
 using HardwareStore.Gameplay.Components;
 using HardwareStore.Gameplay.Configs;
+using HardwareStore.Gameplay.Scene;
 using HardwareStore.Gameplay.StaticData;
 using UnityEngine;
 
@@ -14,6 +15,7 @@ namespace HardwareStore.Gameplay.Features.Employees.Systems
     {
         private readonly GameContext _gameContext;
         private readonly WarehouseWorkerConfig _config;
+        private readonly IStoreSceneData _sceneData;
         private readonly IWorkerNavigationService _navigation;
         private readonly IGroup<GameEntity> _runs;
         private readonly IGroup<GameEntity> _stockedProducts;
@@ -26,10 +28,11 @@ namespace HardwareStore.Gameplay.Features.Employees.Systems
 
         public ExecuteWorkerTrolleyInboundStorageRunSystem(
             GameContext gameContext, IStaticDataService staticData,
-            IWorkerNavigationService navigation)
+            IStoreSceneData sceneData, IWorkerNavigationService navigation)
         {
             _gameContext = gameContext;
             _config = staticData.WarehouseWorker;
+            _sceneData = sceneData;
             _navigation = navigation;
             _occupiedCartSlots = new bool[staticData.PlatformTrolley.Capacity];
             _runs = gameContext.GetGroup(GameMatcher.AllOf(
@@ -96,6 +99,12 @@ namespace HardwareStore.Gameplay.Features.Employees.Systems
                     case WarehouseTaskStepId.MovingWorkerTrolleyToPickup:
                         ExecuteMoveToPickup(run, worker, trolley);
                         break;
+                    case WarehouseTaskStepId.LoadingWorkerTrolleyAtPickup:
+                        ExecuteLoadAtPickup(run, worker, trolley);
+                        break;
+                    case WarehouseTaskStepId.MovingWorkerTrolleyToStorageBypass:
+                        ExecuteMoveToStorageBypass(run, worker, trolley);
+                        break;
                     case WarehouseTaskStepId.MovingWorkerTrolleyToStorage:
                         ExecuteMoveToStorage(run, worker, trolley);
                         break;
@@ -148,14 +157,17 @@ namespace HardwareStore.Gameplay.Features.Employees.Systems
             }
 
             _navigation.Stop(worker.NavigationAgent);
-            worker.Transform.rotation = homePose.rotation;
+            _navigation.SetManualRotation(worker.NavigationAgent, homePose.rotation);
+            if (!_navigation.HasReachedRotation(
+                    worker.NavigationAgent, homePose.rotation, 2f))
+                return;
             if (!CartReached(trolley, homePose))
                 return;
             trolley.AddTrolleyPusherEntityId(worker.EntityId);
             worker.isPushingWorkerTrolley = true;
             worker.isHandsOccupied = true;
             MoveToPickup(run, worker);
-            ExecuteMoveToPickup(run, worker, trolley);
+            return;
         }
 
         private void ExecuteMoveToPickup(GameEntity run, GameEntity worker,
@@ -182,7 +194,10 @@ namespace HardwareStore.Gameplay.Features.Employees.Systems
             }
 
             _navigation.Stop(worker.NavigationAgent);
-            worker.Transform.rotation = cartTarget.rotation;
+            _navigation.SetManualRotation(worker.NavigationAgent, cartTarget.rotation);
+            if (!_navigation.HasReachedRotation(
+                    worker.NavigationAgent, cartTarget.rotation, 2f))
+                return;
             if (!CartReached(trolley, cartTarget))
                 return;
             for (int index = 0; index < _products.Count; index++)
@@ -197,10 +212,77 @@ namespace HardwareStore.Gameplay.Features.Employees.Systems
             }
             trolley.ReplaceOccupiedTrolleySlotCount(_products.Count);
             run.ReplaceWarehouseTaskStep(
-                WarehouseTaskStepId.MovingWorkerTrolleyToStorage);
+                WarehouseTaskStepId.LoadingWorkerTrolleyAtPickup);
+            run.ReplaceWarehouseTaskTimeoutRemaining(_config.TaskTimeout);
+        }
+
+        private void ExecuteLoadAtPickup(GameEntity run, GameEntity worker,
+            GameEntity trolley)
+        {
+            if (worker.WarehouseWorkerStatus !=
+                WarehouseWorkerStatusId.MovingWorkerTrolleyToPickup)
+                throw InvalidStatus(run, worker);
+            CollectAndValidateBatch(run, trolley, onTrolley: true);
+            ValidateStorageReservations(run);
+            ValidatePushedTrolley(run, worker, trolley, _products.Count);
+            _navigation.Stop(worker.NavigationAgent);
+
+            foreach (GameEntity product in _products)
+            {
+                if (product.isProductPlacementDirty)
+                    return;
+                int slotIndex = product.WorkerTrolleySlotIndex;
+                if (product.Transform.parent != trolley.Slots[slotIndex])
+                {
+                    throw new InvalidOperationException(
+                        $"Inbound product {product.EntityId} was not placed in " +
+                        $"worker trolley slot {slotIndex}.");
+                }
+            }
+
+            _navigation.SetAutomaticRotation(
+                worker.NavigationAgent, enabled: true);
+            run.ReplaceWarehouseTaskStep(
+                WarehouseTaskStepId.MovingWorkerTrolleyToStorageBypass);
             run.ReplaceWarehouseTaskTimeoutRemaining(_config.TaskTimeout);
             worker.ReplaceWarehouseWorkerStatus(
                 WarehouseWorkerStatusId.MovingWorkerTrolleyToStorage);
+        }
+
+        private void ExecuteMoveToStorageBypass(GameEntity run,
+            GameEntity worker, GameEntity trolley)
+        {
+            if (worker.WarehouseWorkerStatus !=
+                WarehouseWorkerStatusId.MovingWorkerTrolleyToStorage)
+                throw InvalidStatus(run, worker);
+            CollectAndValidateBatch(run, trolley, onTrolley: true);
+            ValidateStorageReservations(run);
+            ValidatePushedTrolley(run, worker, trolley, _products.Count);
+
+            Pose cartTarget = _sceneData.GetSpawnPoint(
+                SpawnPointId.WarehouseWorkerInboundTrolleyStorageBypass);
+            Vector3 pusherTarget =
+                WorkerTrolleyLeaseUtility.GetPusherPosition(trolley, cartTarget);
+            if (!HasReached(worker, pusherTarget))
+            {
+                Navigate(worker, run, pusherTarget,
+                    WarehouseTaskBlockReasonId.NoStoragePath);
+                return;
+            }
+
+            _navigation.Stop(worker.NavigationAgent);
+            _navigation.SetManualRotation(worker.NavigationAgent, cartTarget.rotation);
+            if (!_navigation.HasReachedRotation(
+                    worker.NavigationAgent, cartTarget.rotation, 2f))
+                return;
+            if (!CartReached(trolley, cartTarget))
+                return;
+
+            _navigation.SetAutomaticRotation(
+                worker.NavigationAgent, enabled: true);
+            run.ReplaceWarehouseTaskStep(
+                WarehouseTaskStepId.MovingWorkerTrolleyToStorage);
+            run.ReplaceWarehouseTaskTimeoutRemaining(_config.TaskTimeout);
         }
 
         private void ExecuteMoveToStorage(GameEntity run, GameEntity worker,
@@ -213,10 +295,8 @@ namespace HardwareStore.Gameplay.Features.Employees.Systems
             ValidateStorageReservations(run);
             ValidatePushedTrolley(run, worker, trolley, _products.Count);
 
-            Pose cartTarget = WorkerTrolleyLeaseUtility.CreateStorageAccessPose(
-                worker.WarehouseWorkerStoragePosition,
-                worker.WarehouseWorkerStorageRotation,
-                trolley.TrolleyFollowDistance);
+            Pose cartTarget = _sceneData.GetSpawnPoint(
+                SpawnPointId.WarehouseWorkerInboundTrolleyStorageAccess);
             Vector3 pusherTarget =
                 WorkerTrolleyLeaseUtility.GetPusherPosition(trolley, cartTarget);
             if (!HasReached(worker, pusherTarget))
@@ -227,7 +307,10 @@ namespace HardwareStore.Gameplay.Features.Employees.Systems
             }
 
             _navigation.Stop(worker.NavigationAgent);
-            worker.Transform.rotation = cartTarget.rotation;
+            _navigation.SetManualRotation(worker.NavigationAgent, cartTarget.rotation);
+            if (!_navigation.HasReachedRotation(
+                    worker.NavigationAgent, cartTarget.rotation, 2f))
+                return;
             if (!CartReached(trolley, cartTarget))
                 return;
             ValidateStorageReservations(run);
@@ -518,7 +601,7 @@ namespace HardwareStore.Gameplay.Features.Employees.Systems
             float tolerance = Mathf.Max(_config.StoppingDistance, 0.1f);
             return (trolley.Transform.position - target.position).sqrMagnitude <=
                    tolerance * tolerance &&
-                   Quaternion.Angle(trolley.Transform.rotation, target.rotation) <= 2f;
+                   Quaternion.Angle(trolley.Transform.rotation, target.rotation) <= 8f;
         }
 
         private int CompareProductsByStorageSlot(GameEntity left,

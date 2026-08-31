@@ -6,6 +6,8 @@ using HardwareStore.Gameplay.Common.Input;
 using HardwareStore.Gameplay.Common.Navigation;
 using HardwareStore.Gameplay.Common.Physics;
 using HardwareStore.Gameplay.Common.Time;
+using HardwareStore.Gameplay.Common.Traffic;
+using HardwareStore.Gameplay.Common.VehicleTraffic;
 using HardwareStore.Gameplay.Factories;
 using HardwareStore.Gameplay.Localization;
 using HardwareStore.Gameplay.Scene;
@@ -17,6 +19,7 @@ using HardwareStore.Infrastructure.States.GameStates;
 using HardwareStore.Infrastructure.States.StateMachine;
 using HardwareStore.Infrastructure.Systems;
 using HardwareStore.Infrastructure.View.Factory;
+using HardwareStore.Infrastructure.VehicleTraffic.Gley;
 using Zenject;
 
 namespace HardwareStore.Infrastructure.Installers
@@ -43,15 +46,31 @@ namespace HardwareStore.Infrastructure.Installers
             Container.BindExecutionOrder<BootstrapInstaller>(0);
             Container.Bind<IIdentifierService>().To<IdentifierService>().AsSingle();
             Container.Bind<ITimeService>().To<UnityTimeService>().AsSingle();
+            Container.Bind<IPhysicsTimeService>()
+                .To<UnityPhysicsTimeService>().AsSingle();
             Container.Bind<ICursorService>().To<UnityCursorService>().AsSingle();
             Container.Bind<ICollisionRegistry>().To<CollisionRegistry>().AsSingle();
             Container.Bind<IInteractionPhysicsService>().To<InteractionPhysicsService>().AsSingle();
             Container.Bind<IProductDropPhysicsService>().To<ProductDropPhysicsService>().AsSingle();
             Container.Bind<ITrolleyMotionService>().To<TrolleyMotionService>().AsSingle();
+            Container.Bind<IWorkerTrolleyHitchService>()
+                .To<WorkerTrolleyHitchService>().AsSingle();
+            Container.Bind<IWarehouseWorkerPhysicsMotor>()
+                .To<WarehouseWorkerPhysicsMotor>().AsSingle();
+            Container.Bind<ICustomerVehiclePhysicsMotor>()
+                .To<CustomerVehiclePhysicsMotor>().AsSingle();
+            Container.Bind<IRouteMotionService>().To<RouteMotionService>().AsSingle();
             Container.Bind<IForkliftMotionService>().To<ForkliftMotionService>().AsSingle();
             Container.Bind<IThirdPersonCameraCollisionService>()
                 .To<ThirdPersonCameraCollisionService>().AsSingle();
             Container.Bind<IWorkerNavigationService>().To<NavMeshWorkerNavigationService>().AsSingle();
+            Container.Bind<ILocalTrafficPredictionService>()
+                .To<LocalTrafficPredictionService>().AsSingle();
+            Container.Bind<GleyTrafficConfig>()
+                .FromScriptableObjectResource("Configs/GleyTrafficConfig")
+                .AsSingle();
+            Container.Bind<IVehicleTrafficService>()
+                .To<GleyTrafficService>().AsSingle();
             Container.Bind<ICustomerArrivalSchedule>().To<CustomerArrivalSchedule>().AsSingle();
             Container.Bind<ISceneLoader>().To<SceneLoader>().AsSingle();
             Container.Bind<IEntityViewFactory>().To<EntityViewFactory>().AsSingle();

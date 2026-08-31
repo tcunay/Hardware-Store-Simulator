@@ -5,12 +5,13 @@ using Zenject;
 
 namespace HardwareStore.Infrastructure.States.StateMachine
 {
-    public sealed class GameStateMachine : IGameStateMachine, ITickable, IDisposable
+    public sealed class GameStateMachine : IGameStateMachine, ITickable,
+        IFixedTickable, IDisposable
     {
         private readonly IStateFactory _stateFactory;
         private IExitableState _activeState;
         private Action _pendingTransition;
-        private bool _isUpdating;
+        private bool _isExecuting;
         private bool _isDisposed;
 
         public GameStateMachine(IStateFactory stateFactory) => _stateFactory = stateFactory;
@@ -24,38 +25,30 @@ namespace HardwareStore.Infrastructure.States.StateMachine
             where TState : class, IPayloadState<TPayload> =>
             RequestTransition(() => ChangeState<TState>(state => state.Enter(payload)));
 
-        public void Tick()
-        {
-            ThrowIfDisposed();
-
-            _isUpdating = true;
-            try
+        public void Tick() =>
+            ExecuteActiveState(() =>
             {
                 if (_activeState is IUpdateable updateableState)
                     updateableState.Update();
-            }
-            catch
-            {
-                _pendingTransition = null;
-                throw;
-            }
-            finally
-            {
-                _isUpdating = false;
-            }
+            });
 
-            Action transition = _pendingTransition;
-            _pendingTransition = null;
-            transition?.Invoke();
-        }
+        public void FixedTick() =>
+            ExecuteActiveState(() =>
+            {
+                if (_activeState is IFixedUpdateable fixedUpdateableState)
+                    fixedUpdateableState.FixedUpdate();
+            });
 
         public void Dispose()
         {
             if (_isDisposed)
                 return;
 
-            if (_isUpdating)
-                throw new InvalidOperationException("The game state machine cannot be disposed during a state update.");
+            if (_isExecuting)
+            {
+                throw new InvalidOperationException(
+                    "The game state machine cannot be disposed during a state tick.");
+            }
 
             _isDisposed = true;
             _pendingTransition = null;
@@ -68,14 +61,17 @@ namespace HardwareStore.Infrastructure.States.StateMachine
         {
             ThrowIfDisposed();
 
-            if (!_isUpdating)
+            if (!_isExecuting)
             {
                 transition();
                 return;
             }
 
             if (_pendingTransition != null)
-                throw new InvalidOperationException("Only one state transition may be requested during an update.");
+            {
+                throw new InvalidOperationException(
+                    "Only one state transition may be requested during a state tick.");
+            }
 
             _pendingTransition = transition;
         }
@@ -87,6 +83,35 @@ namespace HardwareStore.Infrastructure.States.StateMachine
             _activeState?.Exit();
             _activeState = nextState;
             enter(nextState);
+        }
+
+        private void ExecuteActiveState(Action execute)
+        {
+            ThrowIfDisposed();
+            if (_isExecuting)
+            {
+                throw new InvalidOperationException(
+                    "The game state machine cannot execute nested state ticks.");
+            }
+
+            _isExecuting = true;
+            try
+            {
+                execute();
+            }
+            catch
+            {
+                _pendingTransition = null;
+                throw;
+            }
+            finally
+            {
+                _isExecuting = false;
+            }
+
+            Action transition = _pendingTransition;
+            _pendingTransition = null;
+            transition?.Invoke();
         }
 
         private void ThrowIfDisposed()

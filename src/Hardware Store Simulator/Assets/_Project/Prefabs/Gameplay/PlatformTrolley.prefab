@@ -131,9 +131,11 @@ GameObject:
   m_Component:
   - component: {fileID: 3598105434297850435}
   - component: {fileID: 6456216738736999891}
+  - component: {fileID: 8347345976975325739}
   - component: {fileID: 1202916871383754002}
   - component: {fileID: 8941967542322883935}
   - component: {fileID: 8458766476021081920}
+  - component: {fileID: 4457572068410001947}
   - component: {fileID: 2278447496520039892}
   - component: {fileID: 5540636981572560641}
   - component: {fileID: 5092850651632840563}
@@ -200,6 +202,22 @@ Rigidbody:
   m_Interpolate: 0
   m_Constraints: 0
   m_CollisionDetection: 3
+--- !u!208 &8347345976975325739
+NavMeshObstacle:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 958405657269243978}
+  m_Enabled: 1
+  serializedVersion: 3
+  m_Shape: 1
+  m_Extents: {x: 1, y: 0.25, z: 1.05}
+  m_MoveThreshold: 0.05
+  m_Carve: 1
+  m_CarveOnlyStationary: 1
+  m_Center: {x: 0, y: 0.27, z: 0.15}
+  m_TimeToStationary: 0.1
 --- !u!114 &1202916871383754002
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -237,6 +255,18 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 442ab7fc23dc24ea88e25745b3ad1fbb, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::HardwareStore.Gameplay.Registrars.RigidbodyRegistrar
+--- !u!114 &4457572068410001947
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 958405657269243978}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: ae4da907dcd224228b1ad6b109e7de3f, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::HardwareStore.Gameplay.Registrars.NavMeshObstacleRegistrar
 --- !u!114 &2278447496520039892
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -834,7 +864,7 @@ GameObject:
   m_Component:
   - component: {fileID: 7173684038951415466}
   - component: {fileID: 774786562353008418}
-  m_Layer: 2
+  m_Layer: 11
   m_Name: Body Collider
   m_TagString: Untagged
   m_Icon: {fileID: 0}

@@ -5,7 +5,8 @@ namespace HardwareStore.Gameplay.Common.Physics
 {
     public sealed class TrolleyMotionService : ITrolleyMotionService
     {
-        private const int MaxQueryHits = 64;
+        private const int InitialQueryCapacity = 64;
+        private const int MaxQueryCapacity = 4096;
         private const float PoseTolerance = 0.001f;
         private const float MinimumSweepDistance = 0.0001f;
         private const float PenetrationTolerance = 0.000001f;
@@ -14,8 +15,10 @@ namespace HardwareStore.Gameplay.Common.Physics
         private const float MaximumQuaternionLength = 1.001f;
         private const float MinimumUprightDot = 0.999f;
 
-        private readonly RaycastHit[] _sweepHits = new RaycastHit[MaxQueryHits];
-        private readonly Collider[] _overlapHits = new Collider[MaxQueryHits];
+        private RaycastHit[] _sweepHits =
+            new RaycastHit[InitialQueryCapacity];
+        private Collider[] _overlapHits =
+            new Collider[InitialQueryCapacity];
 
         public bool TryResolveMove(Rigidbody trolleyBody,
             Collider[] trolleyColliders, CharacterController sourceController,
@@ -33,13 +36,25 @@ namespace HardwareStore.Gameplay.Common.Physics
             return TryResolveMove(
                 trolleyBody, trolleyColliders, sourceController.transform,
                 sourceController, stepHeight, targetPosition,
-                targetRotation, out resolvedPose);
+                targetRotation, out resolvedPose, out _);
         }
 
         public bool TryResolveMove(Rigidbody trolleyBody,
             Collider[] trolleyColliders, Transform sourceTransform,
             float stepHeight, Vector3 targetPosition,
             Quaternion targetRotation, out Pose resolvedPose)
+        {
+            return TryResolveMove(
+                trolleyBody, trolleyColliders, sourceTransform,
+                stepHeight, targetPosition, targetRotation,
+                out resolvedPose, out _);
+        }
+
+        public bool TryResolveMove(Rigidbody trolleyBody,
+            Collider[] trolleyColliders, Transform sourceTransform,
+            float stepHeight, Vector3 targetPosition,
+            Quaternion targetRotation, out Pose resolvedPose,
+            out Collider blockingCollider)
         {
             if (sourceTransform == null)
                 throw new ArgumentNullException(nameof(sourceTransform));
@@ -51,14 +66,15 @@ namespace HardwareStore.Gameplay.Common.Physics
                     "Trolley motion step height must be finite and non-negative.");
             return TryResolveMove(
                 trolleyBody, trolleyColliders, sourceTransform, null,
-                stepHeight, targetPosition, targetRotation, out resolvedPose);
+                stepHeight, targetPosition, targetRotation,
+                out resolvedPose, out blockingCollider);
         }
 
         private bool TryResolveMove(Rigidbody trolleyBody,
             Collider[] trolleyColliders, Transform sourceTransform,
             Collider sourceCollider, float stepHeight,
             Vector3 targetPosition, Quaternion targetRotation,
-            out Pose resolvedPose)
+            out Pose resolvedPose, out Collider blockingCollider)
         {
             BoxCollider hull = ValidateAndGetHull(
                 trolleyBody, trolleyColliders, sourceTransform);
@@ -82,6 +98,7 @@ namespace HardwareStore.Gameplay.Common.Physics
 
             Pose currentPose = new(trolleyBody.position, trolleyBody.rotation);
             resolvedPose = currentPose;
+            blockingCollider = null;
             HullGeometry geometry = CreateHullGeometry(
                 trolleyTransform, hull, currentPose);
             Pose targetPose = new(targetPosition, targetRotation);
@@ -93,11 +110,13 @@ namespace HardwareStore.Gameplay.Common.Physics
                     targetPose,
                     trolleyTransform,
                     sourceTransform,
-                    sourceCollider))
+                    sourceCollider,
+                    out Collider directBlocker))
             {
                 resolvedPose = targetPose;
                 return true;
             }
+            blockingCollider = directBlocker;
 
             float rise = targetPosition.y - currentPose.position.y;
             if (Mathf.Abs(rise) > stepHeight + PoseTolerance)
@@ -124,35 +143,50 @@ namespace HardwareStore.Gameplay.Common.Physics
                     raisedPose,
                     trolleyTransform,
                     sourceTransform,
-                    sourceCollider) ||
-                !IsPathClear(
+                    sourceCollider,
+                    out Collider raisedBlocker))
+            {
+                blockingCollider = raisedBlocker;
+                return false;
+            }
+            if (!IsPathClear(
                     hull,
                     geometry,
                     raisedPose,
                     raisedTargetPose,
                     trolleyTransform,
                     sourceTransform,
-                    sourceCollider) ||
-                !IsPathClear(
+                    sourceCollider,
+                    out Collider raisedPathBlocker))
+            {
+                blockingCollider = raisedPathBlocker;
+                return false;
+            }
+            if (!IsPathClear(
                     hull,
                     geometry,
                     raisedTargetPose,
                     targetPose,
                     trolleyTransform,
                     sourceTransform,
-                    sourceCollider))
+                    sourceCollider,
+                    out Collider descentBlocker))
             {
+                blockingCollider = descentBlocker;
                 return false;
             }
 
             resolvedPose = targetPose;
+            blockingCollider = null;
             return true;
         }
 
         private bool IsPathClear(BoxCollider hull, HullGeometry geometry,
             Pose startPose, Pose targetPose, Transform trolleyTransform,
-            Transform sourceTransform, Collider sourceCollider)
+            Transform sourceTransform, Collider sourceCollider,
+            out Collider blockingCollider)
         {
+            blockingCollider = null;
             HullPose startHullPose = geometry.Resolve(startPose);
             HullPose targetHullPose = geometry.Resolve(targetPose);
             ValidateHullPose(startHullPose, "start trolley hull");
@@ -161,7 +195,7 @@ namespace HardwareStore.Gameplay.Common.Physics
             float distance = displacement.magnitude;
 
             if (distance > MinimumSweepDistance &&
-                HasBlockingSweep(
+                TryGetBlockingSweep(
                     hull,
                     startHullPose,
                     geometry.HalfExtents,
@@ -169,50 +203,46 @@ namespace HardwareStore.Gameplay.Common.Physics
                     distance,
                     trolleyTransform,
                     sourceTransform,
-                    sourceCollider))
+                    sourceCollider,
+                    out blockingCollider))
             {
                 return false;
             }
 
-            if (HasBlockingRotationPath(
+            if (TryGetBlockingRotationPath(
                     hull,
                     startHullPose,
                     targetHullPose,
                     geometry.HalfExtents,
                     trolleyTransform,
                     sourceTransform,
-                    sourceCollider))
+                    sourceCollider,
+                    out blockingCollider))
             {
                 return false;
             }
 
-            return !HasBlockingOverlap(
+            return !TryGetBlockingOverlap(
                 hull,
                 targetHullPose,
                 geometry.HalfExtents,
                 trolleyTransform,
                 sourceTransform,
                 sourceCollider,
-                "target overlap");
+                "target overlap",
+                out blockingCollider);
         }
 
-        private bool HasBlockingSweep(BoxCollider hull, HullPose origin,
+        private bool TryGetBlockingSweep(BoxCollider hull, HullPose origin,
             Vector3 halfExtents, Vector3 direction, float distance,
             Transform trolleyTransform, Transform sourceTransform,
-            Collider sourceCollider)
+            Collider sourceCollider, out Collider blockingCollider)
         {
-            int hitCount = UnityEngine.Physics.BoxCastNonAlloc(
-                origin.Center,
-                halfExtents,
-                direction,
-                _sweepHits,
-                origin.Rotation,
-                distance,
-                UnityEngine.Physics.AllLayers,
-                QueryTriggerInteraction.Ignore);
-            EnsureBufferWasNotSaturated(hitCount, _sweepHits.Length,
-                "trolley box cast");
+            blockingCollider = null;
+            int hitCount = QuerySweep(
+                origin, halfExtents, direction, distance);
             float contactProbeDistance = ContactProbeDistance();
+            float blockingDistance = float.PositiveInfinity;
 
             for (int index = 0; index < hitCount; index++)
             {
@@ -233,22 +263,25 @@ namespace HardwareStore.Gameplay.Common.Physics
                     throw new InvalidOperationException(
                         "Trolley box cast returned an invalid hit distance.");
                 }
-                if (hitDistance > PoseTolerance)
-                    return true;
-
-                float probeDistance = Mathf.Min(
-                    hitDistance + contactProbeDistance,
-                    distance);
-                HullPose probePose = origin.Translated(
-                    direction * probeDistance);
-                if (PenetrationDepth(hull, probePose, hit) >
-                    PenetrationTolerance)
+                bool blocks = hitDistance > PoseTolerance;
+                if (!blocks)
                 {
-                    return true;
+                    float probeDistance = Mathf.Min(
+                        hitDistance + contactProbeDistance,
+                        distance);
+                    HullPose probePose = origin.Translated(
+                        direction * probeDistance);
+                    blocks = PenetrationDepth(hull, probePose, hit) >
+                             PenetrationTolerance;
+                }
+                if (blocks && hitDistance < blockingDistance)
+                {
+                    blockingCollider = hit;
+                    blockingDistance = hitDistance;
                 }
             }
 
-            return false;
+            return blockingCollider != null;
         }
 
         private static float ContactProbeDistance()
@@ -263,25 +296,27 @@ namespace HardwareStore.Gameplay.Common.Physics
             return contactOffset + PoseTolerance;
         }
 
-        private bool HasBlockingRotationPath(BoxCollider hull,
+        private bool TryGetBlockingRotationPath(BoxCollider hull,
             HullPose currentPose, HullPose targetPose, Vector3 halfExtents,
             Transform trolleyTransform, Transform sourceTransform,
-            Collider sourceCollider)
+            Collider sourceCollider, out Collider blockingCollider)
         {
+            blockingCollider = null;
             float rotationAngle = Quaternion.Angle(
                 currentPose.Rotation, targetPose.Rotation);
             int stepCount = Mathf.CeilToInt(rotationAngle / MaximumRotationStep);
             for (int step = 1; step < stepCount; step++)
             {
                 float progress = (float)step / stepCount;
-                if (HasBlockingOverlap(
+                if (TryGetBlockingOverlap(
                         hull,
                         HullPose.Lerp(currentPose, targetPose, progress),
                         halfExtents,
                         trolleyTransform,
                         sourceTransform,
                         sourceCollider,
-                        "rotation-path overlap"))
+                        "rotation-path overlap",
+                        out blockingCollider))
                 {
                     return true;
                 }
@@ -290,19 +325,13 @@ namespace HardwareStore.Gameplay.Common.Physics
             return false;
         }
 
-        private bool HasBlockingOverlap(BoxCollider hull, HullPose pose,
+        private bool TryGetBlockingOverlap(BoxCollider hull, HullPose pose,
             Vector3 halfExtents, Transform trolleyTransform,
             Transform sourceTransform, Collider sourceCollider,
-            string operation)
+            string operation, out Collider blockingCollider)
         {
-            int hitCount = UnityEngine.Physics.OverlapBoxNonAlloc(
-                pose.Center,
-                halfExtents,
-                _overlapHits,
-                pose.Rotation,
-                UnityEngine.Physics.AllLayers,
-                QueryTriggerInteraction.Ignore);
-            EnsureBufferWasNotSaturated(hitCount, _overlapHits.Length, operation);
+            blockingCollider = null;
+            int hitCount = QueryOverlaps(pose, halfExtents, operation);
 
             for (int index = 0; index < hitCount; index++)
             {
@@ -316,11 +345,76 @@ namespace HardwareStore.Gameplay.Common.Physics
                         sourceCollider) &&
                     PenetrationDepth(hull, pose, hit) > PenetrationTolerance)
                 {
+                    blockingCollider = hit;
                     return true;
                 }
             }
 
             return false;
+        }
+
+        private int QuerySweep(HullPose origin, Vector3 halfExtents,
+            Vector3 direction, float distance)
+        {
+            while (true)
+            {
+                int hitCount = UnityEngine.Physics.BoxCastNonAlloc(
+                    origin.Center,
+                    halfExtents,
+                    direction,
+                    _sweepHits,
+                    origin.Rotation,
+                    distance,
+                    UnityEngine.Physics.AllLayers,
+                    QueryTriggerInteraction.Ignore);
+                if (hitCount < _sweepHits.Length)
+                    return hitCount;
+
+                GrowSweepBuffer("trolley box cast");
+            }
+        }
+
+        private int QueryOverlaps(HullPose pose, Vector3 halfExtents,
+            string operation)
+        {
+            while (true)
+            {
+                int hitCount = UnityEngine.Physics.OverlapBoxNonAlloc(
+                    pose.Center,
+                    halfExtents,
+                    _overlapHits,
+                    pose.Rotation,
+                    UnityEngine.Physics.AllLayers,
+                    QueryTriggerInteraction.Ignore);
+                if (hitCount < _overlapHits.Length)
+                    return hitCount;
+
+                GrowOverlapBuffer(operation);
+            }
+        }
+
+        private void GrowSweepBuffer(string operation)
+        {
+            if (_sweepHits.Length >= MaxQueryCapacity)
+            {
+                throw new InvalidOperationException(
+                    $"Physics {operation} exceeded {MaxQueryCapacity} nearby colliders.");
+            }
+
+            Array.Resize(ref _sweepHits,
+                Mathf.Min(_sweepHits.Length * 2, MaxQueryCapacity));
+        }
+
+        private void GrowOverlapBuffer(string operation)
+        {
+            if (_overlapHits.Length >= MaxQueryCapacity)
+            {
+                throw new InvalidOperationException(
+                    $"Physics {operation} exceeded {MaxQueryCapacity} nearby colliders.");
+            }
+
+            Array.Resize(ref _overlapHits,
+                Mathf.Min(_overlapHits.Length * 2, MaxQueryCapacity));
         }
 
         private static float PenetrationDepth(BoxCollider hull,
@@ -488,16 +582,6 @@ namespace HardwareStore.Gameplay.Common.Physics
 
         private static bool IsInHierarchy(Transform candidate, Transform root) =>
             candidate == root || candidate.IsChildOf(root);
-
-        private static void EnsureBufferWasNotSaturated(int hitCount,
-            int capacity, string operation)
-        {
-            if (hitCount >= capacity)
-            {
-                throw new InvalidOperationException(
-                    $"Physics {operation} saturated its {capacity}-hit buffer.");
-            }
-        }
 
         private static Vector3 PositiveScale(Vector3 scale)
         {

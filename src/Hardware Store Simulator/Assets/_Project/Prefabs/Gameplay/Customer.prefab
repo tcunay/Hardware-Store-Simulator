@@ -899,12 +899,14 @@ GameObject:
   m_Component:
   - component: {fileID: 1968518694347086417}
   - component: {fileID: 9032869059671171533}
+  - component: {fileID: 3721960339628607214}
   - component: {fileID: 2539424428542905268}
   - component: {fileID: 1284749395433507962}
   - component: {fileID: 7029826226817065051}
+  - component: {fileID: 8368564359367868982}
   - component: {fileID: 6412366047956093403}
   - component: {fileID: 2744641414482080987}
-  m_Layer: 0
+  m_Layer: 11
   m_Name: Customer
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -963,6 +965,29 @@ Rigidbody:
   m_Interpolate: 0
   m_Constraints: 0
   m_CollisionDetection: 3
+--- !u!136 &3721960339628607214
+CapsuleCollider:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 8292545756950884132}
+  m_Material: {fileID: 0}
+  m_IncludeLayers:
+    serializedVersion: 2
+    m_Bits: 0
+  m_ExcludeLayers:
+    serializedVersion: 2
+    m_Bits: 0
+  m_LayerOverridePriority: 0
+  m_IsTrigger: 0
+  m_ProvidesContacts: 0
+  m_Enabled: 1
+  serializedVersion: 2
+  m_Radius: 0.32
+  m_Height: 1.8
+  m_Direction: 1
+  m_Center: {x: 0, y: 0.9, z: 0}
 --- !u!114 &2539424428542905268
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -973,7 +998,7 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 2526de1cd9de6488dbf8a57856d8f794, type: 3}
-  m_Name:
+  m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::HardwareStore.Infrastructure.View.EntityBehaviour
 --- !u!114 &1284749395433507962
 MonoBehaviour:
@@ -985,7 +1010,7 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 79d813a84f7094e47974362085a04b0b, type: 3}
-  m_Name:
+  m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::HardwareStore.Gameplay.Common.Registrars.TransformRegistrar
 --- !u!114 &7029826226817065051
 MonoBehaviour:
@@ -997,8 +1022,20 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 442ab7fc23dc24ea88e25745b3ad1fbb, type: 3}
-  m_Name:
+  m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::HardwareStore.Gameplay.Registrars.RigidbodyRegistrar
+--- !u!114 &8368564359367868982
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 8292545756950884132}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: f4aee97e96d94f778be7bac46748d1ec, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::HardwareStore.Gameplay.Common.Registrars.CollidersRegistrar
 --- !u!114 &6412366047956093403
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -1009,7 +1046,7 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 2ec5fed28e12d41aa8b28602b67eab73, type: 3}
-  m_Name:
+  m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::HardwareStore.Gameplay.Views.CustomerDissatisfactionView
   _renderers:
   - {fileID: 1506021777531889923}
@@ -1034,7 +1071,7 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: cd2b7e7b9e1e44ea3a1f9bc264282f25, type: 3}
-  m_Name:
+  m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::HardwareStore.Gameplay.Registrars.CustomerDissatisfactionViewRegistrar
 --- !u!1 &8552805273761419283
 GameObject:

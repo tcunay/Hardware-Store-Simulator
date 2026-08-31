@@ -24,7 +24,7 @@ namespace HardwareStore.Gameplay.Configs
         [SerializeField, Min(0.01f)] private float _navigationSampleRadius = 2f;
 
         [Header("Recovery")]
-        [SerializeField, Min(0.01f)] private float _taskTimeout = 20f;
+        [SerializeField, Min(0.01f)] private float _taskTimeout = 45f;
 
         [Header("Worker Trolley")]
         [SerializeField, Min(2)] private int _trolleyCapacity = 3;

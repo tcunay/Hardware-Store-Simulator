@@ -61,16 +61,17 @@ namespace HardwareStore.Gameplay.Features.Customers.Systems
                 _gameContext.GetEntityWithCustomerTrafficLaneStoreEntityId(
                     visit.CustomerVisitStoreEntityId);
             if (trafficLane == null || trafficLane.isDestructed ||
-                !trafficLane.isCustomerTrafficLane || !trafficLane.hasEntityId)
+                !trafficLane.isCustomerTrafficLane || !trafficLane.hasEntityId ||
+                !trafficLane.hasCustomerTrafficLaneStoreEntityId ||
+                trafficLane.CustomerTrafficLaneStoreEntityId !=
+                visit.CustomerVisitStoreEntityId)
             {
                 throw new InvalidOperationException(
                     $"Customer visit {visit.EntityId} has an invalid traffic lane.");
             }
             if (_gameContext.GetEntityWithReservedCustomerTrafficLaneEntityId(
                     trafficLane.EntityId) != null)
-            {
                 return;
-            }
 
             GameEntity bay = _gameContext.GetEntityWithEntityId(
                 visit.ReservedCustomerLoadingBayEntityId);
@@ -88,6 +89,7 @@ namespace HardwareStore.Gameplay.Features.Customers.Systems
             visit.AddRoute(route);
             visit.AddRouteWaypointIndex(1);
             visit.ReplaceMovementSpeed(_config.DepartureSpeed);
+            visit.ReplaceTrafficCurrentSpeed(0f);
             visit.RemoveCustomerDepartureDelayRemaining();
             visit.isCustomerVisitCompleted = false;
             visit.isCustomerVisitDeparting = true;

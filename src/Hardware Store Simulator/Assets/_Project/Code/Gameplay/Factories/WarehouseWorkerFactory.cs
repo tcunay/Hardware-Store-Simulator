@@ -30,6 +30,13 @@ namespace HardwareStore.Gameplay.Factories
                 .AddSpawnRotation(spawnPose.rotation)
                 .AddWarehouseWorkerStoreEntityId(storeEntityId)
                 .AddWarehouseWorkerStatus(WarehouseWorkerStatusId.Idle)
+                .AddMovementSpeed(config.MovementSpeed)
+                .AddTrafficControlPolicy(TrafficControlPolicyId.NavMesh)
+                .AddTrafficPriority((int)TrafficPriorityId.WarehouseWorker)
+                .AddTrafficDesiredVelocity(Vector3.zero)
+                .AddTrafficIntentDistance(0f)
+                .AddTrafficAngularIntent(0f)
+                .AddTrafficPreviousPosition(spawnPose.position)
                 .AddWarehouseWorkerPickupPosition(pickupPose.position)
                 .AddWarehouseWorkerPickupRotation(pickupPose.rotation)
                 .AddWarehouseWorkerStoragePosition(storagePose.position)
@@ -38,7 +45,8 @@ namespace HardwareStore.Gameplay.Factories
                     customerLoadingPose.position)
                 .AddWarehouseWorkerCustomerLoadingRotation(
                     customerLoadingPose.rotation)
-                .With(x => x.isWarehouseWorker = true);
+                .With(x => x.isWarehouseWorker = true)
+                .With(x => x.isTrafficParticipant = true);
         }
     }
 }

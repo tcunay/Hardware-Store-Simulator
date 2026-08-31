@@ -1,4 +1,6 @@
 using HardwareStore.Gameplay.Features.Customers.Systems;
+using HardwareStore.Gameplay.Features.Traffic;
+using HardwareStore.Gameplay.Features.VehicleTraffic.Systems;
 using HardwareStore.Infrastructure.Systems;
 
 namespace HardwareStore.Gameplay.Features.Customers
@@ -21,6 +23,8 @@ namespace HardwareStore.Gameplay.Features.Customers
             Add(systems.Create<MoveCustomerVehicleToLoadingBaySystem>());
             Add(systems.Create<RefreshCustomerDemandSystem>());
             Add(systems.Create<SpawnCustomerVisitSystem>());
+            Add(systems.Create<DispatchVehicleTrafficCommandsSystem>());
+            Add(systems.Create<LocalTrafficFeature>());
             Add(systems.Create<MoveRouteSystem>());
             Add(systems.Create<ReleaseDepartedOrderContentSystem>());
             Add(systems.Create<CompleteCustomerVehicleDepartureSystem>());

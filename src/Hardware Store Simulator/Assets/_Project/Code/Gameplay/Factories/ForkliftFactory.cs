@@ -2,6 +2,7 @@ using System;
 using HardwareStore.Common.Entity;
 using HardwareStore.Common.Extensions;
 using HardwareStore.Gameplay.Configs;
+using HardwareStore.Gameplay.Components;
 using HardwareStore.Gameplay.StaticData;
 using HardwareStore.Infrastructure.Identifiers;
 using UnityEngine;
@@ -38,7 +39,14 @@ namespace HardwareStore.Gameplay.Factories
                 .AddForkliftForwardSpeed(config.ForwardSpeed)
                 .AddForkliftReverseSpeed(config.ReverseSpeed)
                 .AddForkliftSteeringSpeed(config.SteeringSpeed)
+                .AddTrafficControlPolicy(TrafficControlPolicyId.Uncontrolled)
+                .AddTrafficPriority((int)TrafficPriorityId.PlayerVehicle)
+                .AddTrafficDesiredVelocity(Vector3.zero)
+                .AddTrafficIntentDistance(0f)
+                .AddTrafficAngularIntent(0f)
+                .AddTrafficPreviousPosition(at.position)
                 .With(x => x.isForklift = true)
+                .With(x => x.isTrafficParticipant = true)
                 .With(x => x.isInteractable = true);
         }
     }

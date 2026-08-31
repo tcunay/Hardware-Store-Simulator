@@ -30,6 +30,10 @@ namespace HardwareStore.Editor
         private const string MaterialFolder = "Assets/_Project/Materials/Prototype";
         private const string ProjectContextPath = "Assets/Resources/ProjectContext.prefab";
         private const string ConfigFolder = "Assets/Resources/Configs";
+        private const string SpawnPointPrefabFolder = "Assets/_Project/Prefabs/Scene";
+        private const string SpawnPointPrefabPath =
+            SpawnPointPrefabFolder + "/SpawnPoint.prefab";
+        private const string SpawnPointIconName = "sv_label_5";
         private const string PlayerPrefabPath = "Assets/_Project/Prefabs/Gameplay/Player.prefab";
         private const string CementProductPrefabPath = "Assets/_Project/Prefabs/Gameplay/CementBag.prefab";
         private const string BoardProductPrefabPath = "Assets/_Project/Prefabs/Gameplay/BoardBundle.prefab";
@@ -58,6 +62,18 @@ namespace HardwareStore.Editor
             "Assets/_Project/Prefabs/Gameplay/FreightTruck.prefab";
         private const string PalletPrefabPath =
             "Assets/_Project/Prefabs/Gameplay/Pallet.prefab";
+        private const string GleyLine4RoadPrefabPath =
+            "Assets/Gley/UrbanAssets/Runtime/Graphics/Environment/Prefabs/Roads/Line4.prefab";
+        private const string GleyBuildingA1PrefabPath =
+            "Assets/Gley/UrbanAssets/Runtime/Graphics/Environment/Prefabs/Buildings/Building_A1.prefab";
+        private const string GleyBuildingB1PrefabPath =
+            "Assets/Gley/UrbanAssets/Runtime/Graphics/Environment/Prefabs/Buildings/Building_B1.prefab";
+        private const string GleyBuildingD1PrefabPath =
+            "Assets/Gley/UrbanAssets/Runtime/Graphics/Environment/Prefabs/Buildings/Building_D1.prefab";
+        private const string GleySmallSedanBodyPrefabPath =
+            "Assets/Gley/UrbanAssets/Runtime/Graphics/PlayerCar/Prefabs/SmallSedanBody.prefab";
+        private const string GleySmallSedanWheelPrefabPath =
+            "Assets/Gley/UrbanAssets/Runtime/Graphics/PlayerCar/Prefabs/SmallSedanWheel.prefab";
         private const string WarehouseWorkerNavMeshAssetName = "NavMesh-Navigation";
         private const string WarehouseWorkerNavMeshPath =
             "Assets/Scenes/Prototype_Yard/" + WarehouseWorkerNavMeshAssetName + ".asset";
@@ -103,6 +119,49 @@ namespace HardwareStore.Editor
         private static readonly ILocalizationService RussianPreviewLocalization =
             CreateRussianPreviewLocalization();
 
+        private sealed class AreaRoots
+        {
+            public AreaRoots(
+                PrototypeAreaRoot siteShell,
+                PrototypeAreaRoot storefront,
+                PrototypeAreaRoot warehouse,
+                PrototypeAreaRoot lumber,
+                PrototypeAreaRoot inboundDelivery,
+                PrototypeAreaRoot customerTraffic,
+                PrototypeAreaRoot freight)
+            {
+                SiteShell = siteShell;
+                Storefront = storefront;
+                Warehouse = warehouse;
+                Lumber = lumber;
+                InboundDelivery = inboundDelivery;
+                CustomerTraffic = customerTraffic;
+                Freight = freight;
+            }
+
+            public PrototypeAreaRoot SiteShell { get; }
+            public PrototypeAreaRoot Storefront { get; }
+            public PrototypeAreaRoot Warehouse { get; }
+            public PrototypeAreaRoot Lumber { get; }
+            public PrototypeAreaRoot InboundDelivery { get; }
+            public PrototypeAreaRoot CustomerTraffic { get; }
+            public PrototypeAreaRoot Freight { get; }
+
+            public IEnumerable<PrototypeAreaRoot> All
+            {
+                get
+                {
+                    yield return SiteShell;
+                    yield return Storefront;
+                    yield return Warehouse;
+                    yield return Lumber;
+                    yield return InboundDelivery;
+                    yield return CustomerTraffic;
+                    yield return Freight;
+                }
+            }
+        }
+
         [MenuItem("Tools/Hardware Store/Build Prototype Yard")]
         public static void BuildPrototypeYard()
         {
@@ -112,14 +171,19 @@ namespace HardwareStore.Editor
             if (SceneManager.GetActiveScene().isDirty)
                 throw new InvalidOperationException("Save the currently open scene before rebuilding the prototype.");
 
+            Dictionary<PrototypeAreaId, Pose> preservedAreaPoses =
+                CaptureAreaRootPoses();
+
             EnsureFolder("Assets/_Project");
             EnsureFolder("Assets/_Project/Materials");
             EnsureFolder(MaterialFolder);
             EnsureFolder("Assets/_Project/Prefabs");
             EnsureFolder("Assets/_Project/Prefabs/Gameplay");
+            EnsureFolder(SpawnPointPrefabFolder);
             EnsureFolder("Assets/Resources");
             EnsureFolder(ConfigFolder);
             EnsureConfigAssets();
+            EnsureSpawnPointPrefab();
             PlayerConfig playerConfig = LoadConfig<PlayerConfig>("PlayerConfig");
             DeliveryConfig cementDeliveryConfig =
                 LoadConfig<DeliveryConfig>(CementDeliveryConfigName);
@@ -288,6 +352,7 @@ namespace HardwareStore.Editor
             NavMeshSurface navigation = BuildNavigation(environment.transform);
             (Light sun, Light[] indoorLights) = BuildLighting(environment.transform);
             BuildYard(environment.transform, asphalt, concrete, brandBlue, white, yellow);
+            BuildStreetVisuals(environment.transform);
             (SpawnPointMarker forkliftSpawnPoint,
                     SpawnPointMarker freightTruckSpawnPoint,
                     SpawnPointMarker inboundPalletSpawnPoint,
@@ -336,10 +401,29 @@ namespace HardwareStore.Editor
                     SpawnPointMarker workerStorageAccessPoint,
                     SpawnPointMarker workerCustomerLoadingAccessPoint,
                     SpawnPointMarker workerTrolleyHomePoint,
-                    SpawnPointMarker workerTrolleyCustomerLoadingAccessPoint) =
+                    SpawnPointMarker workerTrolleyCustomerLoadingAccessPoint,
+                    SpawnPointMarker workerInboundTrolleyStorageBypassPoint,
+                    SpawnPointMarker workerInboundTrolleyStorageAccessPoint,
+                    SpawnPointMarker workerOutboundTrolleyStorageApproachPoint,
+                    SpawnPointMarker workerOutboundTrolleyStorageAccessPoint) =
                 BuildWarehouseWorkerAccessPoints(environment.transform);
 
             SpawnPointMarker playerSpawnPoint = BuildPlayerSpawnPoint();
+            AreaRoots areaRoots = GroupMovableAreas(
+                environment.transform,
+                preservedAreaPoses,
+                playerSpawnPoint,
+                platformTrolleySpawnPoint,
+                workerIdlePoint,
+                workerDeliveryAccessPoint,
+                workerStorageAccessPoint,
+                workerCustomerLoadingAccessPoint,
+                workerTrolleyHomePoint,
+                workerTrolleyCustomerLoadingAccessPoint,
+                workerInboundTrolleyStorageBypassPoint,
+                workerInboundTrolleyStorageAccessPoint,
+                workerOutboundTrolleyStorageApproachPoint,
+                workerOutboundTrolleyStorageAccessPoint);
             GameObject systems = CreateEmpty("SceneContext");
             SceneContext sceneContext = systems.AddComponent<SceneContext>();
             PrototypeAudioView audio = systems.AddComponent<PrototypeAudioView>();
@@ -359,6 +443,10 @@ namespace HardwareStore.Editor
                     workerCustomerLoadingAccessPoint,
                     workerTrolleyHomePoint,
                     workerTrolleyCustomerLoadingAccessPoint,
+                    workerInboundTrolleyStorageBypassPoint,
+                    workerInboundTrolleyStorageAccessPoint,
+                    workerOutboundTrolleyStorageApproachPoint,
+                    workerOutboundTrolleyStorageAccessPoint,
                     forkliftSpawnPoint,
                     freightTruckSpawnPoint,
                     inboundPalletSpawnPoint
@@ -390,19 +478,432 @@ namespace HardwareStore.Editor
                 workerCustomerLoadingAccessPoint,
                 workerTrolleyHomePoint,
                 workerTrolleyCustomerLoadingAccessPoint,
+                workerInboundTrolleyStorageBypassPoint,
+                workerInboundTrolleyStorageAccessPoint,
+                workerOutboundTrolleyStorageApproachPoint,
+                workerOutboundTrolleyStorageAccessPoint,
                 warehouseWorkerConfig.TrolleyFollowDistance);
             EditorSceneManager.MarkSceneDirty(scene);
             if (!EditorSceneManager.SaveScene(scene, ScenePath))
                 throw new InvalidOperationException($"Could not save prototype scene to {ScenePath}.");
 
+            GleyTrafficPrototypeBuilder.PrepareFromMenu();
+            AttachGeneratedTrafficGraph(areaRoots.CustomerTraffic.transform);
+            EditorSceneManager.MarkSceneDirty(scene);
+            if (!EditorSceneManager.SaveScene(scene, ScenePath))
+                throw new InvalidOperationException(
+                    $"Could not save grouped Gley traffic authoring to {ScenePath}.");
             PutSceneFirstInBuildSettings(ScenePath);
             AssetDatabase.SaveAssets();
-            Selection.activeGameObject = playerSpawnPoint.gameObject;
+            Selection.objects = areaRoots.All
+                .Select(areaRoot => areaRoot.gameObject)
+                .Cast<Object>()
+                .ToArray();
 
             if (SceneView.lastActiveSceneView != null)
                 SceneView.lastActiveSceneView.FrameSelected();
 
             Debug.Log($"[Hardware Store] Playable prototype scene created: {ScenePath}");
+        }
+
+        [MenuItem("Tools/Hardware Store/Apply Manual Yard Layout", priority = 20)]
+        public static void ApplyManualYardLayout()
+        {
+            if (EditorApplication.isPlayingOrWillChangePlaymode)
+            {
+                throw new InvalidOperationException(
+                    "Exit Play Mode before applying the manual yard layout.");
+            }
+
+            Scene scene = SceneManager.GetActiveScene();
+            if (scene.path != ScenePath)
+            {
+                throw new InvalidOperationException(
+                    $"Open '{ScenePath}' before applying the manual yard layout.");
+            }
+
+            Dictionary<PrototypeAreaId, PrototypeAreaRoot> areaRoots =
+                FindAreaRoots(scene);
+            ValidateAreaRootScales(areaRoots.Values);
+
+            NavMeshSurface navigation = FindSingleSceneComponent<NavMeshSurface>(scene);
+            CustomerFlowLayoutMarker customerFlowLayout =
+                FindSingleSceneComponent<CustomerFlowLayoutMarker>(scene);
+            WarehouseWorkerConfig workerConfig =
+                LoadConfig<WarehouseWorkerConfig>(WarehouseWorkerConfigName);
+            BakeAndValidateNavigation(
+                navigation,
+                customerFlowLayout,
+                FindSpawnPoint(scene, SpawnPointId.WarehouseWorker),
+                FindSpawnPoint(scene, SpawnPointId.WarehouseWorkerDeliveryAccess),
+                FindSpawnPoint(scene, SpawnPointId.WarehouseWorkerStorageAccess),
+                FindSpawnPoint(scene, SpawnPointId.WarehouseWorkerCustomerLoadingAccess),
+                FindSpawnPoint(scene, SpawnPointId.WarehouseWorkerTrolley),
+                FindSpawnPoint(
+                    scene,
+                    SpawnPointId.WarehouseWorkerTrolleyCustomerLoadingAccess),
+                FindSpawnPoint(
+                    scene,
+                    SpawnPointId.WarehouseWorkerInboundTrolleyStorageBypass),
+                FindSpawnPoint(
+                    scene,
+                    SpawnPointId.WarehouseWorkerInboundTrolleyStorageAccess),
+                FindSpawnPoint(
+                    scene,
+                    SpawnPointId.WarehouseWorkerOutboundTrolleyStorageApproach),
+                FindSpawnPoint(
+                    scene,
+                    SpawnPointId.WarehouseWorkerOutboundTrolleyStorageAccess),
+                workerConfig.TrolleyFollowDistance);
+
+            EditorSceneManager.MarkSceneDirty(scene);
+            if (!EditorSceneManager.SaveScene(scene, ScenePath))
+                throw new InvalidOperationException($"Could not save '{ScenePath}'.");
+
+            GleyTrafficPrototypeBuilder.PrepareFromMenu();
+            AttachGeneratedTrafficGraph(
+                areaRoots[PrototypeAreaId.CustomerTraffic].transform);
+            EditorSceneManager.MarkSceneDirty(scene);
+            if (!EditorSceneManager.SaveScene(scene, ScenePath))
+                throw new InvalidOperationException($"Could not save '{ScenePath}'.");
+
+            Selection.objects = areaRoots.Values
+                .OrderBy(areaRoot => areaRoot.Id)
+                .Select(areaRoot => areaRoot.gameObject)
+                .Cast<Object>()
+                .ToArray();
+            Debug.Log(
+                "[Hardware Store] Manual yard layout applied: NavMesh and customer " +
+                "traffic data were rebuilt. The AREA roots remain the authoring source.");
+        }
+
+        private static Dictionary<PrototypeAreaId, Pose> CaptureAreaRootPoses()
+        {
+            Scene scene = SceneManager.GetActiveScene();
+            if (scene.path != ScenePath)
+                return new Dictionary<PrototypeAreaId, Pose>();
+
+            Dictionary<PrototypeAreaId, PrototypeAreaRoot> roots = FindAreaRoots(
+                scene,
+                requireCompleteSet: false);
+            ValidateAreaRootScales(roots.Values);
+            return roots.ToDictionary(
+                pair => pair.Key,
+                pair => new Pose(
+                    pair.Value.transform.position,
+                    pair.Value.transform.rotation));
+        }
+
+        private static AreaRoots GroupMovableAreas(
+            Transform environment,
+            IReadOnlyDictionary<PrototypeAreaId, Pose> preservedPoses,
+            SpawnPointMarker playerSpawnPoint,
+            SpawnPointMarker platformTrolleySpawnPoint,
+            SpawnPointMarker workerIdlePoint,
+            SpawnPointMarker workerDeliveryAccessPoint,
+            SpawnPointMarker workerStorageAccessPoint,
+            SpawnPointMarker workerCustomerLoadingAccessPoint,
+            SpawnPointMarker workerTrolleyHomePoint,
+            SpawnPointMarker workerTrolleyCustomerLoadingAccessPoint,
+            SpawnPointMarker workerInboundTrolleyStorageBypassPoint,
+            SpawnPointMarker workerInboundTrolleyStorageAccessPoint,
+            SpawnPointMarker workerOutboundTrolleyStorageApproachPoint,
+            SpawnPointMarker workerOutboundTrolleyStorageAccessPoint)
+        {
+            AreaRoots roots = CreateAreaRoots(environment);
+            Transform yard = RequireDirectChild(environment, "Yard");
+
+            ReparentDirectChild(yard, "Shop Walkway", roots.Storefront.transform);
+            string[] customerYardObjects =
+            {
+                "Customer Access Road",
+                "Customer Exterior Walkway",
+                "Customer Pedestrian Gate Walkway",
+                "Customer Exit Stripe Left",
+                "Customer Exit Stripe Right",
+                "Customer Entry Stripe Left",
+                "Customer Entry Stripe Right",
+                "Customer Lane Barrier South",
+                "Customer Lane Barrier North"
+            };
+            foreach (string objectName in customerYardObjects)
+                ReparentDirectChild(yard, objectName, roots.CustomerTraffic.transform);
+            ReparentDirectChild(yard, "Freight Lane Divider", roots.Freight.transform);
+
+            ReparentDirectChild(environment, "Navigation", roots.SiteShell.transform);
+            ReparentDirectChild(environment, "Sun", roots.SiteShell.transform);
+            ReparentDirectChild(environment, "Yard", roots.SiteShell.transform);
+
+            ReparentDirectChild(environment, "Shop Light", roots.Storefront.transform);
+            ReparentDirectChild(environment, "Sales Kiosk", roots.Storefront.transform);
+            ReparentDirectChild(
+                environment,
+                "Store Control Station",
+                roots.Storefront.transform);
+            ReparentDirectChild(
+                environment,
+                "Trolley Upgrade Station",
+                roots.Storefront.transform);
+            Reparent(playerSpawnPoint.transform, roots.Storefront.transform);
+
+            ReparentDirectChild(environment, "Warehouse Light", roots.Warehouse.transform);
+            ReparentDirectChild(environment, "Materials Storage", roots.Warehouse.transform);
+            ReparentDirectChild(environment, "Lumber Display", roots.Lumber.transform);
+            ReparentDirectChild(
+                environment,
+                "Inbound Delivery Bay",
+                roots.InboundDelivery.transform);
+            ReparentDirectChild(
+                environment,
+                "Customer Vehicle Traffic",
+                roots.CustomerTraffic.transform);
+            ReparentDirectChild(
+                environment,
+                "Imported 3D Street Visuals",
+                roots.CustomerTraffic.transform);
+            ReparentDirectChild(environment, "Rear Freight Yard", roots.Freight.transform);
+
+            GameObject warehouseAccess = CreateEmpty(
+                "Worker Access Points",
+                roots.Warehouse.transform);
+            Reparent(workerIdlePoint.transform, warehouseAccess.transform);
+            Reparent(workerStorageAccessPoint.transform, warehouseAccess.transform);
+            Reparent(workerTrolleyHomePoint.transform, warehouseAccess.transform);
+            Reparent(platformTrolleySpawnPoint.transform, warehouseAccess.transform);
+            Reparent(
+                workerInboundTrolleyStorageBypassPoint.transform,
+                warehouseAccess.transform);
+            Reparent(
+                workerInboundTrolleyStorageAccessPoint.transform,
+                warehouseAccess.transform);
+            Reparent(
+                workerOutboundTrolleyStorageApproachPoint.transform,
+                warehouseAccess.transform);
+            Reparent(
+                workerOutboundTrolleyStorageAccessPoint.transform,
+                warehouseAccess.transform);
+
+            GameObject deliveryAccess = CreateEmpty(
+                "Worker Access Points",
+                roots.InboundDelivery.transform);
+            Reparent(workerDeliveryAccessPoint.transform, deliveryAccess.transform);
+
+            GameObject customerAccess = CreateEmpty(
+                "Worker Access Points",
+                roots.CustomerTraffic.transform);
+            Reparent(workerCustomerLoadingAccessPoint.transform, customerAccess.transform);
+            Reparent(
+                workerTrolleyCustomerLoadingAccessPoint.transform,
+                customerAccess.transform);
+
+            Transform obsoleteAccessRoot = RequireDirectChild(
+                environment,
+                "Warehouse Worker Access Points");
+            if (obsoleteAccessRoot.childCount != 0)
+            {
+                throw new InvalidOperationException(
+                    "Every warehouse-worker access marker must belong to a movable area.");
+            }
+            Object.DestroyImmediate(obsoleteAccessRoot.gameObject);
+
+            ApplyAreaRootPoses(roots, preservedPoses);
+            return roots;
+        }
+
+        private static AreaRoots CreateAreaRoots(Transform environment) =>
+            new(
+                CreateAreaRoot(
+                    "[AREA] Site Shell",
+                    environment,
+                    PrototypeAreaId.SiteShell,
+                    Vector3.zero),
+                CreateAreaRoot(
+                    "[AREA] Storefront",
+                    environment,
+                    PrototypeAreaId.Storefront,
+                    new Vector3(-9f, 0f, 0f)),
+                CreateAreaRoot(
+                    "[AREA] Warehouse",
+                    environment,
+                    PrototypeAreaId.Warehouse,
+                    PrototypeYardLayoutSpec.StorageOffset),
+                CreateAreaRoot(
+                    "[AREA] Lumber",
+                    environment,
+                    PrototypeAreaId.Lumber,
+                    PrototypeYardLayoutSpec.LumberOffset),
+                CreateAreaRoot(
+                    "[AREA] Inbound Delivery",
+                    environment,
+                    PrototypeAreaId.InboundDelivery,
+                    new Vector3(
+                        PrototypeYardLayoutSpec.DeliveryVehiclePose.position.x,
+                        0f,
+                        PrototypeYardLayoutSpec.DeliveryVehiclePose.position.z)),
+                CreateAreaRoot(
+                    "[AREA] Customer Traffic",
+                    environment,
+                    PrototypeAreaId.CustomerTraffic,
+                    new Vector3(
+                        PrototypeYardLayoutSpec.CustomerLoadingX,
+                        0f,
+                        PrototypeYardLayoutSpec.CustomerLoadingZ)),
+                CreateAreaRoot(
+                    "[AREA] Freight",
+                    environment,
+                    PrototypeAreaId.Freight,
+                    new Vector3(
+                        PrototypeYardLayoutSpec.FreightTruckPose.position.x,
+                        0f,
+                        PrototypeYardLayoutSpec.FreightTruckPose.position.z)));
+
+        private static PrototypeAreaRoot CreateAreaRoot(
+            string name,
+            Transform parent,
+            PrototypeAreaId id,
+            Vector3 canonicalPosition)
+        {
+            GameObject root = CreateEmpty(name, parent);
+            root.transform.SetPositionAndRotation(canonicalPosition, Quaternion.identity);
+            PrototypeAreaRoot marker = root.AddComponent<PrototypeAreaRoot>();
+            marker.Configure(id);
+            return marker;
+        }
+
+        private static void ApplyAreaRootPoses(
+            AreaRoots roots,
+            IReadOnlyDictionary<PrototypeAreaId, Pose> preservedPoses)
+        {
+            foreach (PrototypeAreaRoot root in roots.All)
+            {
+                if (!preservedPoses.TryGetValue(root.Id, out Pose pose))
+                    continue;
+
+                root.transform.SetPositionAndRotation(pose.position, pose.rotation);
+            }
+        }
+
+        private static Dictionary<PrototypeAreaId, PrototypeAreaRoot> FindAreaRoots(
+            Scene scene,
+            bool requireCompleteSet = true)
+        {
+            PrototypeAreaRoot[] markers = Object.FindObjectsByType<PrototypeAreaRoot>(
+                    FindObjectsInactive.Include)
+                .Where(marker => marker.gameObject.scene == scene)
+                .ToArray();
+            var result = new Dictionary<PrototypeAreaId, PrototypeAreaRoot>();
+            foreach (PrototypeAreaRoot marker in markers)
+            {
+                if (!result.TryAdd(marker.Id, marker))
+                {
+                    throw new InvalidOperationException(
+                        $"Prototype area '{marker.Id}' occurs more than once in '{scene.path}'.");
+                }
+            }
+
+            if (!requireCompleteSet)
+                return result;
+
+            PrototypeAreaId[] requiredIds =
+                (PrototypeAreaId[])Enum.GetValues(typeof(PrototypeAreaId));
+            foreach (PrototypeAreaId id in requiredIds)
+            {
+                if (!result.ContainsKey(id))
+                {
+                    throw new InvalidOperationException(
+                        $"Prototype area '{id}' is missing from '{scene.path}'.");
+                }
+            }
+
+            return result;
+        }
+
+        private static void ValidateAreaRootScales(
+            IEnumerable<PrototypeAreaRoot> areaRoots)
+        {
+            foreach (PrototypeAreaRoot areaRoot in areaRoots)
+            {
+                if (Vector3.Distance(areaRoot.transform.localScale, Vector3.one) > 0.0001f)
+                {
+                    throw new InvalidOperationException(
+                        $"Move or rotate '{areaRoot.name}', but do not scale it. " +
+                        "Area root scale must remain (1, 1, 1).");
+                }
+            }
+        }
+
+        private static T FindSingleSceneComponent<T>(Scene scene)
+            where T : Component
+        {
+            T[] components = Object.FindObjectsByType<T>(
+                    FindObjectsInactive.Include)
+                .Where(component => component.gameObject.scene == scene)
+                .ToArray();
+            if (components.Length != 1)
+            {
+                throw new InvalidOperationException(
+                    $"Scene '{scene.path}' must contain exactly one {typeof(T).Name}, " +
+                    $"but {components.Length} were found.");
+            }
+
+            return components[0];
+        }
+
+        private static SpawnPointMarker FindSpawnPoint(Scene scene, SpawnPointId id)
+        {
+            SpawnPointMarker[] points = Object.FindObjectsByType<SpawnPointMarker>(
+                    FindObjectsInactive.Include)
+                .Where(point => point.gameObject.scene == scene && point.Id == id)
+                .ToArray();
+            if (points.Length != 1)
+            {
+                throw new InvalidOperationException(
+                    $"Scene '{scene.path}' must contain exactly one spawn point '{id}', " +
+                    $"but {points.Length} were found.");
+            }
+
+            return points[0];
+        }
+
+        private static Transform RequireDirectChild(Transform parent, string name)
+        {
+            Transform child = parent.Find(name);
+            if (child == null)
+            {
+                throw new InvalidOperationException(
+                    $"'{parent.name}' must contain direct child '{name}'.");
+            }
+
+            return child;
+        }
+
+        private static void ReparentDirectChild(
+            Transform currentParent,
+            string childName,
+            Transform newParent) =>
+            Reparent(RequireDirectChild(currentParent, childName), newParent);
+
+        private static void Reparent(Transform child, Transform newParent) =>
+            child.SetParent(newParent, true);
+
+        private static void AttachGeneratedTrafficGraph(Transform customerTrafficArea)
+        {
+            Scene scene = customerTrafficArea.gameObject.scene;
+            Transform[] gleyRoots = Object.FindObjectsByType<Transform>(
+                    FindObjectsInactive.Include)
+                .Where(transform =>
+                    transform.gameObject.scene == scene &&
+                    transform.name == "Gley")
+                .ToArray();
+            if (gleyRoots.Length != 1)
+            {
+                throw new InvalidOperationException(
+                    $"Scene '{scene.path}' must contain exactly one Gley root, " +
+                    $"but {gleyRoots.Length} were found.");
+            }
+
+            if (gleyRoots[0].parent != customerTrafficArea)
+                Reparent(gleyRoots[0], customerTrafficArea);
         }
 
         private static void ConfigureEnvironment()
@@ -447,7 +948,8 @@ namespace HardwareStore.Editor
 
             Light shopLight = CreatePointLight("Shop Light", parent, new Vector3(-9f, 2.35f, 4.4f),
                 new Color(1f, 0.61f, 0.32f), 6.5f, 520f);
-            Light warehouseLight = CreatePointLight("Warehouse Light", parent, new Vector3(5f, 3.25f, 6.2f),
+            Light warehouseLight = CreatePointLight("Warehouse Light", parent,
+                new Vector3(-3.5f, 3.25f, 12.7f),
                 new Color(0.68f, 0.82f, 1f), 7.5f, 430f);
 
             return (sun, new[] { shopLight, warehouseLight });
@@ -457,47 +959,253 @@ namespace HardwareStore.Editor
             Material white, Material yellow)
         {
             GameObject yard = CreateEmpty("Yard", parent);
-            CreateCube("Asphalt Ground", yard.transform, new Vector3(0f, -0.12f, 0f), new Vector3(34f, 0.24f, 34f),
+            float yardDepth = PrototypeYardLayoutSpec.YardRearZ -
+                              PrototypeYardLayoutSpec.YardFrontZ;
+            float yardCenterZ = (PrototypeYardLayoutSpec.YardRearZ +
+                                 PrototypeYardLayoutSpec.YardFrontZ) * 0.5f;
+            CreateCube(
+                "Asphalt Ground",
+                yard.transform,
+                new Vector3(0f, -0.12f, yardCenterZ),
+                new Vector3(
+                    PrototypeYardLayoutSpec.YardHalfWidth * 2f,
+                    0.24f,
+                    yardDepth),
                 asphalt);
-            CreateCube("Customer Access Road", yard.transform,
-                new Vector3(-5.5f, -0.12f, -27.5f),
-                new Vector3(23f, 0.24f, 23f), asphalt);
+            GameObject publicRoadProxy = CreateCube(
+                "Customer Access Road",
+                yard.transform,
+                new Vector3(
+                    0f,
+                    -0.12f,
+                    PrototypeYardLayoutSpec.PublicRoadCenterZ),
+                new Vector3(100f, 0.24f, 26f),
+                asphalt);
+            publicRoadProxy.GetComponent<Renderer>().enabled = false;
 
-            CreateCube("North Fence", yard.transform, new Vector3(0f, 1.15f, 16f), new Vector3(32f, 2.3f, 0.18f),
-                brandBlue);
-            CreateCube("West Fence", yard.transform, new Vector3(-16f, 1.15f, 0f), new Vector3(0.18f, 2.3f, 32f),
-                brandBlue);
-            CreateCube("East Fence North", yard.transform, new Vector3(16f, 1.15f, 10.5f),
-                new Vector3(0.18f, 2.3f, 11f), brandBlue);
-            CreateCube("East Fence South", yard.transform, new Vector3(16f, 1.15f, -11f),
-                new Vector3(0.18f, 2.3f, 10f), brandBlue);
-            CreateCube("South Fence Far Left", yard.transform, new Vector3(-12.25f, 1.15f, -16f),
-                new Vector3(7.5f, 2.3f, 0.18f), brandBlue);
-            CreateCube("South Fence Mid Left", yard.transform, new Vector3(-5f, 1.15f, -16f),
-                new Vector3(2f, 2.3f, 0.18f), brandBlue);
-            CreateCube("South Fence Right", yard.transform, new Vector3(10f, 1.15f, -16f),
-                new Vector3(12f, 2.3f, 0.18f), brandBlue);
+            CreateCube(
+                "West Neighbor Plot",
+                yard.transform,
+                new Vector3(-34f, -0.12f, yardCenterZ),
+                new Vector3(24f, 0.24f, yardDepth),
+                concrete,
+                false);
+            CreateCube(
+                "East Neighbor Plot",
+                yard.transform,
+                new Vector3(34f, -0.12f, yardCenterZ),
+                new Vector3(24f, 0.24f, yardDepth),
+                concrete,
+                false);
+            CreateCube(
+                "Rear Logistics Road Reserve",
+                yard.transform,
+                new Vector3(0f, -0.1f, 66f),
+                new Vector3(92f, 0.2f, 10f),
+                asphalt,
+                false);
+            CreateCube(
+                "Future Depth Expansion Reserve",
+                yard.transform,
+                new Vector3(0f, -0.08f, 82f),
+                new Vector3(39f, 0.16f, 22f),
+                concrete,
+                false);
+
+            CreateCube(
+                "North Fence", yard.transform,
+                new Vector3(0f, 1.15f, PrototypeYardLayoutSpec.YardRearZ),
+                new Vector3(40f, 2.3f, 0.18f), brandBlue);
+            CreateCube(
+                "West Fence", yard.transform,
+                new Vector3(-PrototypeYardLayoutSpec.YardHalfWidth, 1.15f, yardCenterZ),
+                new Vector3(0.18f, 2.3f, yardDepth), brandBlue);
+            CreateCube(
+                "East Fence", yard.transform,
+                new Vector3(PrototypeYardLayoutSpec.YardHalfWidth, 1.15f, yardCenterZ),
+                new Vector3(0.18f, 2.3f, yardDepth), brandBlue);
+
+            CreateCube("South Fence West Edge", yard.transform,
+                new Vector3(-19.25f, 1.15f, PrototypeYardLayoutSpec.YardFrontZ),
+                new Vector3(1.5f, 2.3f, 0.18f), brandBlue);
+            CreateCube("South Fence Freight To Pedestrian", yard.transform,
+                new Vector3(-11f, 1.15f, PrototypeYardLayoutSpec.YardFrontZ),
+                new Vector3(5f, 2.3f, 0.18f), brandBlue);
+            CreateCube("South Fence Pedestrian To Exit", yard.transform,
+                new Vector3(-1.75f, 1.15f, PrototypeYardLayoutSpec.YardFrontZ),
+                new Vector3(8.5f, 2.3f, 0.18f), brandBlue);
+            CreateCube("South Fence Between Customer Gates", yard.transform,
+                new Vector3(9.25f, 1.15f, PrototypeYardLayoutSpec.YardFrontZ),
+                new Vector3(3.5f, 2.3f, 0.18f), brandBlue);
+            CreateCube("South Fence East Edge", yard.transform,
+                new Vector3(18f, 1.15f, PrototypeYardLayoutSpec.YardFrontZ),
+                new Vector3(4f, 2.3f, 0.18f), brandBlue);
 
             CreateCube("Customer Exterior Walkway", yard.transform,
-                new Vector3(-9.15f, 0.025f, -17.35f), new Vector3(8f, 0.05f, 1.8f),
-                concrete, false);
+                new Vector3(0f, 0.07f, -18.5f),
+                new Vector3(80f, 0.14f, 5f), concrete);
             CreateCube("Customer Pedestrian Gate Walkway", yard.transform,
                 new Vector3(-7.25f, 0.025f, -15.15f), new Vector3(2.2f, 0.05f, 2.6f),
                 concrete, false);
 
-            CreateCube("Entrance Stripe Left", yard.transform, new Vector3(-3.2f, 0.015f, -14.7f),
+            CreateCube("Customer Exit Stripe Left", yard.transform,
+                new Vector3(2.5f, 0.015f, -14.7f),
                 new Vector3(0.18f, 0.03f, 2.2f), white, false);
-            CreateCube("Entrance Stripe Right", yard.transform, new Vector3(3.2f, 0.015f, -14.7f),
+            CreateCube("Customer Exit Stripe Right", yard.transform,
+                new Vector3(7.5f, 0.015f, -14.7f),
                 new Vector3(0.18f, 0.03f, 2.2f), white, false);
+            CreateCube("Customer Entry Stripe Left", yard.transform,
+                new Vector3(11f, 0.015f, -14.7f),
+                new Vector3(0.18f, 0.03f, 2.2f), white, false);
+            CreateCube("Customer Entry Stripe Right", yard.transform,
+                new Vector3(16f, 0.015f, -14.7f),
+                new Vector3(0.18f, 0.03f, 2.2f), white, false);
+
+            CreateCube("Freight Lane Divider", yard.transform,
+                new Vector3(-13.5f, 0.55f, 9f),
+                new Vector3(0.18f, 1.1f, 50f), brandBlue);
+            CreateCube("Customer Lane Barrier South", yard.transform,
+                new Vector3(0.5f, 0.55f, -5f),
+                new Vector3(0.18f, 1.1f, 18f), brandBlue);
+            CreateCube("Customer Lane Barrier North", yard.transform,
+                new Vector3(0.5f, 0.55f, 25f),
+                new Vector3(0.18f, 1.1f, 16f), brandBlue);
 
             for (int i = 0; i < 5; i++)
             {
-                CreateCube($"Safety Marking {i + 1}", yard.transform, new Vector3(-2.4f + i * 1.2f, 0.02f, -8.5f),
+                CreateCube($"Safety Marking {i + 1}", yard.transform,
+                    new Vector3(-2.4f + i * 1.2f, 0.02f, -8.5f),
                     new Vector3(0.65f, 0.04f, 0.16f), yellow, false);
             }
 
             CreateCube("Shop Walkway", yard.transform, new Vector3(-9f, 0.02f, -0.95f),
                 new Vector3(6.5f, 0.04f, 3f), concrete, false);
+        }
+
+        private static void BuildStreetVisuals(Transform parent)
+        {
+            GameObject root = CreateEmpty("Imported 3D Street Visuals", parent);
+            GameObject roadPrefab = LoadRequiredPrefab(GleyLine4RoadPrefabPath);
+            float[] roadTileXs = { -45.72f, 0f, 45.72f };
+            for (int index = 0; index < roadTileXs.Length; index++)
+            {
+                GameObject road = InstantiateVisualPrefab(
+                    roadPrefab,
+                    root.transform,
+                    $"Public Road 3D Tile {index + 1}",
+                    new Vector3(roadTileXs[index], -0.503f,
+                        PrototypeYardLayoutSpec.PublicRoadCenterZ),
+                    Quaternion.identity);
+                DisableVisualColliders(road);
+            }
+
+            GameObject buildingA = LoadRequiredPrefab(GleyBuildingA1PrefabPath);
+            GameObject buildingB = LoadRequiredPrefab(GleyBuildingB1PrefabPath);
+            GameObject buildingD = LoadRequiredPrefab(GleyBuildingD1PrefabPath);
+            DisableVisualColliders(InstantiateVisualPrefab(
+                buildingD, root.transform, "West Neighbor Store 3D",
+                new Vector3(-34f, 0f, 5f), Quaternion.Euler(0f, 180f, 0f)));
+            DisableVisualColliders(InstantiateVisualPrefab(
+                buildingA, root.transform, "East Neighbor Store 3D",
+                new Vector3(34f, 0f, 5f), Quaternion.Euler(0f, 180f, 0f)));
+            DisableVisualColliders(InstantiateVisualPrefab(
+                buildingB, root.transform, "Rear District Building 3D",
+                new Vector3(34f, 0f, 35f), Quaternion.Euler(0f, 180f, 0f)));
+
+            GameObject sedanBody = LoadRequiredPrefab(GleySmallSedanBodyPrefabPath);
+            GameObject sedanWheel = LoadRequiredPrefab(GleySmallSedanWheelPrefabPath);
+            BuildStaticSedanVisual(
+                root.transform,
+                sedanBody,
+                sedanWheel,
+                "Parked Sedan East Mid",
+                new Vector3(
+                    PrototypeYardLayoutSpec.GetVisualParkingX(7),
+                    0f,
+                    PrototypeYardLayoutSpec.ParallelParkingZ));
+            BuildStaticSedanVisual(
+                root.transform,
+                sedanBody,
+                sedanWheel,
+                "Parked Sedan East Far",
+                new Vector3(
+                    PrototypeYardLayoutSpec.GetVisualParkingX(9),
+                    0f,
+                    PrototypeYardLayoutSpec.ParallelParkingZ));
+        }
+
+        private static void BuildStaticSedanVisual(
+            Transform parent,
+            GameObject bodyPrefab,
+            GameObject wheelPrefab,
+            string name,
+            Vector3 position)
+        {
+            GameObject root = CreateEmpty(name, parent);
+            root.transform.SetPositionAndRotation(
+                position,
+                Quaternion.Euler(0f, 90f, 0f));
+            GameObject body = InstantiateVisualPrefab(
+                bodyPrefab,
+                root.transform,
+                "Body",
+                Vector3.zero,
+                Quaternion.identity,
+                useLocalSpace: true);
+            DisableVisualColliders(body);
+
+            (string Name, Vector3 Position, Quaternion Rotation)[] wheels =
+            {
+                ("Front Left Wheel", new Vector3(-0.75f, 0.38f, 1.29f),
+                    Quaternion.identity),
+                ("Front Right Wheel", new Vector3(0.75f, 0.38f, 1.29f),
+                    Quaternion.Euler(0f, 180f, 0f)),
+                ("Rear Left Wheel", new Vector3(-0.75f, 0.38f, -1.29f),
+                    Quaternion.identity),
+                ("Rear Right Wheel", new Vector3(0.75f, 0.38f, -1.29f),
+                    Quaternion.Euler(0f, 180f, 0f))
+            };
+            foreach ((string wheelName, Vector3 wheelPosition,
+                         Quaternion wheelRotation) in wheels)
+            {
+                GameObject wheel = InstantiateVisualPrefab(
+                    wheelPrefab,
+                    root.transform,
+                    wheelName,
+                    wheelPosition,
+                    wheelRotation,
+                    useLocalSpace: true);
+                DisableVisualColliders(wheel);
+            }
+        }
+
+        private static GameObject LoadRequiredPrefab(string path) =>
+            AssetDatabase.LoadAssetAtPath<GameObject>(path) ??
+            throw new InvalidOperationException($"Required 3D prefab is missing at '{path}'.");
+
+        private static GameObject InstantiateVisualPrefab(
+            GameObject prefab,
+            Transform parent,
+            string name,
+            Vector3 position,
+            Quaternion rotation,
+            bool useLocalSpace = false)
+        {
+            GameObject instance = PrefabUtility.InstantiatePrefab(prefab, parent) as GameObject ??
+                                  throw new InvalidOperationException(
+                                      $"Could not instantiate visual prefab '{prefab.name}'.");
+            instance.name = name;
+            if (useLocalSpace)
+                instance.transform.SetLocalPositionAndRotation(position, rotation);
+            else
+                instance.transform.SetPositionAndRotation(position, rotation);
+            return instance;
+        }
+
+        private static void DisableVisualColliders(GameObject root)
+        {
+            foreach (Collider collider in root.GetComponentsInChildren<Collider>(true))
+                collider.enabled = false;
         }
 
         private static (SpawnPointMarker Forklift, SpawnPointMarker FreightTruck,
@@ -510,68 +1218,79 @@ namespace HardwareStore.Editor
                 Material safetyYellow,
                 Material stagingGreen)
         {
-            GameObject freightYard = CreateEmpty("East Freight Yard", parent);
+            GameObject freightYard = CreateEmpty("Rear Freight Yard", parent);
             CreateCube(
                 "Freight Yard Surface",
                 freightYard.transform,
-                new Vector3(24f, -0.12f, 0f),
-                new Vector3(16f, 0.24f, 34f),
-                asphalt);
+                new Vector3(0f, 0.015f, 47f),
+                new Vector3(38f, 0.03f, 26f),
+                asphalt,
+                false);
             CreateCube(
                 "Freight Approach Road",
                 freightYard.transform,
-                new Vector3(24f, -0.12f, -29.5f),
-                new Vector3(12f, 0.24f, 25f),
-                asphalt);
+                new Vector3(-16f, 0.015f, 9f),
+                new Vector3(5.5f, 0.03f, 50f),
+                asphalt,
+                false);
             CreateCube(
                 "Freight Staging Pad",
                 freightYard.transform,
-                new Vector3(18.5f, 0.015f, 0f),
-                new Vector3(4.5f, 0.03f, 10f),
+                new Vector3(-5.5f, 0.035f, 46f),
+                new Vector3(5f, 0.04f, 12f),
                 concrete,
                 false);
             CreateCube(
                 "Freight Bay Stop Line",
                 freightYard.transform,
-                new Vector3(24f, 0.035f, 6.2f),
+                new Vector3(6f, 0.055f, 40.5f),
                 new Vector3(5.5f, 0.04f, 0.18f),
                 safetyYellow,
                 false);
             CreateCube(
                 "Freight Lane Left",
                 freightYard.transform,
-                new Vector3(21.25f, 0.035f, -18f),
-                new Vector3(0.14f, 0.04f, 48f),
+                new Vector3(-18.5f, 0.055f, 9f),
+                new Vector3(0.14f, 0.04f, 50f),
                 safetyYellow,
                 false);
             CreateCube(
                 "Freight Lane Right",
                 freightYard.transform,
-                new Vector3(26.75f, 0.035f, -18f),
-                new Vector3(0.14f, 0.04f, 48f),
+                new Vector3(-13.5f, 0.055f, 9f),
+                new Vector3(0.14f, 0.04f, 50f),
                 safetyYellow,
                 false);
             CreateCube(
-                "East Freight Fence",
+                "Rear Freight West Fence",
                 freightYard.transform,
-                new Vector3(32f, 1.15f, 0f),
-                new Vector3(0.18f, 2.3f, 34f),
+                new Vector3(-19f, 1.15f, 47f),
+                new Vector3(0.18f, 2.3f, 26f),
                 fence);
             CreateCube(
-                "North Freight Fence",
+                "Rear Freight East Fence",
                 freightYard.transform,
-                new Vector3(24f, 1.15f, 16f),
-                new Vector3(16f, 2.3f, 0.18f),
+                new Vector3(19f, 1.15f, 47f),
+                new Vector3(0.18f, 2.3f, 26f),
                 fence);
 
-            GameObject navigationExclusion = CreateEmpty(
-                "Freight Navigation Exclusion", freightYard.transform);
-            navigationExclusion.transform.position = new Vector3(24f, 0f, -13f);
-            NavMeshModifierVolume modifier =
-                navigationExclusion.AddComponent<NavMeshModifierVolume>();
-            modifier.center = new Vector3(0f, 1.5f, 0f);
-            modifier.size = new Vector3(15.5f, 3f, 59f);
-            modifier.area = NavMesh.GetAreaFromName("Not Walkable");
+            GameObject approachNavigationExclusion = CreateEmpty(
+                "Freight Approach Navigation Exclusion", freightYard.transform);
+            approachNavigationExclusion.transform.position = new Vector3(-16f, 0f, 9f);
+            NavMeshModifierVolume approachModifier =
+                approachNavigationExclusion.AddComponent<NavMeshModifierVolume>();
+            approachModifier.center = new Vector3(0f, 1.5f, 0f);
+            approachModifier.size = new Vector3(5.5f, 3f, 50f);
+            approachModifier.area = NavMesh.GetAreaFromName("Not Walkable");
+
+            GameObject courtNavigationExclusion = CreateEmpty(
+                "Freight Court Navigation Exclusion", freightYard.transform);
+            courtNavigationExclusion.transform.position = new Vector3(0f, 0f, 47f);
+            NavMeshModifierVolume courtModifier =
+                courtNavigationExclusion.AddComponent<NavMeshModifierVolume>();
+            courtModifier.center = new Vector3(0f, 1.5f, 0f);
+            courtModifier.size = new Vector3(38f, 3f, 26f);
+            courtModifier.area = NavMesh.GetAreaFromName("Not Walkable");
 
             GameObject stagingZoneObject = CreateEmpty(
                 "Freight Staging Zone", freightYard.transform);
@@ -580,17 +1299,17 @@ namespace HardwareStore.Editor
             var stagingSlots = new Transform[FreightPalletSlotCapacity];
             for (int index = 0; index < stagingSlots.Length; index++)
             {
-                float slotZ = -3.3f + index * 2.2f;
+                float slotZ = 42.7f + index * 2.2f;
                 CreateCube(
                     $"Staging Slot Marking {index + 1}",
                     stagingZoneObject.transform,
-                    new Vector3(18.5f, 0.04f, slotZ),
+                    new Vector3(-5.5f, 0.06f, slotZ),
                     new Vector3(1.6f, 0.05f, 1.45f),
                     stagingGreen,
                     false);
                 GameObject slot = CreateEmpty(
                     $"Pallet Slot {index + 1}", stagingZoneObject.transform);
-                slot.transform.position = new Vector3(18.5f, 0.03f, slotZ);
+                slot.transform.position = new Vector3(-5.5f, 0.03f, slotZ);
                 slot.transform.rotation = Quaternion.Euler(0f, 90f, 0f);
                 stagingSlots[index] = slot.transform;
             }
@@ -606,11 +1325,9 @@ namespace HardwareStore.Editor
                 "Forklift Spawn Point",
                 freightYard.transform,
                 SpawnPointId.Forklift,
-                new Vector3(18.5f, 0.02f, -10.5f),
+                new Vector3(-5.5f, 0.02f, 38.5f),
                 Quaternion.identity);
-            Pose truckPose = new(
-                new Vector3(24f, 0.02f, 0f),
-                Quaternion.Euler(0f, 180f, 0f));
+            Pose truckPose = PrototypeYardLayoutSpec.FreightTruckPose;
             SpawnPointMarker freightTruck = CreateSpawnPoint(
                 "Freight Truck Spawn Point",
                 freightYard.transform,
@@ -781,12 +1498,13 @@ namespace HardwareStore.Editor
                 Color.white,
                 200);
 
-            GameObject spawnObject = CreateEmpty("Platform Trolley Spawn", station.transform);
-            spawnObject.transform.SetPositionAndRotation(
-                new Vector3(-2.8f, 0.01f, 3.25f),
-                Quaternion.Euler(0f, 180f, 0f));
-            SpawnPointMarker spawnPoint = spawnObject.AddComponent<SpawnPointMarker>();
-            spawnPoint.Configure(SpawnPointId.PlatformTrolley);
+            Pose spawnPose = PrototypeYardLayoutSpec.PlatformTrolleySpawnPose;
+            SpawnPointMarker spawnPoint = CreateSpawnPoint(
+                "Platform Trolley Spawn",
+                station.transform,
+                SpawnPointId.PlatformTrolley,
+                spawnPose.position,
+                spawnPose.rotation);
             return (terminal, spawnPoint);
         }
 
@@ -804,7 +1522,7 @@ namespace HardwareStore.Editor
 
             Vector3[] posts =
             {
-                new(1.45f, 1.8f, 3.35f), new(8.55f, 1.8f, 3.35f),
+                new(1.45f, 1.8f, 4.5f), new(8.55f, 1.8f, 4.5f),
                 new(1.45f, 1.8f, 9.65f), new(8.55f, 1.8f, 9.65f)
             };
             foreach (Vector3 post in posts)
@@ -884,6 +1602,7 @@ namespace HardwareStore.Editor
             CreateWorldLabel("Storage Intake Label", storage.transform,
                 LocalizationKey.WorldStorageIntake,
                 new Vector3(5f, 2.2f, 3.24f), Quaternion.identity, 0.025f, Color.white);
+            storage.transform.position = PrototypeYardLayoutSpec.StorageOffset;
             return storageMarker;
         }
 
@@ -906,29 +1625,57 @@ namespace HardwareStore.Editor
             Material white,
             Material loadingGreen)
         {
+            GameObject customerVehiclePrefab =
+                AssetDatabase.LoadAssetAtPath<GameObject>(CustomerVehiclePrefabPath);
+            if (customerVehiclePrefab == null)
+            {
+                throw new InvalidOperationException(
+                    $"Customer vehicle prefab is missing at " +
+                    $"'{CustomerVehiclePrefabPath}'.");
+            }
+
             GameObject traffic = CreateEmpty("Customer Vehicle Traffic", parent);
             CreateCube(
-                "Customer Parking Pad",
+                "Customer Parallel Parking Pocket",
                 traffic.transform,
-                new Vector3(-7.4f, 0.015f, -21.5f),
-                new Vector3(10.2f, 0.03f, 7f),
+                new Vector3(
+                    0f,
+                    0.015f,
+                    PrototypeYardLayoutSpec.ParallelParkingZ),
+                new Vector3(69f, 0.03f, 3.4f),
                 asphalt,
                 false);
-            for (int stripeIndex = 0; stripeIndex < 4; stripeIndex++)
+            for (int dividerIndex = 0;
+                 dividerIndex <= PrototypeYardLayoutSpec.VisualParkingCount;
+                 dividerIndex++)
             {
                 CreateCube(
-                    $"Parking Stripe {stripeIndex + 1}",
+                    $"Parallel Parking Divider {dividerIndex + 1}",
                     traffic.transform,
-                    new Vector3(-12.5f + stripeIndex * 3.4f, 0.035f, -21.5f),
-                    new Vector3(0.12f, 0.04f, 6.5f),
+                    new Vector3(-34.5f + dividerIndex * 6.9f, 0.035f,
+                        PrototypeYardLayoutSpec.ParallelParkingZ),
+                    new Vector3(0.12f, 0.04f, 3.2f),
                     white,
+                    false);
+            }
+            for (int activeIndex = 0;
+                 activeIndex < PrototypeYardLayoutSpec.ActiveParkingCount;
+                 activeIndex++)
+            {
+                float parkingX = PrototypeYardLayoutSpec.GetActiveParkingX(activeIndex);
+                CreateCube(
+                    $"Active Parking Marker {activeIndex + 1}",
+                    traffic.transform,
+                    new Vector3(parkingX, 0.045f, -21.38f),
+                    new Vector3(5.8f, 0.04f, 0.12f),
+                    loadingGreen,
                     false);
             }
             CreateWorldLabel(
                 "Customer Parking Label",
                 traffic.transform,
                 LocalizationKey.WorldCustomerParking,
-                new Vector3(-7.4f, 0.045f, -25.25f),
+                new Vector3(-3.45f, 0.045f, -20.85f),
                 Quaternion.Euler(90f, 0f, 0f),
                 0.03f,
                 white.color);
@@ -936,141 +1683,92 @@ namespace HardwareStore.Editor
             CreateCube(
                 "Customer Loading Pad",
                 traffic.transform,
-                new Vector3(6f, 0.015f, -5.4f),
-                new Vector3(4f, 0.03f, 9.8f),
+                new Vector3(
+                    PrototypeYardLayoutSpec.CustomerLoadingX,
+                    0.015f,
+                    PrototypeYardLayoutSpec.CustomerLoadingZ),
+                new Vector3(4f, 0.03f, 10f),
                 asphalt,
                 false);
-            CreateCube("Loading Stripe Left", traffic.transform, new Vector3(4.25f, 0.035f, -5.4f),
-                new Vector3(0.12f, 0.04f, 9.2f), loadingGreen, false);
-            CreateCube("Loading Stripe Right", traffic.transform, new Vector3(7.75f, 0.035f, -5.4f),
-                new Vector3(0.12f, 0.04f, 9.2f), loadingGreen, false);
-            CreateCube("Loading Stripe", traffic.transform, new Vector3(6f, 0.04f, -9.9f),
+            CreateCube("Loading Stripe Left", traffic.transform,
+                new Vector3(3.25f, 0.035f, PrototypeYardLayoutSpec.CustomerLoadingZ),
+                new Vector3(0.12f, 0.04f, 9.4f), loadingGreen, false);
+            CreateCube("Loading Stripe Right", traffic.transform,
+                new Vector3(6.75f, 0.035f, PrototypeYardLayoutSpec.CustomerLoadingZ),
+                new Vector3(0.12f, 0.04f, 9.4f), loadingGreen, false);
+            CreateCube("Loading Stop Stripe", traffic.transform,
+                new Vector3(PrototypeYardLayoutSpec.CustomerLoadingX, 0.04f, 5.25f),
                 new Vector3(3.5f, 0.05f, 0.18f), loadingGreen, false);
             CreateWorldLabel("Customer Loading Bay Label", traffic.transform,
                 LocalizationKey.WorldCustomerLoadingBay,
-                new Vector3(6f, 0.045f, -10.45f), Quaternion.Euler(90f, 0f, 0f),
+                new Vector3(PrototypeYardLayoutSpec.CustomerLoadingX, 0.045f, 15.55f),
+                Quaternion.Euler(90f, 0f, 0f),
                 0.03f, loadingGreen.color);
+            CreateCube(
+                "Future Customer Loading Bay Reserve",
+                traffic.transform,
+                new Vector3(9.5f, 0.025f, PrototypeYardLayoutSpec.CustomerLoadingZ),
+                new Vector3(3.8f, 0.02f, 10f),
+                white,
+                false);
 
-            Pose[] queuePoses =
-            {
-                new(new Vector3(-7.25f, 0.02f, 0.55f), Quaternion.identity),
-                new(new Vector3(-7.25f, 0.02f, -0.75f), Quaternion.identity),
-                new(new Vector3(-7.25f, 0.02f, -2.05f), Quaternion.identity)
-            };
+            Pose[] queuePoses = PrototypeYardLayoutSpec.BuildQueuePoses();
             Transform[] queueWaypoints = CreateWaypointTransforms(
                 "Customer Queue",
                 traffic.transform,
                 queuePoses);
             Pose[] queueAbandonExitRoute =
-            {
-                new(new Vector3(-8f, 0.02f, 0.55f),
-                    Quaternion.Euler(0f, 180f, 0f)),
-                new(new Vector3(-8f, 0.02f, -0.75f),
-                    Quaternion.Euler(0f, 180f, 0f)),
-                new(new Vector3(-8f, 0.02f, -2.05f),
-                    Quaternion.Euler(0f, 180f, 0f)),
-                new(new Vector3(-8f, 0.02f, -3f),
-                    Quaternion.Euler(0f, 180f, 0f))
-            };
+                PrototypeYardLayoutSpec.BuildQueueAbandonExitRoute();
             Transform[] queueAbandonExitWaypoints = CreateWaypointTransforms(
                 "Customer Queue Abandon Exit Route",
                 traffic.transform,
                 queueAbandonExitRoute);
 
+            Vector3[] loadingDepartureVisualPositions =
+                PrototypeYardLayoutSpec.BuildLoadingDepartureVisualPositions();
             Pose[] loadingDepartureRoute =
-            {
-                new(new Vector3(6f, 0.02f, -2.5f),
-                    Quaternion.Euler(0f, 180f, 0f)),
-                new(new Vector3(6f, 0.02f, -10f),
-                    Quaternion.Euler(0f, 180f, 0f)),
-                new(new Vector3(3.5f, 0.02f, -11.8f),
-                    Quaternion.Euler(0f, -126f, 0f)),
-                new(new Vector3(0f, 0.02f, -13f),
-                    Quaternion.Euler(0f, -109f, 0f)),
-                new(new Vector3(0f, 0.02f, -20f),
-                    Quaternion.Euler(0f, 180f, 0f)),
-                new(new Vector3(0f, 0.02f, -30f),
-                    Quaternion.Euler(0f, 180f, 0f)),
-                new(new Vector3(0f, 0.02f, -35f),
-                    Quaternion.Euler(0f, 180f, 0f))
-            };
+                CustomerVehicleProviderPoseUtility.BuildProviderRoute(
+                    customerVehiclePrefab,
+                    loadingDepartureVisualPositions);
             Transform[] loadingDepartureWaypoints = CreateWaypointTransforms(
                 "Customer Loading Departure Route",
                 traffic.transform,
                 loadingDepartureRoute);
 
-            float[] parkingXs = { -10.8f, -7.4f, -4f };
-            var spotMarkers = new CustomerParkingSpotLayoutMarker[parkingXs.Length];
-            for (int index = 0; index < parkingXs.Length; index++)
+            var spotMarkers = new CustomerParkingSpotLayoutMarker[
+                PrototypeYardLayoutSpec.ActiveParkingCount];
+            for (int index = 0; index < spotMarkers.Length; index++)
             {
-                float parkingX = parkingXs[index];
-                Pose parkingPose = new(
-                    new Vector3(parkingX, 0.02f, -21.5f),
-                    Quaternion.identity);
-                Pose customerDoorPose = new(
-                    new Vector3(parkingX - 1.75f, 0.02f, -20.35f),
-                    Quaternion.Euler(0f, 90f, 0f));
-
+                float parkingX = PrototypeYardLayoutSpec.GetActiveParkingX(index);
+                Vector3[] arrivalPositions =
+                    PrototypeYardLayoutSpec.BuildArrivalVisualPositions(parkingX);
                 Pose[] vehicleArrivalRoute =
-                {
-                    new(new Vector3(1.5f, 0.02f, -35f), Quaternion.identity),
-                    new(new Vector3(1.5f, 0.02f, -30f), Quaternion.identity),
-                    new(new Vector3(parkingX, 0.02f, -30f),
-                        Quaternion.Euler(0f, -90f, 0f)),
-                    new(new Vector3(parkingX, 0.02f, -26.5f), Quaternion.identity),
-                    parkingPose
-                };
+                    CustomerVehicleProviderPoseUtility.BuildProviderRoute(
+                        customerVehiclePrefab,
+                        arrivalPositions);
+
+                Vector3[] loadingPositions =
+                    PrototypeYardLayoutSpec.BuildToLoadingVisualPositions(parkingX);
                 Pose[] vehicleToLoadingRoute =
-                {
-                    parkingPose,
-                    new(new Vector3(parkingX, 0.02f, -26.5f), Quaternion.identity),
-                    new(new Vector3(parkingX, 0.02f, -30f),
-                        Quaternion.identity),
-                    new(new Vector3(0f, 0.02f, -30f),
-                        Quaternion.Euler(0f, 90f, 0f)),
-                    new(new Vector3(0f, 0.02f, -12.5f), Quaternion.identity),
-                    new(new Vector3(1.5f, 0.02f, -9f),
-                        Quaternion.Euler(0f, 25f, 0f)),
-                    new(new Vector3(4f, 0.02f, -7.5f),
-                        Quaternion.Euler(0f, 60f, 0f)),
-                    new(new Vector3(6f, 0.02f, -8f),
-                        Quaternion.Euler(0f, 120f, 0f)),
-                    new(new Vector3(6f, 0.02f, -10f),
-                        Quaternion.Euler(0f, 180f, 0f)),
-                    loadingDepartureRoute[0]
-                };
+                    CustomerVehicleProviderPoseUtility.BuildProviderRoute(
+                        customerVehiclePrefab,
+                        loadingPositions);
+
+                Vector3[] parkingDeparturePositions =
+                    PrototypeYardLayoutSpec.BuildParkingDepartureVisualPositions(parkingX);
                 Pose[] vehicleParkingDepartureRoute =
-                {
-                    parkingPose,
-                    new(new Vector3(parkingX, 0.02f, -26.5f), Quaternion.identity),
-                    new(new Vector3(parkingX, 0.02f, -30f), Quaternion.identity),
-                    new(new Vector3(1.5f, 0.02f, -30f),
-                        Quaternion.Euler(0f, 90f, 0f)),
-                    new(new Vector3(1.5f, 0.02f, -35f),
-                        Quaternion.Euler(0f, 180f, 0f))
-                };
+                    CustomerVehicleProviderPoseUtility.BuildProviderRoute(
+                        customerVehiclePrefab,
+                        parkingDeparturePositions);
                 Pose[] customerApproachRoute =
-                {
-                    customerDoorPose,
-                    new(new Vector3(parkingX - 1.75f, 0.02f, -17.65f),
-                        Quaternion.identity),
-                    new(new Vector3(-7.25f, 0.02f, -17.15f), Quaternion.identity),
-                    new(new Vector3(-7.25f, 0.02f, -14.6f), Quaternion.identity),
-                    new(new Vector3(-7.25f, 0.02f, -3f), Quaternion.identity),
-                    queuePoses[^1]
-                };
+                    PrototypeYardLayoutSpec.BuildCustomerApproachRoute(
+                        parkingX,
+                        queuePoses[^1]);
                 Pose[] customerReturnRoute =
-                {
-                    queuePoses[0],
-                    queueAbandonExitRoute[^1],
-                    new(new Vector3(-7.25f, 0.02f, -14.6f),
-                        Quaternion.Euler(0f, 180f, 0f)),
-                    new(new Vector3(-7.25f, 0.02f, -17.15f),
-                        Quaternion.Euler(0f, 180f, 0f)),
-                    new(new Vector3(parkingX - 1.75f, 0.02f, -17.65f),
-                        Quaternion.Euler(0f, 180f, 0f)),
-                    customerDoorPose
-                };
+                    PrototypeYardLayoutSpec.BuildCustomerReturnRoute(
+                        parkingX,
+                        queuePoses[0],
+                        queueAbandonExitRoute[^1]);
 
                 GameObject spotObject = CreateEmpty(
                     $"Customer Parking Spot {index + 1}",
@@ -1153,80 +1851,138 @@ namespace HardwareStore.Editor
                 LocalizationKey.WorldBoardProductLabel,
                 new Vector3(12f, 2.7f, 1.68f), Quaternion.identity, 0.03f,
                 brandOrange.color, boardProductConfig.UnitPrice);
+            lumber.transform.position = PrototypeYardLayoutSpec.LumberOffset;
         }
 
         private static SpawnPointMarker BuildInboundDeliveryBay(Transform parent, Material asphalt,
             Material inboundYellow)
         {
             GameObject bay = CreateEmpty("Inbound Delivery Bay", parent);
-            CreateCube("Inbound Bay Surface", bay.transform, new Vector3(11f, 0.015f, -9f),
+            Pose deliveryPose = PrototypeYardLayoutSpec.DeliveryVehiclePose;
+            CreateCube("Inbound Bay Surface", bay.transform,
+                new Vector3(deliveryPose.position.x, 0.015f, deliveryPose.position.z),
                 new Vector3(5f, 0.03f, 7.5f), asphalt, false);
 
             for (int index = 0; index < 6; index++)
             {
                 CreateCube($"Inbound Marking {index + 1}", bay.transform,
-                    new Vector3(8.75f + index % 2 * 4.5f, 0.035f, -11.7f + index / 2 * 2.7f),
+                    new Vector3(
+                        deliveryPose.position.x - 2.25f + index % 2 * 4.5f,
+                        0.035f,
+                        deliveryPose.position.z - 2.7f + index / 2 * 2.7f),
                     new Vector3(0.14f, 0.04f, 1.4f), inboundYellow, false);
             }
 
             CreateWorldLabel("Inbound Label", bay.transform,
                 LocalizationKey.WorldDeliveryIntake,
-                new Vector3(11f, 0.04f, -5.15f), Quaternion.Euler(90f, 0f, 0f),
+                new Vector3(deliveryPose.position.x, 0.04f, deliveryPose.position.z - 3.85f),
+                Quaternion.Euler(90f, 0f, 0f),
                 0.035f, inboundYellow.color);
 
-            GameObject spawnPoint = CreateEmpty("Delivery Vehicle Spawn Point", bay.transform);
-            spawnPoint.transform.SetPositionAndRotation(new Vector3(11f, 0.02f, -9f), Quaternion.identity);
-            SpawnPointMarker marker = spawnPoint.AddComponent<SpawnPointMarker>();
-            marker.Configure(SpawnPointId.DeliveryVehicle);
-            return marker;
+            return CreateSpawnPoint(
+                "Delivery Vehicle Spawn Point",
+                bay.transform,
+                SpawnPointId.DeliveryVehicle,
+                deliveryPose.position,
+                deliveryPose.rotation);
         }
 
         private static (SpawnPointMarker Idle, SpawnPointMarker DeliveryAccess,
                 SpawnPointMarker StorageAccess,
                 SpawnPointMarker CustomerLoadingAccess,
                 SpawnPointMarker WorkerTrolleyHome,
-                SpawnPointMarker WorkerTrolleyCustomerLoadingAccess)
+                SpawnPointMarker WorkerTrolleyCustomerLoadingAccess,
+                SpawnPointMarker WorkerInboundTrolleyStorageBypass,
+                SpawnPointMarker WorkerInboundTrolleyStorageAccess,
+                SpawnPointMarker WorkerOutboundTrolleyStorageApproach,
+                SpawnPointMarker WorkerOutboundTrolleyStorageAccess)
             BuildWarehouseWorkerAccessPoints(Transform parent)
         {
             GameObject root = CreateEmpty("Warehouse Worker Access Points", parent);
+            Pose idlePose = PrototypeYardLayoutSpec.WarehouseWorkerIdlePose;
             SpawnPointMarker idle = CreateSpawnPoint(
                 "Warehouse Worker Idle",
                 root.transform,
                 SpawnPointId.WarehouseWorker,
-                new Vector3(2.3f, 0.02f, 1.95f),
-                Quaternion.Euler(0f, 90f, 0f));
+                idlePose.position,
+                idlePose.rotation);
+            Pose deliveryAccessPose =
+                PrototypeYardLayoutSpec.WarehouseWorkerDeliveryAccessPose;
             SpawnPointMarker deliveryAccess = CreateSpawnPoint(
                 "Warehouse Worker Delivery Access",
                 root.transform,
                 SpawnPointId.WarehouseWorkerDeliveryAccess,
-                new Vector3(9.15f, 0.02f, -9.85f),
-                Quaternion.Euler(0f, 90f, 0f));
+                deliveryAccessPose.position,
+                deliveryAccessPose.rotation);
+            Pose storageAccessPose =
+                PrototypeYardLayoutSpec.WarehouseWorkerStorageAccessPose;
             SpawnPointMarker storageAccess = CreateSpawnPoint(
                 "Warehouse Worker Storage Access",
                 root.transform,
                 SpawnPointId.WarehouseWorkerStorageAccess,
-                new Vector3(5f, 0.02f, 2.45f),
-                Quaternion.identity);
+                storageAccessPose.position,
+                storageAccessPose.rotation);
+            Pose customerLoadingAccessPose =
+                PrototypeYardLayoutSpec.WarehouseWorkerCustomerLoadingAccessPose;
             SpawnPointMarker customerLoadingAccess = CreateSpawnPoint(
                 "Warehouse Worker Customer Loading Access",
                 root.transform,
                 SpawnPointId.WarehouseWorkerCustomerLoadingAccess,
-                new Vector3(6f, 0.02f, 1.62f),
-                Quaternion.Euler(0f, 180f, 0f));
+                customerLoadingAccessPose.position,
+                customerLoadingAccessPose.rotation);
+            Pose trolleyHomePose = PrototypeYardLayoutSpec.WorkerTrolleyHomePose;
             SpawnPointMarker workerTrolleyHome = CreateSpawnPoint(
                 "Warehouse Worker Trolley Home",
                 root.transform,
                 SpawnPointId.WarehouseWorkerTrolley,
-                new Vector3(4f, 0.02f, 1.95f),
-                Quaternion.Euler(0f, 90f, 0f));
+                trolleyHomePose.position,
+                trolleyHomePose.rotation);
+            Pose trolleyCustomerLoadingPose =
+                PrototypeYardLayoutSpec.WorkerTrolleyCustomerLoadingAccessPose;
             SpawnPointMarker workerTrolleyCustomerLoadingAccess = CreateSpawnPoint(
                 "Warehouse Worker Trolley Customer Loading Access",
                 root.transform,
                 SpawnPointId.WarehouseWorkerTrolleyCustomerLoadingAccess,
-                new Vector3(6f, 0.02f, 1.95f),
-                Quaternion.Euler(0f, 90f, 0f));
+                trolleyCustomerLoadingPose.position,
+                trolleyCustomerLoadingPose.rotation);
+            Pose inboundTrolleyStorageBypassPose =
+                PrototypeYardLayoutSpec.WorkerInboundTrolleyStorageBypassPose;
+            SpawnPointMarker workerInboundTrolleyStorageBypass = CreateSpawnPoint(
+                "Warehouse Worker Inbound Trolley Storage Bypass",
+                root.transform,
+                SpawnPointId.WarehouseWorkerInboundTrolleyStorageBypass,
+                inboundTrolleyStorageBypassPose.position,
+                inboundTrolleyStorageBypassPose.rotation);
+            Pose inboundTrolleyStorageAccessPose =
+                PrototypeYardLayoutSpec.WorkerInboundTrolleyStorageAccessPose;
+            SpawnPointMarker workerInboundTrolleyStorageAccess = CreateSpawnPoint(
+                "Warehouse Worker Inbound Trolley Storage Access",
+                root.transform,
+                SpawnPointId.WarehouseWorkerInboundTrolleyStorageAccess,
+                inboundTrolleyStorageAccessPose.position,
+                inboundTrolleyStorageAccessPose.rotation);
+            Pose outboundTrolleyStorageApproachPose =
+                PrototypeYardLayoutSpec.WorkerOutboundTrolleyStorageApproachPose;
+            SpawnPointMarker workerOutboundTrolleyStorageApproach = CreateSpawnPoint(
+                "Warehouse Worker Outbound Trolley Storage Approach",
+                root.transform,
+                SpawnPointId.WarehouseWorkerOutboundTrolleyStorageApproach,
+                outboundTrolleyStorageApproachPose.position,
+                outboundTrolleyStorageApproachPose.rotation);
+            Pose outboundTrolleyStorageAccessPose =
+                PrototypeYardLayoutSpec.WorkerOutboundTrolleyStorageAccessPose;
+            SpawnPointMarker workerOutboundTrolleyStorageAccess = CreateSpawnPoint(
+                "Warehouse Worker Outbound Trolley Storage Access",
+                root.transform,
+                SpawnPointId.WarehouseWorkerOutboundTrolleyStorageAccess,
+                outboundTrolleyStorageAccessPose.position,
+                outboundTrolleyStorageAccessPose.rotation);
             return (idle, deliveryAccess, storageAccess, customerLoadingAccess,
-                workerTrolleyHome, workerTrolleyCustomerLoadingAccess);
+                workerTrolleyHome, workerTrolleyCustomerLoadingAccess,
+                workerInboundTrolleyStorageBypass,
+                workerInboundTrolleyStorageAccess,
+                workerOutboundTrolleyStorageApproach,
+                workerOutboundTrolleyStorageAccess);
         }
 
         private static SpawnPointMarker CreateSpawnPoint(
@@ -1236,23 +1992,32 @@ namespace HardwareStore.Editor
             Vector3 position,
             Quaternion rotation)
         {
-            GameObject spawnPoint = CreateEmpty(name, parent);
+            GameObject prefab = LoadRequiredPrefab(SpawnPointPrefabPath);
+            GameObject spawnPoint = PrefabUtility.InstantiatePrefab(prefab, parent) as GameObject ??
+                                    throw new InvalidOperationException(
+                                        $"Could not instantiate spawn point prefab " +
+                                        $"'{SpawnPointPrefabPath}'.");
+            spawnPoint.name = name;
             spawnPoint.transform.SetPositionAndRotation(position, rotation);
-            SpawnPointMarker marker = spawnPoint.AddComponent<SpawnPointMarker>();
+            EditorGUIUtility.SetIconForObject(spawnPoint, GetSpawnPointIcon());
+            SpawnPointMarker marker = spawnPoint.GetComponent<SpawnPointMarker>() ??
+                                      throw new InvalidOperationException(
+                                          $"Spawn point prefab '{SpawnPointPrefabPath}' has no " +
+                                          $"{nameof(SpawnPointMarker)} component.");
             marker.Configure(id);
+            PrefabUtility.RecordPrefabInstancePropertyModifications(spawnPoint);
+            PrefabUtility.RecordPrefabInstancePropertyModifications(spawnPoint.transform);
+            PrefabUtility.RecordPrefabInstancePropertyModifications(marker);
             return marker;
         }
 
-        private static SpawnPointMarker BuildPlayerSpawnPoint()
-        {
-            GameObject spawnPoint = CreateEmpty("Player Spawn Point");
-            spawnPoint.transform.SetPositionAndRotation(
+        private static SpawnPointMarker BuildPlayerSpawnPoint() =>
+            CreateSpawnPoint(
+                "Player Spawn Point",
+                null,
+                SpawnPointId.Player,
                 new Vector3(-9f, 0.02f, -2.1f),
                 Quaternion.identity);
-            SpawnPointMarker marker = spawnPoint.AddComponent<SpawnPointMarker>();
-            marker.Configure(SpawnPointId.Player);
-            return marker;
-        }
 
         private static void EnsureCementProductPrefab(ProductConfig productConfig, Material cementMaterial)
         {
@@ -1708,10 +2473,24 @@ namespace HardwareStore.Editor
 
                 Rigidbody body = vehicle.AddComponent<Rigidbody>();
                 body.mass = 1400f;
-                body.isKinematic = true;
-                body.useGravity = false;
-                body.interpolation = RigidbodyInterpolation.None;
-                body.collisionDetectionMode = CollisionDetectionMode.ContinuousSpeculative;
+                body.isKinematic = false;
+                body.useGravity = true;
+                body.interpolation = RigidbodyInterpolation.Interpolate;
+                body.collisionDetectionMode = CollisionDetectionMode.ContinuousDynamic;
+                body.constraints = RigidbodyConstraints.FreezeRotationX |
+                                   RigidbodyConstraints.FreezeRotationZ;
+                body.linearDamping = 0.35f;
+                body.angularDamping = 2.5f;
+                body.centerOfMass = new Vector3(0f, 0.58f, -0.15f);
+
+                NavMeshObstacle obstacle = vehicle.AddComponent<NavMeshObstacle>();
+                obstacle.shape = NavMeshObstacleShape.Box;
+                obstacle.center = new Vector3(0f, 1f, -0.15f);
+                obstacle.size = new Vector3(4f, 2f, 6.4f);
+                obstacle.carving = true;
+                obstacle.carveOnlyStationary = true;
+                obstacle.carvingMoveThreshold = 0.05f;
+                obstacle.carvingTimeToStationary = 0.1f;
 
                 CreateCube("Cab", vehicle.transform, new Vector3(0f, 1.12f, 1.05f),
                     new Vector3(2.25f, 1.8f, 2.3f), truckPaint, false, true);
@@ -1726,14 +2505,15 @@ namespace HardwareStore.Editor
                 CreateCube("Bed Right Rail", vehicle.transform, new Vector3(1.1f, 1.28f, -1.55f),
                     new Vector3(0.16f, 0.76f, 3.7f), truckPaint, false, true);
 
-                CreateLocalWheel("Front Left Wheel", vehicle.transform, new Vector3(-1.12f, 0.55f, 1.6f),
-                    darkMetal);
-                CreateLocalWheel("Front Right Wheel", vehicle.transform, new Vector3(1.12f, 0.55f, 1.6f),
-                    darkMetal);
-                CreateLocalWheel("Rear Left Wheel", vehicle.transform, new Vector3(-1.12f, 0.55f, -2.05f),
-                    darkMetal);
-                CreateLocalWheel("Rear Right Wheel", vehicle.transform, new Vector3(1.12f, 0.55f, -2.05f),
-                    darkMetal);
+                Vector3 customerWheelScale = new(0.82f, 0.19f, 0.82f);
+                CreateLocalWheel("Front Left Wheel", vehicle.transform, new Vector3(-1.12f, 0.41f, 1.6f),
+                    darkMetal, customerWheelScale);
+                CreateLocalWheel("Front Right Wheel", vehicle.transform, new Vector3(1.12f, 0.41f, 1.6f),
+                    darkMetal, customerWheelScale);
+                CreateLocalWheel("Rear Left Wheel", vehicle.transform, new Vector3(-1.12f, 0.41f, -2.05f),
+                    darkMetal, customerWheelScale);
+                CreateLocalWheel("Rear Right Wheel", vehicle.transform, new Vector3(1.12f, 0.41f, -2.05f),
+                    darkMetal, customerWheelScale);
 
                 GameObject bodyColliderObject = CreateEmpty("Body Collider", vehicle.transform);
                 int ignoreRaycastLayer = LayerMask.NameToLayer("Ignore Raycast");
@@ -1822,6 +2602,13 @@ namespace HardwareStore.Editor
                 body.interpolation = RigidbodyInterpolation.None;
                 body.collisionDetectionMode = CollisionDetectionMode.ContinuousSpeculative;
 
+                CapsuleCollider trafficCollider =
+                    customer.AddComponent<CapsuleCollider>();
+                trafficCollider.center = new Vector3(0f, 0.9f, 0f);
+                trafficCollider.radius = 0.32f;
+                trafficCollider.height = 1.8f;
+                trafficCollider.direction = 1;
+
                 GameObject torso = CreateCube(
                     "Torso", customer.transform, new Vector3(0f, 1.18f, 0f),
                     new Vector3(0.62f, 0.78f, 0.34f), jacket, false, true);
@@ -1886,6 +2673,7 @@ namespace HardwareStore.Editor
                 customer.AddComponent<EntityBehaviour>();
                 customer.AddComponent<TransformRegistrar>();
                 customer.AddComponent<RigidbodyRegistrar>();
+                customer.AddComponent<CollidersRegistrar>();
                 CustomerDissatisfactionView moodView =
                     customer.AddComponent<CustomerDissatisfactionView>();
                 moodView.Configure(
@@ -1934,6 +2722,30 @@ namespace HardwareStore.Editor
                 worker.transform.localScale = Vector3.one;
                 worker.SetActive(true);
 
+                Rigidbody body = worker.AddComponent<Rigidbody>();
+                body.mass = 80f;
+                body.isKinematic = true;
+                body.useGravity = false;
+                body.interpolation = RigidbodyInterpolation.Interpolate;
+                body.collisionDetectionMode =
+                    CollisionDetectionMode.ContinuousSpeculative;
+                body.constraints = RigidbodyConstraints.FreezeRotationX |
+                                   RigidbodyConstraints.FreezeRotationZ;
+
+                GameObject trafficColliderObject = CreateEmpty(
+                    "Traffic Collider", worker.transform);
+                int ignoreRaycastLayer = LayerMask.NameToLayer("Ignore Raycast");
+                if (ignoreRaycastLayer < 0)
+                    throw new InvalidOperationException(
+                        "Required Ignore Raycast layer is missing.");
+                trafficColliderObject.layer = ignoreRaycastLayer;
+                CapsuleCollider trafficCollider =
+                    trafficColliderObject.AddComponent<CapsuleCollider>();
+                trafficCollider.center = new Vector3(0f, 0.95f, 0f);
+                trafficCollider.radius = 0.32f;
+                trafficCollider.height = 1.9f;
+                trafficCollider.direction = 1;
+
                 NavMeshAgent agent = worker.AddComponent<NavMeshAgent>();
                 agent.agentTypeID = 0;
                 agent.radius = 0.32f;
@@ -1979,6 +2791,8 @@ namespace HardwareStore.Editor
                 worker.AddComponent<EntityBehaviour>();
                 worker.AddComponent<TransformRegistrar>();
                 worker.AddComponent<NavMeshAgentRegistrar>();
+                worker.AddComponent<RigidbodyRegistrar>();
+                worker.AddComponent<CollidersRegistrar>();
                 GameObject carryAnchor = CreateEmpty("Carry Anchor", worker.transform);
                 carryAnchor.transform.localPosition = new Vector3(0f, 1.02f, 0.66f);
                 carryAnchor.AddComponent<CarryAnchorRegistrar>();
@@ -2142,6 +2956,16 @@ namespace HardwareStore.Editor
                 body.interpolation = RigidbodyInterpolation.None;
                 body.collisionDetectionMode = CollisionDetectionMode.ContinuousSpeculative;
 
+                NavMeshObstacle navigationObstacle =
+                    trolley.AddComponent<NavMeshObstacle>();
+                navigationObstacle.shape = NavMeshObstacleShape.Box;
+                navigationObstacle.center = new Vector3(0f, 0.27f, 0.15f);
+                navigationObstacle.size = new Vector3(2f, 0.5f, 2.1f);
+                navigationObstacle.carving = true;
+                navigationObstacle.carveOnlyStationary = true;
+                navigationObstacle.carvingMoveThreshold = 0.05f;
+                navigationObstacle.carvingTimeToStationary = 0.1f;
+
                 GameObject deck = CreateCube(
                     "Deck", trolley.transform, new Vector3(0f, 0.42f, 0f),
                     new Vector3(1.9f, 0.18f, 2.4f), brandOrange, false, true);
@@ -2209,6 +3033,7 @@ namespace HardwareStore.Editor
                 view.Configure(highlight);
                 trolley.AddComponent<TransformRegistrar>();
                 trolley.AddComponent<RigidbodyRegistrar>();
+                trolley.AddComponent<NavMeshObstacleRegistrar>();
                 trolley.AddComponent<InteractionViewRegistrar>();
                 trolley.AddComponent<CollidersRegistrar>();
                 SlotsRegistrar slotsRegistrar = trolley.AddComponent<SlotsRegistrar>();
@@ -2697,6 +3522,38 @@ namespace HardwareStore.Editor
             }
         }
 
+        private static void EnsureSpawnPointPrefab()
+        {
+            GameObject spawnPoint = CreateEmpty("Spawn Point");
+
+            try
+            {
+                spawnPoint.AddComponent<SpawnPointMarker>();
+                Texture2D icon = GetSpawnPointIcon();
+                EditorGUIUtility.SetIconForObject(spawnPoint, icon);
+
+                GameObject prefab =
+                    PrefabUtility.SaveAsPrefabAsset(spawnPoint, SpawnPointPrefabPath);
+                if (prefab == null)
+                {
+                    throw new InvalidOperationException(
+                        $"Could not create spawn point prefab at {SpawnPointPrefabPath}.");
+                }
+
+                EditorGUIUtility.SetIconForObject(prefab, icon);
+                EditorUtility.SetDirty(prefab);
+            }
+            finally
+            {
+                Object.DestroyImmediate(spawnPoint);
+            }
+        }
+
+        private static Texture2D GetSpawnPointIcon() =>
+            EditorGUIUtility.IconContent(SpawnPointIconName).image as Texture2D ??
+            throw new InvalidOperationException(
+                $"Unity editor icon '{SpawnPointIconName}' is unavailable.");
+
         private static void EnsurePlayerPrefab(PlayerConfig playerConfig)
         {
             GameObject player = CreateEmpty("Player");
@@ -2851,6 +3708,10 @@ namespace HardwareStore.Editor
             SpawnPointMarker customerLoadingAccessPoint,
             SpawnPointMarker workerTrolleyHomePoint,
             SpawnPointMarker workerTrolleyCustomerLoadingAccessPoint,
+            SpawnPointMarker workerInboundTrolleyStorageBypassPoint,
+            SpawnPointMarker workerInboundTrolleyStorageAccessPoint,
+            SpawnPointMarker workerOutboundTrolleyStorageApproachPoint,
+            SpawnPointMarker workerOutboundTrolleyStorageAccessPoint,
             float workerTrolleyFollowDistance)
         {
             if (surface == null)
@@ -2864,7 +3725,11 @@ namespace HardwareStore.Editor
                 storageAccessPoint,
                 customerLoadingAccessPoint,
                 workerTrolleyHomePoint,
-                workerTrolleyCustomerLoadingAccessPoint
+                workerTrolleyCustomerLoadingAccessPoint,
+                workerInboundTrolleyStorageBypassPoint,
+                workerInboundTrolleyStorageAccessPoint,
+                workerOutboundTrolleyStorageApproachPoint,
+                workerOutboundTrolleyStorageAccessPoint
             };
             if (authoredPoints.Any(point => point == null))
             {
@@ -2886,6 +3751,20 @@ namespace HardwareStore.Editor
                 trolleyHomePose, workerTrolleyFollowDistance);
             Pose trolleyCustomerLoadingPusherPose = ResolveWorkerTrolleyPusherPose(
                 trolleyCustomerLoadingPose, workerTrolleyFollowDistance);
+            Pose inboundTrolleyStorageBypassPusherPose = ResolveWorkerTrolleyPusherPose(
+                workerInboundTrolleyStorageBypassPoint.Pose,
+                workerTrolleyFollowDistance);
+            Pose inboundTrolleyStoragePusherPose = ResolveWorkerTrolleyPusherPose(
+                workerInboundTrolleyStorageAccessPoint.Pose,
+                workerTrolleyFollowDistance);
+            Pose outboundTrolleyStorageApproachPusherPose =
+                ResolveWorkerTrolleyPusherPose(
+                    workerOutboundTrolleyStorageApproachPoint.Pose,
+                    workerTrolleyFollowDistance);
+            Pose outboundTrolleyStorageAccessPusherPose =
+                ResolveWorkerTrolleyPusherPose(
+                    workerOutboundTrolleyStorageAccessPoint.Pose,
+                    workerTrolleyFollowDistance);
             if (Vector3.Distance(
                     idlePoint.transform.position,
                     trolleyHomePusherPose.position) > 0.001f ||
@@ -2932,7 +3811,15 @@ namespace HardwareStore.Editor
                 (customerLoadingAccessPoint.name,
                     customerLoadingAccessPoint.transform.position),
                 (workerTrolleyCustomerLoadingAccessPoint.name + " Pusher",
-                    trolleyCustomerLoadingPusherPose.position)
+                    trolleyCustomerLoadingPusherPose.position),
+                (workerInboundTrolleyStorageBypassPoint.name + " Pusher",
+                    inboundTrolleyStorageBypassPusherPose.position),
+                (workerInboundTrolleyStorageAccessPoint.name + " Pusher",
+                    inboundTrolleyStoragePusherPose.position),
+                (workerOutboundTrolleyStorageApproachPoint.name + " Pusher",
+                    outboundTrolleyStorageApproachPusherPose.position),
+                (workerOutboundTrolleyStorageAccessPoint.name + " Pusher",
+                    outboundTrolleyStorageAccessPusherPose.position)
             };
             var sampledPositions = new Vector3[workerAccessPoints.Length];
             for (int index = 0; index < workerAccessPoints.Length; index++)
@@ -3077,13 +3964,13 @@ namespace HardwareStore.Editor
         }
 
         private static void CreateLocalWheel(string name, Transform parent, Vector3 localPosition,
-            Material material)
+            Material material, Vector3? localScale = null)
         {
             GameObject wheel = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
             wheel.name = name;
             wheel.transform.SetParent(parent, false);
             wheel.transform.SetLocalPositionAndRotation(localPosition, Quaternion.Euler(0f, 0f, 90f));
-            wheel.transform.localScale = new Vector3(0.48f, 0.19f, 0.48f);
+            wheel.transform.localScale = localScale ?? new Vector3(0.48f, 0.19f, 0.48f);
             wheel.GetComponent<Renderer>().sharedMaterial = material;
             Object.DestroyImmediate(wheel.GetComponent<Collider>());
         }
@@ -3210,6 +4097,7 @@ namespace HardwareStore.Editor
             EnsureConfigAsset<CustomerFlowConfig>(CustomerFlowConfigName);
             EnsureConfigAsset<EconomyConfig>("EconomyConfig");
             EnsureConfigAsset<ProductRecoveryConfig>(ProductRecoveryConfigName);
+            EnsureConfigAsset<LocalTrafficConfig>("LocalTrafficConfig");
             EnsureConfigAsset<PlatformTrolleyConfig>(PlatformTrolleyConfigName);
             EnsureConfigAsset<WarehouseWorkerConfig>(WarehouseWorkerConfigName);
             EnsureConfigAsset<ForkliftConfig>(ForkliftConfigName);
@@ -3317,7 +4205,7 @@ namespace HardwareStore.Editor
             RequireSerializedProperty(warehouseWorker, "_angularSpeed").floatValue = 720f;
             RequireSerializedProperty(warehouseWorker, "_stoppingDistance").floatValue = 0.2f;
             RequireSerializedProperty(warehouseWorker, "_navigationSampleRadius").floatValue = 2f;
-            RequireSerializedProperty(warehouseWorker, "_taskTimeout").floatValue = 20f;
+            RequireSerializedProperty(warehouseWorker, "_taskTimeout").floatValue = 45f;
             RequireSerializedProperty(warehouseWorker, "_trolleyCapacity").intValue = 3;
             RequireSerializedProperty(warehouseWorker, "_trolleyFollowDistance").floatValue = 1.7f;
             warehouseWorker.ApplyModifiedPropertiesWithoutUndo();

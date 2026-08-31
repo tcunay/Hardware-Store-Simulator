@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using Entitas;
 using HardwareStore.Gameplay.Common;
 using HardwareStore.Gameplay.Common.Navigation;
+using HardwareStore.Gameplay.Common.Physics;
 using HardwareStore.Gameplay.Components;
 using HardwareStore.Gameplay.Features.Employees;
 
@@ -12,16 +13,19 @@ namespace HardwareStore.Gameplay.Features.Employees.Systems
     {
         private readonly GameContext _gameContext;
         private readonly IWorkerNavigationService _navigation;
+        private readonly IWorkerTrolleyHitchService _hitch;
         private readonly IGroup<GameEntity> _runs;
         private readonly List<GameEntity> _runBuffer = new(2);
         private readonly List<GameEntity> _products = new(3);
         private readonly List<GameEntity> _inboundTasks = new(3);
 
         public RecoverBlockedWorkerTrolleyRunSystem(GameContext gameContext,
-            IWorkerNavigationService navigation)
+            IWorkerNavigationService navigation,
+            IWorkerTrolleyHitchService hitch)
         {
             _gameContext = gameContext;
             _navigation = navigation;
+            _hitch = hitch;
             _runs = gameContext.GetGroup(GameMatcher.AllOf(
                     GameMatcher.WarehouseTask,
                     GameMatcher.EntityId,
@@ -90,6 +94,8 @@ namespace HardwareStore.Gameplay.Features.Employees.Systems
                         run.AssignedWorkerEntityId)
                         throw new InvalidOperationException(
                             "Destructed worker trolley has an unrelated pusher.");
+                    if (trolley.hasRigidbody)
+                        _hitch.Detach(trolley.Rigidbody);
                     trolley.RemoveTrolleyPusherEntityId();
                 }
                 if (inbound)
@@ -374,10 +380,11 @@ namespace HardwareStore.Gameplay.Features.Employees.Systems
                     $"Inbound trolley run {run.EntityId} was not destroyed.");
         }
 
-        private static void NormalizeTrolley(GameEntity trolley,
+        private void NormalizeTrolley(GameEntity trolley,
             GameEntity worker)
         {
             trolley.ReplaceOccupiedTrolleySlotCount(0);
+            _hitch.Detach(trolley.Rigidbody);
             trolley.Rigidbody.position = trolley.WorkerTrolleyHomePosition;
             trolley.Rigidbody.rotation = trolley.WorkerTrolleyHomeRotation;
             trolley.Transform.SetPositionAndRotation(

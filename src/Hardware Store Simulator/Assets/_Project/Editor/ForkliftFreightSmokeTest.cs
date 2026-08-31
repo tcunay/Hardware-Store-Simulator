@@ -182,12 +182,20 @@ namespace HardwareStore.Editor
                 "Forklift smoke requires a clean request/event state.");
 
             Transform truckSlot = scenario.Truck.Slots[0];
-            Require(Vector3.Dot(truckSlot.forward, Vector3.right) > 0.999f &&
-                    Mathf.Abs(truckSlot.position.x - 24f) < 0.05f &&
-                    Mathf.Abs(truckSlot.position.y - 1.13f) < 0.05f &&
-                    Mathf.Abs(truckSlot.position.z - 4.5f) < 0.05f,
-                "Truck slot 0 must expose the authored west-side approach with world " +
-                "forward +X near (24, 1.13, 4.5).");
+            Pose truckPose = PrototypeYardLayoutSpec.FreightTruckPose;
+            Vector3 expectedTruckSlotPosition = truckPose.position +
+                                                truckPose.rotation *
+                                                new Vector3(0f, 1.11f, -4.5f);
+            Quaternion expectedTruckSlotRotation = truckPose.rotation *
+                                                   Quaternion.Euler(0f, -90f, 0f);
+            Require(Quaternion.Angle(
+                        truckSlot.rotation,
+                        expectedTruckSlotRotation) < 0.01f &&
+                    Vector3.Distance(
+                        truckSlot.position,
+                        expectedTruckSlotPosition) < 0.05f,
+                "Truck slot 0 must preserve its authored side-loading pose relative to " +
+                $"the freight-truck layout pose at {truckPose.position}.");
 
             runtime.Systems.Create<ValidateForkliftFreightStateSystem>()
                 .Execute();

@@ -1,0 +1,26 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 2d14b54a111f4488788ce5e93aa011b4, type: 3}
+  m_Name: GleyTrafficConfig
+  m_EditorClassIdentifier: Assembly-CSharp::HardwareStore.Infrastructure.VehicleTraffic.Gley.GleyTrafficConfig
+  _vehiclePool: {fileID: 11400000, guid: ed6fcec1bf3cf42d38245bf27a80096a, type: 2}
+  _maximumVehicleCount: 8
+  _masterVolume: 1
+  _activeSquaresLevel: 1
+  _defaultPathLength: 8
+  _spawnRequestTimeout: 20
+  _useWaypointPriority: 1
+  _lightsOn: 0
+  _minimumDistanceToAdd: -1
+  _distanceToRemove: -1
+  _minimumLaneOffset: -0.15
+  _maximumLaneOffset: 0.15

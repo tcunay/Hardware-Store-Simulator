@@ -93,9 +93,11 @@ public partial class Contexts {
     public const string ReservedCustomerTrafficLaneEntityId = "ReservedCustomerTrafficLaneEntityId";
     public const string ReservedOrderLineEntityId = "ReservedOrderLineEntityId";
     public const string ServingOrderCounterEntityId = "ServingOrderCounterEntityId";
+    public const string TrafficConflictEntityId = "TrafficConflictEntityId";
     public const string TrolleyEntityId = "TrolleyEntityId";
     public const string TrolleyPusherEntityId = "TrolleyPusherEntityId";
     public const string TrolleyStoreEntityId = "TrolleyStoreEntityId";
+    public const string VehicleTrafficRuntimeId = "VehicleTrafficRuntimeId";
     public const string WarehouseRunEntityId = "WarehouseRunEntityId";
     public const string WarehouseTaskCustomerVisitEntityId = "WarehouseTaskCustomerVisitEntityId";
     public const string WarehouseTaskOrderLineEntityId = "WarehouseTaskOrderLineEntityId";
@@ -285,6 +287,11 @@ public partial class Contexts {
             (e, c) => ((HardwareStore.Gameplay.Components.ServingOrderCounterEntityId)c).Value));
 
         game.AddEntityIndex(new Entitas.EntityIndex<GameEntity, int>(
+            TrafficConflictEntityId,
+            game.GetGroup(GameMatcher.TrafficConflictEntityId),
+            (e, c) => ((HardwareStore.Gameplay.Components.TrafficConflictEntityId)c).Value));
+
+        game.AddEntityIndex(new Entitas.EntityIndex<GameEntity, int>(
             TrolleyEntityId,
             game.GetGroup(GameMatcher.TrolleyEntityId),
             (e, c) => ((HardwareStore.Gameplay.Components.TrolleyEntityId)c).Value));
@@ -298,6 +305,11 @@ public partial class Contexts {
             TrolleyStoreEntityId,
             game.GetGroup(GameMatcher.TrolleyStoreEntityId),
             (e, c) => ((HardwareStore.Gameplay.Components.TrolleyStoreEntityId)c).Value));
+
+        game.AddEntityIndex(new Entitas.PrimaryEntityIndex<GameEntity, int>(
+            VehicleTrafficRuntimeId,
+            game.GetGroup(GameMatcher.VehicleTrafficRuntimeId),
+            (e, c) => ((HardwareStore.Gameplay.Components.VehicleTrafficRuntimeId)c).Value));
 
         game.AddEntityIndex(new Entitas.EntityIndex<GameEntity, int>(
             WarehouseRunEntityId,
@@ -493,6 +505,10 @@ public static class ContextsExtensions {
         return ((Entitas.PrimaryEntityIndex<GameEntity, int>)context.GetEntityIndex(Contexts.ServingOrderCounterEntityId)).GetEntity(Value);
     }
 
+    public static System.Collections.Generic.HashSet<GameEntity> GetEntitiesWithTrafficConflictEntityId(this GameContext context, int Value) {
+        return ((Entitas.EntityIndex<GameEntity, int>)context.GetEntityIndex(Contexts.TrafficConflictEntityId)).GetEntities(Value);
+    }
+
     public static System.Collections.Generic.HashSet<GameEntity> GetEntitiesWithTrolleyEntityId(this GameContext context, int Value) {
         return ((Entitas.EntityIndex<GameEntity, int>)context.GetEntityIndex(Contexts.TrolleyEntityId)).GetEntities(Value);
     }
@@ -503,6 +519,10 @@ public static class ContextsExtensions {
 
     public static GameEntity GetEntityWithTrolleyStoreEntityId(this GameContext context, int Value) {
         return ((Entitas.PrimaryEntityIndex<GameEntity, int>)context.GetEntityIndex(Contexts.TrolleyStoreEntityId)).GetEntity(Value);
+    }
+
+    public static GameEntity GetEntityWithVehicleTrafficRuntimeId(this GameContext context, int Value) {
+        return ((Entitas.PrimaryEntityIndex<GameEntity, int>)context.GetEntityIndex(Contexts.VehicleTrafficRuntimeId)).GetEntity(Value);
     }
 
     public static System.Collections.Generic.HashSet<GameEntity> GetEntitiesWithWarehouseRunEntityId(this GameContext context, int Value) {

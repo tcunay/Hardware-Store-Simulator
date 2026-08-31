@@ -370,7 +370,7 @@ GameObject:
   m_Component:
   - component: {fileID: 5281289592112444223}
   - component: {fileID: 6602714801102297893}
-  m_Layer: 2
+  m_Layer: 11
   m_Name: Body Collider
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -1226,7 +1226,7 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 2526de1cd9de6488dbf8a57856d8f794, type: 3}
-  m_Name:
+  m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::HardwareStore.Infrastructure.View.EntityBehaviour
 --- !u!114 &145488899453198481
 MonoBehaviour:
@@ -1238,7 +1238,7 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 79d813a84f7094e47974362085a04b0b, type: 3}
-  m_Name:
+  m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::HardwareStore.Gameplay.Common.Registrars.TransformRegistrar
 --- !u!114 &6461261754654602463
 MonoBehaviour:
@@ -1250,7 +1250,7 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 442ab7fc23dc24ea88e25745b3ad1fbb, type: 3}
-  m_Name:
+  m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::HardwareStore.Gameplay.Registrars.RigidbodyRegistrar
 --- !u!114 &156445851374537040
 MonoBehaviour:
@@ -1262,7 +1262,7 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: f4aee97e96d94f778be7bac46748d1ec, type: 3}
-  m_Name:
+  m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::HardwareStore.Gameplay.Common.Registrars.CollidersRegistrar
 --- !u!114 &4932386168743016587
 MonoBehaviour:
@@ -1274,7 +1274,7 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 594f7bf0b2a32494f9866cfe1c30d84f, type: 3}
-  m_Name:
+  m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::HardwareStore.Gameplay.Common.Registrars.SlotsRegistrar
   _slots:
   - {fileID: 723056661613130016}

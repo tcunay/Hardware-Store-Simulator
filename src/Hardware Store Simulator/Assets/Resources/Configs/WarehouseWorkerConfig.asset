@@ -22,6 +22,6 @@ MonoBehaviour:
   _angularSpeed: 720
   _stoppingDistance: 0.2
   _navigationSampleRadius: 2
-  _taskTimeout: 20
+  _taskTimeout: 45
   _trolleyCapacity: 3
   _trolleyFollowDistance: 1.7

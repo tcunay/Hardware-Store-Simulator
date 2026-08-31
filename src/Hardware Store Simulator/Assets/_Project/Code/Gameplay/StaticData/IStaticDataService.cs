@@ -10,6 +10,7 @@ namespace HardwareStore.Gameplay.StaticData
         InteractionConfig Interaction { get; }
         EconomyConfig Economy { get; }
         ProductRecoveryConfig ProductRecovery { get; }
+        LocalTrafficConfig LocalTraffic { get; }
         PlatformTrolleyConfig PlatformTrolley { get; }
         ForkliftConfig Forklift { get; }
         FreightTruckConfig FreightTruck { get; }

@@ -14,11 +14,13 @@ using HardwareStore.Gameplay.Features.Player;
 using HardwareStore.Gameplay.Features.Presentation;
 using HardwareStore.Gameplay.Features.Procurement;
 using HardwareStore.Gameplay.Features.Products;
+using HardwareStore.Gameplay.Features.Products.Systems;
 using HardwareStore.Gameplay.Features.StorageState;
 using HardwareStore.Gameplay.Features.StoreDay;
 using HardwareStore.Gameplay.Features.StoreDay.Systems;
 using HardwareStore.Gameplay.Features.StoreSceneBindings;
 using HardwareStore.Gameplay.Features.Trolley;
+using HardwareStore.Gameplay.Features.VehicleTraffic.Systems;
 using HardwareStore.Infrastructure.Systems;
 using HardwareStore.Infrastructure.View;
 
@@ -29,6 +31,8 @@ namespace HardwareStore.Gameplay
         public StoreFeature(ISystemFactory systems)
         {
             Add(systems.Create<BindViewFeature>());
+            Add(systems.Create<InitializeVehicleTrafficSystem>());
+            Add(systems.Create<DrainVehicleTrafficSignalsSystem>());
             Add(systems.Create<StoreSceneBindingsFeature>());
             Add(systems.Create<InputFeature>());
             Add(systems.Create<PlayerFeature>());
@@ -54,10 +58,12 @@ namespace HardwareStore.Gameplay
             Add(systems.Create<CustomerFeature>());
             Add(systems.Create<MovementFeature>());
             Add(systems.Create<TrolleyMovementFeature>());
+            Add(systems.Create<SyncSlottedProductPoseSystem>());
             Add(systems.Create<VehicleCameraFeature>());
             Add(systems.Create<InteractionPromptFeature>());
             Add(systems.Create<ValidateStoreDayStateSystem>());
             Add(systems.Create<PresentationFeature>());
+            Add(systems.Create<ReleaseDestructedVehicleTrafficViewsSystem>());
             Add(systems.Create<CleanupFeature>());
         }
     }

@@ -8,12 +8,14 @@ namespace HardwareStore.Gameplay.Features.Employees.Systems
 {
     public sealed class TickWarehouseTaskTimeoutSystem : IExecuteSystem
     {
+        private readonly GameContext _gameContext;
         private readonly ITimeService _time;
         private readonly IGroup<GameEntity> _tasks;
 
         public TickWarehouseTaskTimeoutSystem(GameContext gameContext,
             ITimeService time)
         {
+            _gameContext = gameContext;
             _time = time;
             _tasks = gameContext.GetGroup(GameMatcher.AllOf(
                     GameMatcher.WarehouseTask,
@@ -38,6 +40,12 @@ namespace HardwareStore.Gameplay.Features.Employees.Systems
                         $"Warehouse task {task.EntityId} must have exactly one task role.");
                 }
                 if (task.WarehouseTaskStep == WarehouseTaskStepId.Blocked)
+                    continue;
+                GameEntity worker = _gameContext.GetEntityWithEntityId(
+                    task.AssignedWorkerEntityId);
+                if (worker != null && !worker.isDestructed &&
+                    worker.isTrafficYielding &&
+                    worker.hasTrafficConflictEntityId)
                     continue;
                 float current = task.WarehouseTaskTimeoutRemaining;
                 if (float.IsNaN(current) || float.IsInfinity(current) || current < 0f)

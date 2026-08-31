@@ -25,7 +25,7 @@ namespace HardwareStore.Gameplay.Features.Customers.Systems
             _visits = gameContext.GetGroup(GameMatcher.AllOf(
                     GameMatcher.CustomerVisit,
                     GameMatcher.CustomerVehicle,
-                    GameMatcher.RouteMover,
+                    GameMatcher.VehicleTrafficControlled,
                     GameMatcher.CustomerVisitWaitingForAbandonDeparture,
                     GameMatcher.EntityId,
                     GameMatcher.CustomerVisitStoreEntityId,
@@ -107,7 +107,8 @@ namespace HardwareStore.Gameplay.Features.Customers.Systems
             }
 
             Pose[] authoredRoute = parkingSpot.CustomerVehicleParkingDepartureRoute;
-            ValidateRouteStart(visit, authoredRoute);
+            if (!visit.isVehicleTrafficControlled)
+                ValidateRouteStart(visit, authoredRoute);
             Pose[] route = (Pose[])authoredRoute.Clone();
 
             visit.AddReservedCustomerTrafficLaneEntityId(trafficLane.EntityId);

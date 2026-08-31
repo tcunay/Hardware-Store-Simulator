@@ -1,6 +1,7 @@
 using HardwareStore.Common.Entity;
 using HardwareStore.Common.Extensions;
 using HardwareStore.Gameplay.Configs;
+using HardwareStore.Gameplay.Components;
 using HardwareStore.Gameplay.StaticData;
 using HardwareStore.Infrastructure.Identifiers;
 using UnityEngine;
@@ -35,6 +36,12 @@ namespace HardwareStore.Gameplay.Factories
                 .AddHorizontalSpeed(0f)
                 .AddMoveDirection(Vector3.zero)
                 .AddMovementSpeed(player.WalkSpeed)
+                .AddTrafficControlPolicy(TrafficControlPolicyId.Uncontrolled)
+                .AddTrafficPriority((int)TrafficPriorityId.Player)
+                .AddTrafficDesiredVelocity(Vector3.zero)
+                .AddTrafficIntentDistance(0f)
+                .AddTrafficAngularIntent(0f)
+                .AddTrafficPreviousPosition(at.position)
                 .AddViewPitch(0f)
                 .AddCameraOrbitYaw(0f)
                 .AddMouseSensitivity(player.MouseSensitivity)
@@ -43,6 +50,7 @@ namespace HardwareStore.Gameplay.Factories
                 .AddInteractionDistance(interaction.Distance)
                 .AddAimAssistRadius(interaction.AimAssistRadius)
                 .With(x => x.isPlayer = true)
+                .With(x => x.isTrafficParticipant = true)
                 .With(x => x.isCursorLocked = true);
 
             return entity;

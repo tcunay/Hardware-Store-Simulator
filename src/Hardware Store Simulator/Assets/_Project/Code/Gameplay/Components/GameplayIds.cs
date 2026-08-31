@@ -13,7 +13,11 @@ namespace HardwareStore.Gameplay.Components
         WarehouseWorkerTrolleyCustomerLoadingAccess,
         Forklift,
         FreightTruck,
-        InboundPallet
+        InboundPallet,
+        WarehouseWorkerInboundTrolleyStorageAccess,
+        WarehouseWorkerOutboundTrolleyStorageApproach,
+        WarehouseWorkerOutboundTrolleyStorageAccess,
+        WarehouseWorkerInboundTrolleyStorageBypass
     }
 
     public enum SceneViewId

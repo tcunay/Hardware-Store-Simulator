@@ -11,6 +11,7 @@ using HardwareStore.Gameplay.Common.Input;
 using HardwareStore.Gameplay.Common.Navigation;
 using HardwareStore.Gameplay.Common.Registrars;
 using HardwareStore.Gameplay.Common.Physics;
+using HardwareStore.Gameplay.Common.Traffic;
 using HardwareStore.Gameplay.Components;
 using HardwareStore.Gameplay.Configs;
 using HardwareStore.Gameplay.Factories;
@@ -79,6 +80,8 @@ namespace HardwareStore.Editor
         private const string EconomyConfigPath = "Assets/Resources/Configs/EconomyConfig.asset";
         private const string ProductRecoveryConfigPath =
             "Assets/Resources/Configs/ProductRecoveryConfig.asset";
+        private const string LocalTrafficConfigPath =
+            "Assets/Resources/Configs/LocalTrafficConfig.asset";
         private const string PlatformTrolleyConfigPath =
             "Assets/Resources/Configs/PlatformTrolleyConfig.asset";
         private const string ForkliftConfigPath =
@@ -122,6 +125,8 @@ namespace HardwareStore.Editor
         private const string DeliveryVehiclePrefabPath = "Assets/_Project/Prefabs/Gameplay/DeliveryTruck.prefab";
         private const string CustomerVehiclePrefabPath =
             "Assets/_Project/Prefabs/Gameplay/CustomerVehicle.prefab";
+        private const string GleyCustomerVehiclePrefabPath =
+            "Assets/_Project/Prefabs/Gameplay/CustomerVehicleGley.prefab";
         private const string CustomerPrefabPath =
             "Assets/_Project/Prefabs/Gameplay/Customer.prefab";
         private const string PlatformTrolleyPrefabPath =
@@ -255,6 +260,7 @@ namespace HardwareStore.Editor
             typeof(CustomerProjectConfig),
             typeof(ProductConfig),
             typeof(ProductRecoveryConfig),
+            typeof(LocalTrafficConfig),
             typeof(PlatformTrolleyConfig),
             typeof(ForkliftConfig),
             typeof(FreightTruckConfig),
@@ -272,6 +278,7 @@ namespace HardwareStore.Editor
             (typeof(CustomerConfig), CustomerConfigPath),
             (typeof(CustomerFlowConfig), CustomerFlowConfigPath),
             (typeof(ProductRecoveryConfig), ProductRecoveryConfigPath),
+            (typeof(LocalTrafficConfig), LocalTrafficConfigPath),
             (typeof(PlatformTrolleyConfig), PlatformTrolleyConfigPath),
             (typeof(ForkliftConfig), ForkliftConfigPath),
             (typeof(FreightTruckConfig), FreightTruckConfigPath),
@@ -313,6 +320,7 @@ namespace HardwareStore.Editor
             ValidateContextAwareInteractionFocus();
             ValidateProductRecoveryArchitecture(runtimeTypes, componentTypes);
             ValidateCollisionSafeProductDrop(runtimeTypes, componentTypes);
+            ValidateLocalTrafficArchitecture(runtimeTypes, componentTypes);
             ValidateTrolleyArchitecture(runtimeTypes, componentTypes);
             ValidateWarehouseWorkerArchitecture(runtimeTypes, componentTypes);
             ValidateLocalizationArchitecture(runtimeTypes, componentTypes);
@@ -699,10 +707,10 @@ namespace HardwareStore.Editor
                 runtimeTypes,
                 "GetEntityWithDayReportStoreEntityId",
                 typeof(GameEntity));
-            Require(GameComponentsLookup.componentTypes.Length == 308 &&
+            Require(GameComponentsLookup.componentTypes.Length == 326 &&
                     InputComponentsLookup.componentTypes.Length == 16,
                 "The mixed-procurement slice must expose the exact generated registry sizes " +
-                "of 308 Game components and 16 Input components.");
+                "of 326 Game components and 16 Input components.");
 
             Type featureType = runtimeTypes.SingleOrDefault(type =>
                 type.Name == "StoreDayFeature");
@@ -1421,6 +1429,12 @@ namespace HardwareStore.Editor
             {
                 typeof(CustomerVisit),
                 typeof(CustomerVehicle),
+                typeof(VehicleTrafficControlled),
+                typeof(VehicleTrafficReady),
+                typeof(VehicleTrafficSpawnPending),
+                typeof(VehicleTrafficMoving),
+                typeof(VehicleTrafficRuntimeId),
+                typeof(VehicleTrafficCommandSequence),
                 typeof(Order),
                 typeof(LoadingZone),
                 typeof(CustomerVisitArriving),
@@ -1849,7 +1863,9 @@ namespace HardwareStore.Editor
                 "Infrastructure", "Installers", "BootstrapInstaller.cs");
             RequireSourceContains(bootstrapSource,
                 "Bind<ICustomerFactory>().To<CustomerFactory>().AsSingle()",
-                "Bind<ICustomerFlowFactory>().To<CustomerFlowFactory>().AsSingle()");
+                "Bind<ICustomerFlowFactory>().To<CustomerFlowFactory>().AsSingle()",
+                "Bind<IVehicleTrafficService>()",
+                ".To<GleyTrafficService>().AsSingle()");
 
             string customerVisitFactorySource = ReadRuntimeSource(
                 "Gameplay", "Factories", "CustomerVisitFactory.cs");
@@ -1881,8 +1897,10 @@ namespace HardwareStore.Editor
                 "isCustomerVisit = true",
                 "isCustomerVehicle = true",
                 "isCustomerVisitArriving = true",
-                "isRouteMover = true",
+                "isVehicleTrafficControlled = true",
                 "isLoadingZone = true",
+                "AddVehicleTrafficCommandSequence(0)",
+                "AddTrafficControlPolicy(TrafficControlPolicyId.Uncontrolled)",
                 "AddCustomerVisitStoreEntityId",
                 "AddCustomerArrivalSequence",
                 "AddReservedCustomerParkingSpotEntityId",
@@ -1890,6 +1908,14 @@ namespace HardwareStore.Editor
                 "AddCustomerProjectType",
                 "AddCustomerPatienceRemaining(",
                 "_consultationOffers.CreateOffer");
+            Require(!customerVisitFactorySource.Contains(
+                        "AddViewPrefab(config.ViewPrefab)",
+                        StringComparison.Ordinal) &&
+                    !customerVisitFactorySource.Contains(
+                        "isRouteMover = true",
+                        StringComparison.Ordinal),
+                "Gley customer visits must be provider-bound and excluded from the legacy " +
+                "route motor.");
             Require(!customerVisitFactorySource.Contains(
                         "AddCustomerProjectTitle",
                         StringComparison.Ordinal) &&
@@ -2004,10 +2030,29 @@ namespace HardwareStore.Editor
                 "GameMatcher.Rigidbody",
                 "GameMatcher.RouteCompleted",
                 "GameMatcher.Destructed");
-            Require(!routeMovementSource.Contains("GameMatcher.Customer", StringComparison.Ordinal) &&
-                    !routeMovementSource.Contains("GameMatcher.CustomerVehicle", StringComparison.Ordinal),
-                $"{nameof(MoveRouteSystem)} must move any RouteMover instead of depending on a " +
-                "customer role.");
+            Require(!routeMovementSource.Contains(
+                        "GameMatcher.Customer,", StringComparison.Ordinal) &&
+                    routeMovementSource.Contains(
+                        "GameMatcher.CustomerVehicle", StringComparison.Ordinal),
+                $"{nameof(MoveRouteSystem)} must keep kinematic pedestrian RouteMovers " +
+                "while excluding the dynamic customer vehicle from direct pose movement.");
+
+            string customerVehiclePhysicsSource = ReadRuntimeSource(
+                "Gameplay", "Features", "Customers", "Systems",
+                "DriveCustomerVehiclePhysicsSystem.cs");
+            Require(runtimeTypes.Contains(typeof(DriveCustomerVehiclePhysicsSystem)),
+                $"{nameof(DriveCustomerVehiclePhysicsSystem)} must remain part of " +
+                "Assembly-CSharp.");
+            RequireSourceContains(customerVehiclePhysicsSource,
+                "GameMatcher.CustomerVehicle",
+                "GameMatcher.RouteMover",
+                "ICustomerVehiclePhysicsMotor motor",
+                "vehicle.isTrafficYielding",
+                "result.ObservedSpeed",
+                "vehicle.ReplaceRouteWaypointIndex(nextWaypointIndex)",
+                "vehicle.isRouteCompleted = true",
+                "_motor.Hold(",
+                "_trafficConfig.VehicleBraking");
 
             string completeCustomerReturnSource = ReadRuntimeSource(
                 "Gameplay", "Features", "Customers", "Systems",
@@ -2441,7 +2486,14 @@ namespace HardwareStore.Editor
                 "GetEntityWithReservedCustomerTrafficLaneEntityId",
                 "CustomerVehicleToLoadingRoute",
                 "AddReservedCustomerTrafficLaneEntityId",
+                "ReplaceTrafficCurrentSpeed(0f)",
                 "isCustomerVisitMovingToLoadingBay = true");
+            Require(!moveToBaySource.Contains(
+                        "WarehouseTrafficGuard", StringComparison.Ordinal) &&
+                    !moveToBaySource.Contains(
+                        "WarehouseTask", StringComparison.Ordinal),
+                "A customer vehicle may reserve the car lane, but warehouse work must not " +
+                "globally block the start of its local route.");
             RequireSourceContains(completeBayArrivalSource,
                 "GameMatcher.CustomerVisitMovingToLoadingBay",
                 "RemoveReservedCustomerTrafficLaneEntityId",
@@ -2461,7 +2513,13 @@ namespace HardwareStore.Editor
                 "GetEntityWithReservedCustomerTrafficLaneEntityId",
                 "CustomerLoadingDepartureRoute",
                 "AddReservedCustomerTrafficLaneEntityId",
+                "ReplaceTrafficCurrentSpeed(0f)",
                 "isCustomerVisitDeparting = true");
+            Require(!beginDepartureSource.Contains(
+                        "WarehouseTrafficGuard", StringComparison.Ordinal) &&
+                    !beginDepartureSource.Contains(
+                        "WarehouseTask", StringComparison.Ordinal),
+                "Warehouse activity must not globally delay a customer vehicle departure.");
             RequireSourceContains(completeDepartureSource,
                 "GameMatcher.OrderContentReleased",
                 "GetEntitiesWithOrderEntityId",
@@ -2478,6 +2536,15 @@ namespace HardwareStore.Editor
                 "GetEntitiesWithCustomerQueueSpotStoreEntityId",
                 "parkingCount != _config.ParkingCapacity",
                 "lifecycleCount != 1",
+                "viewBindingPending",
+                "visit.hasViewPrefab",
+                "visit.isVehicleTrafficSpawnPending",
+                "visit.isVehicleTrafficReady",
+                "visit.hasVehicleTrafficRuntimeId",
+                "ValidateVehiclePhysics(visit, usesTrafficProvider: true)",
+                "ValidateActorPhysics(actor)",
+                "Pending customer actor",
+                "actor.hasColliders",
                 "arrivalSequences.Add",
                 "ValidateParkingRelation",
                 "ValidateBayRelation",
@@ -3048,6 +3115,362 @@ namespace HardwareStore.Editor
                 $"{LocalizationKey.NotificationProductDropBlocked} must have zero arguments.");
         }
 
+        private static void ValidateLocalTrafficArchitecture(
+            Type[] runtimeTypes,
+            IEnumerable<Type> componentTypes)
+        {
+            var discoveredComponents = new HashSet<Type>(componentTypes);
+            foreach (Type componentType in new[]
+                     {
+                         typeof(TrafficParticipant),
+                         typeof(TrafficYielding),
+                         typeof(TrafficControlPolicy),
+                         typeof(TrafficPriority),
+                         typeof(TrafficDesiredVelocity),
+                         typeof(TrafficIntentDistance),
+                         typeof(TrafficAngularIntent),
+                         typeof(TrafficPreviousPosition),
+                         typeof(TrafficCurrentSpeed),
+                         typeof(TrafficConflictEntityId),
+                         typeof(TrafficConflictColliderComponent),
+                     })
+            {
+                Require(discoveredComponents.Contains(componentType),
+                    $"Local traffic requires the {componentType.Name} Game component.");
+            }
+
+            RequireComponentIndexAttribute(
+                typeof(TrafficConflictEntityId),
+                "Entitas.CodeGeneration.Attributes.EntityIndexAttribute");
+
+            Type featureType = runtimeTypes.SingleOrDefault(type =>
+                type.Name == "LocalTrafficFeature");
+            Type syncType = runtimeTypes.SingleOrDefault(type =>
+                type.Name == "SyncTrafficIntentSystem");
+            Type resolveType = runtimeTypes.SingleOrDefault(type =>
+                type.Name == "ResolveLocalTrafficSystem");
+            Type validateType = runtimeTypes.SingleOrDefault(type =>
+                type.Name == "ValidateLocalTrafficStateSystem");
+            Require(featureType != null && typeof(Feature).IsAssignableFrom(featureType),
+                "LocalTrafficFeature must remain an Entitas feature.");
+            Require(syncType != null && typeof(IExecuteSystem).IsAssignableFrom(syncType) &&
+                    resolveType != null && typeof(IExecuteSystem).IsAssignableFrom(resolveType) &&
+                    validateType != null && typeof(IExecuteSystem).IsAssignableFrom(validateType),
+                "Local traffic intent, resolution, and validation must remain ECS systems.");
+
+            Require(typeof(ILocalTrafficPredictionService).IsInterface,
+                "Local traffic prediction must stay behind an injectable service boundary.");
+            Require(typeof(IRouteMotionService).IsInterface &&
+                    typeof(IRouteMotionService).IsAssignableFrom(
+                        typeof(RouteMotionService)),
+                "Route collision motion must stay behind an injectable service boundary.");
+            RequireMethod(
+                typeof(IRouteMotionService),
+                nameof(IRouteMotionService.TryResolveMove),
+                typeof(bool),
+                typeof(Rigidbody),
+                typeof(Collider[]),
+                typeof(Vector3),
+                typeof(Quaternion),
+                typeof(Pose).MakeByRefType(),
+                typeof(Collider).MakeByRefType());
+            RequireMethod(
+                typeof(ILocalTrafficPredictionService),
+                nameof(ILocalTrafficPredictionService.TryPredictConflict),
+                typeof(bool),
+                typeof(GameEntity),
+                typeof(GameEntity),
+                typeof(Vector3),
+                typeof(float),
+                typeof(GameEntity),
+                typeof(GameEntity),
+                typeof(Vector3),
+                typeof(float),
+                typeof(bool),
+                typeof(LocalTrafficPrediction).MakeByRefType());
+            RequireMethod(
+                typeof(ILocalTrafficPredictionService),
+                nameof(ILocalTrafficPredictionService.TryPredictWorldConflict),
+                typeof(bool),
+                typeof(GameEntity),
+                typeof(GameEntity),
+                typeof(Vector3),
+                typeof(float),
+                typeof(Transform),
+                typeof(bool),
+                typeof(LocalTrafficWorldPrediction).MakeByRefType());
+            RequireMethod(
+                typeof(IWorkerNavigationService),
+                nameof(IWorkerNavigationService.GetPlannedIntent),
+                typeof(WorkerNavigationIntent),
+                typeof(NavMeshAgent));
+            RequireMethod(
+                typeof(IWorkerNavigationService),
+                nameof(IWorkerNavigationService.GetIntent),
+                typeof(WorkerNavigationIntent),
+                typeof(NavMeshAgent));
+            RequireMethod(
+                typeof(IWorkerNavigationService),
+                nameof(IWorkerNavigationService.SetPaused),
+                typeof(void),
+                typeof(NavMeshAgent),
+                typeof(bool));
+            RequireMethod(
+                typeof(IWorkerNavigationService),
+                nameof(IWorkerNavigationService.UsesAutomaticRotation),
+                typeof(bool),
+                typeof(NavMeshAgent));
+            RequireMethod(
+                typeof(IWorkerNavigationService),
+                nameof(IWorkerNavigationService.SetManualRotation),
+                typeof(void),
+                typeof(NavMeshAgent),
+                typeof(Quaternion));
+            RequireMethod(
+                typeof(IWorkerNavigationService),
+                nameof(IWorkerNavigationService.TryGetManualRotation),
+                typeof(bool),
+                typeof(NavMeshAgent),
+                typeof(Quaternion).MakeByRefType());
+            RequireMethod(
+                typeof(IWorkerNavigationService),
+                nameof(IWorkerNavigationService.HasReachedRotation),
+                typeof(bool),
+                typeof(NavMeshAgent),
+                typeof(Quaternion),
+                typeof(float));
+
+            string serviceSource = ReadRuntimeSource(
+                "Gameplay", "Common", "Traffic",
+                "LocalTrafficPredictionService.cs");
+            RequireSourceContains(serviceSource,
+                "collider.isTrigger",
+                "BoxCollider box",
+                "PlanarFootprint.Box(",
+                "CircleOverlapsBox(",
+                "BoxOverlapsBox(",
+                "UnityEngine.Physics.OverlapBoxNonAlloc(",
+                "candidate.GetEntityId()",
+                "registered.isTrafficParticipant",
+                "entity.hasCharacterController",
+                "entity.hasRigidbody",
+                "agent.baseOffset + agent.height * 0.5f",
+                "PredictRotationDelta(",
+                "respectYieldState",
+                "ResolveRouteAngularBudget(",
+                "ValidateMotionOwner(",
+                "moverMotionOwner.Transform.position",
+                "obstacleMotionOwner.Transform.position",
+                "Quaternion.RotateTowards(",
+                "Quaternion.AngleAxis(",
+                "Mathf.Abs(entity.TrafficAngularIntent)",
+                "entity.isPushingWorkerTrolley",
+                "Mathf.Clamp01(time / _config.PredictionHorizon)",
+                "footprint.ProjectedRadius(",
+                "ResolveParallelSegmentParameters(",
+                "CanonicalAxis(",
+                "ProjectedProgress(",
+                "rotation * (Center - pivot)",
+                "Array.Resize(",
+                "MaxWorldQueryCapacity",
+                "useReleaseClearance",
+                "PredictionStepCount",
+                "Traffic prediction requires a live bound traffic participant");
+            Require(!serviceSource.Contains("Physics.OverlapSphere", StringComparison.Ordinal),
+                "Local traffic must not collapse vehicle geometry into a single sphere.");
+            ValidateSymmetricHeadOnTrafficProjection();
+
+            string routeMotionSource = ReadRuntimeSource(
+                "Gameplay", "Common", "Physics", "RouteMotionService.cs");
+            RequireSourceContains(routeMotionSource,
+                "BoxCastNonAlloc(",
+                "CapsuleCastNonAlloc(",
+                "OverlapBoxNonAlloc(",
+                "OverlapCapsuleNonAlloc(",
+                "Physics.ComputePenetration(",
+                "QueryTriggerInteraction.Ignore",
+                "Physics.GetIgnoreLayerCollision(",
+                "Physics.GetIgnoreCollision(",
+                "enabledSolidColliderCount != 1",
+                "MaxQueryCapacity",
+                "GrowSweepBuffer(",
+                "GrowOverlapBuffer(",
+                "Array.Resize(");
+
+            string syncSource = ReadRuntimeSource(
+                "Gameplay", "Features", "Traffic", "Systems",
+                "SyncTrafficIntentSystem.cs");
+            RequireSourceContains(syncSource,
+                "GameMatcher.TrafficAngularIntent",
+                "ResolveAngularIntent(participant)",
+                "_navigation.UsesAutomaticRotation(",
+                "_navigation.GetPlannedIntent(",
+                "Mathf.DeltaAngle(",
+                "participant.isPushingTrolley",
+                "participant.isPushingWorkerTrolley",
+                "ResolveCoupledAngularIntent(",
+                "ReplaceTrafficAngularIntent(angularIntent)");
+            string resolveSource = ReadRuntimeSource(
+                "Gameplay", "Features", "Traffic", "Systems",
+                "ResolveLocalTrafficSystem.cs");
+            RequireSourceContains(resolveSource,
+                "GameMatcher.TrafficAngularIntent",
+                "Mathf.Abs(mover.TrafficAngularIntent)",
+                "Mathf.Abs(obstacleOwner.TrafficAngularIntent)",
+                "ResolveObstacleMotion(",
+                "ResolveRouteStoppingDistance(",
+                "obstacleOwner.isTrafficYielding",
+                "_navigation.GetIntent(",
+                "BreakYieldCycles(participants)",
+                "candidate.TrafficPriority > winner.TrafficPriority",
+                "candidate.EntityId < winner.EntityId",
+                "IsCustomerActorIgnoringOwnVehicle(mover, obstacle)",
+                "obstacle.EntityId == mover.CustomerActorVisitEntityId",
+                "IsWorkerServicingAssignedCustomerVehicle(mover, obstacle)",
+                "task.WarehouseTaskCustomerVisitEntityId == obstacle.EntityId",
+                "ClearYield(winner)");
+            Require(!resolveSource.Contains(
+                    "conflictOwner.TrafficConflictEntityId == mover.EntityId",
+                    StringComparison.Ordinal),
+                "Reciprocal traffic yields must reach the deterministic cycle breaker.");
+            string validateTrafficSource = ReadRuntimeSource(
+                "Gameplay", "Features", "Traffic", "Systems",
+                "ValidateLocalTrafficStateSystem.cs");
+            RequireSourceContains(validateTrafficSource,
+                "GameMatcher.TrafficAngularIntent",
+                "!IsFinite(participant.TrafficAngularIntent)");
+            Require(!validateTrafficSource.Contains(
+                    "participant.TrafficAngularIntent < 0f",
+                    StringComparison.Ordinal),
+                "Signed yaw traffic intent must remain valid state.");
+
+            string bootstrapSource = ReadRuntimeSource(
+                "Infrastructure", "Installers", "BootstrapInstaller.cs");
+            RequireSourceContains(bootstrapSource,
+                "Bind<IRouteMotionService>().To<RouteMotionService>().AsSingle()",
+                "Bind<ILocalTrafficPredictionService>()",
+                ".To<LocalTrafficPredictionService>().AsSingle()");
+
+            string featureSource = ReadRuntimeSource(
+                "Gameplay", "Features", "Traffic", "LocalTrafficFeature.cs");
+            RequireSourceOrder(featureSource,
+                "Create<SyncTrafficIntentSystem>()",
+                "Create<ResolveLocalTrafficSystem>()",
+                "Traffic intent must be synchronized before conflict resolution.");
+            RequireSourceOrder(featureSource,
+                "Create<ResolveLocalTrafficSystem>()",
+                "Create<ValidateLocalTrafficStateSystem>()",
+                "Traffic decisions must be validated after they are applied.");
+
+            string customerFeatureSource = ReadRuntimeSource(
+                "Gameplay", "Features", "Customers", "CustomerFeature.cs");
+            RequireSourceOrder(customerFeatureSource,
+                "Create<SpawnCustomerVisitSystem>()",
+                "Create<LocalTrafficFeature>()",
+                "A newly started customer route must be visible to local traffic in the " +
+                "same frame.");
+            RequireSourceOrder(customerFeatureSource,
+                "Create<LocalTrafficFeature>()",
+                "Create<MoveRouteSystem>()",
+                "Local traffic must resolve before route movers change their pose.");
+
+            string navigationSource = ReadRuntimeSource(
+                "Gameplay", "Common", "Navigation",
+                nameof(NavMeshWorkerNavigationService) + ".cs");
+            RequireSourceContains(navigationSource,
+                "public WorkerNavigationIntent GetPlannedIntent(",
+                "public WorkerNavigationIntent GetIntent(",
+                "agent.steeringTarget - agent.nextPosition",
+                "public bool UsesAutomaticRotation(",
+                "agent.isStopped",
+                "agent.updatePosition = false",
+                "agent.updateRotation = false",
+                "_automaticRotation.Contains(agent)",
+                "public void SetPaused(NavMeshAgent agent, bool paused)",
+                "agent.isStopped = paused",
+                "if (agent.isOnNavMesh && agent.isStopped)",
+                "agent.ResetPath()");
+
+            string routeSource = ReadRuntimeSource(
+                "Gameplay", "Features", "Customers", "Systems",
+                "MoveRouteSystem.cs");
+            RequireSourceContains(routeSource,
+                "IRouteMotionService motion",
+                "GameMatcher.Colliders",
+                "routeMover.isTrafficYielding",
+                "TrafficCurrentSpeed",
+                "VehicleBraking",
+                "VehicleAcceleration",
+                "rotationScale",
+                "_motion.TryResolveMove(",
+                "routeMover.ReplaceTrafficCurrentSpeed(0f)",
+                "out Pose resolvedPose");
+            RequireSourceOrder(routeSource,
+                "_motion.TryResolveMove(",
+                "body.position = resolvedPose.position",
+                "Route movement must pass its final physical sweep before mutating pose.");
+
+            string timeoutSource = ReadRuntimeSource(
+                "Gameplay", "Features", "Employees", "Systems",
+                "TickWarehouseTaskTimeoutSystem.cs");
+            RequireSourceContains(timeoutSource,
+                "task.AssignedWorkerEntityId",
+                "worker.isTrafficYielding",
+                "worker.hasTrafficConflictEntityId",
+                "continue;");
+            RequireSourceOrder(timeoutSource,
+                "worker.isTrafficYielding &&",
+                "worker.hasTrafficConflictEntityId",
+                "Warehouse task timeout may pause for a temporary participant yield, but a " +
+                "persistent world collider must remain bounded by recovery timeout.");
+            string workerTrolleyFollowSource = ReadRuntimeSource(
+                "Gameplay", "Features", "Trolley", "Systems",
+                "FollowWorkerTrolleySystem.cs");
+            RequireSourceContains(workerTrolleyFollowSource,
+                "IWorkerTrolleyHitchService hitch",
+                "_hitch.BeginFrame()",
+                "_hitch.Maintain(",
+                "worker.Rigidbody, worker.Colliders",
+                "_hitch.EndFrame()",
+                "public void TearDown() => _hitch.DetachAll()");
+            Require(!workerTrolleyFollowSource.Contains(
+                        "SetPositionAndRotation", StringComparison.Ordinal) &&
+                    !workerTrolleyFollowSource.Contains(
+                        "Rigidbody.position", StringComparison.Ordinal),
+                "A physically hitched worker trolley must not receive direct pose writes.");
+
+            string fixedFeatureSource = ReadRuntimeSource(
+                "Gameplay", "StoreFixedFeature.cs");
+            RequireSourceOrder(fixedFeatureSource,
+                "Create<DriveWarehouseWorkerPhysicsSystem>()",
+                "Create<DriveCustomerVehiclePhysicsSystem>()",
+                "The worker physics proxy must move before the dynamic customer vehicle " +
+                "motor in the fixed gameplay loop.");
+
+            foreach (string factoryName in new[]
+                     {
+                         "PlayerFactory.cs",
+                         "WarehouseWorkerFactory.cs",
+                         "CustomerVisitFactory.cs",
+                         "CustomerFactory.cs",
+                         "ForkliftFactory.cs",
+                         "PlatformTrolleyFactory.cs",
+                         "WarehouseWorkerTrolleyFactory.cs",
+                     })
+            {
+                string factorySource = ReadRuntimeSource(
+                    "Gameplay", "Factories", factoryName);
+                RequireSourceContains(factorySource,
+                    "AddTrafficControlPolicy(",
+                    "AddTrafficPriority(",
+                    "AddTrafficDesiredVelocity(Vector3.zero)",
+                    "AddTrafficIntentDistance(0f)",
+                    "AddTrafficAngularIntent(0f)",
+                    "AddTrafficPreviousPosition(",
+                    "isTrafficParticipant = true");
+            }
+        }
+
         private static void ValidateTrolleyArchitecture(
             Type[] runtimeTypes,
             IEnumerable<Type> componentTypes)
@@ -3071,6 +3494,7 @@ namespace HardwareStore.Editor
                 typeof(OccupiedTrolleySlotCount),
                 typeof(TrolleyMovementSpeed),
                 typeof(TrolleyFollowDistance),
+                typeof(NavMeshObstacleComponent),
                 typeof(TrolleySpawnPosition),
                 typeof(TrolleySpawnRotation)
             };
@@ -3099,12 +3523,14 @@ namespace HardwareStore.Editor
                 "DetachPushedTrolleySystem",
                 "LoadHeldProductOnTrolleySystem",
                 "RefreshTrolleyOccupiedSlotCountSystem",
+                "SyncTrolleyNavigationObstacleSystem",
                 "ValidatePlayerHandlingStateSystem",
                 "ValidatePlatformTrolleyStateSystem",
                 "FollowPushedTrolleySystem",
                 "FollowWorkerTrolleySystem",
                 "ApplyTrolleyProductPlacementSystem",
-                "ApplyWorkerTrolleyProductPlacementSystem"
+                "ApplyWorkerTrolleyProductPlacementSystem",
+                "SyncSlottedProductPoseSystem"
             };
             foreach (string systemName in executableSystemNames)
             {
@@ -3220,6 +3646,7 @@ namespace HardwareStore.Editor
                 "Add(systems.Create<StartPushingTrolleySystem>())",
                 "Add(systems.Create<LoadHeldProductOnTrolleySystem>())",
                 "Add(systems.Create<RefreshTrolleyOccupiedSlotCountSystem>())",
+                "Add(systems.Create<SyncTrolleyNavigationObstacleSystem>())",
                 "Add(systems.Create<ValidatePlayerHandlingStateSystem>())",
                 "Add(systems.Create<ValidatePlatformTrolleyStateSystem>())"
             };
@@ -3234,9 +3661,36 @@ namespace HardwareStore.Editor
                         trolleySystemTokens[index - 1],
                         trolleySystemTokens[index],
                         "TrolleyFeature system order must preserve detach, progression, purchase, " +
-                        "cargo refresh and invariant validation sequencing.");
+                        "cargo refresh, navigation-obstacle sync and invariant validation " +
+                        "sequencing.");
                 }
             }
+
+            string syncTrolleyObstacleSource = ReadRuntimeSource(
+                "Gameplay", "Features", "Trolley", "Systems",
+                "SyncTrolleyNavigationObstacleSystem.cs");
+            RequireSourceContains(syncTrolleyObstacleSource,
+                "GameMatcher.PlatformTrolley",
+                "GameMatcher.EntityId",
+                "GameMatcher.Transform",
+                "GameMatcher.NavMeshObstacle",
+                "GameMatcher.Rigidbody",
+                ".NoneOf(GameMatcher.Destructed)",
+                "obstacle.gameObject != trolley.Rigidbody.gameObject",
+                "trolley.Transform != trolley.Rigidbody.transform",
+                "bool shouldBeEnabled = !trolley.hasTrolleyPusherEntityId",
+                "obstacle.enabled = shouldBeEnabled");
+            Require(!syncTrolleyObstacleSource.Contains(
+                    "GetComponent<NavMeshObstacle>", StringComparison.Ordinal),
+                "Trolley obstacle synchronization must use its registered ECS reference.");
+
+            string navigationObstacleRegistrarSource = ReadRuntimeSource(
+                "Gameplay", "Registrars",
+                nameof(NavMeshObstacleRegistrar) + ".cs");
+            RequireSourceContains(navigationObstacleRegistrarSource,
+                "RequireComponent(typeof(NavMeshObstacle))",
+                "Entity.AddNavMeshObstacle(GetComponent<NavMeshObstacle>())",
+                "Entity.RemoveNavMeshObstacle()");
 
             string detachTrolleySource = ReadRuntimeSource(
                 "Gameplay", "Features", "Trolley", "Systems",
@@ -3299,6 +3753,17 @@ namespace HardwareStore.Editor
             string storeFeatureSource = ReadRuntimeSource("Gameplay", "StoreFeature.cs");
             RequireSourceOrder(
                 storeFeatureSource,
+                "Create<BindViewFeature>()",
+                "Create<EmployeeFeature>()",
+                "Warehouse-worker views must bind before employee systems configure and " +
+                "validate their physics adapters.");
+            RequireSourceOrder(
+                storeFeatureSource,
+                "Create<EmployeeFeature>()",
+                "Create<TrolleyFeature>()",
+                "Warehouse-worker hitch relations must update before trolley obstacle sync.");
+            RequireSourceOrder(
+                storeFeatureSource,
                 "Create<OrderProgressFeature>()",
                 "Create<TrolleyFeature>()",
                 "Trolley progression must run after order progress.");
@@ -3316,6 +3781,12 @@ namespace HardwareStore.Editor
                 "Create<MovementFeature>()",
                 "Create<TrolleyMovementFeature>()",
                 "The trolley must follow the player after player movement is resolved.");
+            RequireSourceOrder(
+                storeFeatureSource,
+                "Create<TrolleyFeature>()",
+                "Create<TrolleyMovementFeature>()",
+                "Trolley navigation obstacles must synchronize before player or worker " +
+                "trolley physical movement.");
             RequireSourceOrder(
                 storeFeatureSource,
                 "Create<TrolleyMovementFeature>()",
@@ -3463,6 +3934,30 @@ namespace HardwareStore.Editor
                 "Add(systems.Create<ApplyTrolleyProductPlacementSystem>())",
                 "Add(systems.Create<ValidateProductPlacementSystem>())",
                 "Trolley cargo placement must be applied before placement validation.");
+            string slottedPoseSource = ReadRuntimeSource(
+                "Gameplay", "Features", "Products", "Systems",
+                "SyncSlottedProductPoseSystem.cs");
+            RequireSourceContains(slottedPoseSource,
+                "GameMatcher.DeliveryEntityId",
+                "GameMatcher.DeliverySlotIndex",
+                "GameMatcher.OrderLineEntityId",
+                "GameMatcher.LoadingSlotIndex",
+                "GameMatcher.TrolleyEntityId",
+                "GameMatcher.TrolleySlotIndex",
+                "GameMatcher.WorkerTrolleyEntityId",
+                "GameMatcher.WorkerTrolleySlotIndex",
+                "GameMatcher.ProductPlacementDirty",
+                "ProductPhysicsUtility.SyncSlotPose(");
+            RequireSourceOrder(
+                storeFeatureSource,
+                "Create<TrolleyMovementFeature>()",
+                "Create<SyncSlottedProductPoseSystem>()",
+                "Slotted product rigidbodies must synchronize after trolley movement.");
+            RequireSourceOrder(
+                storeFeatureSource,
+                "Create<SyncSlottedProductPoseSystem>()",
+                "Create<VehicleCameraFeature>()",
+                "Slotted product synchronization must finish before late presentation.");
 
             string handlingValidationSource = ReadRuntimeSource(
                 "Gameplay", "Features", "Trolley", "Systems",
@@ -3509,6 +4004,14 @@ namespace HardwareStore.Editor
             RequireSourceContains(validatePlatformTrolleySource,
                 "if (trolley.isWorkerTrolley)",
                 "ValidateWorkerLease(trolley)",
+                "GameMatcher.NavMeshObstacle",
+                "NavMeshObstacle obstacle = trolley.NavMeshObstacle",
+                "obstacle.gameObject == trolley.Rigidbody.gameObject",
+                "obstacle.shape == NavMeshObstacleShape.Box",
+                "obstacle.center == new Vector3(0f, 0.27f, 0.15f)",
+                "obstacle.size == new Vector3(2f, 0.5f, 2.1f)",
+                "obstacle.carving && obstacle.carveOnlyStationary",
+                "obstacle.enabled == !trolley.hasTrolleyPusherEntityId",
                 "GetEntitiesWithTrolleyEntityId(",
                 "GetEntitiesWithWorkerTrolleyEntityId(",
                 "WarehouseWorkerStatusId.MovingWorkerTrolleyToStorage",
@@ -3529,38 +4032,65 @@ namespace HardwareStore.Editor
             RequireSourceContains(followWorkerTrolleySource,
                 "GameMatcher.WorkerTrolley",
                 "GameMatcher.TrolleyPusherEntityId",
-                "workerTransform.forward * trolley.TrolleyFollowDistance",
-                "_navigation.SetAutomaticRotation(",
-                "_motion.TryResolveMove(",
-                "trolley.Colliders",
-                "out Pose resolvedPose",
-                "trolley.Rigidbody.position = resolvedPose.position",
-                "trolley.Transform.SetPositionAndRotation(",
-                "GetEntityWithWarehouseTaskWorkerTrolleyEntityId(",
-                "WarehouseTaskBlockReasonId.WorkerTrolleyObstructed",
-                "WarehouseWorkerStatusId.ReturningWorkerTrolley",
-                "enabled: true",
-                "NormalizeEmptyReturn(worker, trolley)",
-                "WorkerTrolleyLeaseUtility.ReleaseLease(");
-            RequireSourceOrder(
-                followWorkerTrolleySource,
-                "trolley.RemoveTrolleyPusherEntityId()",
-                "WorkerTrolleyLeaseUtility.ReleaseLease(",
-                "An obstructed empty return must detach the worker before restoring the shared " +
-                "trolley to player ownership.");
+                "IWorkerTrolleyHitchService hitch",
+                "worker.hasRigidbody",
+                "worker.hasColliders",
+                "_hitch.BeginFrame()",
+                "_hitch.Maintain(",
+                "trolley.Rigidbody, trolley.Colliders",
+                "worker.Rigidbody, worker.Colliders",
+                "trolley.TrolleyFollowDistance",
+                "_hitch.EndFrame()",
+                "ITearDownSystem",
+                "_hitch.DetachAll()");
+            Require(!followWorkerTrolleySource.Contains(
+                        "WarehouseTaskBlockReasonId.WorkerTrolleyObstructed",
+                        StringComparison.Ordinal) &&
+                    !followWorkerTrolleySource.Contains(
+                        "NormalizeEmptyReturn(", StringComparison.Ordinal) &&
+                    !followWorkerTrolleySource.Contains(
+                        "Rigidbody.position = trolley.WorkerTrolleyHomePosition",
+                        StringComparison.Ordinal) &&
+                    !followWorkerTrolleySource.Contains(
+                        "WorkerTrolleyLeaseUtility.ReleaseLease(",
+                        StringComparison.Ordinal) &&
+                    !followWorkerTrolleySource.Contains(
+                        "RemoveTrolleyPusherEntityId()",
+                        StringComparison.Ordinal) &&
+                    !followWorkerTrolleySource.Contains(
+                        "SetPositionAndRotation", StringComparison.Ordinal) &&
+                    !followWorkerTrolleySource.Contains(
+                        "Rigidbody.position", StringComparison.Ordinal),
+                "A physical worker-trolley hitch must not enter recovery, teleport the " +
+                "trolley or release its lease in the traffic lane.");
             Require(!followWorkerTrolleySource.Contains(
                     ".updateRotation", StringComparison.Ordinal),
                 "Worker-trolley following must keep NavMesh rotation control behind the " +
                 "worker navigation service.");
-            Require(CountOccurrences(followWorkerTrolleySource,
-                        "enabled: true") == 1,
-                "Obstructed taskless trolley return must restore automatic worker rotation " +
-                "exactly once when it detaches.");
-            RequireSourceOrder(
-                followWorkerTrolleySource,
-                "_motion.TryResolveMove(",
-                "trolley.Rigidbody.position = resolvedPose.position",
-                "Worker-trolley movement must resolve collisions before mutating pose.");
+            string hitchSource = ReadRuntimeSource(
+                "Gameplay", "Common", "Physics",
+                "WorkerTrolleyHitchService.cs");
+            RequireSourceContains(hitchSource,
+                "ConfigurableJoint",
+                "joint.connectedBody = workerBody",
+                "joint.autoConfigureConnectedAnchor = false",
+                "joint.anchor = TrolleyHandleAnchor",
+                "joint.connectedAnchor = new Vector3(",
+                "ConfigurableJointMotion.Limited",
+                "joint.angularYMotion = ConfigurableJointMotion.Limited",
+                "joint.rotationDriveMode = RotationDriveMode.Slerp",
+                "CollisionDetectionMode.ContinuousDynamic",
+                "RigidbodyInterpolation.Interpolate",
+                "trolleyBody.isKinematic = false",
+                "trolleyBody.useGravity = true",
+                "trolleyBody.WakeUp()",
+                "UnityEngine.Physics.IgnoreCollision(",
+                "if (!ignore && (trolleyCollider == null || workerCollider == null))",
+                "public void DetachAll()");
+            RequireSourceOrder(hitchSource,
+                "hitch.Joint.connectedBody = null",
+                "trolleyBody.isKinematic = true",
+                "A trolley hitch must be released before any caller can park its Rigidbody.");
             Require(typeof(ITrolleyMotionService).IsAssignableFrom(
                     typeof(TrolleyMotionService)),
                 $"{nameof(TrolleyMotionService)} must implement " +
@@ -3585,15 +4115,29 @@ namespace HardwareStore.Editor
                 typeof(float),
                 typeof(Vector3),
                 typeof(Quaternion),
+                typeof(Pose).MakeByRefType(),
+                typeof(Collider).MakeByRefType());
+            RequireMethod(
+                typeof(ITrolleyMotionService),
+                nameof(ITrolleyMotionService.TryResolveMove),
+                typeof(bool),
+                typeof(Rigidbody),
+                typeof(Collider[]),
+                typeof(Transform),
+                typeof(float),
+                typeof(Vector3),
+                typeof(Quaternion),
                 typeof(Pose).MakeByRefType());
             string trolleyMotionSource = ReadRuntimeSource(
                 "Gameplay", "Common", "Physics", "TrolleyMotionService.cs");
             RequireSourceContains(trolleyMotionSource,
-                "private const int MaxQueryHits = 64",
-                "new RaycastHit[MaxQueryHits]",
-                "new Collider[MaxQueryHits]",
+                "private const int InitialQueryCapacity = 64",
+                "private const int MaxQueryCapacity = 4096",
+                "new RaycastHit[InitialQueryCapacity]",
+                "new Collider[InitialQueryCapacity]",
                 "public bool TryResolveMove(",
                 "out Pose resolvedPose",
+                "out Collider blockingCollider",
                 "ValidateStepOffset(sourceController)",
                 "float stepHeight = sourceController.stepOffset",
                 "Mathf.Abs(rise) > stepHeight + PoseTolerance",
@@ -3602,9 +4146,13 @@ namespace HardwareStore.Editor
                 "resolvedPose = targetPose",
                 "BoxCastNonAlloc(",
                 "OverlapBoxNonAlloc(",
+                "TryGetBlockingSweep(",
+                "TryGetBlockingRotationPath(",
+                "TryGetBlockingOverlap(",
                 "UnityEngine.Physics.ComputePenetration(",
                 "float contactProbeDistance = ContactProbeDistance()",
-                "if (hitDistance > PoseTolerance)",
+                "bool blocks = hitDistance > PoseTolerance",
+                "blockingCollider = hit",
                 "UnityEngine.Physics.defaultContactOffset",
                 "return contactOffset + PoseTolerance",
                 "hitDistance + contactProbeDistance",
@@ -3613,10 +4161,12 @@ namespace HardwareStore.Editor
                 "QueryTriggerInteraction.Ignore",
                 "enabledSolidColliderCount != 1",
                 "candidate == sourceCollider",
-                "EnsureBufferWasNotSaturated(");
+                "GrowSweepBuffer(",
+                "GrowOverlapBuffer(",
+                "Array.Resize(");
             RequireSourceOrder(
                 trolleyMotionSource,
-                "if (hitDistance > PoseTolerance)",
+                "bool blocks = hitDistance > PoseTolerance",
                 "hitDistance + contactProbeDistance",
                 "A positive-distance trolley sweep hit must block before the near-contact " +
                 "recovery probe.");
@@ -3629,7 +4179,13 @@ namespace HardwareStore.Editor
                         "UnityEngine.Physics.OverlapBox(", StringComparison.Ordinal),
                 "Trolley motion must keep its sweep and overlap queries non-allocating.");
             RequireSourceContains(bootstrapSource,
-                "Bind<ITrolleyMotionService>().To<TrolleyMotionService>().AsSingle()");
+                "Bind<ITrolleyMotionService>().To<TrolleyMotionService>().AsSingle()",
+                "Bind<IWorkerTrolleyHitchService>()",
+                ".To<WorkerTrolleyHitchService>().AsSingle()",
+                "Bind<IWarehouseWorkerPhysicsMotor>()",
+                ".To<WarehouseWorkerPhysicsMotor>().AsSingle()",
+                "Bind<ICustomerVehiclePhysicsMotor>()",
+                ".To<CustomerVehiclePhysicsMotor>().AsSingle()");
             string emitInteractionSource = ReadRuntimeSource(
                 "Gameplay", "Features", "Interaction", "Systems",
                 "EmitInteractionRequestSystem.cs");
@@ -3681,6 +4237,44 @@ namespace HardwareStore.Editor
                     $"Russian trolley localization {key} must exist with arity " +
                     $"{argumentCount}.");
             }
+        }
+
+        private static void ValidateSymmetricHeadOnTrafficProjection()
+        {
+            MethodInfo projection = typeof(LocalTrafficPredictionService).GetMethod(
+                "ClosestSegmentParameters",
+                BindingFlags.NonPublic | BindingFlags.Static) ??
+                throw new InvalidOperationException(
+                    "Local traffic segment projection method is missing.");
+            object[] forward =
+            {
+                new Vector2(0f, 0f),
+                new Vector2(7f, 0f),
+                new Vector2(10f, 0f),
+                new Vector2(3f, 0f),
+                0f,
+                0f,
+            };
+            object[] reversed =
+            {
+                new Vector2(10f, 0f),
+                new Vector2(3f, 0f),
+                new Vector2(0f, 0f),
+                new Vector2(7f, 0f),
+                0f,
+                0f,
+            };
+            projection.Invoke(null, forward);
+            projection.Invoke(null, reversed);
+            float firstProgress = (float)forward[4];
+            float secondProgress = (float)forward[5];
+            float reversedSecondProgress = (float)reversed[4];
+            float reversedFirstProgress = (float)reversed[5];
+            Require(Mathf.Approximately(firstProgress, reversedFirstProgress) &&
+                    Mathf.Approximately(secondProgress, reversedSecondProgress) &&
+                    Mathf.Approximately(firstProgress, secondProgress),
+                "Head-on traffic arrival projection must be symmetric so exactly one mover " +
+                "can win deterministic priority arbitration.");
         }
 
         private static void ValidateWarehouseWorkerArchitecture(
@@ -3887,7 +4481,7 @@ namespace HardwareStore.Editor
                 "private float _angularSpeed = 720f",
                 "private float _stoppingDistance = 0.2f",
                 "private float _navigationSampleRadius = 2f",
-                "private float _taskTimeout = 20f",
+                "private float _taskTimeout = 45f",
                 "private EntityBehaviour _trolleyViewPrefab",
                 "private int _trolleyCapacity = 3",
                 "private float _trolleyFollowDistance = 1.7f",
@@ -4113,6 +4707,25 @@ namespace HardwareStore.Editor
                 typeof(Vector3),
                 typeof(Vector3),
                 typeof(float));
+            RequireMethod(
+                typeof(IWorkerNavigationService),
+                nameof(IWorkerNavigationService.SetManualRotation),
+                typeof(void),
+                typeof(NavMeshAgent),
+                typeof(Quaternion));
+            RequireMethod(
+                typeof(IWorkerNavigationService),
+                nameof(IWorkerNavigationService.TryGetManualRotation),
+                typeof(bool),
+                typeof(NavMeshAgent),
+                typeof(Quaternion).MakeByRefType());
+            RequireMethod(
+                typeof(IWorkerNavigationService),
+                nameof(IWorkerNavigationService.HasReachedRotation),
+                typeof(bool),
+                typeof(NavMeshAgent),
+                typeof(Quaternion),
+                typeof(float));
             string navigationSource = ReadRuntimeSource(
                 "Gameplay", "Common", "Navigation",
                 nameof(NavMeshWorkerNavigationService) + ".cs");
@@ -4124,10 +4737,39 @@ namespace HardwareStore.Editor
                 "_path.status == NavMeshPathStatus.PathComplete",
                 "agent.SetPath(_path)",
                 "public void SetAutomaticRotation(NavMeshAgent agent, bool enabled)",
-                "agent.updateRotation = enabled",
+                "public void SetManualRotation(NavMeshAgent agent, Quaternion target)",
+                "public bool TryGetManualRotation(NavMeshAgent agent,",
+                "public bool HasReachedRotation(NavMeshAgent agent, Quaternion target,",
+                "Rigidbody body = agent.GetComponent<Rigidbody>()",
+                "Quaternion.Angle(body.rotation, target)",
+                "agent.updatePosition = false",
+                "agent.updateRotation = false",
+                "_automaticRotation.Add(agent)",
+                "_automaticRotation.Remove(agent)",
                 "GetState(agent) != WorkerNavigationStateId.Reached",
                 "currentPosition - destination",
                 "agent.ResetPath()");
+            string workerPhysicsMotorSource = ReadRuntimeSource(
+                "Gameplay", "Common", "Physics",
+                "WarehouseWorkerPhysicsMotor.cs");
+            RequireSourceContains(workerPhysicsMotorSource,
+                "IPhysicsTimeService time",
+                "IWorkerNavigationService navigation",
+                "agent.nextPosition = body.position",
+                "agent.desiredVelocity",
+                "Rigidbody coupledBody",
+                "coupledBody, direction, displacement.magnitude",
+                "hasSolidCoupledCollider",
+                "_navigation.TryGetManualRotation(agent, out Quaternion manualTarget)",
+                "body.SweepTest(",
+                "body.MovePosition(",
+                "body.MoveRotation(",
+                "body.isKinematic",
+                "RigidbodyInterpolation.Interpolate");
+            Require(!navigationSource.Contains(
+                    "return agent.hasPath ||", StringComparison.Ordinal),
+                "A completed sampled NavMesh path must not count as arrival while the worker " +
+                "remains outside tolerance of the requested destination.");
             string configureNavigationSource = ReadRuntimeSource(
                 "Gameplay", "Features", "Employees", "Systems",
                 "ConfigureWarehouseWorkerNavigationSystem.cs");
@@ -4308,6 +4950,7 @@ namespace HardwareStore.Editor
                 "IStoreSceneData sceneData",
                 "IWorkerNavigationService navigation",
                 "WarehouseWorkerStatusId.ReturningWorkerTrolley",
+                "GetEntityWithReservedCustomerLoadingBayEntityId(",
                 "GetLeasedWorkerTrolley(worker, store)",
                 "trolley == null || trolley.isDestructed",
                 "TryGetAvailablePlatformTrolley(worker, store)",
@@ -4387,6 +5030,12 @@ namespace HardwareStore.Editor
                 "WarehouseWorkerStatusId.StorageFull",
                 "WarehouseWorkerStatusId.Idle",
                 "!store.isStoreOpen && !store.isStoreClosing");
+            Require(!generateTaskSource.Contains(
+                        "MustYieldToCustomerVehicle", StringComparison.Ordinal) &&
+                    !generateCustomerLoadingTaskSource.Contains(
+                        "HasActiveCustomerTraffic", StringComparison.Ordinal),
+                "Warehouse task generation must not serialize work against a distant " +
+                "customer vehicle; local traffic owns physical yielding.");
             RequireSourceContains(generateCustomerLoadingTaskSource,
                 "trolley.isPlatformTrolley",
                 "trolley.isInteractable",
@@ -4471,19 +5120,27 @@ namespace HardwareStore.Editor
                 "GameMatcher.WorkerTrolleyInboundStorageRun",
                 "GameMatcher.InboundToStorageTask",
                 "GameMatcher.WarehouseTaskWorkerTrolleyEntityId",
+                "_navigation.SetManualRotation(",
+                "_navigation.HasReachedRotation(",
                 "_occupiedCartSlots = new bool[staticData.PlatformTrolley.Capacity]",
                 "WarehouseTaskStepId.MovingToWorkerTrolley",
                 "WarehouseTaskStepId.MovingWorkerTrolleyToPickup",
+                "WarehouseTaskStepId.LoadingWorkerTrolleyAtPickup",
+                "WarehouseTaskStepId.MovingWorkerTrolleyToStorageBypass",
                 "WarehouseTaskStepId.MovingWorkerTrolleyToStorage",
                 "WarehouseWorkerStatusId.MovingWorkerTrolleyToPickup",
                 "WorkerTrolleyLeaseUtility.CreateAccessPose(",
-                "WorkerTrolleyLeaseUtility.CreateStorageAccessPose(",
+                "_sceneData.GetSpawnPoint(",
+                "SpawnPointId.WarehouseWorkerInboundTrolleyStorageBypass",
+                "SpawnPointId.WarehouseWorkerInboundTrolleyStorageAccess",
                 "worker.WarehouseWorkerPickupPosition",
-                "worker.WarehouseWorkerStoragePosition",
                 "product.RemoveDeliverySlotIndex()",
                 "product.AddReservedDeliverySlotIndex(deliverySlotIndex)",
                 "product.AddWorkerTrolleyEntityId(trolley.EntityId)",
                 "product.AddWorkerTrolleySlotIndex(index)",
+                "if (product.isProductPlacementDirty)",
+                "product.Transform.parent != trolley.Slots[slotIndex]",
+                "_navigation.SetAutomaticRotation(",
                 "product.RemoveWorkerTrolleyEntityId()",
                 "product.RemoveReservedDeliverySlotIndex()",
                 "product.isInboundProduct = false",
@@ -4497,6 +5154,10 @@ namespace HardwareStore.Editor
                 "(task == run) != task.isWorkerTrolleyInboundStorageRun",
                 "_navigation.HasReachedDestination(",
                 "_navigation.TrySetDestination(");
+            Require(!executeInboundTrolleyRunSource.Contains(
+                    "HoldStorageCorridorRotation", StringComparison.Ordinal),
+                "Inbound trolley must turn at the east bypass before navigating the final " +
+                "storage leg instead of holding a sideways corridor heading.");
             Require(CountOccurrences(executeInboundTrolleyRunSource,
                         "_occupiedCartSlots = new bool[staticData.PlatformTrolley.Capacity]") ==
                     1,
@@ -4511,8 +5172,38 @@ namespace HardwareStore.Editor
             RequireSourceOrder(
                 executeInboundTrolleyRunSource,
                 "case WarehouseTaskStepId.MovingWorkerTrolleyToPickup:",
+                "case WarehouseTaskStepId.LoadingWorkerTrolleyAtPickup:",
+                "Inbound trolley execution must finish the explicit loading phase before " +
+                "starting a storage route.");
+            RequireSourceOrder(
+                executeInboundTrolleyRunSource,
+                "case WarehouseTaskStepId.LoadingWorkerTrolleyAtPickup:",
+                "case WarehouseTaskStepId.MovingWorkerTrolleyToStorageBypass:",
+                "Inbound trolley execution must place its cargo before entering the east " +
+                "service lane.");
+            RequireSourceOrder(
+                executeInboundTrolleyRunSource,
+                "case WarehouseTaskStepId.MovingWorkerTrolleyToStorageBypass:",
                 "case WarehouseTaskStepId.MovingWorkerTrolleyToStorage:",
-                "Inbound trolley execution must load at delivery before driving to storage.");
+                "Inbound trolley execution must reach its east service-lane turn before its " +
+                "final storage target.");
+            RequireSourceOrder(
+                executeInboundTrolleyRunSource,
+                "SpawnPointId.WarehouseWorkerInboundTrolleyStorageBypass",
+                "SpawnPointId.WarehouseWorkerInboundTrolleyStorageAccess",
+                "Inbound trolley execution must resolve its bypass target before its final " +
+                "storage target.");
+            RequireSourceOrder(
+                executeInboundTrolleyRunSource,
+                "if (product.isProductPlacementDirty)",
+                "_navigation.SetAutomaticRotation(",
+                "Inbound trolley execution must not resume movement until product placement " +
+                "has completed.");
+            Require(!executeInboundTrolleyRunSource.Contains(
+                    "WarehouseTaskStepId.MovingWorkerTrolleyToStorageApproach",
+                    StringComparison.Ordinal),
+                "Inbound trolley execution must not join the westbound customer-loading " +
+                "approach corridor.");
             RequireSourceOrder(
                 executeInboundTrolleyRunSource,
                 "product.RemoveDeliverySlotIndex()",
@@ -4559,12 +5250,16 @@ namespace HardwareStore.Editor
                 "GameMatcher.WarehouseTaskWorkerTrolleyEntityId",
                 "GameMatcher.WarehouseRunProductCount",
                 "WarehouseTaskStepId.MovingToWorkerTrolley",
+                "WarehouseTaskStepId.MovingWorkerTrolleyToStorageApproach",
                 "WarehouseTaskStepId.MovingWorkerTrolleyToStorage",
                 "WarehouseTaskStepId.MovingWorkerTrolleyToCustomerLoading",
                 "WarehouseWorkerStatusId.MovingWorkerTrolleyToStorage",
-                "worker.WarehouseWorkerStoragePosition",
-                "worker.WarehouseWorkerStorageRotation",
-                "Pose cartTarget = StoragePose(worker, trolley)",
+                "SpawnPointId.WarehouseWorkerOutboundTrolleyStorageApproach",
+                "SpawnPointId.WarehouseWorkerOutboundTrolleyStorageAccess",
+                "Pose cartTarget = StorageApproachPose()",
+                "Pose cartTarget = StoragePose()",
+                "IsOnStorageCorridor(trolley)",
+                "HoldTrolleyRouteRotation(worker, cartTarget)",
                 "_occupiedCartSlots = new bool[staticData.PlatformTrolley.Capacity]",
                 "_occupiedLoadingSlots = new bool[staticData.CustomerVehicle.CargoCapacity]",
                 "_gameContext.GetEntitiesWithWarehouseRunEntityId(run.EntityId)",
@@ -4573,6 +5268,8 @@ namespace HardwareStore.Editor
                 "WorkerTrolleyLeaseUtility.GetPusherPosition(",
                 "_navigation.HasReachedDestination(",
                 "_navigation.TrySetDestination(",
+                "_navigation.SetManualRotation(",
+                "_navigation.HasReachedRotation(",
                 "_navigation.SetAutomaticRotation(",
                 "enabled: true",
                 "trolley.AddTrolleyPusherEntityId(worker.EntityId)",
@@ -4601,9 +5298,15 @@ namespace HardwareStore.Editor
             RequireSourceOrder(
                 executeWorkerTrolleyRunSource,
                 "case WarehouseTaskStepId.MovingToWorkerTrolley:",
+                "case WarehouseTaskStepId.MovingWorkerTrolleyToStorageApproach:",
+                "A worker must first reach and claim the shared trolley before entering the " +
+                "authored warehouse approach corridor.");
+            RequireSourceOrder(
+                executeWorkerTrolleyRunSource,
+                "case WarehouseTaskStepId.MovingWorkerTrolleyToStorageApproach:",
                 "case WarehouseTaskStepId.MovingWorkerTrolleyToStorage:",
-                "A worker must first reach and claim the shared trolley before moving it to " +
-                "warehouse storage.");
+                "The shared trolley must enter the authored approach corridor before moving " +
+                "to warehouse storage.");
             RequireSourceOrder(
                 executeWorkerTrolleyRunSource,
                 "case WarehouseTaskStepId.MovingWorkerTrolleyToStorage:",
@@ -4612,10 +5315,16 @@ namespace HardwareStore.Editor
                 "customer loading begins.");
             RequireSourceOrder(
                 executeWorkerTrolleyRunSource,
-                "Pose cartTarget = StoragePose(worker, trolley)",
+                "Pose cartTarget = StoragePose()",
                 "product.AddWorkerTrolleyEntityId(trolley.EntityId)",
                 "Products must not be attached to a remotely parked shared trolley before the " +
                 "worker has driven it to storage.");
+            RequireSourceOrder(
+                executeWorkerTrolleyRunSource,
+                "HoldTrolleyRouteRotation(worker, cartTarget)",
+                "WarehouseTaskBlockReasonId.NoCustomerLoadingPath",
+                "The loaded trolley must hold its authored orientation before navigating the " +
+                "short reverse leg to customer loading.");
             Require(!executeWorkerTrolleyRunSource.Contains(
                         ".isOnNavMesh", StringComparison.Ordinal) &&
                     !executeWorkerTrolleyRunSource.Contains(
@@ -4635,8 +5344,10 @@ namespace HardwareStore.Editor
                 "if (store.isDayReportOpen)",
                 "CompleteReturn(worker, trolley, homePose)",
                 "_navigation.TrySetDestination(",
+                "_hitch.Detach(trolley.Rigidbody)",
+                "_navigation.SetManualRotation(",
+                "_navigation.HasReachedRotation(",
                 "_navigation.SetAutomaticRotation(",
-                "enabled: false",
                 "enabled: true",
                 "trolley.Rigidbody.position = homePose.position",
                 "trolley.RemoveTrolleyPusherEntityId()",
@@ -4645,6 +5356,37 @@ namespace HardwareStore.Editor
                 "worker.isHandsOccupied = false",
                 "WarehouseWorkerStatusId.Idle",
                 "WarehouseWorkerStatusId.OffShift");
+            Require(!executeInboundTrolleyRunSource.Contains(
+                        "worker.Transform.rotation", StringComparison.Ordinal) &&
+                    !executeWorkerTrolleyRunSource.Contains(
+                        "worker.Transform.rotation", StringComparison.Ordinal) &&
+                    !returnWorkerTrolleySource.Contains(
+                        "worker.Transform.rotation", StringComparison.Ordinal),
+                "Worker-trolley routes must submit manual rotation targets to the physics " +
+                "motor instead of mutating worker Transform rotation.");
+            string employeeSystemsSegment = Path.Combine(
+                "Features", "Employees", "Systems") + Path.DirectorySeparatorChar;
+            string[] directWorkerRotationWriters = GetRuntimeSourcePaths()
+                .Where(path => path.Contains(employeeSystemsSegment,
+                                   StringComparison.Ordinal) &&
+                               File.ReadAllText(path).Contains(
+                                   "worker.Transform.rotation", StringComparison.Ordinal))
+                .ToArray();
+            Require(directWorkerRotationWriters.Length == 0,
+                "Warehouse-worker pose ownership belongs to the fixed physics motor; direct " +
+                "Transform rotation writers found: " +
+                string.Join(", ", directWorkerRotationWriters));
+            RequireSourceOrder(
+                returnWorkerTrolleySource,
+                "_hitch.Detach(trolley.Rigidbody)",
+                "trolley.Rigidbody.position = homePose.position",
+                "A returned trolley must release its joint before the final authored park pose.");
+            Require(!returnWorkerTrolleySource.Contains(
+                        "ShouldWaitAtCustomerLoading", StringComparison.Ordinal) &&
+                    !returnWorkerTrolleySource.Contains(
+                        "ReservedCustomerLoadingBayEntityId", StringComparison.Ordinal),
+                "Returning a worker trolley must use local traffic instead of global " +
+                "loading-bay ownership.");
             RequireSourceOrder(
                 returnWorkerTrolleySource,
                 "trolley.RemoveTrolleyPusherEntityId()",
@@ -4689,6 +5431,7 @@ namespace HardwareStore.Editor
                 "task.RemoveWarehouseTaskReservedStorageSlotIndex()",
                 "task.isDestructed = true",
                 "trolley.ReplaceOccupiedTrolleySlotCount(0)",
+                "_hitch.Detach(trolley.Rigidbody)",
                 "trolley.WorkerTrolleyHomePosition",
                 "trolley.RemoveTrolleyPusherEntityId()",
                 "WorkerTrolleyLeaseUtility.ReleaseLease(",
@@ -4710,13 +5453,13 @@ namespace HardwareStore.Editor
                 "Blocked-run recovery must normalize and detach the shared trolley before " +
                 "returning it to player ownership.");
             Require(CountOccurrences(followWorkerTrolleyLeaseSource,
-                        "WorkerTrolleyLeaseUtility.ReleaseLease(") == 1 &&
+                        "WorkerTrolleyLeaseUtility.ReleaseLease(") == 0 &&
                     CountOccurrences(returnWorkerTrolleySource,
                         "WorkerTrolleyLeaseUtility.ReleaseLease(") == 1 &&
                     CountOccurrences(recoverBlockedWorkerTrolleyRunSource,
                         "WorkerTrolleyLeaseUtility.ReleaseLease(") == 1,
-                "Obstructed return, normal return and blocked-run recovery must each own one " +
-                "explicit shared-trolley release boundary.");
+                "A traffic obstruction must keep its trolley lease, while normal return and " +
+                "explicit blocked-run recovery each own one release boundary.");
             Require(!executeWorkerTrolleyRunSource.Contains(
                         ".updateRotation", StringComparison.Ordinal) &&
                     !returnWorkerTrolleySource.Contains(
@@ -4726,18 +5469,22 @@ namespace HardwareStore.Editor
                 "Worker-trolley execute, return and recovery systems must keep NavMesh " +
                 "rotation control behind IWorkerNavigationService.");
             Require(CountOccurrences(executeWorkerTrolleyRunSource,
-                        "enabled: false") == 0 &&
+                        "SetManualRotation(") >= 2 &&
+                    CountOccurrences(executeWorkerTrolleyRunSource,
+                        "HasReachedRotation(") >= 2 &&
                     CountOccurrences(executeWorkerTrolleyRunSource,
                         "enabled: true") == 1 &&
                     CountOccurrences(returnWorkerTrolleySource,
-                        "enabled: false") == 1 &&
+                        "SetManualRotation(") >= 1 &&
+                    CountOccurrences(returnWorkerTrolleySource,
+                        "HasReachedRotation(") >= 1 &&
                     CountOccurrences(returnWorkerTrolleySource,
                         "enabled: true") == 2 &&
                     CountOccurrences(recoverBlockedWorkerTrolleyRunSource,
                         "enabled: true") == 2,
-                "Worker-trolley storage preparation must restore automatic rotation once, " +
-                "while return and both recovery roles restore it only at their exact handoff " +
-                "points.");
+                "Worker-trolley customer approach must hold authored rotation once and storage " +
+                "preparation must restore it once, while return and both recovery roles change " +
+                "rotation only at their exact handoff points.");
             string detectOrphanedWorkerTrolleyRunSource = ReadRuntimeSource(
                 "Gameplay", "Features", "Employees", "Systems",
                 "DetectOrphanedWorkerTrolleyRunSystem.cs");
@@ -4905,6 +5652,11 @@ namespace HardwareStore.Editor
                 "Gameplay", "Features", "Employees", "Systems",
                 "ValidateWarehouseWorkerStateSystem.cs");
             RequireSourceContains(validateWorkerSource,
+                "bool viewBindingPending = !worker.hasView && worker.hasViewPrefab",
+                "bool viewBound = worker.hasView && worker.hasViewPrefab",
+                "Pending warehouse worker",
+                "ValidateWorkerPhysics(worker)",
+                "worker.hasCarryAnchor",
                 "moving != (task != null)",
                 "worker.isCarryingProduct && worker.isPushingWorkerTrolley",
                 "worker.isHandsOccupied !=",
@@ -4935,12 +5687,20 @@ namespace HardwareStore.Editor
                 "WarehouseTaskStepId.MovingToCustomerLoading",
                 "WarehouseTaskStepId.MovingToWorkerTrolley",
                 "WarehouseTaskStepId.MovingWorkerTrolleyToPickup",
+                "WarehouseTaskStepId.MovingWorkerTrolleyToStorageBypass",
+                "WarehouseTaskStepId.MovingWorkerTrolleyToStorageApproach",
                 "WarehouseTaskStepId.MovingWorkerTrolleyToStorage",
                 "WarehouseTaskStepId.MovingWorkerTrolleyToCustomerLoading",
                 "case WarehouseTaskStepId.Blocked:",
                 "task.hasWarehouseTaskReservedStorageSlotIndex",
                 "task.hasWarehouseTaskReservedLoadingSlotIndex",
                 "GetEntitiesWithWarehouseTaskCustomerVisitEntityId(");
+            RequireSourceOrder(
+                validateWorkerSource,
+                "if (viewBindingPending)",
+                "ValidateWorkerPhysics(worker)",
+                "A warehouse worker may validate its physics only after prefab-view " +
+                "binding has completed.");
             RequireSourceOrder(
                 validateWorkerSource,
                 "!task.hasWarehouseTaskWorkerTrolleyEntityId &&",
@@ -5424,6 +6184,12 @@ namespace HardwareStore.Editor
             Require(productRecoveryProperty?.PropertyType == typeof(ProductRecoveryConfig),
                 $"{nameof(IStaticDataService)} must expose the validated " +
                 $"{nameof(ProductRecoveryConfig)}.");
+            PropertyInfo localTrafficProperty = staticDataType.GetProperty(
+                nameof(IStaticDataService.LocalTraffic),
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.DeclaredOnly);
+            Require(localTrafficProperty?.PropertyType == typeof(LocalTrafficConfig),
+                $"{nameof(IStaticDataService)} must expose the validated " +
+                $"{nameof(LocalTrafficConfig)}.");
             PropertyInfo platformTrolleyProperty = staticDataType.GetProperty(
                 nameof(IStaticDataService.PlatformTrolley),
                 BindingFlags.Instance | BindingFlags.Public | BindingFlags.DeclaredOnly);
@@ -5666,6 +6432,7 @@ namespace HardwareStore.Editor
                 "CustomerConfig Customer",
                 "CustomerFlowConfig CustomerFlow",
                 "ProductRecoveryConfig ProductRecovery",
+                "LocalTrafficConfig LocalTraffic",
                 "PlatformTrolleyConfig PlatformTrolley",
                 "WarehouseWorkerConfig WarehouseWorker");
         }
@@ -7379,6 +8146,11 @@ namespace HardwareStore.Editor
                 $"The only TransformRegistrar in {PlayerPrefabPath} must be on the prefab root.");
             Require(characterRegistrars[0].gameObject == prefab && controllers[0].gameObject == prefab,
                 $"CharacterController and its registrar in {PlayerPrefabPath} must be on the prefab root.");
+            int trafficObstacleLayer = LayerMask.NameToLayer("TrafficObstacle");
+            Require(trafficObstacleLayer >= 0 &&
+                    controllers[0].gameObject.layer == trafficObstacleLayer,
+                $"The solid controller in {PlayerPrefabPath} must use TrafficObstacle so Gley " +
+                "vehicles stop for the walking player without treating it as a driven vehicle.");
             Require(Mathf.Approximately(controllers[0].stepOffset, 0.32f),
                 $"{PlayerPrefabPath} must author a 0.32 metre step offset shared by player and " +
                 "trolley threshold traversal.");
@@ -7422,6 +8194,8 @@ namespace HardwareStore.Editor
                 RequireExactlyOneInPrefab<Rigidbody>(
                     prefab,
                     ForkliftPrefabPath);
+            Collider[] colliders = prefab.GetComponentsInChildren<Collider>(true);
+            int trafficObstacleLayer = LayerMask.NameToLayer("TrafficObstacle");
             Rigidbody body = rigidbodies[0];
             Require(body.gameObject == prefab &&
                     body.isKinematic &&
@@ -7430,6 +8204,14 @@ namespace HardwareStore.Editor
                     body.interpolation == RigidbodyInterpolation.None,
                 $"{ForkliftPrefabPath} must keep one deterministic, non-interpolated " +
                 "kinematic Rigidbody on its root.");
+            Require(trafficObstacleLayer >= 0 &&
+                    colliders.Any(collider => !collider.isTrigger) &&
+                    colliders.Where(collider => !collider.isTrigger)
+                        .All(collider => collider.gameObject.layer == trafficObstacleLayer) &&
+                    colliders.Where(collider => collider.isTrigger)
+                        .All(collider => collider.gameObject.layer != trafficObstacleLayer),
+                $"Solid colliders in {ForkliftPrefabPath} must use TrafficObstacle while " +
+                "interaction triggers preserve their raycastable layers.");
             Require(forkliftConfig.ViewPrefab == views[0],
                 $"{ForkliftConfigPath} must reference the EntityBehaviour root from " +
                 $"{ForkliftPrefabPath}.");
@@ -7690,7 +8472,7 @@ namespace HardwareStore.Editor
                     Mathf.Approximately(warehouseWorkerConfig.AngularSpeed, 720f) &&
                     Mathf.Approximately(warehouseWorkerConfig.StoppingDistance, 0.2f) &&
                     Mathf.Approximately(warehouseWorkerConfig.NavigationSampleRadius, 2f) &&
-                    Mathf.Approximately(warehouseWorkerConfig.TaskTimeout, 20f) &&
+                    Mathf.Approximately(warehouseWorkerConfig.TaskTimeout, 45f) &&
                     warehouseWorkerConfig.TrolleyCapacity == 3 &&
                     Mathf.Approximately(
                         warehouseWorkerConfig.TrolleyFollowDistance,
@@ -7723,11 +8505,13 @@ namespace HardwareStore.Editor
                 $"{CustomerVehicleConfigPath} must keep a completed customer visible for 1.25 seconds.");
             Require(customerVehicleConfig.CargoCapacity == 3,
                 $"{CustomerVehicleConfigPath} must expose exactly three customer cargo slots.");
-            Require(customerFlowConfig.ParkingCapacity == 3 &&
+            Require(customerFlowConfig.ParkingCapacity ==
+                    PrototypeYardLayoutSpec.ActiveParkingCount &&
                     Mathf.Approximately(customerFlowConfig.FirstArrivalDelay, 10f) &&
                     Mathf.Approximately(customerFlowConfig.DefaultPatienceDuration, 120f) &&
                     Mathf.Approximately(customerFlowConfig.PatienceWarningThreshold, 30f),
-                $"{CustomerFlowConfigPath} must author three parking spots, a ten-second " +
+                $"{CustomerFlowConfigPath} must author " +
+                $"{PrototypeYardLayoutSpec.ActiveParkingCount} parking spots, a ten-second " +
                 "first-arrival delay, 120 seconds of patience and a 30-second warning.");
             CustomerArrivalSchedulePoint[] expectedArrivalSchedule =
             {
@@ -7921,6 +8705,10 @@ namespace HardwareStore.Editor
                 RequireExactlyOneInPrefab<CollidersRegistrar>(customerVehiclePrefab, CustomerVehiclePrefabPath);
             Rigidbody[] customerRigidbodies =
                 RequireExactlyOneInPrefab<Rigidbody>(customerVehiclePrefab, CustomerVehiclePrefabPath);
+            NavMeshObstacle[] customerNavigationObstacles =
+                RequireExactlyOneInPrefab<NavMeshObstacle>(
+                    customerVehiclePrefab,
+                    CustomerVehiclePrefabPath);
             InteractionHighlight[] customerHighlights =
                 RequireExactlyOneInPrefab<InteractionHighlight>(
                     customerVehiclePrefab, CustomerVehiclePrefabPath);
@@ -7934,15 +8722,26 @@ namespace HardwareStore.Editor
             int ignoreRaycastLayer = LayerMask.NameToLayer("Ignore Raycast");
             Require(ignoreRaycastLayer >= 0,
                 "Required built-in Ignore Raycast layer is missing.");
+            int trafficObstacleLayer = LayerMask.NameToLayer("TrafficObstacle");
+            Require(trafficObstacleLayer >= 0,
+                "Required Gley TrafficObstacle layer is missing.");
             Require(customerBodyColliderTransform != null,
                 $"{CustomerVehiclePrefabPath} must contain a Body Collider child.");
             Require(customerInteractionAreaTransform != null,
                 $"{CustomerVehiclePrefabPath} must contain an Interaction Area child.");
-            Collider customerBodyCollider = customerBodyColliderTransform.GetComponent<Collider>();
+            BoxCollider customerBodyCollider =
+                customerBodyColliderTransform.GetComponent<BoxCollider>();
             Collider customerInteractionCollider = customerInteractionAreaTransform.GetComponent<Collider>();
             Require(customerBodyCollider != null && !customerBodyCollider.isTrigger &&
-                    customerBodyCollider.gameObject.layer == ignoreRaycastLayer,
-                $"The solid Body Collider in {CustomerVehiclePrefabPath} must use Ignore Raycast.");
+                    customerBodyCollider.gameObject.layer == ignoreRaycastLayer &&
+                    Vector3.Distance(
+                        customerBodyCollider.center,
+                        new Vector3(0f, 1f, -0.15f)) < 0.001f &&
+                    Vector3.Distance(
+                        customerBodyCollider.size,
+                        new Vector3(2.3f, 2f, 6.1f)) < 0.001f,
+                $"The solid Body Collider in {CustomerVehiclePrefabPath} must preserve its " +
+                "exact Ignore Raycast hull.");
             Require(customerInteractionCollider != null && customerInteractionCollider.isTrigger &&
                     customerInteractionCollider.gameObject.layer != ignoreRaycastLayer,
                 $"The rear Interaction Area in {CustomerVehiclePrefabPath} must be the raycastable trigger.");
@@ -7959,7 +8758,8 @@ namespace HardwareStore.Editor
                     customerSlotRegistrars[0].gameObject == customerVehiclePrefab &&
                     customerRigidbodyRegistrars[0].gameObject == customerVehiclePrefab &&
                     customerCollidersRegistrars[0].gameObject == customerVehiclePrefab &&
-                    customerRigidbodies[0].gameObject == customerVehiclePrefab,
+                    customerRigidbodies[0].gameObject == customerVehiclePrefab &&
+                    customerNavigationObstacles[0].gameObject == customerVehiclePrefab,
                 $"The customer vehicle view, Rigidbody and generic registrars in " +
                 $"{CustomerVehiclePrefabPath} must be on its root.");
             var expectedCustomerRegistrarTypes = new HashSet<Type>
@@ -7988,10 +8788,39 @@ namespace HardwareStore.Editor
                         .All(collider => collider.gameObject.layer == ignoreRaycastLayer),
                 $"{CustomerVehiclePrefabPath} must expose only its rear trigger to interaction raycasts.");
             Rigidbody customerBody = customerRigidbodies[0];
-            Require(customerBody.isKinematic && !customerBody.useGravity &&
-                    customerBody.interpolation == RigidbodyInterpolation.None,
-                $"The Rigidbody in {CustomerVehiclePrefabPath} must be kinematic, gravity-free and use " +
-                $"{RigidbodyInterpolation.None} interpolation.");
+            Require(!customerBody.isKinematic && customerBody.useGravity &&
+                    customerBody.detectCollisions &&
+                    customerBody.interpolation == RigidbodyInterpolation.Interpolate &&
+                    customerBody.collisionDetectionMode ==
+                    CollisionDetectionMode.ContinuousDynamic &&
+                    (customerBody.constraints &
+                     RigidbodyConstraints.FreezeRotationX) != 0 &&
+                    (customerBody.constraints &
+                     RigidbodyConstraints.FreezeRotationZ) != 0 &&
+                    Mathf.Approximately(customerBody.mass, 1400f) &&
+                    Mathf.Approximately(customerBody.linearDamping, 0.35f) &&
+                    Mathf.Approximately(customerBody.angularDamping, 2.5f),
+                $"The Rigidbody in {CustomerVehiclePrefabPath} must use the exact " +
+                "dynamic, gravity-driven and interpolation-enabled vehicle contract.");
+            NavMeshObstacle customerNavigationObstacle = customerNavigationObstacles[0];
+            Require(customerNavigationObstacle.enabled &&
+                    customerNavigationObstacle.shape == NavMeshObstacleShape.Box &&
+                    Vector3.Distance(
+                        customerNavigationObstacle.center,
+                        new Vector3(0f, 1f, -0.15f)) < 0.001f &&
+                    Vector3.Distance(
+                        customerNavigationObstacle.size,
+                        new Vector3(4f, 2f, 6.4f)) < 0.001f &&
+                    customerNavigationObstacle.carving &&
+                    customerNavigationObstacle.carveOnlyStationary &&
+                    Mathf.Approximately(
+                        customerNavigationObstacle.carvingMoveThreshold,
+                        0.05f) &&
+                    Mathf.Approximately(
+                        customerNavigationObstacle.carvingTimeToStationary,
+                        0.1f),
+                $"{CustomerVehiclePrefabPath} must expose the exact stationary-only carving " +
+                "box that reserves clearance around the parked vehicle hull.");
             SerializedProperty customerHighlight =
                 new SerializedObject(customerViews[0]).FindProperty("_highlight");
             Require(customerHighlight?.objectReferenceValue == customerHighlights[0],
@@ -8015,6 +8844,10 @@ namespace HardwareStore.Editor
                 RequireExactlyOneInPrefab<TransformRegistrar>(customerPrefab, CustomerPrefabPath);
             RigidbodyRegistrar[] customerActorRigidbodyRegistrars =
                 RequireExactlyOneInPrefab<RigidbodyRegistrar>(customerPrefab, CustomerPrefabPath);
+            CollidersRegistrar[] customerActorColliderRegistrars =
+                RequireExactlyOneInPrefab<CollidersRegistrar>(
+                    customerPrefab,
+                    CustomerPrefabPath);
             CustomerDissatisfactionView[] customerMoodViews =
                 RequireExactlyOneInPrefab<CustomerDissatisfactionView>(
                     customerPrefab,
@@ -8025,6 +8858,10 @@ namespace HardwareStore.Editor
                     CustomerPrefabPath);
             Rigidbody[] customerActorRigidbodies =
                 RequireExactlyOneInPrefab<Rigidbody>(customerPrefab, CustomerPrefabPath);
+            CapsuleCollider[] customerActorTrafficColliders =
+                RequireExactlyOneInPrefab<CapsuleCollider>(
+                    customerPrefab,
+                    CustomerPrefabPath);
             EntityComponentRegistrar[] customerActorRegistrars =
                 customerPrefab.GetComponentsInChildren<EntityComponentRegistrar>(true);
             Collider[] customerActorColliders =
@@ -8036,26 +8873,38 @@ namespace HardwareStore.Editor
                     customerActorViews[0].gameObject == customerPrefab &&
                     customerActorTransforms[0].gameObject == customerPrefab &&
                     customerActorRigidbodyRegistrars[0].gameObject == customerPrefab &&
+                    customerActorColliderRegistrars[0].gameObject == customerPrefab &&
                     customerMoodViews[0].gameObject == customerPrefab &&
                     customerMoodRegistrars[0].gameObject == customerPrefab &&
-                    customerActorRigidbodies[0].gameObject == customerPrefab,
-                $"{CustomerPrefabPath} must keep its generic entity, transform, Rigidbody and " +
+                    customerActorRigidbodies[0].gameObject == customerPrefab &&
+                    customerActorTrafficColliders[0].gameObject == customerPrefab,
+                $"{CustomerPrefabPath} must keep its generic entity, transform, Rigidbody, collider and " +
                 "customer-mood boundaries on the root.");
             var expectedCustomerActorRegistrarTypes = new HashSet<Type>
             {
                 typeof(TransformRegistrar),
                 typeof(RigidbodyRegistrar),
+                typeof(CollidersRegistrar),
                 typeof(CustomerDissatisfactionViewRegistrar)
             };
             Require(customerActorRegistrars.Length == expectedCustomerActorRegistrarTypes.Count &&
                     new HashSet<Type>(customerActorRegistrars.Select(registrar => registrar.GetType()))
                         .SetEquals(expectedCustomerActorRegistrarTypes),
-                $"{CustomerPrefabPath} must contain exactly the generic Transform, Rigidbody " +
-                "and customer-dissatisfaction view registrars.");
-            Require(customerActorColliders.Length == 0 &&
-                    customerPrefab.GetComponentsInChildren<InteractionView>(true).Length == 0 &&
-                    customerPrefab.GetComponentsInChildren<CollidersRegistrar>(true).Length == 0,
-                $"{CustomerPrefabPath} must not expose interaction or collider gameplay adapters.");
+                $"{CustomerPrefabPath} must contain exactly the generic Transform, Rigidbody, " +
+                "collider and customer-dissatisfaction view registrars.");
+            CapsuleCollider customerTrafficCollider =
+                customerActorTrafficColliders[0];
+            Require(customerActorColliders.Length == 1 &&
+                    Mathf.Approximately(customerTrafficCollider.radius, 0.32f) &&
+                    Mathf.Approximately(customerTrafficCollider.height, 1.8f) &&
+                    (customerTrafficCollider.center -
+                        new Vector3(0f, 0.9f, 0f)).sqrMagnitude < 0.000001f &&
+                    customerTrafficCollider.direction == 1 &&
+                    !customerTrafficCollider.isTrigger &&
+                    customerTrafficCollider.gameObject.layer == trafficObstacleLayer &&
+                    customerPrefab.GetComponentsInChildren<InteractionView>(true).Length == 0,
+                $"{CustomerPrefabPath} must expose one solid TrafficObstacle capsule and no " +
+                "interaction adapter so Gley vehicles stop for walking customers.");
             CustomerDissatisfactionView moodView = customerMoodViews[0];
             Renderer[] moodRenderers = moodView.Renderers;
             Transform leftShoulder = moodView.LeftShoulder;
@@ -8142,12 +8991,28 @@ namespace HardwareStore.Editor
                 RequireExactlyOneInPrefab<NavMeshAgentRegistrar>(
                     workerPrefab,
                     WarehouseWorkerPrefabPath);
+            RigidbodyRegistrar[] workerRigidbodyRegistrars =
+                RequireExactlyOneInPrefab<RigidbodyRegistrar>(
+                    workerPrefab,
+                    WarehouseWorkerPrefabPath);
+            CollidersRegistrar[] workerColliderRegistrars =
+                RequireExactlyOneInPrefab<CollidersRegistrar>(
+                    workerPrefab,
+                    WarehouseWorkerPrefabPath);
             CarryAnchorRegistrar[] workerCarryAnchors =
                 RequireExactlyOneInPrefab<CarryAnchorRegistrar>(
                     workerPrefab,
                     WarehouseWorkerPrefabPath);
             NavMeshAgent[] workerAgents =
                 RequireExactlyOneInPrefab<NavMeshAgent>(
+                    workerPrefab,
+                    WarehouseWorkerPrefabPath);
+            Rigidbody[] workerRigidbodies =
+                RequireExactlyOneInPrefab<Rigidbody>(
+                    workerPrefab,
+                    WarehouseWorkerPrefabPath);
+            CapsuleCollider[] workerTrafficColliders =
+                RequireExactlyOneInPrefab<CapsuleCollider>(
                     workerPrefab,
                     WarehouseWorkerPrefabPath);
             EntityComponentRegistrar[] workerRegistrars =
@@ -8161,11 +9026,16 @@ namespace HardwareStore.Editor
             {
                 typeof(TransformRegistrar),
                 typeof(NavMeshAgentRegistrar),
+                typeof(RigidbodyRegistrar),
+                typeof(CollidersRegistrar),
                 typeof(CarryAnchorRegistrar)
             };
             Require(workerViews[0].gameObject == workerPrefab &&
                     workerTransforms[0].gameObject == workerPrefab &&
                     workerNavigationRegistrars[0].gameObject == workerPrefab &&
+                    workerRigidbodyRegistrars[0].gameObject == workerPrefab &&
+                    workerColliderRegistrars[0].gameObject == workerPrefab &&
+                    workerRigidbodies[0].gameObject == workerPrefab &&
                     workerAgents[0].gameObject == workerPrefab &&
                     workerCarryAnchors[0].transform.IsChildOf(workerPrefab.transform) &&
                     workerCarryAnchors[0].name == "Carry Anchor" &&
@@ -8180,12 +9050,22 @@ namespace HardwareStore.Editor
             Require(workerRegistrars.Length == expectedWorkerRegistrarTypes.Count &&
                     new HashSet<Type>(workerRegistrars.Select(registrar => registrar.GetType()))
                         .SetEquals(expectedWorkerRegistrarTypes),
-                $"{WarehouseWorkerPrefabPath} must contain exactly Transform, NavMeshAgent and " +
-                "CarryAnchor registrars.");
-            Require(workerColliders.Length == 0 &&
-                    workerPrefab.GetComponentsInChildren<InteractionView>(true).Length == 0 &&
-                    workerPrefab.GetComponentsInChildren<CollidersRegistrar>(true).Length == 0,
-                $"{WarehouseWorkerPrefabPath} must not expose interaction or collision targets.");
+                $"{WarehouseWorkerPrefabPath} must contain exactly Transform, NavMeshAgent, " +
+                "Rigidbody, Colliders and CarryAnchor registrars.");
+            CapsuleCollider workerTrafficCollider = workerTrafficColliders[0];
+            Require(workerColliders.Length == 1 &&
+                    workerTrafficCollider.transform.name == "Traffic Collider" &&
+                    workerTrafficCollider.transform.parent == workerPrefab.transform &&
+                    workerTrafficCollider.gameObject.layer == trafficObstacleLayer &&
+                    !workerTrafficCollider.isTrigger &&
+                    Mathf.Approximately(workerTrafficCollider.radius, 0.32f) &&
+                    Mathf.Approximately(workerTrafficCollider.height, 1.9f) &&
+                    Vector3.Distance(
+                        workerTrafficCollider.center,
+                        new Vector3(0f, 0.95f, 0f)) < 0.001f &&
+                    workerPrefab.GetComponentsInChildren<InteractionView>(true).Length == 0,
+                $"{WarehouseWorkerPrefabPath} must expose one exact solid TrafficObstacle " +
+                "capsule and no interaction view.");
             Require(workerRenderers.Length >= 14,
                 $"{WarehouseWorkerPrefabPath} must contain a visible blue/yellow worker silhouette.");
             string[] blueWorkwearParts =
@@ -8216,6 +9096,19 @@ namespace HardwareStore.Editor
                         warehouseWorkerConfig.StoppingDistance) &&
                     workerAgent.autoBraking && workerAgent.autoRepath,
                 $"{WarehouseWorkerPrefabPath} NavMeshAgent must mirror its config and repath.");
+            Rigidbody workerBody = workerRigidbodies[0];
+            Require(Mathf.Approximately(workerBody.mass, 80f) &&
+                    workerBody.isKinematic && !workerBody.useGravity &&
+                    workerBody.detectCollisions &&
+                    workerBody.interpolation == RigidbodyInterpolation.Interpolate &&
+                    workerBody.collisionDetectionMode ==
+                    CollisionDetectionMode.ContinuousSpeculative &&
+                    (workerBody.constraints &
+                     RigidbodyConstraints.FreezeRotationX) != 0 &&
+                    (workerBody.constraints &
+                     RigidbodyConstraints.FreezeRotationZ) != 0,
+                $"{WarehouseWorkerPrefabPath} must expose the exact interpolated " +
+                "kinematic physics-motor Rigidbody contract.");
             Require(warehouseWorkerConfig.ViewPrefab == workerViews[0],
                 $"{WarehouseWorkerConfigPath} must reference the EntityBehaviour root from " +
                 $"{WarehouseWorkerPrefabPath}.");
@@ -8321,7 +9214,7 @@ namespace HardwareStore.Editor
                     workerTrolleyBodyCollider != null &&
                     workerTrolleyBodyCollider.enabled &&
                     !workerTrolleyBodyCollider.isTrigger &&
-                    workerTrolleyBodyCollider.gameObject.layer == ignoreRaycastLayer &&
+                    workerTrolleyBodyCollider.gameObject.layer == trafficObstacleLayer &&
                     Vector3.Distance(
                         workerTrolleyBodyCollider.center,
                         new Vector3(0f, 0.27f, 0.15f)) < 0.001f &&
@@ -8329,7 +9222,7 @@ namespace HardwareStore.Editor
                         workerTrolleyBodyCollider.size,
                         new Vector3(2f, 0.5f, 2.1f)) < 0.001f,
                 $"{WarehouseWorkerTrolleyPrefabPath} must expose only its exact solid " +
-                "Ignore Raycast body hull.");
+                "TrafficObstacle body hull.");
             Rigidbody workerTrolleyBody = workerTrolleyRigidbodies[0];
             Require(Mathf.Approximately(workerTrolleyBody.mass, 45f) &&
                     workerTrolleyBody.isKinematic && !workerTrolleyBody.useGravity &&
@@ -8381,6 +9274,9 @@ namespace HardwareStore.Editor
             RigidbodyRegistrar[] trolleyRigidbodyRegistrars =
                 RequireExactlyOneInPrefab<RigidbodyRegistrar>(
                     trolleyPrefab, PlatformTrolleyPrefabPath);
+            NavMeshObstacleRegistrar[] trolleyNavigationObstacleRegistrars =
+                RequireExactlyOneInPrefab<NavMeshObstacleRegistrar>(
+                    trolleyPrefab, PlatformTrolleyPrefabPath);
             InteractionViewRegistrar[] trolleyInteractionRegistrars =
                 RequireExactlyOneInPrefab<InteractionViewRegistrar>(
                     trolleyPrefab, PlatformTrolleyPrefabPath);
@@ -8392,6 +9288,9 @@ namespace HardwareStore.Editor
                     trolleyPrefab, PlatformTrolleyPrefabPath);
             Rigidbody[] trolleyRigidbodies =
                 RequireExactlyOneInPrefab<Rigidbody>(
+                    trolleyPrefab, PlatformTrolleyPrefabPath);
+            NavMeshObstacle[] trolleyNavigationObstacles =
+                RequireExactlyOneInPrefab<NavMeshObstacle>(
                     trolleyPrefab, PlatformTrolleyPrefabPath);
             InteractionHighlight[] trolleyHighlights =
                 RequireExactlyOneInPrefab<InteractionHighlight>(
@@ -8409,16 +9308,19 @@ namespace HardwareStore.Editor
                 $"{PlatformTrolleyPrefabPath} must use one generic InteractionView root.");
             Require(trolleyTransforms[0].gameObject == trolleyPrefab &&
                     trolleyRigidbodyRegistrars[0].gameObject == trolleyPrefab &&
+                    trolleyNavigationObstacleRegistrars[0].gameObject == trolleyPrefab &&
                     trolleyInteractionRegistrars[0].gameObject == trolleyPrefab &&
                     trolleyColliderRegistrars[0].gameObject == trolleyPrefab &&
                     trolleySlotRegistrars[0].gameObject == trolleyPrefab &&
-                    trolleyRigidbodies[0].gameObject == trolleyPrefab,
+                    trolleyRigidbodies[0].gameObject == trolleyPrefab &&
+                    trolleyNavigationObstacles[0].gameObject == trolleyPrefab,
                 $"All generic platform trolley registrars and its Rigidbody must be on the " +
                 $"root of {PlatformTrolleyPrefabPath}.");
             var expectedTrolleyRegistrarTypes = new HashSet<Type>
             {
                 typeof(TransformRegistrar),
                 typeof(RigidbodyRegistrar),
+                typeof(NavMeshObstacleRegistrar),
                 typeof(InteractionViewRegistrar),
                 typeof(CollidersRegistrar),
                 typeof(SlotsRegistrar)
@@ -8427,7 +9329,7 @@ namespace HardwareStore.Editor
                     new HashSet<Type>(trolleyRegistrars.Select(registrar => registrar.GetType()))
                         .SetEquals(expectedTrolleyRegistrarTypes),
                 $"{PlatformTrolleyPrefabPath} must contain exactly the generic Transform, " +
-                "Rigidbody, InteractionView, Colliders and Slots registrars.");
+                "Rigidbody, NavMeshObstacle, InteractionView, Colliders and Slots registrars.");
             Require(trolleySlots.Length == platformTrolleyConfig.Capacity &&
                     trolleySlots.All(slot => slot.IsChildOf(trolleyPrefab.transform)),
                 $"{PlatformTrolleyPrefabPath} must expose exactly three unique cargo slots " +
@@ -8451,12 +9353,13 @@ namespace HardwareStore.Editor
                 trolleyInteractionAreaTransform.GetComponent<Collider>();
             Require(trolleyColliders.Length == 2 &&
                     trolleyBodyCollider != null && !trolleyBodyCollider.isTrigger &&
-                    trolleyBodyCollider.gameObject.layer == ignoreRaycastLayer &&
+                    trolleyBodyCollider.gameObject.layer == trafficObstacleLayer &&
                     trolleyInteractionCollider != null &&
                     trolleyInteractionCollider.enabled &&
                     trolleyInteractionCollider.isTrigger &&
+                    trolleyInteractionCollider.gameObject.layer != trafficObstacleLayer &&
                     trolleyInteractionCollider.gameObject.layer != ignoreRaycastLayer,
-                $"{PlatformTrolleyPrefabPath} must keep its solid body on Ignore Raycast and " +
+                $"{PlatformTrolleyPrefabPath} must keep its solid body on TrafficObstacle and " +
                 "expose exactly one enabled, raycastable trolley interaction point.");
             BoxCollider trolleyBodyBox = trolleyBodyCollider as BoxCollider;
             BoxCollider trolleyHandleTrigger = trolleyInteractionCollider as BoxCollider;
@@ -8501,6 +9404,26 @@ namespace HardwareStore.Editor
                     trolleyBody.interpolation == RigidbodyInterpolation.None,
                 $"{PlatformTrolleyPrefabPath} must use a deterministic kinematic, gravity-free " +
                 "Rigidbody.");
+            NavMeshObstacle trolleyNavigationObstacle =
+                trolleyNavigationObstacles[0];
+            Require(trolleyNavigationObstacle.enabled &&
+                    trolleyNavigationObstacle.shape == NavMeshObstacleShape.Box &&
+                    Vector3.Distance(
+                        trolleyNavigationObstacle.center,
+                        trolleyBodyBox.center) < 0.001f &&
+                    Vector3.Distance(
+                        trolleyNavigationObstacle.size,
+                        trolleyBodyBox.size) < 0.001f &&
+                    trolleyNavigationObstacle.carving &&
+                    trolleyNavigationObstacle.carveOnlyStationary &&
+                    Mathf.Approximately(
+                        trolleyNavigationObstacle.carvingMoveThreshold,
+                        0.05f) &&
+                    Mathf.Approximately(
+                        trolleyNavigationObstacle.carvingTimeToStationary,
+                        0.1f),
+                $"{PlatformTrolleyPrefabPath} must carve its exact parked body hull so " +
+                "NavMesh workers approach the handle without crossing the trolley.");
             SerializedProperty trolleyHighlight =
                 new SerializedObject(trolleyViews[0]).FindProperty("_highlight");
             Require(trolleyHighlight?.objectReferenceValue == trolleyHighlights[0],
@@ -9132,19 +10055,39 @@ namespace HardwareStore.Editor
                     SpawnPointId.WarehouseWorkerTrolleyCustomerLoadingAccess,
                     SpawnPointId.Forklift,
                     SpawnPointId.FreightTruck,
-                    SpawnPointId.InboundPallet
+                    SpawnPointId.InboundPallet,
+                    SpawnPointId.WarehouseWorkerInboundTrolleyStorageBypass,
+                    SpawnPointId.WarehouseWorkerInboundTrolleyStorageAccess,
+                    SpawnPointId.WarehouseWorkerOutboundTrolleyStorageApproach,
+                    SpawnPointId.WarehouseWorkerOutboundTrolleyStorageAccess
                 };
                 var actualSpawnIds = new HashSet<SpawnPointId>(spawnPoints.Select(marker => marker.Id));
                 Require(spawnPoints.Length == expectedSpawnIds.Count && actualSpawnIds.SetEquals(expectedSpawnIds),
                     $"{PrototypeScenePath} must contain one marker for every player, vehicle, " +
                     "trolley, freight and warehouse-worker access point.");
+                SpawnPointMarker deliveryVehicleSpawn = spawnPoints.Single(marker =>
+                    marker.Id == SpawnPointId.DeliveryVehicle);
+                SpawnPointMarker freightTruckSpawn = spawnPoints.Single(marker =>
+                    marker.Id == SpawnPointId.FreightTruck);
+                Require(deliveryVehicleSpawn.name == "Delivery Vehicle Spawn Point" &&
+                        PoseMatches(
+                            deliveryVehicleSpawn.Pose,
+                            PrototypeYardLayoutSpec.DeliveryVehiclePose) &&
+                        freightTruckSpawn.name == "Freight Truck Spawn Point" &&
+                        PoseMatches(
+                            freightTruckSpawn.Pose,
+                            PrototypeYardLayoutSpec.FreightTruckPose),
+                    "Supplier and freight-truck spawn markers must use the exact layout-spec " +
+                    "poses and authored scene names.");
 
                 Require(navigationSurfaces.Length == 1,
                     $"{PrototypeScenePath} must contain exactly one NavMeshSurface.");
                 NavMeshSurface navigation = navigationSurfaces[0];
                 Require(navigation.name == "Navigation" &&
                         navigation.transform.parent != null &&
-                        navigation.transform.parent.name == "Environment" &&
+                        HasAreaRoot(
+                            navigation.transform,
+                            PrototypeAreaId.SiteShell) &&
                         navigation.agentTypeID == 0 &&
                         navigation.collectObjects == CollectObjects.All &&
                         navigation.useGeometry == NavMeshCollectGeometry.PhysicsColliders &&
@@ -9154,7 +10097,7 @@ namespace HardwareStore.Editor
                         navigation.navMeshData != null &&
                         AssetDatabase.GetAssetPath(navigation.navMeshData) ==
                         WarehouseWorkerNavMeshPath,
-                    "Environment/Navigation must own the exact baked warehouse-worker " +
+                    "The Site Shell area must own the exact baked warehouse-worker " +
                     "NavMeshSurface asset.");
                 SpawnPointMarker[] workerAccessPoints =
                 {
@@ -9171,57 +10114,110 @@ namespace HardwareStore.Editor
                 SpawnPointMarker workerTrolleyCustomerLoadingAccess =
                     spawnPoints.Single(marker => marker.Id ==
                         SpawnPointId.WarehouseWorkerTrolleyCustomerLoadingAccess);
-                Vector3[] expectedWorkerPositions =
+                SpawnPointMarker workerInboundTrolleyStorageAccess =
+                    spawnPoints.Single(marker => marker.Id ==
+                        SpawnPointId.WarehouseWorkerInboundTrolleyStorageAccess);
+                SpawnPointMarker workerInboundTrolleyStorageBypass =
+                    spawnPoints.Single(marker => marker.Id ==
+                        SpawnPointId.WarehouseWorkerInboundTrolleyStorageBypass);
+                SpawnPointMarker workerOutboundTrolleyStorageApproach =
+                    spawnPoints.Single(marker => marker.Id ==
+                        SpawnPointId.WarehouseWorkerOutboundTrolleyStorageApproach);
+                SpawnPointMarker workerOutboundTrolleyStorageAccess =
+                    spawnPoints.Single(marker => marker.Id ==
+                        SpawnPointId.WarehouseWorkerOutboundTrolleyStorageAccess);
+                Pose[] expectedWorkerPoses =
                 {
-                    new(2.3f, 0.02f, 1.95f),
-                    new(9.15f, 0.02f, -9.85f),
-                    new(5f, 0.02f, 2.45f),
-                    new(6f, 0.02f, 1.62f)
-                };
-                Quaternion[] expectedWorkerRotations =
-                {
-                    Quaternion.Euler(0f, 90f, 0f),
-                    Quaternion.Euler(0f, 90f, 0f),
-                    Quaternion.identity,
-                    Quaternion.Euler(0f, 180f, 0f)
+                    PrototypeYardLayoutSpec.WarehouseWorkerIdlePose,
+                    PrototypeYardLayoutSpec.WarehouseWorkerDeliveryAccessPose,
+                    PrototypeYardLayoutSpec.WarehouseWorkerStorageAccessPose,
+                    PrototypeYardLayoutSpec.WarehouseWorkerCustomerLoadingAccessPose
                 };
                 Require(workerAccessPoints
-                        .Select((marker, index) => Vector3.Distance(
-                            marker.transform.position,
-                            expectedWorkerPositions[index]))
-                        .All(distance => distance < 0.001f) &&
-                        workerAccessPoints
-                            .Select((marker, index) => Quaternion.Angle(
-                                marker.transform.rotation,
-                                expectedWorkerRotations[index]))
-                            .All(angle => angle < 0.01f) &&
+                        .Select((marker, index) =>
+                            PoseMatches(marker.Pose, expectedWorkerPoses[index]))
+                        .All(matches => matches) &&
                         workerAccessPoints.All(marker =>
                             marker.transform.parent != null &&
                             marker.transform.parent.name ==
-                            "Warehouse Worker Access Points"),
-                    "Warehouse-worker idle, inbound, storage and customer-loading access " +
-                    "markers must preserve their exact safe yard-level poses.");
+                            "Worker Access Points") &&
+                        HasAreaRoot(
+                            workerAccessPoints[0].transform,
+                            PrototypeAreaId.Warehouse) &&
+                        HasAreaRoot(
+                            workerAccessPoints[1].transform,
+                            PrototypeAreaId.InboundDelivery) &&
+                        HasAreaRoot(
+                            workerAccessPoints[2].transform,
+                            PrototypeAreaId.Warehouse) &&
+                        HasAreaRoot(
+                            workerAccessPoints[3].transform,
+                            PrototypeAreaId.CustomerTraffic),
+                    "Warehouse-worker idle, inbound, storage and exterior customer-loading " +
+                    "markers must preserve their exact safe authored poses.");
 
-                Pose expectedWorkerTrolleyHome = new(
-                    new Vector3(4f, 0.02f, 1.95f),
-                    Quaternion.Euler(0f, 90f, 0f));
-                Pose expectedWorkerTrolleyCustomerLoading = new(
-                    new Vector3(6f, 0.02f, 1.95f),
-                    Quaternion.Euler(0f, 90f, 0f));
+                Pose expectedWorkerTrolleyHome =
+                    PrototypeYardLayoutSpec.WorkerTrolleyHomePose;
+                Pose expectedWorkerTrolleyCustomerLoading =
+                    PrototypeYardLayoutSpec.WorkerTrolleyCustomerLoadingAccessPose;
+                Pose expectedWorkerInboundTrolleyStorageBypass =
+                    PrototypeYardLayoutSpec.WorkerInboundTrolleyStorageBypassPose;
+                Pose expectedWorkerInboundTrolleyStorage =
+                    PrototypeYardLayoutSpec.WorkerInboundTrolleyStorageAccessPose;
+                Pose expectedWorkerOutboundTrolleyStorageApproach =
+                    PrototypeYardLayoutSpec.WorkerOutboundTrolleyStorageApproachPose;
+                Pose expectedWorkerOutboundTrolleyStorageAccess =
+                    PrototypeYardLayoutSpec.WorkerOutboundTrolleyStorageAccessPose;
                 Require(PoseMatches(workerTrolleyHome.Pose, expectedWorkerTrolleyHome) &&
                         PoseMatches(
                             workerTrolleyCustomerLoadingAccess.Pose,
                             expectedWorkerTrolleyCustomerLoading) &&
+                        PoseMatches(
+                            workerInboundTrolleyStorageBypass.Pose,
+                            expectedWorkerInboundTrolleyStorageBypass) &&
+                        PoseMatches(
+                            workerInboundTrolleyStorageAccess.Pose,
+                            expectedWorkerInboundTrolleyStorage) &&
+                        PoseMatches(
+                            workerOutboundTrolleyStorageApproach.Pose,
+                            expectedWorkerOutboundTrolleyStorageApproach) &&
+                        PoseMatches(
+                            workerOutboundTrolleyStorageAccess.Pose,
+                            expectedWorkerOutboundTrolleyStorageAccess) &&
                         workerTrolleyHome.name == "Warehouse Worker Trolley Home" &&
                         workerTrolleyCustomerLoadingAccess.name ==
                         "Warehouse Worker Trolley Customer Loading Access" &&
+                        workerInboundTrolleyStorageBypass.name ==
+                            "Warehouse Worker Inbound Trolley Storage Bypass" &&
+                        workerInboundTrolleyStorageAccess.name ==
+                            "Warehouse Worker Inbound Trolley Storage Access" &&
+                        workerOutboundTrolleyStorageApproach.name ==
+                            "Warehouse Worker Outbound Trolley Storage Approach" &&
+                        workerOutboundTrolleyStorageAccess.name ==
+                            "Warehouse Worker Outbound Trolley Storage Access" &&
                         workerTrolleyHome.transform.parent != null &&
-                        workerTrolleyCustomerLoadingAccess.transform.parent ==
-                        workerTrolleyHome.transform.parent &&
+                        workerInboundTrolleyStorageBypass.transform.parent ==
+                            workerTrolleyHome.transform.parent &&
+                        workerInboundTrolleyStorageAccess.transform.parent ==
+                            workerTrolleyHome.transform.parent &&
+                        workerOutboundTrolleyStorageApproach.transform.parent ==
+                            workerTrolleyHome.transform.parent &&
+                        workerOutboundTrolleyStorageAccess.transform.parent ==
+                            workerTrolleyHome.transform.parent &&
                         workerTrolleyHome.transform.parent.name ==
-                        "Warehouse Worker Access Points",
-                    "Worker-trolley home and customer-loading root markers must preserve " +
-                    "their exact runtime-only cart poses under the worker access root.");
+                            "Worker Access Points" &&
+                        workerTrolleyCustomerLoadingAccess.transform.parent != null &&
+                        workerTrolleyCustomerLoadingAccess.transform.parent.name ==
+                            "Worker Access Points" &&
+                        HasAreaRoot(
+                            workerTrolleyHome.transform,
+                            PrototypeAreaId.Warehouse) &&
+                        HasAreaRoot(
+                            workerTrolleyCustomerLoadingAccess.transform,
+                            PrototypeAreaId.CustomerTraffic),
+                    "Worker-trolley home, customer-loading, inbound bypass/storage and outbound " +
+                    "corridor markers must preserve their exact runtime-only cart poses under " +
+                    "the worker access root.");
                 WarehouseWorkerConfig sceneWarehouseWorkerConfig =
                     RequireAsset<WarehouseWorkerConfig>(WarehouseWorkerConfigPath);
                 Pose homePusherPose = ResolveWorkerTrolleyPusherPose(
@@ -9230,15 +10226,60 @@ namespace HardwareStore.Editor
                 Pose customerLoadingPusherPose = ResolveWorkerTrolleyPusherPose(
                     workerTrolleyCustomerLoadingAccess.Pose,
                     sceneWarehouseWorkerConfig.TrolleyFollowDistance);
+                Pose inboundStorageBypassPusherPose = ResolveWorkerTrolleyPusherPose(
+                    workerInboundTrolleyStorageBypass.Pose,
+                    sceneWarehouseWorkerConfig.TrolleyFollowDistance);
+                Pose inboundStoragePusherPose = ResolveWorkerTrolleyPusherPose(
+                    workerInboundTrolleyStorageAccess.Pose,
+                    sceneWarehouseWorkerConfig.TrolleyFollowDistance);
+                Pose outboundStorageApproachPusherPose =
+                    ResolveWorkerTrolleyPusherPose(
+                        workerOutboundTrolleyStorageApproach.Pose,
+                        sceneWarehouseWorkerConfig.TrolleyFollowDistance);
+                Pose outboundStorageAccessPusherPose =
+                    ResolveWorkerTrolleyPusherPose(
+                        workerOutboundTrolleyStorageAccess.Pose,
+                        sceneWarehouseWorkerConfig.TrolleyFollowDistance);
+                Pose expectedHomePusherPose = ResolveWorkerTrolleyPusherPose(
+                    expectedWorkerTrolleyHome,
+                    sceneWarehouseWorkerConfig.TrolleyFollowDistance);
+                Pose expectedCustomerLoadingPusherPose = ResolveWorkerTrolleyPusherPose(
+                    expectedWorkerTrolleyCustomerLoading,
+                    sceneWarehouseWorkerConfig.TrolleyFollowDistance);
+                Pose expectedInboundStorageBypassPusherPose =
+                    ResolveWorkerTrolleyPusherPose(
+                        expectedWorkerInboundTrolleyStorageBypass,
+                        sceneWarehouseWorkerConfig.TrolleyFollowDistance);
+                Pose expectedInboundStoragePusherPose = ResolveWorkerTrolleyPusherPose(
+                    expectedWorkerInboundTrolleyStorage,
+                    sceneWarehouseWorkerConfig.TrolleyFollowDistance);
+                Pose expectedOutboundStorageApproachPusherPose =
+                    ResolveWorkerTrolleyPusherPose(
+                        expectedWorkerOutboundTrolleyStorageApproach,
+                        sceneWarehouseWorkerConfig.TrolleyFollowDistance);
+                Pose expectedOutboundStorageAccessPusherPose =
+                    ResolveWorkerTrolleyPusherPose(
+                        expectedWorkerOutboundTrolleyStorageAccess,
+                        sceneWarehouseWorkerConfig.TrolleyFollowDistance);
                 Require(PoseMatches(workerAccessPoints[0].Pose, homePusherPose) &&
-                        Vector3.Distance(
-                            homePusherPose.position,
-                            new Vector3(2.3f, 0.02f, 1.95f)) < 0.001f &&
-                        Vector3.Distance(
-                            customerLoadingPusherPose.position,
-                            new Vector3(4.3f, 0.02f, 1.95f)) < 0.001f,
-                    "Worker trolley pusher poses must derive from the two cart-root poses " +
-                    "with the authored 1.7m follow distance.");
+                        PoseMatches(homePusherPose, expectedHomePusherPose) &&
+                        PoseMatches(
+                            customerLoadingPusherPose,
+                            expectedCustomerLoadingPusherPose) &&
+                        PoseMatches(
+                            inboundStorageBypassPusherPose,
+                            expectedInboundStorageBypassPusherPose) &&
+                        PoseMatches(
+                            inboundStoragePusherPose,
+                            expectedInboundStoragePusherPose) &&
+                        PoseMatches(
+                            outboundStorageApproachPusherPose,
+                            expectedOutboundStorageApproachPusherPose) &&
+                        PoseMatches(
+                            outboundStorageAccessPusherPose,
+                            expectedOutboundStorageAccessPusherPose),
+                    "Worker trolley pusher poses must derive from the authored cart-root poses " +
+                    "and configured follow distance.");
 
                 (string Name, Vector3 Position)[] navigationAccessPoints =
                 {
@@ -9251,7 +10292,15 @@ namespace HardwareStore.Editor
                     (workerAccessPoints[3].Id.ToString(),
                         workerAccessPoints[3].transform.position),
                     ("WarehouseWorkerTrolleyCustomerLoadingPusher",
-                        customerLoadingPusherPose.position)
+                        customerLoadingPusherPose.position),
+                    ("WarehouseWorkerInboundTrolleyStorageBypassPusher",
+                        inboundStorageBypassPusherPose.position),
+                    ("WarehouseWorkerInboundTrolleyStoragePusher",
+                        inboundStoragePusherPose.position),
+                    ("WarehouseWorkerOutboundTrolleyStorageApproachPusher",
+                        outboundStorageApproachPusherPose.position),
+                    ("WarehouseWorkerOutboundTrolleyStorageAccessPusher",
+                        outboundStorageAccessPusherPose.position)
                 };
                 var sampledWorkerPoints = new Vector3[navigationAccessPoints.Length];
                 for (int index = 0; index < navigationAccessPoints.Length; index++)
@@ -9290,10 +10339,14 @@ namespace HardwareStore.Editor
                 Require(routes.Length == 0,
                     $"{PrototypeScenePath} must express customer traffic through its typed " +
                     "customer-flow layout instead of legacy singleton routes.");
-                Require(customerParkingSpots.Length == 3 &&
+                Require(customerParkingSpots.Length ==
+                            PrototypeYardLayoutSpec.ActiveParkingCount &&
                         customerParkingSpots.All(spot =>
-                            spot.transform.parent == customerFlowLayouts[0].transform),
-                    $"{PrototypeScenePath} must contain exactly three customer parking-spot " +
+                            spot.transform.parent == customerFlowLayouts[0].transform &&
+                            spot.name == $"Customer Parking Spot {spot.Index + 1}") &&
+                        customerFlowLayouts[0].name == "Customer Vehicle Traffic",
+                    $"{PrototypeScenePath} must contain exactly " +
+                    $"{PrototypeYardLayoutSpec.ActiveParkingCount} customer parking-spot " +
                     "markers beneath the customer-flow root.");
 
                 CustomerFlowSceneLayout customerFlowLayout = customerFlowLayouts[0].Layout;
@@ -9304,10 +10357,14 @@ namespace HardwareStore.Editor
                     customerFlowLayout.QueueAbandonExitRoute;
                 Pose[] loadingDepartureRoute =
                     customerFlowLayout.LoadingDepartureRoute;
-                Require(parkingLayouts.Length == 3 &&
+                Require(parkingLayouts.Length ==
+                            PrototypeYardLayoutSpec.ActiveParkingCount &&
                         parkingLayouts.Select(layout => layout.Index)
-                            .SequenceEqual(new[] { 0, 1, 2 }),
-                    "The customer-flow layout must expose three contiguous parking spots.");
+                            .SequenceEqual(Enumerable.Range(
+                                0,
+                                PrototypeYardLayoutSpec.ActiveParkingCount)),
+                    "The customer-flow layout must expose the configured contiguous parking " +
+                    "spots.");
                 Pose preservedQueueHead = queuePoses[0];
                 queuePoses[0] = default;
                 Require(PoseMatches(
@@ -9346,13 +10403,11 @@ namespace HardwareStore.Editor
                         preservedParkingDepartureEnd),
                     "Customer-flow parking snapshots must clone the authored abandonment " +
                     "departure route.");
-                Require(queuePoses.Length == 3 &&
-                        Vector3.Distance(queuePoses[0].position,
-                            new Vector3(-7.25f, 0.02f, 0.55f)) < 0.001f &&
-                        Vector3.Distance(queuePoses[1].position,
-                            new Vector3(-7.25f, 0.02f, -0.75f)) < 0.001f &&
-                        Vector3.Distance(queuePoses[2].position,
-                            new Vector3(-7.25f, 0.02f, -2.05f)) < 0.001f,
+                Pose[] expectedQueuePoses = PrototypeYardLayoutSpec.BuildQueuePoses();
+                Require(queuePoses.Length == expectedQueuePoses.Length &&
+                        queuePoses.Select((pose, index) =>
+                                PoseMatches(pose, expectedQueuePoses[index]))
+                            .All(matches => matches),
                     "Customer queue poses must preserve the authored service-to-tail order.");
                 for (int index = 1; index < queuePoses.Length; index++)
                 {
@@ -9362,65 +10417,68 @@ namespace HardwareStore.Editor
                         "Customer queue poses must retain safe pedestrian spacing.");
                 }
                 Pose[] expectedQueueAbandonExitRoute =
-                {
-                    new(new Vector3(-8f, 0.02f, 0.55f),
-                        Quaternion.Euler(0f, 180f, 0f)),
-                    new(new Vector3(-8f, 0.02f, -0.75f),
-                        Quaternion.Euler(0f, 180f, 0f)),
-                    new(new Vector3(-8f, 0.02f, -2.05f),
-                        Quaternion.Euler(0f, 180f, 0f)),
-                    new(new Vector3(-8f, 0.02f, -3f),
-                        Quaternion.Euler(0f, 180f, 0f))
-                };
-                Require(queueAbandonExitRoute.Length == queuePoses.Length + 1 &&
+                    PrototypeYardLayoutSpec.BuildQueueAbandonExitRoute();
+                Require(queueAbandonExitRoute.Length ==
+                            expectedQueueAbandonExitRoute.Length &&
                         queueAbandonExitRoute.Select((pose, index) =>
                                 PoseMatches(pose, expectedQueueAbandonExitRoute[index]))
                             .All(matches => matches),
                     "Customer queue abandonment must use the exact authored lateral exits " +
                     "and shared return-route join instead of runtime world coordinates.");
 
-                Vector3[] expectedParkingPositions =
-                {
-                    new(-10.8f, 0.02f, -21.5f),
-                    new(-7.4f, 0.02f, -21.5f),
-                    new(-4f, 0.02f, -21.5f)
-                };
+                GameObject alignmentSourceVehiclePrefab =
+                    RequireAsset<GameObject>(CustomerVehiclePrefabPath);
+                GameObject alignmentProviderVehiclePrefab =
+                    RequireAsset<GameObject>(GleyCustomerVehiclePrefabPath);
+                Vector3[] expectedVisualParkingPositions = Enumerable
+                    .Range(0, PrototypeYardLayoutSpec.ActiveParkingCount)
+                    .Select(index => PrototypeYardLayoutSpec.Point(
+                        PrototypeYardLayoutSpec.GetActiveParkingX(index),
+                        PrototypeYardLayoutSpec.ParallelParkingZ))
+                    .ToArray();
+                Vector3[] expectedLoadingDepartureVisualPositions =
+                    PrototypeYardLayoutSpec.BuildLoadingDepartureVisualPositions();
                 Pose[] expectedLoadingDepartureRoute =
-                {
-                    new(new Vector3(6f, 0.02f, -2.5f),
-                        Quaternion.Euler(0f, 180f, 0f)),
-                    new(new Vector3(6f, 0.02f, -10f),
-                        Quaternion.Euler(0f, 180f, 0f)),
-                    new(new Vector3(3.5f, 0.02f, -11.8f),
-                        Quaternion.Euler(0f, -126f, 0f)),
-                    new(new Vector3(0f, 0.02f, -13f),
-                        Quaternion.Euler(0f, -109f, 0f)),
-                    new(new Vector3(0f, 0.02f, -20f),
-                        Quaternion.Euler(0f, 180f, 0f)),
-                    new(new Vector3(0f, 0.02f, -30f),
-                        Quaternion.Euler(0f, 180f, 0f)),
-                    new(new Vector3(0f, 0.02f, -35f),
-                        Quaternion.Euler(0f, 180f, 0f))
-                };
+                    CustomerVehicleProviderPoseUtility.BuildProviderRoute(
+                        alignmentSourceVehiclePrefab,
+                        expectedLoadingDepartureVisualPositions);
                 Require(loadingDepartureRoute.Length ==
                             expectedLoadingDepartureRoute.Length &&
                         loadingDepartureRoute.Select((pose, index) =>
                                 PoseMatches(pose, expectedLoadingDepartureRoute[index]))
                             .All(matches => matches),
-                    "Customer loading departure must start from the rear-facing bay pose, " +
-                    "leave forward and continue through the vehicle gate along the exterior " +
-                    "access road.");
+                    "Customer loading departure must start at the internal loading bay and " +
+                    "follow the exact forward-only outbound contour.");
                 GameObject alignmentWorkerPrefab =
                     RequireAsset<GameObject>(WarehouseWorkerPrefabPath);
-                GameObject alignmentCustomerVehiclePrefab =
-                    RequireAsset<GameObject>(CustomerVehiclePrefabPath);
                 Transform carryAnchor =
                     alignmentWorkerPrefab.transform.Find("Carry Anchor");
-                Transform loadingTarget =
-                    alignmentCustomerVehiclePrefab.transform.Find("Loading Target");
-                Require(carryAnchor != null && loadingTarget != null,
-                    "Warehouse worker and customer vehicle prefabs must expose their authored " +
-                    "Carry Anchor and Loading Target transforms.");
+                Transform sourceLoadingTarget =
+                    CustomerVehicleProviderPoseUtility.RequireUniqueDescendant(
+                        alignmentSourceVehiclePrefab,
+                        "Loading Target");
+                Transform providerLoadingTarget =
+                    CustomerVehicleProviderPoseUtility.RequireUniqueDescendant(
+                        alignmentProviderVehiclePrefab,
+                        "Loading Target");
+                Require(carryAnchor != null,
+                    "Warehouse worker prefab must expose its authored Carry Anchor.");
+                Vector3 rearAxleLocalXZ =
+                    CustomerVehicleProviderPoseUtility.ResolveRearAxleLocalXZ(
+                        alignmentSourceVehiclePrefab);
+                Vector3 sourceLoadingTargetRootLocal =
+                    alignmentSourceVehiclePrefab.transform.InverseTransformPoint(
+                        sourceLoadingTarget.position);
+                Vector3 providerLoadingTargetRootLocal =
+                    alignmentProviderVehiclePrefab.transform.InverseTransformPoint(
+                        providerLoadingTarget.position);
+                Require(Vector3.Distance(
+                            providerLoadingTargetRootLocal,
+                            sourceLoadingTargetRootLocal - rearAxleLocalXZ) <= 0.001f,
+                    $"The Gley provider Loading Target root-local position " +
+                    $"{providerLoadingTargetRootLocal} must preserve the source visual " +
+                    $"target {sourceLoadingTargetRootLocal} around rear axle " +
+                    $"{rearAxleLocalXZ}.");
                 SpawnPointMarker customerLoadingAccess = workerAccessPoints.Single(marker =>
                     marker.Id == SpawnPointId.WarehouseWorkerCustomerLoadingAccess);
                 Vector3 carriedProductWorldPosition =
@@ -9428,80 +10486,161 @@ namespace HardwareStore.Editor
                     customerLoadingAccess.transform.rotation * carryAnchor.localPosition;
                 Vector3 customerLoadingTargetWorldPosition =
                     loadingDepartureRoute[0].position +
-                    loadingDepartureRoute[0].rotation * loadingTarget.localPosition;
+                    loadingDepartureRoute[0].rotation *
+                    providerLoadingTargetRootLocal;
                 Require(Vector3.Distance(
                             carriedProductWorldPosition,
                             customerLoadingTargetWorldPosition) <= 0.03f,
                     $"The worker customer-loading access must align Carry Anchor " +
                     $"{carriedProductWorldPosition} with the rear-facing vehicle Loading " +
                     $"Target {customerLoadingTargetWorldPosition} within 0.03m.");
-                const float storagePadSouthEdgeZ = 3.25f;
-                const float rearFacingVehicleMaxZOffset = 3.2f;
-                const float workerTrolleyHullHalfLocalX = 1f;
-                const float workerTrolleyHullHalfLocalZ = 1.05f;
-                const float workerTrolleyHullCenterLocalZ = 0.15f;
-                float workerTrolleyRunMinZ =
-                    expectedWorkerTrolleyHome.position.z -
-                    workerTrolleyHullHalfLocalX;
-                float workerTrolleyRunMaxZ =
-                    expectedWorkerTrolleyHome.position.z +
-                    workerTrolleyHullHalfLocalX;
-                float workerTrolleyHomeMinX =
-                    expectedWorkerTrolleyHome.position.x +
-                    workerTrolleyHullCenterLocalZ -
-                    workerTrolleyHullHalfLocalZ;
-                float workerTrolleyHomeMaxX =
-                    expectedWorkerTrolleyHome.position.x +
-                    workerTrolleyHullCenterLocalZ +
-                    workerTrolleyHullHalfLocalZ;
-                float workerTrolleyLoadingMinX =
-                    expectedWorkerTrolleyCustomerLoading.position.x +
-                    workerTrolleyHullCenterLocalZ -
-                    workerTrolleyHullHalfLocalZ;
-                float workerTrolleyLoadingMaxX =
-                    expectedWorkerTrolleyCustomerLoading.position.x +
-                    workerTrolleyHullCenterLocalZ +
-                    workerTrolleyHullHalfLocalZ;
-                float rearFacingVehicleMaxZ =
-                    loadingDepartureRoute[0].position.z +
-                    rearFacingVehicleMaxZOffset;
-                float workerTrolleyVehicleClearance =
-                    workerTrolleyRunMinZ - rearFacingVehicleMaxZ;
-                float workerTrolleyStorageClearance =
-                    storagePadSouthEdgeZ - workerTrolleyRunMaxZ;
+                float storagePadFrontEdgeZ =
+                    PrototypeYardLayoutSpec.StorageOffset.z + 6.5f - 3.25f;
+                float southFenceInsideEdgeZ =
+                    PrototypeYardLayoutSpec.YardFrontZ + 0.09f;
                 NavMeshAgent alignmentWorkerAgent =
                     alignmentWorkerPrefab.GetComponent<NavMeshAgent>();
-                float directHandAccessClearance =
-                    customerLoadingAccess.transform.position.x -
-                    workerTrolleyHomeMaxX - alignmentWorkerAgent.radius;
-                Vector3 trolleyRun =
-                    expectedWorkerTrolleyCustomerLoading.position -
-                    expectedWorkerTrolleyHome.position;
-                Vector3 trolleyForward =
-                    expectedWorkerTrolleyHome.rotation * Vector3.forward;
-                Require(Mathf.Approximately(
-                            expectedWorkerTrolleyHome.rotation.eulerAngles.y,
-                            expectedWorkerTrolleyCustomerLoading.rotation.eulerAngles.y) &&
-                        Mathf.Approximately(
-                            expectedWorkerTrolleyHome.position.z,
-                            expectedWorkerTrolleyCustomerLoading.position.z) &&
-                        Mathf.Approximately(trolleyRun.magnitude, 2f) &&
-                        Vector3.Dot(trolleyRun.normalized, trolleyForward) >= 0.999f &&
-                        Mathf.Approximately(workerTrolleyHomeMinX, 3.1f) &&
-                        Mathf.Approximately(workerTrolleyHomeMaxX, 5.2f) &&
-                        Mathf.Approximately(workerTrolleyLoadingMinX, 5.1f) &&
-                        Mathf.Approximately(workerTrolleyLoadingMaxX, 7.2f) &&
-                        Mathf.Approximately(workerTrolleyRunMinZ, 0.95f) &&
-                        Mathf.Approximately(workerTrolleyRunMaxZ, 2.95f) &&
-                        Mathf.Approximately(rearFacingVehicleMaxZ, 0.7f) &&
-                        workerTrolleyVehicleClearance >= 0.249f &&
-                        workerTrolleyStorageClearance >= 0.299f &&
-                        directHandAccessClearance >= 0.479f,
-                    "The forward-facing +X worker-trolley run must preserve its exact " +
-                    "home/loading hulls and clearances: " +
-                    $"vehicle {workerTrolleyVehicleClearance:0.###}m, Storage Pad " +
-                    $"{workerTrolleyStorageClearance:0.###}m, direct hand access " +
-                    $"{directHandAccessClearance:0.###}m.");
+                NavMeshObstacle alignmentCustomerVehicleObstacle =
+                    alignmentSourceVehiclePrefab.GetComponent<NavMeshObstacle>();
+                Transform alignmentCustomerVehicleBodyTransform =
+                    alignmentSourceVehiclePrefab.transform.Find("Body Collider");
+                BoxCollider alignmentCustomerVehicleBody =
+                    alignmentCustomerVehicleBodyTransform?.GetComponent<BoxCollider>();
+                Transform alignmentWorkerTrolleyBodyTransform =
+                    workerTrolleyPrefab.transform.Find("Body Collider");
+                BoxCollider alignmentWorkerTrolleyBody =
+                    alignmentWorkerTrolleyBodyTransform?.GetComponent<BoxCollider>();
+                Require(alignmentWorkerAgent != null &&
+                        alignmentCustomerVehicleObstacle != null &&
+                        alignmentCustomerVehicleBody != null &&
+                        alignmentWorkerTrolleyBody != null,
+                    "Customer vehicle and worker trolley prefabs must expose their validated " +
+                    "navigation and body hulls for loading-bay clearance checks.");
+                Pose loadingVisualPose = new(
+                    expectedLoadingDepartureVisualPositions[0],
+                    expectedLoadingDepartureRoute[0].rotation);
+                Bounds loadingObstacleBounds = ResolveOrientedBounds(
+                    loadingVisualPose,
+                    alignmentCustomerVehicleObstacle.center,
+                    alignmentCustomerVehicleObstacle.size);
+                Bounds customerTrolleyBounds = ResolveOrientedBounds(
+                    expectedWorkerTrolleyCustomerLoading,
+                    alignmentWorkerTrolleyBody.center,
+                    alignmentWorkerTrolleyBody.size);
+                Bounds homeTrolleyBounds = ResolveOrientedBounds(
+                    expectedWorkerTrolleyHome,
+                    alignmentWorkerTrolleyBody.center,
+                    alignmentWorkerTrolleyBody.size);
+                Bounds bypassTrolleyBounds = ResolveOrientedBounds(
+                    expectedWorkerInboundTrolleyStorageBypass,
+                    alignmentWorkerTrolleyBody.center,
+                    alignmentWorkerTrolleyBody.size);
+                Bounds inboundTrolleyBounds = ResolveOrientedBounds(
+                    expectedWorkerInboundTrolleyStorage,
+                    alignmentWorkerTrolleyBody.center,
+                    alignmentWorkerTrolleyBody.size);
+                float loadingObstacleMinX = loadingObstacleBounds.min.x;
+                float loadingObstacleMaxX = loadingObstacleBounds.max.x;
+                float loadingObstacleMaxZ = loadingObstacleBounds.max.z;
+                float loadingObstacleMinZ = loadingObstacleBounds.min.z;
+                float customerTrolleyMinZ = customerTrolleyBounds.min.z;
+                float customerTrolleyMaxZ = customerTrolleyBounds.max.z;
+                float inboundTrolleyMaxZ = inboundTrolleyBounds.max.z;
+                float storageLowObstacleWestEdgeX =
+                    PrototypeYardLayoutSpec.StorageOffset.x + 1.45f - 0.12f;
+                float homeTrolleyToStorageWestClearance =
+                    storageLowObstacleWestEdgeX - homeTrolleyBounds.max.x;
+                float homeTrolleyToStorageFrontClearance =
+                    storagePadFrontEdgeZ - homeTrolleyBounds.max.z;
+                float homePusherToStorageWestClearance =
+                    storageLowObstacleWestEdgeX -
+                    (homePusherPose.position.x + alignmentWorkerAgent.radius);
+                Vector3 inboundLane =
+                    expectedWorkerInboundTrolleyStorage.position -
+                    expectedWorkerInboundTrolleyStorageBypass.position;
+                Vector3 inboundLaneForward =
+                    expectedWorkerInboundTrolleyStorageBypass.rotation *
+                    Vector3.forward;
+                float customerVehicleToTrolleyClearance =
+                    customerTrolleyMinZ - loadingObstacleMaxZ;
+                float customerWorkerToVehicleClearance =
+                    workerAccessPoints[3].transform.position.z -
+                    alignmentWorkerAgent.radius - loadingObstacleMaxZ;
+                float loadingVehicleToFenceClearance =
+                    loadingObstacleMinZ - southFenceInsideEdgeZ;
+                float customerTrolleyToFenceClearance =
+                    customerTrolleyMinZ - southFenceInsideEdgeZ;
+                float customerPusherToFenceClearance =
+                    customerLoadingPusherPose.position.z - alignmentWorkerAgent.radius -
+                    southFenceInsideEdgeZ;
+                float customerWorkerToFenceClearance =
+                    workerAccessPoints[3].transform.position.z -
+                    alignmentWorkerAgent.radius - southFenceInsideEdgeZ;
+                float loadingToInboundBypassClearance =
+                    ResolvePlanarBoundsClearance(
+                        loadingObstacleBounds,
+                        bypassTrolleyBounds);
+                float loadingToInboundStorageClearance =
+                    Vector3.Distance(
+                        loadingObstacleBounds.center,
+                        inboundTrolleyBounds.center);
+                Require(Mathf.Abs(
+                            loadingObstacleMinX -
+                            (PrototypeYardLayoutSpec.CustomerLoadingX - 2f)) < 0.01f &&
+                        Mathf.Abs(
+                            loadingObstacleMaxX -
+                            (PrototypeYardLayoutSpec.CustomerLoadingX + 2f)) < 0.01f &&
+                        Mathf.Abs(
+                            loadingObstacleMaxZ -
+                            (PrototypeYardLayoutSpec.CustomerLoadingZ + 3.35f)) < 0.01f &&
+                        customerVehicleToTrolleyClearance >= 0.14f &&
+                        customerWorkerToVehicleClearance >= 0.4f &&
+                        loadingVehicleToFenceClearance >= 20f &&
+                        customerTrolleyToFenceClearance >= 20f &&
+                        customerPusherToFenceClearance >= 20f &&
+                        customerWorkerToFenceClearance >= 20f &&
+                        Mathf.Abs(expectedWorkerTrolleyCustomerLoading.position.x -
+                                  expectedLoadingDepartureVisualPositions[0].x) < 0.001f &&
+                        Mathf.Abs(workerAccessPoints[3].transform.position.x -
+                                  expectedLoadingDepartureVisualPositions[0].x) < 0.001f &&
+                        expectedWorkerTrolleyCustomerLoading.position.z >
+                        southFenceInsideEdgeZ &&
+                        customerLoadingPusherPose.position.z > southFenceInsideEdgeZ &&
+                        workerAccessPoints[3].transform.position.z >
+                        southFenceInsideEdgeZ &&
+                        homeTrolleyToStorageWestClearance >= 2f &&
+                        homeTrolleyToStorageFrontClearance >= 2f &&
+                        homePusherToStorageWestClearance >= 1f &&
+                        loadingToInboundBypassClearance >= 0.8f &&
+                        loadingToInboundStorageClearance >= 8f &&
+                        inboundTrolleyMaxZ <= storagePadFrontEdgeZ - 0.29f &&
+                        Quaternion.Angle(
+                            expectedWorkerInboundTrolleyStorageBypass.rotation,
+                            expectedWorkerInboundTrolleyStorage.rotation) < 0.1f &&
+                        inboundLane.z >= 1.9f &&
+                        Vector3.Dot(
+                            inboundLane.normalized, inboundLaneForward) >= 0.65f,
+                    "Customer loading vehicle, worker and trolley must align in the protected " +
+                    "drive-through bay, remain inside the yard and stay physically separated " +
+                    "from each other and the inbound-trolley corridor: " +
+                    $"vehicle x {loadingObstacleMinX:0.###}.." +
+                    $"{loadingObstacleMaxX:0.###}, z max {loadingObstacleMaxZ:0.###}; " +
+                    $"cart/vehicle {customerVehicleToTrolleyClearance:0.###}m, " +
+                    $"worker/vehicle {customerWorkerToVehicleClearance:0.###}m, " +
+                    $"vehicle/cart/pusher/worker to fence " +
+                    $"{loadingVehicleToFenceClearance:0.###}/" +
+                    $"{customerTrolleyToFenceClearance:0.###}/" +
+                    $"{customerPusherToFenceClearance:0.###}/" +
+                    $"{customerWorkerToFenceClearance:0.###}m, " +
+                    $"home cart west/front and pusher west clearances " +
+                    $"{homeTrolleyToStorageWestClearance:0.###}/" +
+                    $"{homeTrolleyToStorageFrontClearance:0.###}/" +
+                    $"{homePusherToStorageWestClearance:0.###}m, " +
+                    $"loading/inbound bypass/final " +
+                    $"{loadingToInboundBypassClearance:0.###}/" +
+                    $"{loadingToInboundStorageClearance:0.###}m, inbound z max " +
+                    $"{inboundTrolleyMaxZ:0.###}, lane dot " +
+                    $"{Vector3.Dot(inboundLane.normalized, inboundLaneForward):0.###}.");
                 foreach (CustomerParkingSpotSceneLayout parkingLayout in parkingLayouts)
                 {
                     Pose[] arrivalRoute = parkingLayout.VehicleArrivalRoute;
@@ -9510,86 +10649,85 @@ namespace HardwareStore.Editor
                         parkingLayout.VehicleParkingDepartureRoute;
                     Pose[] approachRoute = parkingLayout.CustomerApproachRoute;
                     Pose[] returnRoute = parkingLayout.CustomerReturnRoute;
-                    Require(arrivalRoute.Length == 5 && toLoadingRoute.Length == 10 &&
-                            parkingDepartureRoute.Length == 5 &&
-                            approachRoute.Length == 6 && returnRoute.Length == 6,
-                        $"Customer parking spot {parkingLayout.Index} has invalid route lengths.");
-                    Require(PoseMatches(arrivalRoute[^1], toLoadingRoute[0]) &&
-                            Vector3.Distance(
-                                arrivalRoute[^1].position,
-                                expectedParkingPositions[parkingLayout.Index]) < 0.001f,
-                        $"Customer parking spot {parkingLayout.Index} arrival and loading " +
-                        "routes must join at its exact authored parking pose.");
+                    Vector3 visualParkingPosition =
+                        expectedVisualParkingPositions[parkingLayout.Index];
+                    Vector3[] expectedArrivalPositions =
+                        PrototypeYardLayoutSpec.BuildArrivalVisualPositions(
+                            visualParkingPosition.x);
+                    Pose[] expectedArrivalRoute =
+                        CustomerVehicleProviderPoseUtility.BuildProviderRoute(
+                            alignmentSourceVehiclePrefab,
+                            expectedArrivalPositions);
+
+                    Vector3[] expectedToLoadingPositions =
+                        PrototypeYardLayoutSpec.BuildToLoadingVisualPositions(
+                            visualParkingPosition.x);
                     Pose[] expectedToLoadingRoute =
-                    {
-                        new(expectedParkingPositions[parkingLayout.Index],
-                            Quaternion.identity),
-                        new(new Vector3(
-                                expectedParkingPositions[parkingLayout.Index].x,
-                                0.02f,
-                                -26.5f),
-                            Quaternion.identity),
-                        new(new Vector3(
-                                expectedParkingPositions[parkingLayout.Index].x,
-                                0.02f,
-                                -30f),
-                            Quaternion.identity),
-                        new(new Vector3(0f, 0.02f, -30f),
-                            Quaternion.Euler(0f, 90f, 0f)),
-                        new(new Vector3(0f, 0.02f, -12.5f),
-                            Quaternion.identity),
-                        new(new Vector3(1.5f, 0.02f, -9f),
-                            Quaternion.Euler(0f, 25f, 0f)),
-                        new(new Vector3(4f, 0.02f, -7.5f),
-                            Quaternion.Euler(0f, 60f, 0f)),
-                        new(new Vector3(6f, 0.02f, -8f),
-                            Quaternion.Euler(0f, 120f, 0f)),
-                        new(new Vector3(6f, 0.02f, -10f),
-                            Quaternion.Euler(0f, 180f, 0f)),
-                        expectedLoadingDepartureRoute[0]
-                    };
-                    Require(Vector3.Distance(
-                                arrivalRoute[0].position,
-                                new Vector3(1.5f, 0.02f, -35f)) < 0.001f &&
-                            Mathf.Approximately(arrivalRoute[1].position.z, -30f) &&
-                            Mathf.Approximately(arrivalRoute[2].position.z, -30f) &&
-                            Mathf.Approximately(arrivalRoute[3].position.z, -26.5f) &&
-                            toLoadingRoute.Select((pose, index) =>
-                                    PoseMatches(pose, expectedToLoadingRoute[index]))
-                                .All(matches => matches),
-                        $"Customer parking spot {parkingLayout.Index} must maneuver outside " +
-                        "the fence, enter through the vehicle gate, turn in the yard and " +
-                        "reverse into the loading bay.");
+                        CustomerVehicleProviderPoseUtility.BuildProviderRoute(
+                            alignmentSourceVehiclePrefab,
+                            expectedToLoadingPositions);
+
+                    Vector3[] expectedParkingDeparturePositions =
+                        PrototypeYardLayoutSpec.BuildParkingDepartureVisualPositions(
+                            visualParkingPosition.x);
                     Pose[] expectedParkingDepartureRoute =
-                    {
-                        new(expectedParkingPositions[parkingLayout.Index],
-                            Quaternion.identity),
-                        new(new Vector3(
-                                expectedParkingPositions[parkingLayout.Index].x,
-                                0.02f,
-                                -26.5f),
-                            Quaternion.identity),
-                        new(new Vector3(
-                                expectedParkingPositions[parkingLayout.Index].x,
-                                0.02f,
-                                -30f),
-                            Quaternion.identity),
-                        new(new Vector3(1.5f, 0.02f, -30f),
-                            Quaternion.Euler(0f, 90f, 0f)),
-                        new(new Vector3(1.5f, 0.02f, -35f),
-                            Quaternion.Euler(0f, 180f, 0f))
-                    };
-                    Require(PoseMatches(arrivalRoute[^1], parkingDepartureRoute[0]) &&
-                            parkingDepartureRoute.Select((pose, index) =>
-                                    PoseMatches(
-                                        pose,
-                                        expectedParkingDepartureRoute[index]))
-                                .All(matches => matches),
-                        $"Customer parking spot {parkingLayout.Index} must expose its exact " +
-                        "authored exterior departure route for an impatient customer.");
-                    Require(PoseMatches(toLoadingRoute[^1], loadingDepartureRoute[0]),
-                        $"Customer parking spot {parkingLayout.Index} must enter the shared " +
-                        "loading bay without a pose discontinuity.");
+                        CustomerVehicleProviderPoseUtility.BuildProviderRoute(
+                            alignmentSourceVehiclePrefab,
+                            expectedParkingDeparturePositions);
+                    Pose[] expectedApproachRoute =
+                        PrototypeYardLayoutSpec.BuildCustomerApproachRoute(
+                            visualParkingPosition.x,
+                            expectedQueuePoses[^1]);
+                    Pose[] expectedReturnRoute =
+                        PrototypeYardLayoutSpec.BuildCustomerReturnRoute(
+                            visualParkingPosition.x,
+                            expectedQueuePoses[0],
+                            expectedQueueAbandonExitRoute[^1]);
+
+                    Require(arrivalRoute.Length == expectedArrivalRoute.Length &&
+                            toLoadingRoute.Length == expectedToLoadingRoute.Length &&
+                            parkingDepartureRoute.Length ==
+                            expectedParkingDepartureRoute.Length &&
+                            approachRoute.Length == expectedApproachRoute.Length &&
+                            returnRoute.Length == expectedReturnRoute.Length,
+                        $"Customer parking spot {parkingLayout.Index} has invalid route lengths.");
+                    Require(arrivalRoute.Select((pose, index) =>
+                                PoseMatches(pose, expectedArrivalRoute[index]))
+                            .All(matches => matches) &&
+                            PoseMatches(arrivalRoute[^1], toLoadingRoute[0]),
+                        $"Customer parking spot {parkingLayout.Index} must follow its exact " +
+                        "forward-only exterior arrival trunk and join the parking pose.");
+                    Require(toLoadingRoute.Select((pose, index) =>
+                                PoseMatches(pose, expectedToLoadingRoute[index]))
+                            .All(matches => matches) &&
+                            PoseMatches(toLoadingRoute[^1], loadingDepartureRoute[0]),
+                        $"Customer parking spot {parkingLayout.Index} must follow its exact " +
+                        "forward-only exterior route into the shared loading bay.");
+                    Require(parkingDepartureRoute.Select((pose, index) =>
+                                PoseMatches(
+                                    pose,
+                                    expectedParkingDepartureRoute[index]))
+                            .All(matches => matches),
+                        $"Customer parking spot {parkingLayout.Index} must expose the exact " +
+                        "forward-only street-departure contour without entering the yard.");
+                    Require(expectedArrivalPositions.All(position =>
+                                position.z <=
+                                PrototypeYardLayoutSpec.ParallelParkingZ + 0.001f) &&
+                            expectedParkingDeparturePositions.All(position =>
+                                position.z <=
+                                PrototypeYardLayoutSpec.ParallelParkingZ + 0.001f) &&
+                            expectedToLoadingPositions.Any(position =>
+                                Vector3.Distance(
+                                    position,
+                                    PrototypeYardLayoutSpec.Point(
+                                        PrototypeYardLayoutSpec.CustomerEntryX,
+                                        PrototypeYardLayoutSpec.YardFrontZ)) < 0.001f) &&
+                            Vector3.Distance(
+                                expectedToLoadingPositions[^1],
+                                expectedLoadingDepartureVisualPositions[0]) < 0.001f,
+                        $"Customer parking spot {parkingLayout.Index} must stay on the public " +
+                        "street until it takes the dedicated entry gate into the drive-through " +
+                        "loading loop.");
                     Require(PoseMatches(approachRoute[^1], queuePoses[^1]) &&
                             PoseMatches(returnRoute[0], queuePoses[0]) &&
                             PoseMatches(
@@ -9599,20 +10737,15 @@ namespace HardwareStore.Editor
                         $"Customer parking spot {parkingLayout.Index} pedestrian routes must " +
                         "connect door, queue tail, authored abandon exit and counter service " +
                         "poses.");
-                    Require(Vector3.Distance(
-                                approachRoute[2].position,
-                                new Vector3(-7.25f, 0.02f, -17.15f)) < 0.001f &&
-                            Vector3.Distance(
-                                approachRoute[3].position,
-                                new Vector3(-7.25f, 0.02f, -14.6f)) < 0.001f &&
-                            Vector3.Distance(
-                                returnRoute[2].position,
-                                new Vector3(-7.25f, 0.02f, -14.6f)) < 0.001f &&
-                            Vector3.Distance(
-                                returnRoute[3].position,
-                                new Vector3(-7.25f, 0.02f, -17.15f)) < 0.001f,
-                        $"Customer parking spot {parkingLayout.Index} pedestrians must cross " +
-                        "the south fence through the dedicated gate.");
+                    Require(approachRoute.Select((pose, index) =>
+                                PoseMatches(pose, expectedApproachRoute[index]))
+                            .All(matches => matches) &&
+                            returnRoute.Select((pose, index) =>
+                                PoseMatches(pose, expectedReturnRoute[index]))
+                            .All(matches => matches),
+                        $"Customer parking spot {parkingLayout.Index} pedestrians must use " +
+                        "the protected sidewalk and dedicated gate between the parallel bay " +
+                        "and the order counter.");
 
                     bool doorIsOnNavMesh = NavMesh.SamplePosition(
                         approachRoute[0].position,
@@ -9651,88 +10784,225 @@ namespace HardwareStore.Editor
                         "pedestrian NavMesh paths to and from the counter.");
                 }
 
-                for (int first = 0; first < expectedParkingPositions.Length; first++)
+                float southFenceOutsideEdgeZ =
+                    PrototypeYardLayoutSpec.YardFrontZ - 0.09f;
+                float publicTrafficLaneNorthEnvelopeZ =
+                    PrototypeYardLayoutSpec.PublicTrafficLaneZ +
+                    alignmentCustomerVehicleBody.size.x * 0.5f;
+                for (int first = 0;
+                     first < expectedVisualParkingPositions.Length;
+                     first++)
                 {
-                    Bounds firstVehicleBounds = new(
-                        expectedParkingPositions[first] + new Vector3(0f, 1f, -0.15f),
-                        new Vector3(2.3f, 2f, 6.1f));
-                    float southFenceClearance = -16.09f - firstVehicleBounds.max.z;
-                    Require(southFenceClearance >= 2.4f,
-                        $"Customer parking spot {first} must remain fully outside the south " +
-                        $"fence; clearance is {southFenceClearance:0.###}m.");
+                    Pose firstParkingVisualPose =
+                        PrototypeYardLayoutSpec.BuildParkingPose(
+                            expectedVisualParkingPositions[first].x);
+                    Bounds firstVehicleBounds = ResolveOrientedBounds(
+                        firstParkingVisualPose,
+                        alignmentCustomerVehicleBody.center,
+                        alignmentCustomerVehicleBody.size);
+                    float southFenceClearance =
+                        southFenceOutsideEdgeZ - firstVehicleBounds.max.z;
+                    float arrivalTrunkClearance =
+                        firstVehicleBounds.min.z - publicTrafficLaneNorthEnvelopeZ;
+                    float loadingBayClearance =
+                        loadingObstacleMinZ - firstVehicleBounds.max.z;
+                    Require(southFenceClearance >= 5.7f &&
+                            arrivalTrunkClearance >= 5.6f &&
+                            loadingBayClearance >= 28f,
+                        $"Parallel customer parking spot {first} must remain fully outside the " +
+                        "south fence and stay separated from the public through-lane and " +
+                        $"internal loading bay; clearances are " +
+                        $"{southFenceClearance:0.###}/{arrivalTrunkClearance:0.###}/" +
+                        $"{loadingBayClearance:0.###}m.");
                     for (int second = first + 1;
-                         second < expectedParkingPositions.Length;
+                         second < expectedVisualParkingPositions.Length;
                          second++)
                     {
-                        Bounds secondVehicleBounds = new(
-                            expectedParkingPositions[second] +
-                            new Vector3(0f, 1f, -0.15f),
-                            new Vector3(2.3f, 2f, 6.1f));
+                        Pose secondParkingVisualPose =
+                            PrototypeYardLayoutSpec.BuildParkingPose(
+                                expectedVisualParkingPositions[second].x);
+                        Bounds secondVehicleBounds = ResolveOrientedBounds(
+                            secondParkingVisualPose,
+                            alignmentCustomerVehicleBody.center,
+                            alignmentCustomerVehicleBody.size);
                         Require(!firstVehicleBounds.Intersects(secondVehicleBounds),
                             $"Customer parking spots {first} and {second} overlap for the " +
                             "authored vehicle body.");
                     }
                 }
 
-                foreach (CustomerParkingSpotSceneLayout movingLayout in parkingLayouts)
-                {
-                    Pose[] toLoadingRoute = movingLayout.VehicleToLoadingRoute;
-                    Vector3 sweptCenter = new(
-                        (toLoadingRoute[2].position.x + toLoadingRoute[3].position.x) * 0.5f,
-                        1.02f,
-                        toLoadingRoute[2].position.z + 0.15f);
-                    Vector3 sweptSize = new(
-                        Mathf.Abs(toLoadingRoute[3].position.x -
-                                  toLoadingRoute[2].position.x) + 2.3f,
-                        2f,
-                        6.1f);
-                    Bounds sweptBody = new(sweptCenter, sweptSize);
-                    for (int parkedIndex = 0;
-                         parkedIndex < expectedParkingPositions.Length;
-                         parkedIndex++)
-                    {
-                        if (parkedIndex == movingLayout.Index)
-                            continue;
-                        Bounds parkedBody = new(
-                            expectedParkingPositions[parkedIndex] +
-                            new Vector3(0f, 1f, -0.15f),
-                            new Vector3(2.3f, 2f, 6.1f));
-                        float clearance = parkedBody.min.z - sweptBody.max.z;
-                        Require(!sweptBody.Intersects(parkedBody) && clearance >= 2f,
-                            $"Customer parking spot {movingLayout.Index} loading route sweeps " +
-                            $"too close to occupied parking spot {parkedIndex}: " +
-                            $"clearance {clearance:0.###}m.");
-                    }
-                }
-
                 Transform[] allSceneTransforms = scene.GetRootGameObjects()
                     .SelectMany(root => root.GetComponentsInChildren<Transform>(true))
                     .ToArray();
+                Transform customerParallelParkingPocket = allSceneTransforms.SingleOrDefault(
+                    candidate => candidate.name == "Customer Parallel Parking Pocket");
+                Transform customerLoadingPad = allSceneTransforms.SingleOrDefault(candidate =>
+                    candidate.name == "Customer Loading Pad");
                 Transform customerAccessRoad = allSceneTransforms.SingleOrDefault(candidate =>
                     candidate.name == "Customer Access Road");
-                Transform southFenceFarLeft = allSceneTransforms.SingleOrDefault(candidate =>
-                    candidate.name == "South Fence Far Left");
-                Transform southFenceMidLeft = allSceneTransforms.SingleOrDefault(candidate =>
-                    candidate.name == "South Fence Mid Left");
-                Require(customerAccessRoad != null && southFenceFarLeft != null &&
-                        southFenceMidLeft != null,
-                    $"{PrototypeScenePath} must author the exterior customer road and " +
-                    "dedicated pedestrian gate.");
-                Bounds customerAccessRoadBounds =
-                    customerAccessRoad.GetComponent<Renderer>().bounds;
-                Bounds southFenceFarLeftBounds =
-                    southFenceFarLeft.GetComponent<Renderer>().bounds;
-                Bounds southFenceMidLeftBounds =
-                    southFenceMidLeft.GetComponent<Renderer>().bounds;
-                Require(customerAccessRoadBounds.min.x <= -16.99f &&
-                        customerAccessRoadBounds.max.x >= 5.99f &&
-                        customerAccessRoadBounds.min.z <= -38.99f &&
+                Transform southFenceWestEdge = allSceneTransforms.SingleOrDefault(candidate =>
+                    candidate.name == "South Fence West Edge");
+                Transform southFenceFreightToPedestrian =
+                    allSceneTransforms.SingleOrDefault(candidate =>
+                        candidate.name == "South Fence Freight To Pedestrian");
+                Transform southFencePedestrianToExit =
+                    allSceneTransforms.SingleOrDefault(candidate =>
+                        candidate.name == "South Fence Pedestrian To Exit");
+                Transform southFenceBetweenCustomerGates =
+                    allSceneTransforms.SingleOrDefault(candidate =>
+                        candidate.name == "South Fence Between Customer Gates");
+                Transform southFenceEastEdge = allSceneTransforms.SingleOrDefault(candidate =>
+                    candidate.name == "South Fence East Edge");
+                Transform customerLaneBarrierSouth = allSceneTransforms.SingleOrDefault(candidate =>
+                    candidate.name == "Customer Lane Barrier South");
+                Transform customerLaneBarrierNorth = allSceneTransforms.SingleOrDefault(candidate =>
+                    candidate.name == "Customer Lane Barrier North");
+                Require(customerParallelParkingPocket != null &&
+                        customerLoadingPad != null && customerAccessRoad != null &&
+                        southFenceWestEdge != null &&
+                        southFenceFreightToPedestrian != null &&
+                        southFencePedestrianToExit != null &&
+                        southFenceBetweenCustomerGates != null &&
+                        southFenceEastEdge != null &&
+                        customerLaneBarrierSouth != null &&
+                        customerLaneBarrierNorth != null,
+                    $"{PrototypeScenePath} must author the parallel parking pocket, internal " +
+                    "loading pad, public road, split south fence and customer-lane barriers.");
+                Renderer parkingPocketRenderer =
+                    customerParallelParkingPocket.GetComponent<Renderer>();
+                Renderer customerLoadingPadRenderer =
+                    customerLoadingPad.GetComponent<Renderer>();
+                Renderer customerAccessRoadRenderer =
+                    customerAccessRoad.GetComponent<Renderer>();
+                Require(parkingPocketRenderer != null && customerLoadingPadRenderer != null &&
+                        customerAccessRoadRenderer != null &&
+                        !customerAccessRoadRenderer.enabled &&
+                        Vector3.Distance(
+                            customerParallelParkingPocket.position,
+                            new Vector3(
+                                0f,
+                                0.015f,
+                                PrototypeYardLayoutSpec.ParallelParkingZ)) < 0.001f &&
+                        Vector3.Distance(
+                            customerParallelParkingPocket.lossyScale,
+                            new Vector3(69f, 0.03f, 3.4f)) < 0.001f &&
+                        Vector3.Distance(
+                            customerLoadingPad.position,
+                            new Vector3(
+                                PrototypeYardLayoutSpec.CustomerLoadingX,
+                                0.015f,
+                                PrototypeYardLayoutSpec.CustomerLoadingZ)) < 0.001f &&
+                        Vector3.Distance(
+                            customerLoadingPad.lossyScale,
+                            new Vector3(4f, 0.03f, 10f)) < 0.001f &&
+                        Vector3.Distance(
+                            customerAccessRoad.position,
+                            new Vector3(
+                                0f,
+                                -0.12f,
+                                PrototypeYardLayoutSpec.PublicRoadCenterZ)) < 0.001f &&
+                        Vector3.Distance(
+                            customerAccessRoad.lossyScale,
+                            new Vector3(100f, 0.24f, 26f)) < 0.001f,
+                    "The public road, parallel parking pocket and internal loading pad must " +
+                    "preserve the layout-spec geometry.");
+                var expectedSouthFenceSegments = new[]
+                {
+                    (Transform: southFenceWestEdge,
+                        Position: new Vector3(
+                            -19.25f, 1.15f, PrototypeYardLayoutSpec.YardFrontZ),
+                        Scale: new Vector3(1.5f, 2.3f, 0.18f)),
+                    (Transform: southFenceFreightToPedestrian,
+                        Position: new Vector3(
+                            -11f, 1.15f, PrototypeYardLayoutSpec.YardFrontZ),
+                        Scale: new Vector3(5f, 2.3f, 0.18f)),
+                    (Transform: southFencePedestrianToExit,
+                        Position: new Vector3(
+                            -1.75f, 1.15f, PrototypeYardLayoutSpec.YardFrontZ),
+                        Scale: new Vector3(8.5f, 2.3f, 0.18f)),
+                    (Transform: southFenceBetweenCustomerGates,
+                        Position: new Vector3(
+                            9.25f, 1.15f, PrototypeYardLayoutSpec.YardFrontZ),
+                        Scale: new Vector3(3.5f, 2.3f, 0.18f)),
+                    (Transform: southFenceEastEdge,
+                        Position: new Vector3(
+                            18f, 1.15f, PrototypeYardLayoutSpec.YardFrontZ),
+                        Scale: new Vector3(4f, 2.3f, 0.18f))
+                };
+                Require(expectedSouthFenceSegments.All(segment =>
+                            segment.Transform.GetComponent<Renderer>() != null &&
+                            Vector3.Distance(
+                                segment.Transform.position,
+                                segment.Position) < 0.001f &&
+                            Vector3.Distance(
+                                segment.Transform.lossyScale,
+                                segment.Scale) < 0.001f),
+                    "The split south fence must preserve the exact freight, pedestrian, exit " +
+                    "and entry gate geometry.");
+                Require(Vector3.Distance(
+                            customerLaneBarrierSouth.position,
+                            new Vector3(0.5f, 0.55f, -5f)) < 0.001f &&
+                        Vector3.Distance(
+                            customerLaneBarrierSouth.lossyScale,
+                            new Vector3(0.18f, 1.1f, 18f)) < 0.001f &&
+                        Vector3.Distance(
+                            customerLaneBarrierNorth.position,
+                            new Vector3(0.5f, 0.55f, 25f)) < 0.001f &&
+                        Vector3.Distance(
+                            customerLaneBarrierNorth.lossyScale,
+                            new Vector3(0.18f, 1.1f, 16f)) < 0.001f,
+                    "The customer drive-through barriers must preserve their separated north " +
+                    "and south segments at x=0.5.");
+                Bounds customerParallelParkingPocketBounds = parkingPocketRenderer.bounds;
+                Bounds customerAccessRoadBounds = customerAccessRoadRenderer.bounds;
+                Bounds southFenceWestEdgeBounds =
+                    southFenceWestEdge.GetComponent<Renderer>().bounds;
+                Bounds southFenceFreightToPedestrianBounds =
+                    southFenceFreightToPedestrian.GetComponent<Renderer>().bounds;
+                Bounds southFencePedestrianToExitBounds =
+                    southFencePedestrianToExit.GetComponent<Renderer>().bounds;
+                Bounds southFenceBetweenCustomerGatesBounds =
+                    southFenceBetweenCustomerGates.GetComponent<Renderer>().bounds;
+                Bounds southFenceEastEdgeBounds =
+                    southFenceEastEdge.GetComponent<Renderer>().bounds;
+                Bounds customerLaneBarrierSouthBounds =
+                    customerLaneBarrierSouth.GetComponent<Renderer>().bounds;
+                Bounds customerLaneBarrierNorthBounds =
+                    customerLaneBarrierNorth.GetComponent<Renderer>().bounds;
+                float freightGateWidth = southFenceFreightToPedestrianBounds.min.x -
+                                         southFenceWestEdgeBounds.max.x;
+                float pedestrianGateWidth = southFencePedestrianToExitBounds.min.x -
+                                            southFenceFreightToPedestrianBounds.max.x;
+                float customerExitGateWidth =
+                    southFenceBetweenCustomerGatesBounds.min.x -
+                    southFencePedestrianToExitBounds.max.x;
+                float customerEntryGateWidth = southFenceEastEdgeBounds.min.x -
+                                               southFenceBetweenCustomerGatesBounds.max.x;
+                Require(customerAccessRoadBounds.min.x <= -49.99f &&
+                        customerAccessRoadBounds.max.x >= 49.99f &&
+                        customerAccessRoadBounds.min.z <= -41.99f &&
                         customerAccessRoadBounds.max.z >= -16.01f &&
-                        southFenceFarLeftBounds.max.x <= -8.49f &&
-                        southFenceMidLeftBounds.min.x >= -6.01f &&
-                        southFenceMidLeftBounds.min.x - southFenceFarLeftBounds.max.x >= 2.49f,
-                    "The exterior access road and pedestrian gate must preserve their " +
-                    "authored clearances outside the yard fence.");
+                        customerParallelParkingPocketBounds.min.x <= -34.49f &&
+                        customerParallelParkingPocketBounds.max.x >= 34.49f &&
+                        Mathf.Abs(freightGateWidth - 5f) < 0.01f &&
+                        Mathf.Abs(pedestrianGateWidth - 2.5f) < 0.01f &&
+                        Mathf.Abs(customerExitGateWidth - 5f) < 0.01f &&
+                        Mathf.Abs(customerEntryGateWidth - 5f) < 0.01f &&
+                        Mathf.Abs(
+                            (southFencePedestrianToExitBounds.max.x +
+                             southFenceBetweenCustomerGatesBounds.min.x) * 0.5f -
+                            PrototypeYardLayoutSpec.CustomerExitX) < 0.01f &&
+                        Mathf.Abs(
+                            (southFenceBetweenCustomerGatesBounds.max.x +
+                             southFenceEastEdgeBounds.min.x) * 0.5f -
+                            PrototypeYardLayoutSpec.CustomerEntryX) < 0.01f &&
+                        loadingObstacleMinX - customerLaneBarrierSouthBounds.max.x >= 2.4f &&
+                        loadingObstacleMinZ - customerLaneBarrierSouthBounds.max.z >= 2.9f &&
+                        customerLaneBarrierNorthBounds.min.z -
+                        (customerLoadingPusherPose.position.z +
+                         alignmentWorkerAgent.radius) >= 0.17f,
+                    "The public road, parallel pocket, four south-yard gates and protected " +
+                    "customer loading lane must preserve their authored physical clearances.");
                 Require(allSceneTransforms.All(candidate => candidate.name != "Customer Truck"),
                     $"{PrototypeScenePath} must not contain the legacy static Customer Truck.");
                 Require(allSceneTransforms.All(candidate => candidate.name != "Customer"),
@@ -9796,11 +11066,24 @@ namespace HardwareStore.Editor
                     marker.Id == SceneViewId.FreightStagingZone);
                 SlotsRegistrar freightSlotsRegistrar =
                     freightStaging.GetComponent<SlotsRegistrar>();
-                Require(freightSlotsRegistrar != null &&
+                Transform freightStagingPad = allSceneTransforms.SingleOrDefault(candidate =>
+                    candidate.name == "Freight Staging Pad" && candidate.parent != null &&
+                    candidate.parent.name == "Rear Freight Yard");
+                Require(freightStaging.name == "Freight Staging Zone" &&
+                        freightStaging.transform.parent != null &&
+                        freightStaging.transform.parent.name == "Rear Freight Yard" &&
+                        freightStagingPad != null &&
+                        Vector3.Distance(
+                            freightStagingPad.position,
+                            new Vector3(-5.5f, 0.035f, 46f)) < 0.001f &&
+                        Vector3.Distance(
+                            freightStagingPad.lossyScale,
+                            new Vector3(5f, 0.04f, 12f)) < 0.001f &&
+                        freightSlotsRegistrar != null &&
                         freightStaging.GetComponent<TransformRegistrar>() != null &&
                         freightStaging.GetComponent<InteractionViewRegistrar>() == null,
-                    "Freight staging must expose generic Transform and Slots registrars " +
-                    "without becoming an interaction target.");
+                    "Rear Freight Yard must own the exact staging pad and non-interactive " +
+                    "freight zone with generic Transform and Slots registrars.");
                 Transform[] freightSlots = ReadSlots(
                     freightSlotsRegistrar,
                     PrototypeScenePath);
@@ -9810,9 +11093,9 @@ namespace HardwareStore.Editor
                 for (int index = 0; index < freightSlots.Length; index++)
                 {
                     Vector3 expectedPosition = new(
-                        18.5f,
+                        -5.5f,
                         0.03f,
-                        -3.3f + index * 2.2f);
+                        42.7f + index * 2.2f);
                     Require(freightSlots[index].name == $"Pallet Slot {index + 1}" &&
                             freightSlots[index].IsChildOf(freightStaging.transform) &&
                             Vector3.Distance(
@@ -9832,16 +11115,29 @@ namespace HardwareStore.Editor
                             Mathf.Max(maximum.y, geometry.y),
                             Mathf.Max(maximum.z, geometry.z)));
                 Transform materialsStorage = storage.transform.parent;
+                Vector3 storageIntakeLocalPosition = new(5f, 1.8f, 6.5f);
+                Vector3 expectedStorageIntakePosition =
+                    PrototypeYardLayoutSpec.StorageOffset + storageIntakeLocalPosition;
+                Require(materialsStorage != null &&
+                        materialsStorage.name == "Materials Storage" &&
+                        Vector3.Distance(
+                            materialsStorage.position,
+                            PrototypeYardLayoutSpec.StorageOffset) < 0.001f &&
+                        materialsStorage.rotation == Quaternion.identity &&
+                        materialsStorage.lossyScale == Vector3.one,
+                    "Materials Storage must preserve the layout-spec depth offset as one " +
+                    "unrotated, unit-scale authoring root.");
                 for (int index = 0; index < storageSlots.Length; index++)
                 {
                     int levelIndex = index / 9;
                     int levelSlotIndex = index % 9;
                     int columnIndex = levelSlotIndex % 3;
                     int rowIndex = levelSlotIndex / 3;
-                    Vector3 expectedPosition = new(
-                        2.4f + columnIndex * 1.9f,
-                        0.68f + levelIndex * 1.27f,
-                        4.4f + rowIndex * 2.05f);
+                    Vector3 expectedPosition = PrototypeYardLayoutSpec.StorageOffset +
+                                               new Vector3(
+                                                   2.4f + columnIndex * 1.9f,
+                                                   0.68f + levelIndex * 1.27f,
+                                                   4.4f + rowIndex * 2.05f);
                     Require(storageSlots[index].name == $"Stock Slot {index + 1}" &&
                             storageSlots[index].IsChildOf(materialsStorage) &&
                             Vector3.Distance(storageSlots[index].position, expectedPosition) <
@@ -9881,9 +11177,12 @@ namespace HardwareStore.Editor
                     "Every upper storage slot must clear its visible shelf beams for the " +
                     "largest product hull.");
                 Require(storage.name == "Storage Intake Target" &&
-                        materialsStorage != null &&
-                        materialsStorage.name == "Materials Storage" &&
-                        storage.transform.position == new Vector3(5f, 1.8f, 6.5f) &&
+                        Vector3.Distance(
+                            storage.transform.position,
+                            expectedStorageIntakePosition) < 0.001f &&
+                        Vector3.Distance(
+                            storage.transform.localPosition,
+                            storageIntakeLocalPosition) < 0.001f &&
                         storage.transform.rotation == Quaternion.identity &&
                         storage.transform.lossyScale == Vector3.one,
                     "Storage intake must be one centered, unit-scale proxy for the complete " +
@@ -9905,7 +11204,12 @@ namespace HardwareStore.Editor
                 Require(storagePad != null && storagePad.GetComponent<Renderer>() != null,
                     "Materials Storage must retain one visible storage pad.");
                 BoxCollider storageThreshold = storagePad.GetComponent<BoxCollider>();
-                Require(storagePad.position == new Vector3(5f, 0.1f, 6.5f) &&
+                Vector3 expectedStoragePadPosition =
+                    PrototypeYardLayoutSpec.StorageOffset +
+                    new Vector3(5f, 0.1f, 6.5f);
+                Require(Vector3.Distance(
+                            storagePad.position,
+                            expectedStoragePadPosition) < 0.001f &&
                         storagePad.rotation == Quaternion.identity &&
                         storagePad.lossyScale == new Vector3(7.5f, 0.2f, 6.5f) &&
                         storageThreshold != null && storageThreshold.enabled &&
@@ -9967,7 +11271,7 @@ namespace HardwareStore.Editor
                 }
 
                 Bounds storageIntakeVolume = new(
-                    storage.transform.position,
+                    expectedStorageIntakePosition,
                     new Vector3(7.5f, 3.4f, 6.5f));
                 foreach (Transform storageSlot in storageSlots)
                 {
@@ -9989,11 +11293,16 @@ namespace HardwareStore.Editor
                     candidate.parent.name == "Trolley Upgrade Station");
                 Require(trolleySpawn.gameObject.scene == scene &&
                         trolleySpawn.transform != trolleyUpgradeTerminal.transform &&
-                        Mathf.Approximately(trolleySpawn.transform.position.y, 0.01f) &&
+                        PoseMatches(
+                            trolleySpawn.Pose,
+                            PrototypeYardLayoutSpec.PlatformTrolleySpawnPose) &&
+                        PoseMatches(
+                            trolleySpawn.Pose,
+                            PrototypeYardLayoutSpec.WorkerTrolleyHomePose) &&
                         trolleyStationPad != null &&
                         trolleyStationPad.GetComponent<Collider>() == null,
-                    "The platform trolley must have one distinct authored runtime spawn pose " +
-                    "on yard level, and its station pad must remain decorative so it cannot " +
+                    "The purchased platform trolley must spawn in the worker's open equipment " +
+                    "bay, and its station pad must remain decorative so the terminal cannot " +
                     "block the trolley's first collision-safe movement.");
 
                 SceneViewMarker storeControlTerminal = sceneViews.Single(
@@ -10463,6 +11772,52 @@ namespace HardwareStore.Editor
         private static bool PoseMatches(Pose first, Pose second) =>
             Vector3.Distance(first.position, second.position) < 0.001f &&
             Quaternion.Angle(first.rotation, second.rotation) < 0.01f;
+
+        private static bool HasAreaRoot(Transform transform, PrototypeAreaId expectedId)
+        {
+            PrototypeAreaRoot areaRoot = transform.GetComponentInParent<PrototypeAreaRoot>();
+            return areaRoot != null && areaRoot.Id == expectedId;
+        }
+
+        private static Bounds ResolveOrientedBounds(
+            Pose rootPose,
+            Vector3 localCenter,
+            Vector3 localSize)
+        {
+            Vector3 halfSize = localSize * 0.5f;
+            Vector3 halfRight = rootPose.rotation * Vector3.right * halfSize.x;
+            Vector3 halfUp = rootPose.rotation * Vector3.up * halfSize.y;
+            Vector3 halfForward = rootPose.rotation * Vector3.forward * halfSize.z;
+            Vector3 extents = new(
+                Mathf.Abs(halfRight.x) + Mathf.Abs(halfUp.x) +
+                Mathf.Abs(halfForward.x),
+                Mathf.Abs(halfRight.y) + Mathf.Abs(halfUp.y) +
+                Mathf.Abs(halfForward.y),
+                Mathf.Abs(halfRight.z) + Mathf.Abs(halfUp.z) +
+                Mathf.Abs(halfForward.z));
+            return new Bounds(
+                rootPose.position + rootPose.rotation * localCenter,
+                extents * 2f);
+        }
+
+        private static float ResolvePlanarBoundsClearance(
+            Bounds first,
+            Bounds second)
+        {
+            float xGap = Mathf.Max(
+                first.min.x - second.max.x,
+                second.min.x - first.max.x);
+            float zGap = Mathf.Max(
+                first.min.z - second.max.z,
+                second.min.z - first.max.z);
+            if (xGap <= 0f && zGap <= 0f)
+                return Mathf.Max(xGap, zGap);
+
+            float separatedX = Mathf.Max(0f, xGap);
+            float separatedZ = Mathf.Max(0f, zGap);
+            return Mathf.Sqrt(
+                separatedX * separatedX + separatedZ * separatedZ);
+        }
 
         private static Pose ResolveWorkerTrolleyPusherPose(
             Pose trolleyPose,

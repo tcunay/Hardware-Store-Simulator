@@ -95,16 +95,56 @@ namespace HardwareStore.Gameplay.Features.Customers.Systems
         private void ValidateVisit(GameEntity store, GameEntity visit)
         {
             if (visit == null || visit.isDestructed || !visit.isCustomerVisit ||
-                !visit.isCustomerVehicle || !visit.isRouteMover ||
+                !visit.isCustomerVehicle || !visit.isVehicleTrafficControlled ||
+                visit.isRouteMover ||
                 !visit.isLoadingZone || !visit.hasEntityId ||
                 !visit.hasCustomerVisitStoreEntityId ||
                 !visit.hasCustomerArrivalSequence ||
+                !visit.hasVehicleTrafficCommandSequence ||
+                visit.VehicleTrafficCommandSequence <= 0 ||
                 visit.CustomerVisitStoreEntityId != store.EntityId ||
                 visit.CustomerArrivalSequence < 0 ||
                 visit.CustomerArrivalSequence >= store.NextCustomerArrivalSequence)
             {
                 throw new InvalidOperationException(
                     $"Store {store.EntityId} has an invalid customer visit.");
+            }
+            bool viewBindingPending = !visit.hasView && !visit.hasViewPrefab &&
+                                      visit.hasSpawnPosition &&
+                                      visit.hasSpawnRotation &&
+                                      visit.isVehicleTrafficSpawnPending &&
+                                      !visit.isVehicleTrafficReady &&
+                                      !visit.hasVehicleTrafficRuntimeId;
+            bool viewBound = visit.hasView && !visit.hasViewPrefab &&
+                             !visit.hasSpawnPosition &&
+                             !visit.hasSpawnRotation &&
+                             !visit.isVehicleTrafficSpawnPending &&
+                             visit.isVehicleTrafficReady &&
+                             visit.hasVehicleTrafficRuntimeId &&
+                             visit.VehicleTrafficRuntimeId >= 0;
+            if (!viewBindingPending && !viewBound)
+            {
+                throw new InvalidOperationException(
+                    $"Customer vehicle {visit.EntityId} has an invalid view-binding " +
+                    $"state: hasView={visit.hasView}, " +
+                    $"hasViewPrefab={visit.hasViewPrefab}, " +
+                    $"hasSpawnPosition={visit.hasSpawnPosition}, " +
+                    $"hasSpawnRotation={visit.hasSpawnRotation}.");
+            }
+            if (viewBindingPending)
+            {
+                if (visit.hasTransform || visit.hasRigidbody || visit.hasColliders)
+                {
+                    throw new InvalidOperationException(
+                        $"Pending customer vehicle {visit.EntityId} has a partial view " +
+                        $"binding: hasTransform={visit.hasTransform}, " +
+                        $"hasRigidbody={visit.hasRigidbody}, " +
+                        $"hasColliders={visit.hasColliders}.");
+                }
+            }
+            else
+            {
+                ValidateVehiclePhysics(visit, usesTrafficProvider: true);
             }
 
             int lifecycleCount =
@@ -193,6 +233,17 @@ namespace HardwareStore.Gameplay.Features.Customers.Systems
                 throw new InvalidOperationException(
                     $"Customer vehicle {visit.EntityId} has invalid route state.");
             }
+            bool providerIsExecutingMove = visit.isVehicleTrafficSpawnPending ||
+                                           visit.isVehicleTrafficMoving;
+            if (providerIsExecutingMove != vehicleMoving ||
+                (visit.isVehicleTrafficMoving && !visit.isVehicleTrafficReady))
+            {
+                throw new InvalidOperationException(
+                    $"Customer vehicle {visit.EntityId} has invalid provider movement " +
+                    $"state: moving={visit.isVehicleTrafficMoving}, " +
+                    $"spawnPending={visit.isVehicleTrafficSpawnPending}, " +
+                    $"lifecycleMoving={vehicleMoving}.");
+            }
 
             GameEntity actor =
                 _gameContext.GetEntityWithCustomerActorVisitEntityId(visit.EntityId);
@@ -207,6 +258,75 @@ namespace HardwareStore.Gameplay.Features.Customers.Systems
                 ValidateActor(visit, actor);
         }
 
+        private static bool IsFinite(Vector3 value) =>
+            !float.IsNaN(value.x) && !float.IsInfinity(value.x) &&
+            !float.IsNaN(value.y) && !float.IsInfinity(value.y) &&
+            !float.IsNaN(value.z) && !float.IsInfinity(value.z);
+
+        private static void ValidateVehiclePhysics(GameEntity visit,
+            bool usesTrafficProvider)
+        {
+            if (!visit.hasTransform || !visit.hasRigidbody ||
+                !visit.hasColliders)
+            {
+                throw new InvalidOperationException(
+                    $"Bound customer vehicle {visit.EntityId} is missing registered " +
+                    $"physics data: hasTransform={visit.hasTransform}, " +
+                    $"hasRigidbody={visit.hasRigidbody}, " +
+                    $"hasColliders={visit.hasColliders}.");
+            }
+
+            Rigidbody body = visit.Rigidbody;
+            if (body.isKinematic || !body.useGravity || !body.detectCollisions ||
+                body.interpolation != RigidbodyInterpolation.Interpolate ||
+                body.collisionDetectionMode !=
+                CollisionDetectionMode.ContinuousDynamic ||
+                !IsFinite(body.linearVelocity) ||
+                !IsFinite(body.angularVelocity))
+            {
+                throw new InvalidOperationException(
+                    $"Customer vehicle {visit.EntityId} has an invalid dynamic physics " +
+                    $"configuration: isKinematic={body.isKinematic}, " +
+                    $"useGravity={body.useGravity}, " +
+                    $"detectCollisions={body.detectCollisions}, " +
+                    $"interpolation={body.interpolation}, " +
+                    $"collisionDetection={body.collisionDetectionMode}, " +
+                    $"constraints={body.constraints}, " +
+                    $"linearVelocity={body.linearVelocity}, " +
+                    $"angularVelocity={body.angularVelocity}.");
+            }
+
+            if (usesTrafficProvider)
+                return;
+
+            int solidColliderCount = 0;
+            PhysicsMaterial hullMaterial = null;
+            foreach (Collider collider in visit.Colliders)
+            {
+                if (collider == null)
+                {
+                    throw new InvalidOperationException(
+                        $"Customer vehicle {visit.EntityId} has a missing collider.");
+                }
+                if (!collider.enabled || collider.isTrigger)
+                    continue;
+
+                solidColliderCount++;
+                hullMaterial = collider.sharedMaterial;
+            }
+            if (solidColliderCount != 1 || hullMaterial == null ||
+                hullMaterial.dynamicFriction != 0f ||
+                hullMaterial.staticFriction != 0f ||
+                hullMaterial.frictionCombine != PhysicsMaterialCombine.Minimum)
+            {
+                throw new InvalidOperationException(
+                    $"Customer vehicle {visit.EntityId} requires one solid hull with " +
+                    "a zero-friction physics material so its route motor can overcome " +
+                    $"road contact: solidColliders={solidColliderCount}, " +
+                    $"material={hullMaterial?.name ?? "missing"}.");
+            }
+        }
+
         private void ValidateActor(GameEntity visit, GameEntity actor)
         {
             if (actor.isDestructed || !actor.isCustomer || !actor.isRouteMover ||
@@ -216,6 +336,30 @@ namespace HardwareStore.Gameplay.Features.Customers.Systems
                 throw new InvalidOperationException(
                     $"Customer visit {visit.EntityId} has an invalid actor.");
             }
+            bool viewBindingPending = !actor.hasView && actor.hasViewPrefab &&
+                                      actor.hasSpawnPosition &&
+                                      actor.hasSpawnRotation;
+            bool viewBound = actor.hasView && actor.hasViewPrefab &&
+                             !actor.hasSpawnPosition &&
+                             !actor.hasSpawnRotation;
+            if (!viewBindingPending && !viewBound)
+            {
+                throw new InvalidOperationException(
+                    $"Customer actor {actor.EntityId} has an invalid view-binding state.");
+            }
+            if (viewBindingPending)
+            {
+                if (actor.hasTransform || actor.hasRigidbody || actor.hasColliders)
+                {
+                    throw new InvalidOperationException(
+                        $"Pending customer actor {actor.EntityId} has a partial view binding.");
+                }
+            }
+            else
+            {
+                ValidateActorPhysics(actor);
+            }
+
             int actorLifecycleCount =
                 (actor.isCustomerApproachingCounter ? 1 : 0) +
                 (actor.isCustomerWaitingInQueue ? 1 : 0) +
@@ -269,6 +413,28 @@ namespace HardwareStore.Gameplay.Features.Customers.Systems
             {
                 throw new InvalidOperationException(
                     $"Returning customer {actor.EntityId} has invalid route state.");
+            }
+        }
+
+        private static void ValidateActorPhysics(GameEntity actor)
+        {
+            if (!actor.hasTransform || !actor.hasRigidbody || !actor.hasColliders ||
+                actor.Colliders == null || actor.Colliders.Length == 0)
+            {
+                throw new InvalidOperationException(
+                    $"Bound customer actor {actor.EntityId} is missing registered " +
+                    "physics data.");
+            }
+
+            Rigidbody body = actor.Rigidbody;
+            if (!body.isKinematic || body.useGravity || !body.detectCollisions ||
+                body.interpolation != RigidbodyInterpolation.None ||
+                body.collisionDetectionMode !=
+                CollisionDetectionMode.ContinuousSpeculative)
+            {
+                throw new InvalidOperationException(
+                    $"Customer actor {actor.EntityId} has an invalid route physics " +
+                    "configuration.");
             }
         }
 
@@ -516,7 +682,9 @@ namespace HardwareStore.Gameplay.Features.Customers.Systems
             GameEntity lane =
                 _gameContext.GetEntityWithCustomerTrafficLaneStoreEntityId(store.EntityId);
             if (lane == null || lane.isDestructed || !lane.isCustomerTrafficLane ||
-                !lane.hasEntityId)
+                !lane.hasEntityId ||
+                !lane.hasCustomerTrafficLaneStoreEntityId ||
+                lane.CustomerTrafficLaneStoreEntityId != store.EntityId)
             {
                 throw new InvalidOperationException(
                     $"Store {store.EntityId} has an invalid customer traffic lane.");

@@ -127,7 +127,11 @@ namespace HardwareStore.Gameplay.Features.Employees.Systems
             }
 
             _navigation.Stop(worker.NavigationAgent);
-            worker.Transform.rotation = worker.WarehouseWorkerPickupRotation;
+            _navigation.SetManualRotation(
+                worker.NavigationAgent, worker.WarehouseWorkerPickupRotation);
+            if (!_navigation.HasReachedRotation(worker.NavigationAgent,
+                    worker.WarehouseWorkerPickupRotation, 2f))
+                return;
             int deliverySlotIndex = product.DeliverySlotIndex;
             product.RemoveDeliverySlotIndex();
             product.AddReservedDeliverySlotIndex(deliverySlotIndex);
@@ -135,6 +139,8 @@ namespace HardwareStore.Gameplay.Features.Employees.Systems
             product.isProductPlacementDirty = true;
             worker.isHandsOccupied = true;
             worker.isCarryingProduct = true;
+            _navigation.SetAutomaticRotation(
+                worker.NavigationAgent, enabled: true);
             task.ReplaceWarehouseTaskStep(WarehouseTaskStepId.MovingToStorage);
             task.ReplaceWarehouseTaskTimeoutRemaining(_config.TaskTimeout);
             worker.ReplaceWarehouseWorkerStatus(
@@ -164,7 +170,8 @@ namespace HardwareStore.Gameplay.Features.Employees.Systems
                 return;
             }
 
-            CompleteStorage(worker, task, product);
+            if (!CompleteStorage(worker, task, product))
+                return;
         }
 
         private bool HasReached(GameEntity worker, Vector3 destination)
@@ -188,7 +195,7 @@ namespace HardwareStore.Gameplay.Features.Employees.Systems
             }
         }
 
-        private void CompleteStorage(GameEntity worker, GameEntity task,
+        private bool CompleteStorage(GameEntity worker, GameEntity task,
             GameEntity product)
         {
             GameEntity storageZone = _gameContext.GetEntityWithEntityId(
@@ -203,7 +210,11 @@ namespace HardwareStore.Gameplay.Features.Employees.Systems
             int slotIndex = task.WarehouseTaskReservedStorageSlotIndex;
             ValidateExclusiveReservation(task, storageZone, slotIndex);
             _navigation.Stop(worker.NavigationAgent);
-            worker.Transform.rotation = worker.WarehouseWorkerStorageRotation;
+            _navigation.SetManualRotation(
+                worker.NavigationAgent, worker.WarehouseWorkerStorageRotation);
+            if (!_navigation.HasReachedRotation(worker.NavigationAgent,
+                    worker.WarehouseWorkerStorageRotation, 2f))
+                return false;
             worker.isHandsOccupied = false;
             worker.isCarryingProduct = false;
             product.RemoveCarrierEntityId();
@@ -219,9 +230,12 @@ namespace HardwareStore.Gameplay.Features.Employees.Systems
             task.RemoveAssignedWorkerEntityId();
             task.RemoveWarehouseTaskReservedStorageSlotIndex();
             task.isDestructed = true;
+            _navigation.SetAutomaticRotation(
+                worker.NavigationAgent, enabled: true);
             worker.ReplaceWarehouseWorkerStatus(worker.isWorkerShiftActive
                 ? WarehouseWorkerStatusId.Idle
                 : WarehouseWorkerStatusId.OffShift);
+            return true;
         }
 
         private void ValidateExclusiveReservation(GameEntity ownerTask,

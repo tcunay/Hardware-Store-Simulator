@@ -30,8 +30,11 @@ namespace HardwareStore.Gameplay.Components
         Blocked,
         MovingToWorkerTrolley,
         MovingWorkerTrolleyToPickup,
+        LoadingWorkerTrolleyAtPickup,
         MovingWorkerTrolleyToStorage,
-        MovingWorkerTrolleyToCustomerLoading
+        MovingWorkerTrolleyToCustomerLoading,
+        MovingWorkerTrolleyToStorageApproach,
+        MovingWorkerTrolleyToStorageBypass
     }
 
     public enum WarehouseTaskBlockReasonId

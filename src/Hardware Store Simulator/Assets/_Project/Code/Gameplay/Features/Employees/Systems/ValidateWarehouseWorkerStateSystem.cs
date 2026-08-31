@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using Entitas;
 using HardwareStore.Gameplay.Common;
 using HardwareStore.Gameplay.Components;
+using UnityEngine;
 
 namespace HardwareStore.Gameplay.Features.Employees.Systems
 {
@@ -41,6 +42,41 @@ namespace HardwareStore.Gameplay.Features.Employees.Systems
 
         private void ValidateWorker(GameEntity worker)
         {
+            bool viewBindingPending = !worker.hasView && worker.hasViewPrefab &&
+                                      worker.hasSpawnPosition &&
+                                      worker.hasSpawnRotation;
+            bool viewBound = worker.hasView && worker.hasViewPrefab &&
+                             !worker.hasSpawnPosition &&
+                             !worker.hasSpawnRotation;
+            if (!viewBindingPending && !viewBound)
+            {
+                throw new InvalidOperationException(
+                    $"Warehouse worker {worker.EntityId} has an invalid view-binding " +
+                    $"state: hasView={worker.hasView}, " +
+                    $"hasViewPrefab={worker.hasViewPrefab}, " +
+                    $"hasSpawnPosition={worker.hasSpawnPosition}, " +
+                    $"hasSpawnRotation={worker.hasSpawnRotation}.");
+            }
+            if (viewBindingPending)
+            {
+                if (worker.hasTransform || worker.hasRigidbody ||
+                    worker.hasColliders || worker.hasNavigationAgent ||
+                    worker.hasCarryAnchor)
+                {
+                    throw new InvalidOperationException(
+                        $"Pending warehouse worker {worker.EntityId} has a partial view " +
+                        $"binding: hasTransform={worker.hasTransform}, " +
+                        $"hasRigidbody={worker.hasRigidbody}, " +
+                        $"hasColliders={worker.hasColliders}, " +
+                        $"hasNavigationAgent={worker.hasNavigationAgent}, " +
+                        $"hasCarryAnchor={worker.hasCarryAnchor}.");
+                }
+            }
+            else
+            {
+                ValidateWorkerPhysics(worker);
+            }
+
             GameEntity task = _gameContext.GetEntityWithAssignedWorkerEntityId(
                 worker.EntityId);
             bool moving = worker.WarehouseWorkerStatus is
@@ -98,6 +134,29 @@ namespace HardwareStore.Gameplay.Features.Employees.Systems
             {
                 throw new InvalidOperationException(
                     $"Blocked warehouse worker {worker.EntityId} still owns a task.");
+            }
+        }
+
+        private static void ValidateWorkerPhysics(GameEntity worker)
+        {
+            GameObject viewRoot = worker.View.gameObject;
+            if (!worker.hasTransform || !worker.hasRigidbody ||
+                !worker.hasColliders || !worker.hasNavigationAgent ||
+                !worker.hasCarryAnchor ||
+                viewRoot != worker.Rigidbody.gameObject ||
+                worker.Transform != viewRoot.transform ||
+                worker.NavigationAgent.gameObject != viewRoot ||
+                !worker.CarryAnchor.IsChildOf(viewRoot.transform) ||
+                !worker.Rigidbody.isKinematic || worker.Rigidbody.useGravity ||
+                !worker.Rigidbody.detectCollisions ||
+                worker.Rigidbody.interpolation !=
+                RigidbodyInterpolation.Interpolate ||
+                worker.NavigationAgent.updatePosition ||
+                worker.NavigationAgent.updateRotation)
+            {
+                throw new InvalidOperationException(
+                    $"Warehouse worker {worker.EntityId} has an invalid physics motor " +
+                    "configuration.");
             }
         }
 
@@ -293,14 +352,24 @@ namespace HardwareStore.Gameplay.Features.Employees.Systems
                 WarehouseTaskStepId.MovingToWorkerTrolley;
             bool movingToPickup = run.WarehouseTaskStep ==
                 WarehouseTaskStepId.MovingWorkerTrolleyToPickup;
+            bool loadingAtPickup = run.WarehouseTaskStep ==
+                WarehouseTaskStepId.LoadingWorkerTrolleyAtPickup;
+            bool movingToStorageBypass = run.WarehouseTaskStep ==
+                WarehouseTaskStepId.MovingWorkerTrolleyToStorageBypass;
             bool movingToStorage = run.WarehouseTaskStep ==
                 WarehouseTaskStepId.MovingWorkerTrolleyToStorage;
+            bool movingLoadedTrolley =
+                loadingAtPickup || movingToStorageBypass ||
+                movingToStorage;
             bool blocked = run.WarehouseTaskStep == WarehouseTaskStepId.Blocked;
             if (!available && !movingToTrolley && !movingToPickup &&
+                !loadingAtPickup && !movingToStorageBypass &&
                 !movingToStorage && !blocked)
                 throw InvalidTask(run);
             if ((available || blocked) && run.hasAssignedWorkerEntityId ||
-                (movingToTrolley || movingToPickup || movingToStorage) &&
+                (movingToTrolley || movingToPickup ||
+                 loadingAtPickup || movingToStorageBypass ||
+                 movingToStorage) &&
                 !run.hasAssignedWorkerEntityId ||
                 run.WarehouseRunProductCount < 1)
                 throw InvalidTask(run);
@@ -390,8 +459,8 @@ namespace HardwareStore.Gameplay.Features.Employees.Systems
                     product.hasCarrierEntityId || product.hasOrderLineEntityId ||
                     product.hasLoadingSlotIndex || product.isLooseProduct ||
                     product.hasTrolleyEntityId || product.hasTrolleySlotIndex ||
-                    movingToStorage != loadedOnTrolley ||
-                    !movingToStorage && !atDelivery)
+                    movingLoadedTrolley != loadedOnTrolley ||
+                    !movingLoadedTrolley && !atDelivery)
                 {
                     throw InvalidTask(run);
                 }
@@ -399,13 +468,13 @@ namespace HardwareStore.Gameplay.Features.Employees.Systems
 
             if (productCount != run.WarehouseRunProductCount)
                 throw InvalidTask(run);
-            if (movingToPickup || movingToStorage)
+            if (movingToPickup || movingLoadedTrolley)
             {
                 if (!trolley.hasTrolleyPusherEntityId ||
                     trolley.TrolleyPusherEntityId !=
                     run.AssignedWorkerEntityId ||
                     trolley.OccupiedTrolleySlotCount !=
-                    (movingToStorage ? productCount : 0))
+                    (movingLoadedTrolley ? productCount : 0))
                     throw InvalidTask(run);
             }
             else if (!blocked && trolley.OccupiedTrolleySlotCount != 0)
@@ -528,11 +597,14 @@ namespace HardwareStore.Gameplay.Features.Employees.Systems
                 WarehouseTaskStepId.MovingToWorkerTrolley;
             bool movingToStorage = run.WarehouseTaskStep ==
                 WarehouseTaskStepId.MovingWorkerTrolleyToStorage;
+            bool movingToStorageApproach = run.WarehouseTaskStep ==
+                WarehouseTaskStepId.MovingWorkerTrolleyToStorageApproach;
             bool movingToCustomer = run.WarehouseTaskStep ==
                 WarehouseTaskStepId.MovingWorkerTrolleyToCustomerLoading;
             bool available = run.WarehouseTaskStep == WarehouseTaskStepId.Available;
             bool blocked = run.WarehouseTaskStep == WarehouseTaskStepId.Blocked;
-            if (!movingToTrolley && !movingToStorage && !movingToCustomer &&
+            if (!movingToTrolley && !movingToStorageApproach &&
+                !movingToStorage && !movingToCustomer &&
                 !available && !blocked)
                 throw InvalidTask(run);
             GameEntity visit = _gameContext.GetEntityWithEntityId(
@@ -562,7 +634,8 @@ namespace HardwareStore.Gameplay.Features.Employees.Systems
                 validTrolley && trolley.TrolleyCapacity > 64)
                 throw InvalidTask(run);
             if ((available || blocked) && run.hasAssignedWorkerEntityId ||
-                (movingToTrolley || movingToStorage || movingToCustomer) &&
+                (movingToTrolley || movingToStorageApproach ||
+                 movingToStorage || movingToCustomer) &&
                 !run.hasAssignedWorkerEntityId)
                 throw InvalidTask(run);
 
@@ -633,7 +706,7 @@ namespace HardwareStore.Gameplay.Features.Employees.Systems
             if (!blocked && productCount != run.WarehouseRunProductCount ||
                 blocked && productCount > run.WarehouseRunProductCount)
                 throw InvalidTask(run);
-            if (movingToStorage || movingToCustomer)
+            if (movingToStorageApproach || movingToStorage || movingToCustomer)
             {
                 if (!trolley.hasTrolleyPusherEntityId ||
                     trolley.TrolleyPusherEntityId !=
@@ -695,7 +768,13 @@ namespace HardwareStore.Gameplay.Features.Employees.Systems
                     WarehouseWorkerStatusId.MovingToWorkerTrolley,
                 WarehouseTaskStepId.MovingWorkerTrolleyToPickup =>
                     WarehouseWorkerStatusId.MovingWorkerTrolleyToPickup,
+                WarehouseTaskStepId.LoadingWorkerTrolleyAtPickup =>
+                    WarehouseWorkerStatusId.MovingWorkerTrolleyToPickup,
+                WarehouseTaskStepId.MovingWorkerTrolleyToStorageBypass =>
+                    WarehouseWorkerStatusId.MovingWorkerTrolleyToStorage,
                 WarehouseTaskStepId.MovingWorkerTrolleyToStorage =>
+                    WarehouseWorkerStatusId.MovingWorkerTrolleyToStorage,
+                WarehouseTaskStepId.MovingWorkerTrolleyToStorageApproach =>
                     WarehouseWorkerStatusId.MovingWorkerTrolleyToStorage,
                 WarehouseTaskStepId.MovingWorkerTrolleyToCustomerLoading =>
                     WarehouseWorkerStatusId.MovingWorkerTrolleyToCustomerLoading,

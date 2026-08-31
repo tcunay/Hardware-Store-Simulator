@@ -24,6 +24,7 @@ namespace HardwareStore.Gameplay.StaticData
         public InteractionConfig Interaction { get; private set; }
         public EconomyConfig Economy { get; private set; }
         public ProductRecoveryConfig ProductRecovery { get; private set; }
+        public LocalTrafficConfig LocalTraffic { get; private set; }
         public PlatformTrolleyConfig PlatformTrolley { get; private set; }
         public ForkliftConfig Forklift { get; private set; }
         public FreightTruckConfig FreightTruck { get; private set; }
@@ -47,6 +48,8 @@ namespace HardwareStore.Gameplay.StaticData
             EconomyConfig economy = Load<EconomyConfig>(nameof(EconomyConfig));
             ProductRecoveryConfig productRecovery =
                 Load<ProductRecoveryConfig>(nameof(ProductRecoveryConfig));
+            LocalTrafficConfig localTraffic =
+                Load<LocalTrafficConfig>(nameof(LocalTrafficConfig));
             PlatformTrolleyConfig platformTrolley =
                 Load<PlatformTrolleyConfig>(nameof(PlatformTrolleyConfig));
             ForkliftConfig forklift = Load<ForkliftConfig>(nameof(ForkliftConfig));
@@ -79,6 +82,7 @@ namespace HardwareStore.Gameplay.StaticData
             interaction.Validate();
             economy.Validate();
             productRecovery.Validate();
+            localTraffic.Validate();
             platformTrolley.Validate();
             forklift.Validate();
             freightTruck.Validate();
@@ -111,6 +115,7 @@ namespace HardwareStore.Gameplay.StaticData
             Interaction = interaction;
             Economy = economy;
             ProductRecovery = productRecovery;
+            LocalTraffic = localTraffic;
             PlatformTrolley = platformTrolley;
             Forklift = forklift;
             FreightTruck = freightTruck;

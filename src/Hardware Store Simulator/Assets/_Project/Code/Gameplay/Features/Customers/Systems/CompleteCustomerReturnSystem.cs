@@ -36,7 +36,7 @@ namespace HardwareStore.Gameplay.Features.Customers.Systems
             GameEntity visit = _gameContext.GetEntityWithEntityId(
                 customer.CustomerActorVisitEntityId);
             if (visit == null || !visit.isCustomerVisit || !visit.isCustomerVehicle ||
-                !visit.isRouteMover || !visit.isCustomerVisitReturning ||
+                !visit.isVehicleTrafficControlled || !visit.isCustomerVisitReturning ||
                 !visit.isOrder || !visit.hasEntityId ||
                 !visit.hasReservedCustomerParkingSpotEntityId ||
                 visit.isInteractable || visit.hasRoute ||

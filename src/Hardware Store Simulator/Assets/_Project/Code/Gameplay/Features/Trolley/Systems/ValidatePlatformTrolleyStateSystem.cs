@@ -3,6 +3,7 @@ using Entitas;
 using HardwareStore.Gameplay.Common;
 using HardwareStore.Gameplay.Components;
 using UnityEngine;
+using UnityEngine.AI;
 
 namespace HardwareStore.Gameplay.Features.Trolley.Systems
 {
@@ -24,6 +25,7 @@ namespace HardwareStore.Gameplay.Features.Trolley.Systems
                     GameMatcher.TrolleyFollowDistance,
                     GameMatcher.Transform,
                     GameMatcher.Rigidbody,
+                    GameMatcher.NavMeshObstacle,
                     GameMatcher.Slots)
                 .NoneOf(GameMatcher.Destructed));
         }
@@ -55,6 +57,22 @@ namespace HardwareStore.Gameplay.Features.Trolley.Systems
         {
             GameEntity store =
                 _gameContext.GetEntityWithEntityId(trolley.TrolleyStoreEntityId);
+            bool parkedBody = trolley.Rigidbody.isKinematic &&
+                              !trolley.Rigidbody.useGravity;
+            bool physicallyHitchedWorkerBody = trolley.isWorkerTrolley &&
+                                               !trolley.Rigidbody.isKinematic &&
+                                               trolley.Rigidbody.useGravity;
+            NavMeshObstacle obstacle = trolley.NavMeshObstacle;
+            bool validNavigationObstacle =
+                obstacle.gameObject == trolley.Rigidbody.gameObject &&
+                trolley.Transform == trolley.Rigidbody.transform &&
+                obstacle.shape == NavMeshObstacleShape.Box &&
+                obstacle.center == new Vector3(0f, 0.27f, 0.15f) &&
+                obstacle.size == new Vector3(2f, 0.5f, 2.1f) &&
+                obstacle.carving && obstacle.carveOnlyStationary &&
+                Mathf.Approximately(obstacle.carvingMoveThreshold, 0.05f) &&
+                Mathf.Approximately(obstacle.carvingTimeToStationary, 0.1f) &&
+                obstacle.enabled == !trolley.hasTrolleyPusherEntityId;
             if (store == null || !store.isStore || store.isDestructed ||
                 trolley.TrolleyCapacity <= 0 ||
                 trolley.Slots.Length != trolley.TrolleyCapacity ||
@@ -64,7 +82,8 @@ namespace HardwareStore.Gameplay.Features.Trolley.Systems
                 trolley.TrolleyFollowDistance <= 0f ||
                 !IsFinite(trolley.TrolleyMovementSpeed) ||
                 !IsFinite(trolley.TrolleyFollowDistance) ||
-                !trolley.Rigidbody.isKinematic || trolley.Rigidbody.useGravity)
+                !validNavigationObstacle ||
+                (!parkedBody && !physicallyHitchedWorkerBody))
             {
                 throw new InvalidOperationException(
                     $"Platform trolley {trolley.EntityId} has invalid configuration.");
