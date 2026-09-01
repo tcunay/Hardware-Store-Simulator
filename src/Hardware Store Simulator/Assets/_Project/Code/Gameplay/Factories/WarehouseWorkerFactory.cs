@@ -31,7 +31,7 @@ namespace HardwareStore.Gameplay.Factories
                 .AddWarehouseWorkerStoreEntityId(storeEntityId)
                 .AddWarehouseWorkerStatus(WarehouseWorkerStatusId.Idle)
                 .AddMovementSpeed(config.MovementSpeed)
-                .AddTrafficControlPolicy(TrafficControlPolicyId.NavMesh)
+                .AddTrafficControlPolicy(TrafficControlPolicyId.Uncontrolled)
                 .AddTrafficPriority((int)TrafficPriorityId.WarehouseWorker)
                 .AddTrafficDesiredVelocity(Vector3.zero)
                 .AddTrafficIntentDistance(0f)

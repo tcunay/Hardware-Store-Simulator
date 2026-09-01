@@ -365,7 +365,8 @@ namespace HardwareStore.Gameplay.Common.Physics
                     _sweepHits,
                     origin.Rotation,
                     distance,
-                    UnityEngine.Physics.AllLayers,
+                    GhostMoverCollisionProfile.WithoutGhostMover(
+                        UnityEngine.Physics.AllLayers),
                     QueryTriggerInteraction.Ignore);
                 if (hitCount < _sweepHits.Length)
                     return hitCount;
@@ -384,7 +385,8 @@ namespace HardwareStore.Gameplay.Common.Physics
                     halfExtents,
                     _overlapHits,
                     pose.Rotation,
-                    UnityEngine.Physics.AllLayers,
+                    GhostMoverCollisionProfile.WithoutGhostMover(
+                        UnityEngine.Physics.AllLayers),
                     QueryTriggerInteraction.Ignore);
                 if (hitCount < _overlapHits.Length)
                     return hitCount;

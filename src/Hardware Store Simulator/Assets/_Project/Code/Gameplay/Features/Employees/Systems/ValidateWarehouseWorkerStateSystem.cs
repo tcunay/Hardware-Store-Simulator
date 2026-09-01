@@ -2,8 +2,10 @@ using System;
 using System.Collections.Generic;
 using Entitas;
 using HardwareStore.Gameplay.Common;
+using HardwareStore.Gameplay.Common.Physics;
 using HardwareStore.Gameplay.Components;
 using UnityEngine;
+using UnityEngine.AI;
 
 namespace HardwareStore.Gameplay.Features.Employees.Systems
 {
@@ -143,6 +145,9 @@ namespace HardwareStore.Gameplay.Features.Employees.Systems
             if (!worker.hasTransform || !worker.hasRigidbody ||
                 !worker.hasColliders || !worker.hasNavigationAgent ||
                 !worker.hasCarryAnchor ||
+                !worker.hasTrafficControlPolicy ||
+                worker.TrafficControlPolicy !=
+                TrafficControlPolicyId.Uncontrolled ||
                 viewRoot != worker.Rigidbody.gameObject ||
                 worker.Transform != viewRoot.transform ||
                 worker.NavigationAgent.gameObject != viewRoot ||
@@ -152,12 +157,19 @@ namespace HardwareStore.Gameplay.Features.Employees.Systems
                 worker.Rigidbody.interpolation !=
                 RigidbodyInterpolation.Interpolate ||
                 worker.NavigationAgent.updatePosition ||
-                worker.NavigationAgent.updateRotation)
+                worker.NavigationAgent.updateRotation ||
+                worker.NavigationAgent.obstacleAvoidanceType !=
+                ObstacleAvoidanceType.NoObstacleAvoidance)
             {
                 throw new InvalidOperationException(
                     $"Warehouse worker {worker.EntityId} has an invalid physics motor " +
                     "configuration.");
             }
+
+            GhostMoverCollisionProfile.Validate(
+                worker.Rigidbody,
+                worker.Colliders,
+                GhostMoverCollisionProfile.GhostMover);
         }
 
         private void ValidateTask(GameEntity task)

@@ -102,7 +102,7 @@ NavMeshAgent:
   m_Height: 1.9
   m_BaseOffset: 0
   m_WalkableMask: 4294967295
-  m_ObstacleAvoidanceType: 4
+  m_ObstacleAvoidanceType: 0
 --- !u!114 &3186660101609175016
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -1477,7 +1477,7 @@ GameObject:
   m_Component:
   - component: {fileID: 3252684594007865569}
   - component: {fileID: 3693480890356567051}
-  m_Layer: 11
+  m_Layer: 13
   m_Name: Traffic Collider
   m_TagString: Untagged
   m_Icon: {fileID: 0}

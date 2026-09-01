@@ -78,7 +78,8 @@ namespace HardwareStore.Infrastructure.Installers
 
         private void BindContexts()
         {
-            Contexts contexts = Contexts.sharedInstance;
+            Contexts contexts = new Contexts();
+            Contexts.sharedInstance = contexts;
             Container.Bind<Contexts>().FromInstance(contexts).AsSingle();
             Container.Bind<GameContext>().FromInstance(contexts.game).AsSingle();
             Container.Bind<InputContext>().FromInstance(contexts.input).AsSingle();

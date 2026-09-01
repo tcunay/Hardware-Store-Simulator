@@ -52,6 +52,14 @@ namespace HardwareStore.Gameplay.Features.Customers.Systems
 
         private void Move(GameEntity routeMover)
         {
+            if (routeMover.isCustomer)
+            {
+                GhostMoverCollisionProfile.Apply(
+                    routeMover.Rigidbody,
+                    routeMover.Colliders,
+                    GhostMoverCollisionProfile.GhostMover);
+            }
+
             Pose[] route = routeMover.Route;
             int waypointIndex = routeMover.RouteWaypointIndex;
             if (route == null || route.Length < 2)

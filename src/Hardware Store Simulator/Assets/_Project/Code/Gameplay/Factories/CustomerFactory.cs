@@ -46,7 +46,7 @@ namespace HardwareStore.Gameplay.Factories
                 .AddMovementSpeed(config.MovementSpeed)
                 .AddRotationSpeed(config.RotationSpeed)
                 .AddWaypointTolerance(config.WaypointTolerance)
-                .AddTrafficControlPolicy(TrafficControlPolicyId.BrakeOnly)
+                .AddTrafficControlPolicy(TrafficControlPolicyId.Uncontrolled)
                 .AddTrafficPriority((int)TrafficPriorityId.CustomerPedestrian)
                 .AddTrafficDesiredVelocity(Vector3.zero)
                 .AddTrafficIntentDistance(0f)

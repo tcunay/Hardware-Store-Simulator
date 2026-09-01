@@ -1,6 +1,7 @@
 using System;
 using Entitas;
 using HardwareStore.Gameplay.Common;
+using HardwareStore.Gameplay.Common.Physics;
 using HardwareStore.Gameplay.Components;
 using UnityEngine;
 using UnityEngine.AI;
@@ -25,6 +26,7 @@ namespace HardwareStore.Gameplay.Features.Trolley.Systems
                     GameMatcher.TrolleyFollowDistance,
                     GameMatcher.Transform,
                     GameMatcher.Rigidbody,
+                    GameMatcher.Colliders,
                     GameMatcher.NavMeshObstacle,
                     GameMatcher.Slots)
                 .NoneOf(GameMatcher.Destructed));
@@ -38,6 +40,10 @@ namespace HardwareStore.Gameplay.Features.Trolley.Systems
                 if (trolley.isWorkerTrolley)
                 {
                     ValidateWorkerLease(trolley);
+                    GhostMoverCollisionProfile.Validate(
+                        trolley.Rigidbody,
+                        trolley.Colliders,
+                        GhostMoverCollisionProfile.GhostMover);
                     continue;
                 }
                 int cargoCount = ValidateCargo(trolley);
@@ -50,6 +56,12 @@ namespace HardwareStore.Gameplay.Features.Trolley.Systems
                 }
 
                 ValidatePusher(trolley);
+                GhostMoverCollisionProfile.Validate(
+                    trolley.Rigidbody,
+                    trolley.Colliders,
+                    trolley.hasTrolleyPusherEntityId
+                        ? GhostMoverCollisionProfile.TrafficObstacle
+                        : GhostMoverCollisionProfile.GhostMover);
             }
         }
 
@@ -59,9 +71,6 @@ namespace HardwareStore.Gameplay.Features.Trolley.Systems
                 _gameContext.GetEntityWithEntityId(trolley.TrolleyStoreEntityId);
             bool parkedBody = trolley.Rigidbody.isKinematic &&
                               !trolley.Rigidbody.useGravity;
-            bool physicallyHitchedWorkerBody = trolley.isWorkerTrolley &&
-                                               !trolley.Rigidbody.isKinematic &&
-                                               trolley.Rigidbody.useGravity;
             NavMeshObstacle obstacle = trolley.NavMeshObstacle;
             bool validNavigationObstacle =
                 obstacle.gameObject == trolley.Rigidbody.gameObject &&
@@ -72,7 +81,8 @@ namespace HardwareStore.Gameplay.Features.Trolley.Systems
                 obstacle.carving && obstacle.carveOnlyStationary &&
                 Mathf.Approximately(obstacle.carvingMoveThreshold, 0.05f) &&
                 Mathf.Approximately(obstacle.carvingTimeToStationary, 0.1f) &&
-                obstacle.enabled == !trolley.hasTrolleyPusherEntityId;
+                obstacle.enabled == (!trolley.isWorkerTrolley &&
+                                     !trolley.hasTrolleyPusherEntityId);
             if (store == null || !store.isStore || store.isDestructed ||
                 trolley.TrolleyCapacity <= 0 ||
                 trolley.Slots.Length != trolley.TrolleyCapacity ||
@@ -83,7 +93,7 @@ namespace HardwareStore.Gameplay.Features.Trolley.Systems
                 !IsFinite(trolley.TrolleyMovementSpeed) ||
                 !IsFinite(trolley.TrolleyFollowDistance) ||
                 !validNavigationObstacle ||
-                (!parkedBody && !physicallyHitchedWorkerBody))
+                !parkedBody)
             {
                 throw new InvalidOperationException(
                     $"Platform trolley {trolley.EntityId} has invalid configuration.");

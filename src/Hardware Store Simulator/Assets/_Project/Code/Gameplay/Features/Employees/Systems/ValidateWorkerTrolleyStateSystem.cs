@@ -1,5 +1,6 @@
 using System;
 using Entitas;
+using HardwareStore.Gameplay.Common.Physics;
 using HardwareStore.Gameplay.Components;
 using HardwareStore.Gameplay.Configs;
 using HardwareStore.Gameplay.StaticData;
@@ -70,25 +71,18 @@ namespace HardwareStore.Gameplay.Features.Employees.Systems
                 !trolley.Rigidbody.detectCollisions)
                 throw new InvalidOperationException(
                     $"Worker trolley {trolley.EntityId} has invalid configuration.");
-            bool parked = trolley.Rigidbody.isKinematic &&
-                          !trolley.Rigidbody.useGravity;
-            bool hitched = !trolley.Rigidbody.isKinematic &&
-                           trolley.Rigidbody.useGravity &&
-                           trolley.Rigidbody.interpolation ==
-                           RigidbodyInterpolation.Interpolate &&
-                           trolley.Rigidbody.collisionDetectionMode ==
-                           CollisionDetectionMode.ContinuousDynamic &&
-                           (trolley.Rigidbody.constraints &
-                            RigidbodyConstraints.FreezeRotationX) != 0 &&
-                           (trolley.Rigidbody.constraints &
-                            RigidbodyConstraints.FreezeRotationZ) != 0;
-            if (!trolley.hasTrolleyPusherEntityId && !parked ||
-                trolley.hasTrolleyPusherEntityId && !parked && !hitched)
+            if (!trolley.Rigidbody.isKinematic ||
+                trolley.Rigidbody.useGravity ||
+                trolley.Rigidbody.GetComponents<ConfigurableJoint>().Length != 0)
             {
                 throw new InvalidOperationException(
-                    $"Worker trolley {trolley.EntityId} has an invalid parked/hitched " +
-                    "physics state.");
+                    $"Worker trolley {trolley.EntityId} must use deterministic " +
+                    "kinematic follow without a ConfigurableJoint.");
             }
+            GhostMoverCollisionProfile.Validate(
+                trolley.Rigidbody,
+                trolley.Colliders,
+                GhostMoverCollisionProfile.GhostMover);
             foreach (UnityEngine.Transform slot in trolley.Slots)
             {
                 if (slot == null)
@@ -159,24 +153,6 @@ namespace HardwareStore.Gameplay.Features.Employees.Systems
                 throw new InvalidOperationException(
                     $"Worker trolley {trolley.EntityId} has an invalid pusher.");
 
-            if (!trolley.Rigidbody.isKinematic)
-            {
-                bool hasPhysicalHitch = false;
-                foreach (ConfigurableJoint joint in
-                         trolley.Rigidbody.GetComponents<ConfigurableJoint>())
-                {
-                    if (joint != null && joint.connectedBody == worker.Rigidbody)
-                    {
-                        hasPhysicalHitch = true;
-                        break;
-                    }
-                }
-                if (!hasPhysicalHitch)
-                {
-                    throw new InvalidOperationException(
-                        $"Worker trolley {trolley.EntityId} has an invalid physical hitch.");
-                }
-            }
         }
 
         private bool IsValidRunCargo(GameEntity run, GameEntity product)

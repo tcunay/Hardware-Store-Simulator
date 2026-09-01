@@ -64,11 +64,7 @@ namespace HardwareStore.Editor
         private static readonly string[] DynamicObstacleCollisionPrefabPaths =
         {
             "Assets/_Project/Prefabs/Gameplay/Player.prefab",
-            "Assets/_Project/Prefabs/Gameplay/Customer.prefab",
-            "Assets/_Project/Prefabs/Gameplay/WarehouseWorker.prefab",
-            "Assets/_Project/Prefabs/Gameplay/Forklift.prefab",
-            "Assets/_Project/Prefabs/Gameplay/PlatformTrolley.prefab",
-            "Assets/_Project/Prefabs/Gameplay/WarehouseWorkerTrolley.prefab"
+            "Assets/_Project/Prefabs/Gameplay/Forklift.prefab"
         };
 
         [MenuItem(MenuPath, priority = 150)]
@@ -572,9 +568,9 @@ namespace HardwareStore.Editor
             LayerSetup setup = RequireLayerSetup();
             int obstacleLayer = ResolveFirstLayer(setup.obstaclesLayers, "obstacle");
 
-            // Gley's Player layer is intended for a driven vehicle that implements
-            // ITrafficParticipant. Walking actors use the dynamic-obstacle layer so cars
-            // stop for them without trying to run FollowPlayer vehicle behaviour.
+            // Only solid player-controlled movers are authored as Gley obstacles here.
+            // NPCs and both trolley prefabs own the isolated GhostMover layer and must
+            // never be rewritten by traffic preparation.
             foreach (string prefabPath in DynamicObstacleCollisionPrefabPaths)
                 PrepareSolidColliderLayer(prefabPath, obstacleLayer, "obstacle");
         }

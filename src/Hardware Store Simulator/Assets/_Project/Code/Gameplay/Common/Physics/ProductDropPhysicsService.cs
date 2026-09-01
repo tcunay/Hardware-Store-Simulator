@@ -43,7 +43,8 @@ namespace HardwareStore.Gameplay.Common.Physics
                 direction,
                 _sweepHits,
                 forwardDistance,
-                UnityEngine.Physics.AllLayers,
+                GhostMoverCollisionProfile.WithoutGhostMover(
+                    UnityEngine.Physics.AllLayers),
                 QueryTriggerInteraction.Ignore);
             ThrowIfSaturated(sweepHitCount, _sweepHits.Length, "product drop sweep");
 
@@ -74,7 +75,8 @@ namespace HardwareStore.Gameplay.Common.Physics
                 position,
                 collisionRadius,
                 _overlapHits,
-                UnityEngine.Physics.AllLayers,
+                GhostMoverCollisionProfile.WithoutGhostMover(
+                    UnityEngine.Physics.AllLayers),
                 QueryTriggerInteraction.Ignore);
             ThrowIfSaturated(overlapHitCount, _overlapHits.Length, query);
 

@@ -11,7 +11,6 @@ namespace HardwareStore.Gameplay.Common.Physics
         IWarehouseWorkerPhysicsMotor
     {
         private const float MinimumMotion = 0.0001f;
-        private const float CollisionSkin = 0.025f;
         private const float BrakingMultiplier = 1.5f;
         private const int SolverIterations = 12;
         private const int SolverVelocityIterations = 4;
@@ -28,16 +27,15 @@ namespace HardwareStore.Gameplay.Common.Physics
         }
 
         public void Step(Rigidbody body, Collider[] colliders,
-            NavMeshAgent agent, Rigidbody coupledBody,
-            Collider[] coupledColliders, float maximumSpeed,
-            float acceleration, float angularSpeed, bool yielding)
+            NavMeshAgent agent, float maximumSpeed,
+            float acceleration, float angularSpeed)
         {
             if (body != null)
             {
                 body.solverIterations = SolverIterations;
                 body.solverVelocityIterations = SolverVelocityIterations;
             }
-            Validate(body, colliders, agent, coupledBody, coupledColliders,
+            Validate(body, colliders, agent,
                 maximumSpeed, acceleration, angularSpeed);
             float deltaTime = _time.FixedDeltaTime;
             if (!IsFinite(deltaTime) || deltaTime <= 0f)
@@ -49,8 +47,8 @@ namespace HardwareStore.Gameplay.Common.Physics
                 body, out Vector3 storedVelocity)
                 ? storedVelocity
                 : Vector3.zero;
-            Vector3 desiredVelocity = yielding || agent.isStopped ||
-                                      !agent.hasPath || agent.pathPending
+            Vector3 desiredVelocity = agent.isStopped || !agent.hasPath ||
+                                      agent.pathPending
                 ? Vector3.zero
                 : Vector3.ClampMagnitude(
                     Horizontal(agent.desiredVelocity), maximumSpeed);
@@ -61,22 +59,6 @@ namespace HardwareStore.Gameplay.Common.Physics
             Vector3 resolvedVelocity = Vector3.MoveTowards(
                 currentVelocity, desiredVelocity, rate * deltaTime);
             Vector3 displacement = resolvedVelocity * deltaTime;
-            if (displacement.sqrMagnitude > MinimumMotion * MinimumMotion)
-            {
-                Vector3 direction = displacement.normalized;
-                float allowedDistance = ResolveAllowedDistance(
-                    body, direction, displacement.magnitude);
-                if (coupledBody != null)
-                {
-                    allowedDistance = Mathf.Min(
-                        allowedDistance,
-                        ResolveAllowedDistance(
-                            coupledBody, direction, displacement.magnitude));
-                }
-
-                displacement = direction * allowedDistance;
-                resolvedVelocity = displacement / deltaTime;
-            }
 
             _linearVelocities[body] = resolvedVelocity;
             body.MovePosition(body.position + displacement);
@@ -96,26 +78,8 @@ namespace HardwareStore.Gameplay.Common.Physics
                 angularSpeed * deltaTime));
         }
 
-        private static float ResolveAllowedDistance(Rigidbody body,
-            Vector3 direction, float requestedDistance)
-        {
-            if (!body.SweepTest(
-                    direction,
-                    out RaycastHit hit,
-                    requestedDistance + CollisionSkin,
-                    QueryTriggerInteraction.Ignore))
-            {
-                return requestedDistance;
-            }
-
-            return Mathf.Min(
-                requestedDistance,
-                Mathf.Max(hit.distance - CollisionSkin, 0f));
-        }
-
         private static void Validate(Rigidbody body, Collider[] colliders,
-            NavMeshAgent agent, Rigidbody coupledBody,
-            Collider[] coupledColliders, float maximumSpeed,
+            NavMeshAgent agent, float maximumSpeed,
             float acceleration, float angularSpeed)
         {
             if (body == null)
@@ -142,57 +106,8 @@ namespace HardwareStore.Gameplay.Common.Physics
                     "Warehouse-worker NavMeshAgent must share the Rigidbody root and " +
                     "delegate pose ownership to the physics motor.");
             }
-            foreach (Collider collider in colliders)
-            {
-                if (collider == null || collider.attachedRigidbody != body ||
-                    !collider.enabled || collider.isTrigger)
-                {
-                    throw new InvalidOperationException(
-                        "Warehouse-worker colliders must be enabled solid shapes attached " +
-                        "to its Rigidbody.");
-                }
-            }
-            bool hasCoupledBody = coupledBody != null;
-            bool hasCoupledColliders = coupledColliders != null;
-            if (hasCoupledBody != hasCoupledColliders)
-            {
-                throw new InvalidOperationException(
-                    "Warehouse-worker coupled physics requires both body and colliders.");
-            }
-            if (hasCoupledBody)
-            {
-                if (!coupledBody.gameObject.activeInHierarchy ||
-                    coupledBody.isKinematic || !coupledBody.useGravity ||
-                    !coupledBody.detectCollisions || coupledColliders.Length == 0)
-                {
-                    throw new InvalidOperationException(
-                        "Warehouse-worker coupled body must be active, dynamic and " +
-                        "collision-enabled.");
-                }
-                bool hasSolidCoupledCollider = false;
-                foreach (Collider collider in coupledColliders)
-                {
-                    if (collider == null ||
-                        collider.attachedRigidbody != coupledBody)
-                    {
-                        throw new InvalidOperationException(
-                            "Warehouse-worker coupled colliders must belong to the " +
-                            "coupled Rigidbody.");
-                    }
-
-                    hasSolidCoupledCollider |=
-                        collider.enabled &&
-                        collider.gameObject.activeInHierarchy &&
-                        !collider.isTrigger;
-                }
-
-                if (!hasSolidCoupledCollider)
-                {
-                    throw new InvalidOperationException(
-                        "Warehouse-worker coupled body requires at least one enabled " +
-                        "solid collider.");
-                }
-            }
+            GhostMoverCollisionProfile.Validate(
+                body, colliders, GhostMoverCollisionProfile.GhostMover);
             if (!IsFinite(maximumSpeed) || maximumSpeed <= 0f ||
                 !IsFinite(acceleration) || acceleration <= 0f ||
                 !IsFinite(angularSpeed) || angularSpeed <= 0f)

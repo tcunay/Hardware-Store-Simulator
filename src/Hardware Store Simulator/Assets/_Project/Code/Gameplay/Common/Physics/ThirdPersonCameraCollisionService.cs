@@ -49,7 +49,8 @@ namespace HardwareStore.Gameplay.Common.Physics
                 direction,
                 _hits,
                 distance,
-                UnityEngine.Physics.AllLayers,
+                GhostMoverCollisionProfile.WithoutGhostMover(
+                    UnityEngine.Physics.AllLayers),
                 QueryTriggerInteraction.Ignore);
             if (hitCount >= _hits.Length)
             {

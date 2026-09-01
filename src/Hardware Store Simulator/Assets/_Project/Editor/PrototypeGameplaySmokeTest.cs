@@ -59,7 +59,7 @@ using Zenject;
 
 namespace HardwareStore.Editor
 {
-    public static class PrototypeGameplaySmokeTest
+    public static partial class PrototypeGameplaySmokeTest
     {
         private const string GleyCustomerVehiclePrefabPath =
             "Assets/_Project/Prefabs/Gameplay/CustomerVehicleGley.prefab";
@@ -1464,33 +1464,34 @@ namespace HardwareStore.Editor
 
             UnlockTrolleyUpgrade(runtime, scenario);
             GameEntity trolley = PurchaseTrolley(runtime, scenario);
+            runtime.Systems.Create<SyncTrolleyCollisionProfileSystem>().Execute();
             runtime.Systems.Create<SyncTrolleyNavigationObstacleSystem>().Execute();
             PurchaseAndPrepareArrival(
                 runtime,
                 scenario,
                 ProductTypeId.CementBag);
             runtime.Systems.Create<GenerateInboundStorageTaskSystem>().Execute();
+            runtime.Systems.Create<SyncTrolleyCollisionProfileSystem>().Execute();
+            runtime.Systems.Create<SyncTrolleyNavigationObstacleSystem>().Execute();
             GameEntity run = FindLiveInboundWorkerTrolleyRuns(runtime.Game).Single();
             GameEntity[] products = FindInboundWorkerTrolleyRunProducts(
                 runtime.Game,
                 run);
 
-            Vector3 pusherTarget = WorkerTrolleyLeaseUtility.GetPusherPosition(
+            RequireUncontrolledGhostMover(worker, "live warehouse worker");
+            RequireCollisionProfile(
                 trolley,
-                trolleyHome);
-            Vector3 directApproach = pusherTarget - worker.Rigidbody.position;
-            bool directSweepHit = worker.Rigidbody.SweepTest(
-                directApproach.normalized,
-                out RaycastHit directHit,
-                directApproach.magnitude,
-                QueryTriggerInteraction.Ignore);
+                "GhostMover",
+                "leased live platform trolley");
             Require(trolley.hasNavMeshObstacle &&
-                    trolley.NavMeshObstacle.enabled &&
+                    !trolley.NavMeshObstacle.enabled &&
                     trolley.NavMeshObstacle.carving &&
                     !trolley.hasTrolleyPusherEntityId &&
-                    directSweepHit && trolley.Colliders.Contains(directHit.collider),
-                "Natural docking smoke no longer starts from the reported direct physical " +
-                "collision course through the parked trolley body.");
+                    trolley.Rigidbody.isKinematic &&
+                    !trolley.Rigidbody.useGravity &&
+                    trolley.Rigidbody.GetComponents<ConfigurableJoint>().Length == 0,
+                "Natural docking smoke did not start with a non-carving, kinematic " +
+                "GhostMover trolley without a physical joint.");
 
             runtime.Systems.Create<AssignWarehouseTaskSystem>().Execute();
             Require(run.WarehouseTaskStep ==
@@ -1500,11 +1501,11 @@ namespace HardwareStore.Editor
                     WarehouseWorkerStatusId.MovingToWorkerTrolley &&
                     !trolley.hasTrolleyPusherEntityId &&
                     !worker.isPushingWorkerTrolley && !worker.isHandsOccupied,
-                "Live joint smoke setup did not preserve the natural unhitched inbound " +
+                "Live direct-follow smoke setup did not preserve the natural unclaimed inbound " +
                 "trolley approach.");
 
             Require(_workerTrolleyJointLiveSmoke == null,
-                "A worker-trolley joint live smoke is already running.");
+                "A worker-trolley direct-follow live smoke is already running.");
             _workerTrolleyJointLiveSmoke = new WorkerTrolleyJointLiveSmoke(
                 worker,
                 trolley,
@@ -1630,7 +1631,7 @@ namespace HardwareStore.Editor
                 "[Hardware Store] Warehouse-worker trolley smoke passed: hire without a " +
                 "private cart, purchased platform-trolley lease, one-product minimum and " +
                 "mixed batch 3, storage-access loading leg, player-claim quota race, exact " +
-                "cargo/loading slots, physical NavMesh collision sweeps, atomic unload, " +
+                "cargo/loading slots, ghost traversal and direct follow, atomic unload, " +
                 "returning-cart batch-2 redirect through Closing, " +
                 "report-safe release and restored player interaction.");
         }
@@ -1640,519 +1641,97 @@ namespace HardwareStore.Editor
         {
             Runtime runtime = ResolveRuntime();
             Scenario scenario = ResolveFreshScenario(runtime);
-            OpenStoreForSmoke(runtime, scenario);
-            scenario.Store.money.Value = 10000;
-            runtime.Systems.Create<ReconcileEditorMoneyOverrideSystem>().Execute();
-            SeedMinimumCustomerDemandStock(runtime, scenario);
-            UnlockWarehouseWorkerHiring(runtime, scenario);
-            GameEntity worker = HireWarehouseWorker(runtime, scenario);
-            UnlockTrolleyUpgrade(runtime, scenario);
-            GameEntity trolley = PurchaseTrolley(runtime, scenario);
-            DeliveryArrival arrival = PurchaseAndPrepareArrival(
+            PrepareWarehouseWorkerTrolleyBatch(
                 runtime,
                 scenario,
-                ProductTypeId.CementBag);
+                out GameEntity worker,
+                out GameEntity trolley,
+                out CustomerVisit visit,
+                out GameEntity run,
+                out GameEntity[] products);
 
-            CustomerVisit visit = SpawnAndParkCustomer(runtime, scenario);
-            OpenConsultation(runtime, scenario, visit.Entity);
-            GameEntity selectedOffer = SelectedConsultationOffer(
-                runtime.Game,
-                visit.Entity);
-            CustomerProjectOfferDefinition selectedDefinition = runtime.StaticData
-                .GetProject(visit.Entity.CustomerProjectType)
-                .Offers[selectedOffer.OfferIndex];
-            ConfirmConsultation(
-                runtime,
-                scenario,
-                visit.Entity,
-                selectedDefinition,
-                advanceToLoadingBay: false);
-            ReturnAcceptedCustomerToVehicleForLoadingBay(
-                runtime,
-                scenario,
-                visit.Entity);
-            runtime.Systems.Create<MoveCustomerVehicleToLoadingBaySystem>().Execute();
-            Require(visit.Entity.isCustomerVisitMovingToLoadingBay &&
-                    visit.Entity.hasReservedCustomerTrafficLaneEntityId &&
-                    visit.Entity.hasRoute && visit.Entity.hasRouteWaypointIndex &&
-                    Vector3.Distance(
-                        visit.Entity.Transform.position,
-                        worker.WarehouseWorkerPickupPosition) > 10f,
-                "The customer vehicle did not begin its distant loading-bay route.");
-            Pose farVehiclePose = new(
-                visit.Entity.Transform.position,
-                visit.Entity.Transform.rotation);
-
-            runtime.Systems.Create<GenerateInboundStorageTaskSystem>().Execute();
-            GameEntity run = FindLiveInboundWorkerTrolleyRuns(runtime.Game).Single();
-            GameEntity[] runProducts = FindInboundWorkerTrolleyRunProducts(
-                runtime.Game,
-                run);
-            Require(arrival.Products.Length == trolley.TrolleyCapacity &&
-                    run.WarehouseTaskStep == WarehouseTaskStepId.Available &&
-                    run.WarehouseTaskBlockReason == WarehouseTaskBlockReasonId.None &&
-                    run.WarehouseRunProductCount == trolley.TrolleyCapacity &&
-                    runProducts.Length == trolley.TrolleyCapacity &&
-                    run.WarehouseTaskWorkerTrolleyEntityId == trolley.EntityId &&
-                    trolley.isWorkerTrolley && !trolley.isInteractable,
-                "A distant customer vehicle globally blocked the capacity-sized inbound " +
-                "warehouse run.");
-
-            runtime.Systems.Create<AssignWarehouseTaskSystem>().Execute();
-            runtime.Systems.Create<ExecuteWorkerTrolleyInboundStorageRunSystem>()
-                .Execute();
-            runtime.Systems.Create<SyncTrafficIntentSystem>().Execute();
-            runtime.Systems.Create<ResolveLocalTrafficSystem>().Execute();
-            runtime.Systems.Create<ValidateLocalTrafficStateSystem>().Execute();
-            Require(run.WarehouseTaskStep ==
-                    WarehouseTaskStepId.MovingToWorkerTrolley &&
-                    worker.WarehouseWorkerStatus ==
-                    WarehouseWorkerStatusId.MovingToWorkerTrolley &&
-                    worker.NavigationAgent.isOnNavMesh &&
-                    worker.NavigationAgent.hasPath &&
-                    worker.NavigationAgent.pathStatus ==
-                    NavMeshPathStatus.PathComplete &&
-                    !worker.NavigationAgent.isStopped &&
-                    worker.TrafficDesiredVelocity.sqrMagnitude > 0.01f &&
-                    Mathf.Abs(worker.TrafficDesiredVelocity.y) < 0.001f &&
-                    Mathf.Abs(worker.TrafficDesiredVelocity.z) > 0.25f &&
-                    Mathf.Abs(worker.TrafficAngularIntent) > 30f &&
-                    !worker.isTrafficYielding &&
-                    !worker.hasTrafficConflictEntityId &&
-                    !worker.hasTrafficConflictCollider,
-                "The worker's real NavMesh approach to the purchased trolley was " +
-                "incorrectly paused by local traffic or did not exercise a turn.");
-            Pose homePose = new(
-                trolley.WorkerTrolleyHomePosition,
-                trolley.WorkerTrolleyHomeRotation);
-            MoveWorkerTrolleyToPose(worker, trolley, homePose);
-            runtime.Systems.Create<ExecuteWorkerTrolleyInboundStorageRunSystem>()
-                .Execute();
-            Require(run.WarehouseTaskStep ==
-                    WarehouseTaskStepId.MovingWorkerTrolleyToPickup &&
+            runtime.Systems.Create<SyncTrolleyCollisionProfileSystem>().Execute();
+            runtime.Systems.Create<SyncTrolleyNavigationObstacleSystem>().Execute();
+            RequireUncontrolledGhostMover(worker, "warehouse worker");
+            Require(worker.NavigationAgent.obstacleAvoidanceType ==
+                    ObstacleAvoidanceType.NoObstacleAvoidance,
+                "The ghost warehouse worker must disable NavMesh local obstacle avoidance.");
+            RequireCollisionProfile(
+                trolley,
+                "GhostMover",
+                "worker-leased platform trolley");
+            Require(trolley.isPlatformTrolley && trolley.isWorkerTrolley &&
+                    !trolley.isInteractable &&
                     trolley.hasTrolleyPusherEntityId &&
                     trolley.TrolleyPusherEntityId == worker.EntityId &&
-                    worker.isPushingWorkerTrolley && worker.isHandsOccupied,
-                "The worker did not attach the purchased trolley while the vehicle was far " +
-                "away.");
-
-            Pose pickupPose = WorkerTrolleyLeaseUtility.CreateAccessPose(
-                worker.WarehouseWorkerPickupPosition,
-                worker.WarehouseWorkerPickupRotation,
-                trolley.TrolleyFollowDistance);
-            MoveWorkerTrolleyToPose(worker, trolley, pickupPose);
-            runtime.Systems.Create<ExecuteWorkerTrolleyInboundStorageRunSystem>()
-                .Execute();
-            Require(run.WarehouseTaskStep ==
-                    WarehouseTaskStepId.LoadingWorkerTrolleyAtPickup,
-                "The traffic smoke skipped the explicit inbound loading phase.");
-            ExecuteProductPlacement(runtime);
-            runtime.Systems.Create<ExecuteWorkerTrolleyInboundStorageRunSystem>()
-                .Execute();
-            runProducts = FindInboundWorkerTrolleyRunProducts(runtime.Game, run);
-            Require(run.WarehouseTaskStep ==
-                    WarehouseTaskStepId.MovingWorkerTrolleyToStorageBypass &&
-                    worker.WarehouseWorkerStatus ==
-                    WarehouseWorkerStatusId.MovingWorkerTrolleyToStorage &&
-                    trolley.OccupiedTrolleySlotCount == trolley.TrolleyCapacity &&
-                    runProducts.All(product =>
+                    trolley.Rigidbody.isKinematic &&
+                    !trolley.Rigidbody.useGravity &&
+                    trolley.Rigidbody.GetComponents<ConfigurableJoint>().Length == 0 &&
+                    !trolley.NavMeshObstacle.enabled &&
+                    run.WarehouseTaskBlockReason == WarehouseTaskBlockReasonId.None &&
+                    products.Length > 0 &&
+                    products.All(product =>
                         product.hasWorkerTrolleyEntityId &&
-                        product.WorkerTrolleyEntityId == trolley.EntityId &&
-                        product.hasWorkerTrolleySlotIndex &&
-                        product.hasReservedDeliverySlotIndex &&
-                        !product.hasDeliverySlotIndex),
-                "The distant vehicle prevented the worker from loading the inbound trolley.");
+                        product.WorkerTrolleyEntityId == trolley.EntityId),
+                "The prepared worker trolley did not retain its kinematic GhostMover lease.");
 
-            runtime.Systems.Create<ExecuteWorkerTrolleyInboundStorageRunSystem>()
-                .Execute();
-            runtime.Systems.Create<SyncTrafficIntentSystem>().Execute();
-            runtime.Systems.Create<ResolveLocalTrafficSystem>().Execute();
-            runtime.Systems.Create<ValidateLocalTrafficStateSystem>().Execute();
-            Require(!worker.isTrafficYielding &&
-                    !worker.hasTrafficConflictEntityId &&
-                    !worker.hasTrafficConflictCollider &&
-                    !visit.Entity.isTrafficYielding &&
-                    run.WarehouseTaskStep ==
-                    WarehouseTaskStepId.MovingWorkerTrolleyToStorageBypass &&
-                    run.WarehouseTaskBlockReason == WarehouseTaskBlockReasonId.None,
-                "Distant traffic paused or blocked the active warehouse run.");
-
-            Pose conflictVehiclePose = visit.Entity.Route[^2];
-            RelocateSmokeTrafficVehicle(
-                runtime,
-                visit.Entity,
-                conflictVehiclePose);
-
-            Vector3 conflictForward =
-                conflictVehiclePose.rotation * Vector3.forward;
-            Vector3 clearanceAxis = -conflictForward;
-            Pose probeTrolleyPose = new(
-                conflictVehiclePose.position + clearanceAxis * 10f,
-                conflictVehiclePose.rotation);
-            MoveWorkerTrolleyToPose(worker, trolley, probeTrolleyPose);
-            Physics.SyncTransforms();
-            Collider vehicleHull = visit.Entity.Colliders.Single(collider =>
-                collider != null && collider.enabled && !collider.isTrigger);
-            Collider trolleyHull = trolley.Colliders.Single(collider =>
-                collider != null && collider.enabled && !collider.isTrigger);
-            BoxCollider vehicleBox = vehicleHull as BoxCollider ??
-                throw new InvalidOperationException(
-                    "Traffic-yield projection requires the authored vehicle box hull.");
-            BoxCollider trolleyBox = trolleyHull as BoxCollider ??
-                throw new InvalidOperationException(
-                    "Traffic-yield projection requires the authored trolley box hull.");
-            float trafficSafetyClearance =
-                runtime.StaticData.LocalTraffic.SafetyClearance;
-            Require(trafficSafetyClearance > 0.06f,
-                "Traffic-yield smoke requires enough safety clearance to create a " +
-                "non-overlapping predicted conflict.");
-            Vector3 vehicleCenter = vehicleBox.transform.TransformPoint(
-                vehicleBox.center);
-            Vector3 trolleyCenter = trolleyBox.transform.TransformPoint(
-                trolleyBox.center);
-            float vehicleExtent = ProjectBoxExtent(vehicleBox, clearanceAxis);
-            float trolleyExtent = ProjectBoxExtent(trolleyBox, clearanceAxis);
-            float probePhysicalGap = Vector3.Dot(
-                trolleyCenter - vehicleCenter,
-                clearanceAxis) - vehicleExtent - trolleyExtent;
-            float targetPhysicalGap = Mathf.Clamp(
-                trafficSafetyClearance * 0.5f,
-                0.05f,
-                trafficSafetyClearance - 0.01f);
-            Pose conflictTrolleyPose = new(
-                trolley.Transform.position + clearanceAxis *
-                (targetPhysicalGap - probePhysicalGap),
-                conflictVehiclePose.rotation);
-            MoveWorkerTrolleyToPose(worker, trolley, conflictTrolleyPose);
-            Physics.SyncTransforms();
-            trolleyCenter = trolleyBox.transform.TransformPoint(
-                trolleyBox.center);
-            float trolleyPhysicalGap = Vector3.Dot(
-                trolleyCenter - vehicleCenter,
-                clearanceAxis) - vehicleExtent - trolleyExtent;
-            float workerPhysicalGap = Vector3.Dot(
-                worker.Transform.position - vehicleCenter,
-                clearanceAxis) - worker.NavigationAgent.radius - vehicleExtent;
-            bool physicallyOverlaps = Physics.ComputePenetration(
-                vehicleHull,
-                vehicleHull.transform.position,
-                vehicleHull.transform.rotation,
-                trolleyHull,
-                trolleyHull.transform.position,
-                trolleyHull.transform.rotation,
-                out _,
-                out float penetrationDepth);
-            Require((!physicallyOverlaps || penetrationDepth <= 0.0001f) &&
-                    trolleyPhysicalGap > 0f &&
-                    trolleyPhysicalGap < trafficSafetyClearance,
-                "Traffic-yield setup physically overlapped the vehicle and trolley before " +
-                "prediction.");
-
-            Vector3 approachVelocity =
-                conflictVehiclePose.rotation * Vector3.forward *
-                                       worker.MovementSpeed;
-            float approachIntentDistance = trafficSafetyClearance;
-            Require(workerPhysicalGap >
-                    approachIntentDistance + trafficSafetyClearance,
-                "Traffic-yield setup let the worker footprint reach the vehicle without " +
-                "the coupled trolley footprint.");
-            worker.ReplaceTrafficDesiredVelocity(approachVelocity);
-            worker.ReplaceTrafficIntentDistance(approachIntentDistance);
-            trolley.ReplaceTrafficDesiredVelocity(approachVelocity);
-            trolley.ReplaceTrafficIntentDistance(approachIntentDistance);
-            visit.Entity.ReplaceTrafficDesiredVelocity(Vector3.zero);
-            visit.Entity.ReplaceTrafficIntentDistance(0f);
-
-            int runEntityId = run.EntityId;
-            int[] taskEntityIds = FindLiveWarehouseTasks(runtime.Game)
-                .Select(task => task.EntityId)
-                .OrderBy(id => id)
-                .ToArray();
-            int[] reservedStorageSlots = FindLiveWarehouseTasks(runtime.Game)
-                .OrderBy(task => task.EntityId)
-                .Select(task => task.WarehouseTaskReservedStorageSlotIndex)
-                .ToArray();
-            int[] productEntityIds = runProducts
-                .Select(product => product.EntityId)
-                .ToArray();
-            int[] trolleySlotIndices = runProducts
-                .Select(product => product.WorkerTrolleySlotIndex)
-                .ToArray();
-            int[] reservedDeliverySlots = runProducts
-                .Select(product => product.ReservedDeliverySlotIndex)
-                .ToArray();
-            Transform[] productParents = runProducts
-                .Select(product => product.Transform.parent)
-                .ToArray();
-            Vector3[] productPositions = runProducts
-                .Select(product => product.Transform.position)
-                .ToArray();
-            Pose yieldedTrolleyPose = new(
-                trolley.Transform.position,
-                trolley.Transform.rotation);
-            float timeoutBeforeYield = run.WarehouseTaskTimeoutRemaining;
-
-            runtime.Systems.Create<ResolveLocalTrafficSystem>().Execute();
-            runtime.Systems.Create<ValidateLocalTrafficStateSystem>().Execute();
-            Require(worker.isTrafficYielding &&
-                    worker.hasTrafficConflictEntityId &&
-                    !worker.hasTrafficConflictCollider &&
-                    worker.TrafficConflictEntityId == visit.Entity.EntityId &&
-                    worker.NavigationAgent.isStopped &&
-                    !visit.Entity.isTrafficYielding &&
-                    worker.WarehouseWorkerStatus ==
-                    WarehouseWorkerStatusId.MovingWorkerTrolleyToStorage &&
-                    run.WarehouseTaskStep ==
-                    WarehouseTaskStepId.MovingWorkerTrolleyToStorageBypass &&
-                    run.WarehouseTaskBlockReason == WarehouseTaskBlockReasonId.None,
-                "The near predicted vehicle conflict did not pause only the trolley worker.");
-
-            Vector3 pausedWorkerPosition = worker.Transform.position +
-                                           approachVelocity.normalized * 0.08f;
-            WarpWarehouseWorker(worker, pausedWorkerPosition);
-            worker.Transform.rotation = conflictTrolleyPose.rotation;
-            Physics.SyncTransforms();
-            runtime.Systems.Create<FollowWorkerTrolleySystem>().Execute();
-            new TickWarehouseTaskTimeoutSystem(
-                runtime.Game,
-                new FixedTimeService(timeoutBeforeYield + 1f)).Execute();
-            runtime.Systems.Create<RecoverBlockedWorkerTrolleyRunSystem>().Execute();
-            Physics.SyncTransforms();
-
-            GameEntity[] tasksDuringYield = FindLiveWarehouseTasks(runtime.Game)
-                .OrderBy(task => task.EntityId)
-                .ToArray();
-            GameEntity[] productsDuringYield = FindInboundWorkerTrolleyRunProducts(
-                runtime.Game,
-                run);
-            Require(run.EntityId == runEntityId && !run.isDestructed &&
-                    run.WarehouseTaskStep ==
-                    WarehouseTaskStepId.MovingWorkerTrolleyToStorageBypass &&
-                    run.WarehouseTaskBlockReason == WarehouseTaskBlockReasonId.None &&
-                    worker.WarehouseWorkerStatus ==
-                    WarehouseWorkerStatusId.MovingWorkerTrolleyToStorage &&
-                    Mathf.Approximately(
-                        run.WarehouseTaskTimeoutRemaining,
-                        timeoutBeforeYield) &&
-                    tasksDuringYield.Select(task => task.EntityId)
-                        .SequenceEqual(taskEntityIds) &&
-                    tasksDuringYield.Select(task =>
-                            task.WarehouseTaskReservedStorageSlotIndex)
-                        .SequenceEqual(reservedStorageSlots) &&
-                    PoseMatches(
-                        new Pose(trolley.Transform.position,
-                            trolley.Transform.rotation),
-                        yieldedTrolleyPose) &&
-                    !PoseMatches(yieldedTrolleyPose, homePose) &&
-                    trolley.isWorkerTrolley && !trolley.isInteractable &&
-                    trolley.hasTrolleyPusherEntityId &&
-                    trolley.TrolleyPusherEntityId == worker.EntityId &&
-                    trolley.OccupiedTrolleySlotCount == runProducts.Length &&
-                    productsDuringYield.Select(product => product.EntityId)
-                        .SequenceEqual(productEntityIds) &&
-                    productsDuringYield.Select(product =>
-                            product.WorkerTrolleySlotIndex)
-                        .SequenceEqual(trolleySlotIndices) &&
-                    productsDuringYield.Select(product =>
-                            product.ReservedDeliverySlotIndex)
-                        .SequenceEqual(reservedDeliverySlots) &&
-                    productsDuringYield.Select(product => product.Transform.parent)
-                        .SequenceEqual(productParents) &&
-                    productsDuringYield.Select(product => product.Transform.position)
-                        .Zip(productPositions, Vector3.Distance)
-                        .All(distance => distance < 0.001f) &&
-                    productsDuringYield.All(product =>
-                        product.WarehouseRunEntityId == runEntityId &&
-                        product.WorkerTrolleyEntityId == trolley.EntityId &&
-                        !product.isInteractable && !product.hasDeliverySlotIndex),
-                "Traffic yielding consumed timeout, blocked the task, teleported the trolley " +
-                "or changed its cargo graph.");
-
-            RelocateSmokeTrafficVehicle(runtime, visit.Entity, farVehiclePose);
-            visit.Entity.ReplaceTrafficDesiredVelocity(Vector3.zero);
-            visit.Entity.ReplaceTrafficIntentDistance(0f);
-            Physics.SyncTransforms();
-            runtime.Systems.Create<ResolveLocalTrafficSystem>().Execute();
-            runtime.Systems.Create<ValidateLocalTrafficStateSystem>().Execute();
-            Require(!worker.isTrafficYielding &&
-                    !worker.hasTrafficConflictEntityId &&
-                    !worker.hasTrafficConflictCollider &&
-                    !worker.NavigationAgent.isStopped,
-                "The worker retained its traffic yield after the local conflict cleared.");
-            runtime.Systems.Create<ExecuteWorkerTrolleyInboundStorageRunSystem>()
-                .Execute();
-            Require(worker.NavigationAgent.hasPath &&
-                    !worker.NavigationAgent.isStopped &&
-                    run.WarehouseTaskStep ==
-                    WarehouseTaskStepId.MovingWorkerTrolleyToStorageBypass &&
-                    run.WarehouseTaskBlockReason == WarehouseTaskBlockReasonId.None,
-                "The cleared trolley task did not resume its original NavMesh route.");
-
-            Pose resumedTrolleyPose = new(
+            Pose expectedFollowPose = new(
                 worker.Transform.position +
                 worker.Transform.forward * trolley.TrolleyFollowDistance,
                 worker.Transform.rotation);
-            MoveWorkerTrolleyToPose(worker, trolley, resumedTrolleyPose);
-            runtime.Systems.Create<FollowWorkerTrolleySystem>().Execute();
+            Vector3 displacedPosition = expectedFollowPose.position +
+                                        worker.Transform.right * 0.25f;
+            trolley.Rigidbody.position = displacedPosition;
+            trolley.Rigidbody.rotation = expectedFollowPose.rotation;
+            trolley.Transform.SetPositionAndRotation(
+                displacedPosition,
+                expectedFollowPose.rotation);
             Physics.SyncTransforms();
-            GameEntity[] productsAfterResume = FindInboundWorkerTrolleyRunProducts(
-                runtime.Game,
-                run);
-            Require(PoseMatches(
-                        new Pose(trolley.Transform.position,
-                            trolley.Transform.rotation),
-                        resumedTrolleyPose) &&
-                    Vector3.Distance(
-                        resumedTrolleyPose.position,
-                        yieldedTrolleyPose.position) > 0.05f &&
-                    Vector3.Distance(
-                        resumedTrolleyPose.position,
-                        yieldedTrolleyPose.position) < 0.1f &&
-                    !PoseMatches(resumedTrolleyPose, homePose) &&
-                    run.EntityId == runEntityId && !run.isDestructed &&
-                    run.WarehouseTaskStep ==
-                    WarehouseTaskStepId.MovingWorkerTrolleyToStorageBypass &&
-                    run.WarehouseTaskBlockReason == WarehouseTaskBlockReasonId.None &&
-                    Mathf.Approximately(
-                        run.WarehouseTaskTimeoutRemaining,
-                        timeoutBeforeYield) &&
-                    productsAfterResume.Select(product => product.EntityId)
-                        .SequenceEqual(productEntityIds) &&
-                    productsAfterResume.Select(product =>
-                            product.WorkerTrolleySlotIndex)
-                        .SequenceEqual(trolleySlotIndices) &&
-                    productsAfterResume.Select(product =>
-                            product.ReservedDeliverySlotIndex)
-                        .SequenceEqual(reservedDeliverySlots) &&
-                    productsAfterResume.Select(product => product.Transform.parent)
-                        .SequenceEqual(productParents) &&
-                    productsAfterResume.Select(product => product.Transform.position)
-                        .Zip(productPositions, Vector3.Distance)
-                        .All(distance => distance > 0.05f && distance < 0.1f),
-                "The same trolley run and cargo did not resume locally after traffic cleared.");
 
-            ValidateUnknownWorldObstacleTrafficYield(
-                runtime,
-                worker,
-                trolley,
-                run,
-                homePose,
-                approachVelocity);
-
-            MoveWorkerTrolleyToPose(worker, trolley, pickupPose);
-            Pose loadingBayPose = visit.Entity.Route[^1];
-            ForceRouteEndpoint(runtime, visit.Entity);
-            runtime.Systems.Create<CompleteCustomerLoadingBayArrivalSystem>()
-                .Execute();
-            visit.Entity.ReplaceTrafficPreviousPosition(
-                visit.Entity.Transform.position);
+            runtime.Systems.Create<FollowWorkerTrolleySystem>().Execute();
+            runtime.Systems.Create<SyncSlottedProductPoseSystem>().Execute();
+            Physics.SyncTransforms();
             runtime.Systems.Create<SyncTrafficIntentSystem>().Execute();
-            runtime.Systems.Create<ValidateCustomerFlowStateSystem>().Execute();
-            Require(visit.Entity.isCustomerVisitLoading &&
-                    !visit.Entity.isCustomerVisitMovingToLoadingBay &&
-                    visit.Entity.isInteractable &&
-                    !visit.Entity.hasRoute &&
-                    !visit.Entity.hasRouteWaypointIndex &&
-                    !visit.Entity.hasReservedCustomerTrafficLaneEntityId &&
-                    PoseMatches(
-                        new Pose(
-                            visit.Entity.Transform.position,
-                            visit.Entity.Transform.rotation),
-                        loadingBayPose) &&
-                    visit.Entity.TrafficDesiredVelocity.sqrMagnitude < 0.0001f &&
-                    visit.Entity.TrafficIntentDistance < 0.0001f &&
-                    Mathf.Abs(visit.Entity.TrafficAngularIntent) < 0.0001f,
-                "The real customer vehicle did not remain stationary in its " +
-                "loading bay before the inbound trolley detour.");
-            Require(run.WarehouseTaskStep ==
-                    WarehouseTaskStepId.MovingWorkerTrolleyToStorageBypass &&
-                    worker.WarehouseWorkerStatus ==
-                    WarehouseWorkerStatusId.MovingWorkerTrolleyToStorage &&
-                    trolley.OccupiedTrolleySlotCount == runProducts.Length &&
-                    runProducts.All(product =>
-                        product.WorkerTrolleyEntityId == trolley.EntityId &&
-                        product.hasWorkerTrolleySlotIndex &&
-                        product.hasReservedDeliverySlotIndex &&
-                        !product.hasDeliverySlotIndex),
-                "The separated-lane regression lost its loaded inbound trolley before " +
-                "the east service route.");
-            RequireStationaryVehicleAndTrolleyClearance(
-                visit.Entity,
-                loadingBayPose,
-                trolley,
-                "before the real loading-bay detour");
+            runtime.Systems.Create<ResolveLocalTrafficSystem>().Execute();
+            runtime.Systems.Create<ValidateLocalTrafficStateSystem>().Execute();
 
-            runtime.Systems.Create<ExecuteWorkerTrolleyInboundStorageRunSystem>()
-                .Execute();
-            Require(worker.NavigationAgent.hasPath &&
-                    worker.NavigationAgent.pathStatus ==
-                    NavMeshPathStatus.PathComplete &&
-                    !worker.NavigationAgent.isStopped &&
-                    run.WarehouseTaskStep ==
-                    WarehouseTaskStepId.MovingWorkerTrolleyToStorageBypass,
-                "The loaded inbound trolley did not begin its east service route " +
-                "beside the separated customer lane.");
-            MoveWorkerTrolleyToStorageAccess(
-                runtime,
+            RequireUncontrolledGhostMover(
                 worker,
+                "warehouse worker after local traffic resolution");
+            RequireCollisionProfile(
                 trolley,
-                run,
-                visit.Entity);
-            Require(run.WarehouseTaskStep ==
-                    WarehouseTaskStepId.MovingWorkerTrolleyToStorage &&
-                    worker.WarehouseWorkerStatus ==
-                    WarehouseWorkerStatusId.MovingWorkerTrolleyToStorage &&
-                    !worker.isTrafficYielding &&
-                    !worker.hasTrafficConflictEntityId &&
-                    !worker.hasTrafficConflictCollider,
-                "The inbound trolley did not preserve the separated east lane and finish " +
-                "its short storage corridor.");
-
-            runtime.Systems.Create<ExecuteWorkerTrolleyInboundStorageRunSystem>()
-                .Execute();
-            runtime.Systems.Create<CleanupDestructedEntitiesSystem>().Cleanup();
-            runtime.Systems.Create<RegisterStockedProductSystem>().Execute();
-            runtime.Systems.Create<CompleteDeliverySystem>().Execute();
-            runtime.Systems.Create<CleanupDestructedEntitiesSystem>().Cleanup();
-            ExecuteProductPlacement(runtime);
-            ExecuteStorageState(runtime);
-            CleanupEvents(runtime);
-            Require(runtime.Game.GetEntityWithEntityId(runEntityId) == null &&
-                    FindLiveInboundWorkerTrolleyRuns(runtime.Game).Length == 0 &&
-                    worker.WarehouseWorkerStatus ==
-                    WarehouseWorkerStatusId.ReturningWorkerTrolley &&
-                    trolley.OccupiedTrolleySlotCount == 0 &&
-                    runProducts.All(product =>
-                        product.isInStock && !product.isInboundProduct &&
-                        product.hasStorageSlotIndex &&
-                        !product.hasDeliverySlotIndex &&
-                        !product.hasReservedDeliverySlotIndex &&
-                        !product.hasWorkerTrolleyEntityId &&
-                        !product.hasWorkerTrolleySlotIndex &&
-                        !product.hasWarehouseRunEntityId) &&
-                    runProducts.Select(product => product.StorageSlotIndex)
-                        .Distinct().Count() == runProducts.Length &&
-                    visit.Entity.isCustomerVisitLoading &&
+                "GhostMover",
+                "direct-follow worker trolley");
+            Require(PoseMatches(
+                        new Pose(
+                            trolley.Transform.position,
+                            trolley.Transform.rotation),
+                        expectedFollowPose) &&
                     PoseMatches(
                         new Pose(
-                            visit.Entity.Transform.position,
-                            visit.Entity.Transform.rotation),
-                        loadingBayPose),
-                "The inbound trolley did not finish stocking beside the unchanged parked " +
-                "customer vehicle.");
-            RequireStationaryVehicleAndTrolleyClearance(
-                visit.Entity,
-                loadingBayPose,
+                            trolley.Rigidbody.position,
+                            trolley.Rigidbody.rotation),
+                        expectedFollowPose) &&
+                    trolley.Rigidbody.isKinematic &&
+                    !trolley.Rigidbody.useGravity &&
+                    trolley.Rigidbody.GetComponents<ConfigurableJoint>().Length == 0 &&
+                    products.All(product =>
+                        product.Transform.parent ==
+                        trolley.Slots[product.WorkerTrolleySlotIndex]),
+                "The worker trolley did not snap deterministically to its ghost follow pose.");
+
+            ValidateActivePlatformTrolleyLease(
+                runtime,
+                scenario,
                 trolley,
-                "after the real loading-bay detour and storage completion");
+                products.Length,
+                "Ghost traffic smoke lost the active platform-trolley lease.");
 
             Debug.Log(
-                "[Hardware Store] Worker-trolley traffic-yield smoke passed: distant vehicle " +
-                "traffic allowed a capacity inbound run, participant conflicts paused without " +
-                "timeout, unknown-world conflicts remained recovery-bounded, and the same run " +
-                "resumed without cargo teleport after local clearance, then used the east " +
-                "service lane beside a stationary west loading-bay vehicle and completed storage " +
-                "without penetration or moving the vehicle.");
+                "[Hardware Store] Worker-trolley traffic compatibility smoke passed: the " +
+                "worker stayed an enabled Uncontrolled GhostMover without yielding, while " +
+                "the leased platform trolley remained kinematic, joint-free and followed " +
+                "the worker pose directly.");
         }
 
         [MenuItem("Tools/Hardware Store/Run Warehouse Worker Trolley Loaded Recovery Smoke Test")]
@@ -3610,6 +3189,8 @@ namespace HardwareStore.Editor
                     worker.hasNavigationAgent &&
                     worker.NavigationAgent.gameObject == view.gameObject &&
                     worker.NavigationAgent.isOnNavMesh &&
+                    worker.NavigationAgent.obstacleAvoidanceType ==
+                    ObstacleAvoidanceType.NoObstacleAvoidance &&
                     worker.hasCarryAnchor &&
                     worker.CarryAnchor.IsChildOf(view.transform) &&
                     Mathf.Approximately(worker.NavigationAgent.speed,
@@ -3621,6 +3202,9 @@ namespace HardwareStore.Editor
                     Mathf.Approximately(worker.NavigationAgent.stoppingDistance,
                         config.StoppingDistance),
                 "Hired worker view did not bind its authored NavMesh and carry adapters.");
+            RequireUncontrolledGhostMover(
+                worker,
+                "warehouse worker");
             runtime.Systems.Create<ValidateWarehouseWorkerStateSystem>().Execute();
 
             int moneyAfterHire = scenario.Store.Money;
@@ -3881,6 +3465,7 @@ namespace HardwareStore.Editor
                     trolley.OccupiedTrolleySlotCount == 0 &&
                     products.All(product => !product.hasWorkerTrolleyEntityId),
                 "Worker did not attach the leased trolley before moving it to storage.");
+            runtime.Systems.Create<SyncTrolleyCollisionProfileSystem>().Execute();
             runtime.Systems.Create<SyncTrolleyNavigationObstacleSystem>().Execute();
             runtime.Systems.Create<FollowWorkerTrolleySystem>().Execute();
             Physics.SyncTransforms();
@@ -4147,7 +3732,12 @@ namespace HardwareStore.Editor
             scenario.Input.isTrolleyPressed = true;
             runtime.Systems.Create<StartPushingTrolleySystem>().Execute();
             CleanupEvents(runtime);
+            runtime.Systems.Create<SyncTrolleyCollisionProfileSystem>().Execute();
             runtime.Systems.Create<SyncTrolleyNavigationObstacleSystem>().Execute();
+            RequireCollisionProfile(
+                trolley,
+                "TrafficObstacle",
+                "player-reclaimed platform trolley");
             Require(scenario.Player.isPushingTrolley &&
                     scenario.Player.isHandsOccupied &&
                     !scenario.Player.hasFocusedEntityId &&
@@ -4158,7 +3748,12 @@ namespace HardwareStore.Editor
             scenario.Input.isTrolleyPressed = true;
             runtime.Systems.Create<DetachPushedTrolleySystem>().Execute();
             CleanupEvents(runtime);
+            runtime.Systems.Create<SyncTrolleyCollisionProfileSystem>().Execute();
             runtime.Systems.Create<SyncTrolleyNavigationObstacleSystem>().Execute();
+            RequireCollisionProfile(
+                trolley,
+                "GhostMover",
+                "parked platform trolley after player reclaim");
             Require(!scenario.Player.isPushingTrolley &&
                     !scenario.Player.isHandsOccupied &&
                     !trolley.hasTrolleyPusherEntityId &&
@@ -4205,7 +3800,12 @@ namespace HardwareStore.Editor
             Require(trolley.OccupiedTrolleySlotCount == expectedOccupiedSlotCount,
                 message + " Worker cargo count is invalid.");
             runtime.Systems.Create<RefreshTrolleyOccupiedSlotCountSystem>().Execute();
+            runtime.Systems.Create<SyncTrolleyCollisionProfileSystem>().Execute();
             runtime.Systems.Create<SyncTrolleyNavigationObstacleSystem>().Execute();
+            RequireCollisionProfile(
+                trolley,
+                "GhostMover",
+                "leased platform trolley");
             if (trolley.hasTrolleyPusherEntityId)
             {
                 Pose workerDrivenPose = new(
@@ -4230,6 +3830,9 @@ namespace HardwareStore.Editor
                     trolley.hasWorkerTrolleyHomeRotation &&
                     trolley.hasWorkerTrolleyCustomerLoadingPosition &&
                     trolley.hasWorkerTrolleyCustomerLoadingRotation &&
+                    trolley.Rigidbody.isKinematic &&
+                    !trolley.Rigidbody.useGravity &&
+                    trolley.Rigidbody.GetComponents<ConfigurableJoint>().Length == 0 &&
                     trolley.OccupiedTrolleySlotCount == expectedOccupiedSlotCount &&
                     ReferenceEquals(
                         runtime.Game.GetEntityWithTrolleyStoreEntityId(
@@ -4252,7 +3855,12 @@ namespace HardwareStore.Editor
             string message)
         {
             runtime.Systems.Create<RefreshTrolleyOccupiedSlotCountSystem>().Execute();
+            runtime.Systems.Create<SyncTrolleyCollisionProfileSystem>().Execute();
             runtime.Systems.Create<SyncTrolleyNavigationObstacleSystem>().Execute();
+            RequireCollisionProfile(
+                trolley,
+                "GhostMover",
+                "parked released platform trolley");
             runtime.Systems.Create<ValidateWarehouseWorkerStateSystem>().Execute();
             runtime.Systems.Create<ValidateWorkerTrolleyStateSystem>().Execute();
             runtime.Systems.Create<ValidatePlatformTrolleyStateSystem>().Execute();
@@ -4266,6 +3874,9 @@ namespace HardwareStore.Editor
                     !trolley.hasWorkerTrolleyCustomerLoadingPosition &&
                     !trolley.hasWorkerTrolleyCustomerLoadingRotation &&
                     !trolley.hasTrolleyPusherEntityId &&
+                    trolley.Rigidbody.isKinematic &&
+                    !trolley.Rigidbody.useGravity &&
+                    trolley.Rigidbody.GetComponents<ConfigurableJoint>().Length == 0 &&
                     trolley.OccupiedTrolleySlotCount == 0 &&
                     runtime.Game.GetEntitiesWithWorkerTrolleyEntityId(
                         trolley.EntityId).Count == 0 &&
@@ -4670,283 +4281,24 @@ namespace HardwareStore.Editor
             GameEntity trolley,
             Pose cartPose)
         {
+            Require(trolley.Rigidbody.isKinematic &&
+                    !trolley.Rigidbody.useGravity &&
+                    trolley.Rigidbody.GetComponents<ConfigurableJoint>().Length == 0,
+                "Worker-trolley smoke pose setup requires a joint-free kinematic body.");
             MoveWarehouseWorkerToTrolleyPusherPose(worker, trolley, cartPose);
             trolley.Rigidbody.position = cartPose.position;
             trolley.Rigidbody.rotation = cartPose.rotation;
-            if (!trolley.Rigidbody.isKinematic)
-            {
-                trolley.Rigidbody.linearVelocity = Vector3.zero;
-                trolley.Rigidbody.angularVelocity = Vector3.zero;
-            }
             trolley.Transform.SetPositionAndRotation(
                 cartPose.position,
                 cartPose.rotation);
             Physics.SyncTransforms();
         }
 
-        private static void ValidateUnknownWorldObstacleTrafficYield(
-            Runtime runtime,
-            GameEntity worker,
-            GameEntity trolley,
-            GameEntity run,
-            Pose homePose,
-            Vector3 approachVelocity)
-        {
-            float safetyClearance = runtime.StaticData.LocalTraffic.SafetyClearance;
-            Require(safetyClearance > 0f && approachVelocity.sqrMagnitude > 0.01f,
-                "Unknown-world traffic smoke requires positive clearance and motion.");
-            GameEntity[] productsBefore = FindInboundWorkerTrolleyRunProducts(
-                runtime.Game,
-                run);
-            GameEntity[] tasksBefore = FindLiveWarehouseTasks(runtime.Game)
-                .OrderBy(task => task.EntityId)
-                .ToArray();
-            int runEntityId = run.EntityId;
-            int storeEntityId = run.WarehouseTaskStoreEntityId;
-            int[] taskEntityIds = tasksBefore
-                .Select(task => task.EntityId)
-                .ToArray();
-            int[] reservedStorageSlots = tasksBefore
-                .Select(task => task.WarehouseTaskReservedStorageSlotIndex)
-                .ToArray();
-            int[] productEntityIds = productsBefore
-                .Select(product => product.EntityId)
-                .ToArray();
-            int[] trolleySlotIndices = productsBefore
-                .Select(product => product.WorkerTrolleySlotIndex)
-                .ToArray();
-            int[] reservedDeliverySlots = productsBefore
-                .Select(product => product.ReservedDeliverySlotIndex)
-                .ToArray();
-            Transform[] productParents = productsBefore
-                .Select(product => product.Transform.parent)
-                .ToArray();
-            Vector3[] productPositions = productsBefore
-                .Select(product => product.Transform.position)
-                .ToArray();
-            Pose trolleyPoseBefore = new(
-                trolley.Transform.position,
-                trolley.Transform.rotation);
-            float timeoutBefore = run.WarehouseTaskTimeoutRemaining;
-            const float worldYieldDelta = 0.25f;
-            float timeoutAfterWorldYield = timeoutBefore - worldYieldDelta;
-            Collider trolleyHull = trolley.Colliders.Single(collider =>
-                collider != null && collider.enabled && !collider.isTrigger);
-
-            GameObject obstacle = GameObject.CreatePrimitive(PrimitiveType.Cube);
-            try
-            {
-                const float obstacleThickness = 0.2f;
-                float requestedGap = safetyClearance * 0.5f;
-                obstacle.name = "Smoke Unknown Local Traffic Obstacle";
-                obstacle.transform.SetPositionAndRotation(
-                    new Vector3(
-                        trolleyHull.bounds.center.x,
-                        0.5f,
-                        trolleyHull.bounds.min.z - requestedGap -
-                        obstacleThickness * 0.5f),
-                    Quaternion.identity);
-                obstacle.transform.localScale = new Vector3(
-                    trolleyHull.bounds.size.x + 0.4f,
-                    1f,
-                    obstacleThickness);
-                BoxCollider obstacleCollider = obstacle.GetComponent<BoxCollider>();
-                Physics.SyncTransforms();
-
-                float trolleyPhysicalGap = trolleyHull.bounds.min.z -
-                                            obstacleCollider.bounds.max.z;
-                float workerPhysicalGap = worker.Transform.position.z -
-                                          worker.NavigationAgent.radius -
-                                          obstacleCollider.bounds.max.z;
-                Require(obstacle.GetComponentInParent<EntityBehaviour>() == null &&
-                        obstacleCollider.enabled && !obstacleCollider.isTrigger &&
-                        !trolleyHull.bounds.Intersects(obstacleCollider.bounds) &&
-                        trolleyPhysicalGap > 0f &&
-                        trolleyPhysicalGap < safetyClearance &&
-                        workerPhysicalGap > safetyClearance * 2f,
-                    "Unknown-world traffic obstacle was not isolated to the coupled trolley " +
-                    "footprint.");
-
-                worker.ReplaceTrafficDesiredVelocity(approachVelocity);
-                worker.ReplaceTrafficIntentDistance(safetyClearance);
-                trolley.ReplaceTrafficDesiredVelocity(approachVelocity);
-                trolley.ReplaceTrafficIntentDistance(safetyClearance);
-                runtime.Systems.Create<ResolveLocalTrafficSystem>().Execute();
-                runtime.Systems.Create<ValidateLocalTrafficStateSystem>().Execute();
-                Require(worker.isTrafficYielding &&
-                        !worker.hasTrafficConflictEntityId &&
-                        worker.hasTrafficConflictCollider &&
-                        worker.TrafficConflictCollider == obstacleCollider &&
-                        worker.NavigationAgent.isStopped &&
-                        !trolley.isTrafficYielding &&
-                        !trolley.hasTrafficConflictEntityId &&
-                        !trolley.hasTrafficConflictCollider &&
-                        worker.WarehouseWorkerStatus ==
-                        WarehouseWorkerStatusId.MovingWorkerTrolleyToStorage &&
-                        run.WarehouseTaskStep ==
-                        WarehouseTaskStepId.MovingWorkerTrolleyToStorageBypass &&
-                        run.WarehouseTaskBlockReason ==
-                        WarehouseTaskBlockReasonId.None,
-                    "Unknown solid obstacle did not create an exclusive world-collider yield.");
-
-                Vector3 pausedWorkerPosition = worker.Transform.position +
-                                               approachVelocity.normalized * 0.08f;
-                WarpWarehouseWorker(worker, pausedWorkerPosition);
-                worker.Transform.rotation = trolleyPoseBefore.rotation;
-                Physics.SyncTransforms();
-                runtime.Systems.Create<FollowWorkerTrolleySystem>().Execute();
-                new TickWarehouseTaskTimeoutSystem(
-                    runtime.Game,
-                    new FixedTimeService(worldYieldDelta)).Execute();
-                runtime.Systems.Create<RecoverBlockedWorkerTrolleyRunSystem>()
-                    .Execute();
-                Physics.SyncTransforms();
-
-                GameEntity[] tasksDuringYield = FindLiveWarehouseTasks(runtime.Game)
-                    .OrderBy(task => task.EntityId)
-                    .ToArray();
-                GameEntity[] productsDuringYield =
-                    FindInboundWorkerTrolleyRunProducts(runtime.Game, run);
-                Require(worker.isTrafficYielding &&
-                        !worker.hasTrafficConflictEntityId &&
-                        worker.hasTrafficConflictCollider &&
-                        worker.TrafficConflictCollider == obstacleCollider &&
-                        run.EntityId == runEntityId && !run.isDestructed &&
-                        run.WarehouseTaskStep ==
-                        WarehouseTaskStepId.MovingWorkerTrolleyToStorageBypass &&
-                        run.WarehouseTaskBlockReason ==
-                        WarehouseTaskBlockReasonId.None &&
-                        worker.WarehouseWorkerStatus ==
-                        WarehouseWorkerStatusId.MovingWorkerTrolleyToStorage &&
-                        Mathf.Approximately(
-                            run.WarehouseTaskTimeoutRemaining,
-                            timeoutAfterWorldYield) &&
-                        tasksDuringYield.Select(task => task.EntityId)
-                            .SequenceEqual(taskEntityIds) &&
-                        tasksDuringYield.Select(task =>
-                                task.WarehouseTaskReservedStorageSlotIndex)
-                            .SequenceEqual(reservedStorageSlots) &&
-                        PoseMatches(
-                            new Pose(trolley.Transform.position,
-                                trolley.Transform.rotation),
-                            trolleyPoseBefore) &&
-                        !PoseMatches(trolleyPoseBefore, homePose) &&
-                        run.hasWarehouseTaskWorkerTrolleyEntityId &&
-                        run.WarehouseTaskWorkerTrolleyEntityId == trolley.EntityId &&
-                        trolley.isWorkerTrolley && !trolley.isInteractable &&
-                        trolley.hasTrolleyStoreEntityId &&
-                        trolley.TrolleyStoreEntityId == storeEntityId &&
-                        trolley.hasWorkerTrolleyStoreEntityId &&
-                        trolley.WorkerTrolleyStoreEntityId == storeEntityId &&
-                        ReferenceEquals(
-                            runtime.Game.GetEntityWithWorkerTrolleyStoreEntityId(
-                                storeEntityId),
-                            trolley) &&
-                        trolley.hasTrolleyPusherEntityId &&
-                        trolley.TrolleyPusherEntityId == worker.EntityId &&
-                        trolley.OccupiedTrolleySlotCount == productsBefore.Length &&
-                        productsDuringYield.Select(product => product.EntityId)
-                            .SequenceEqual(productEntityIds) &&
-                        productsDuringYield.Select(product =>
-                                product.WorkerTrolleySlotIndex)
-                            .SequenceEqual(trolleySlotIndices) &&
-                        productsDuringYield.Select(product =>
-                                product.ReservedDeliverySlotIndex)
-                            .SequenceEqual(reservedDeliverySlots) &&
-                        productsDuringYield.Select(product =>
-                                product.Transform.parent)
-                            .SequenceEqual(productParents) &&
-                        productsDuringYield.Select(product =>
-                                product.Transform.position)
-                            .Zip(productPositions, Vector3.Distance)
-                            .All(distance => distance < 0.001f) &&
-                        productsDuringYield.All(product =>
-                            product.WarehouseRunEntityId == runEntityId &&
-                            product.WorkerTrolleyEntityId == trolley.EntityId &&
-                            !product.isInteractable &&
-                            !product.hasDeliverySlotIndex),
-                    "World-collider yield did not remain time-bounded or changed the run, " +
-                    "leased trolley or cargo before recovery was required.");
-            }
-            finally
-            {
-                UnityEngine.Object.DestroyImmediate(obstacle);
-                Physics.SyncTransforms();
-            }
-
-            runtime.Systems.Create<ResolveLocalTrafficSystem>().Execute();
-            runtime.Systems.Create<ValidateLocalTrafficStateSystem>().Execute();
-            Require(!worker.isTrafficYielding &&
-                    !worker.hasTrafficConflictEntityId &&
-                    !worker.hasTrafficConflictCollider &&
-                    !worker.NavigationAgent.isStopped,
-                "Worker retained an unknown-world yield after its collider was removed.");
-            runtime.Systems.Create<ExecuteWorkerTrolleyInboundStorageRunSystem>()
-                .Execute();
-            Require(worker.NavigationAgent.hasPath &&
-                    !worker.NavigationAgent.isStopped &&
-                    run.WarehouseTaskStep ==
-                    WarehouseTaskStepId.MovingWorkerTrolleyToStorageBypass &&
-                    run.WarehouseTaskBlockReason == WarehouseTaskBlockReasonId.None,
-                "World-obstructed trolley task did not resume its original NavMesh route.");
-
-            Pose resumedTrolleyPose = new(
-                worker.Transform.position +
-                worker.Transform.forward * trolley.TrolleyFollowDistance,
-                worker.Transform.rotation);
-            MoveWorkerTrolleyToPose(worker, trolley, resumedTrolleyPose);
-            runtime.Systems.Create<FollowWorkerTrolleySystem>().Execute();
-            Physics.SyncTransforms();
-            GameEntity[] productsAfterResume = FindInboundWorkerTrolleyRunProducts(
-                runtime.Game,
-                run);
-            Require(PoseMatches(
-                        new Pose(trolley.Transform.position,
-                            trolley.Transform.rotation),
-                        resumedTrolleyPose) &&
-                    Vector3.Distance(
-                        resumedTrolleyPose.position,
-                        trolleyPoseBefore.position) > 0.05f &&
-                    Vector3.Distance(
-                        resumedTrolleyPose.position,
-                        trolleyPoseBefore.position) < 0.1f &&
-                    !PoseMatches(resumedTrolleyPose, homePose) &&
-                    run.EntityId == runEntityId && !run.isDestructed &&
-                    run.hasWarehouseTaskWorkerTrolleyEntityId &&
-                    run.WarehouseTaskWorkerTrolleyEntityId == trolley.EntityId &&
-                    run.WarehouseTaskStep ==
-                    WarehouseTaskStepId.MovingWorkerTrolleyToStorageBypass &&
-                    run.WarehouseTaskBlockReason == WarehouseTaskBlockReasonId.None &&
-                    trolley.isWorkerTrolley && !trolley.isInteractable &&
-                    trolley.hasWorkerTrolleyStoreEntityId &&
-                    trolley.WorkerTrolleyStoreEntityId == storeEntityId &&
-                    trolley.hasTrolleyPusherEntityId &&
-                    trolley.TrolleyPusherEntityId == worker.EntityId &&
-                    Mathf.Approximately(
-                        run.WarehouseTaskTimeoutRemaining,
-                        timeoutAfterWorldYield) &&
-                    productsAfterResume.Select(product => product.EntityId)
-                        .SequenceEqual(productEntityIds) &&
-                    productsAfterResume.Select(product =>
-                            product.WorkerTrolleySlotIndex)
-                        .SequenceEqual(trolleySlotIndices) &&
-                    productsAfterResume.Select(product =>
-                            product.ReservedDeliverySlotIndex)
-                        .SequenceEqual(reservedDeliverySlots) &&
-                    productsAfterResume.Select(product => product.Transform.parent)
-                        .SequenceEqual(productParents) &&
-                    productsAfterResume.Select(product => product.Transform.position)
-                        .Zip(productPositions, Vector3.Distance)
-                        .All(distance => distance > 0.05f && distance < 0.1f),
-                "The same world-obstructed trolley run and cargo did not resume locally.");
-        }
-
         private static void MoveWorkerTrolleyToStorageAccess(
             Runtime runtime,
             GameEntity worker,
             GameEntity trolley,
-            GameEntity run,
-            GameEntity stationaryVehicle = null)
+            GameEntity run)
         {
             bool isInbound = run.isWorkerTrolleyInboundStorageRun;
             Pose storageCartPose = run.isWorkerTrolleyInboundStorageRun
@@ -5045,20 +4397,6 @@ namespace HardwareStore.Editor
                     "Outbound worker-trolley storage corridor lost its exact loading pose.");
             }
 
-            Pose stationaryVehiclePose = stationaryVehicle == null
-                ? default
-                : new Pose(
-                    stationaryVehicle.Transform.position,
-                    stationaryVehicle.Transform.rotation);
-            if (stationaryVehicle != null)
-            {
-                RequireStationaryVehicleAndTrolleyClearance(
-                    stationaryVehicle,
-                    stationaryVehiclePose,
-                    trolley,
-                    "before the east service lane");
-            }
-
             if (isInbound)
             {
                 Require(run.WarehouseTaskStep ==
@@ -5072,8 +4410,7 @@ namespace HardwareStore.Editor
                     run,
                     storageBypassPose,
                     WarehouseTaskStepId.MovingWorkerTrolleyToStorageBypass,
-                    "inbound east service lane",
-                    stationaryVehicle);
+                    "inbound east service lane");
                 runtime.Systems
                     .Create<ExecuteWorkerTrolleyInboundStorageRunSystem>()
                     .Execute();
@@ -5098,14 +4435,6 @@ namespace HardwareStore.Editor
                         !worker.hasTrafficConflictEntityId &&
                         !worker.hasTrafficConflictCollider,
                     "Inbound worker trolley did not start its short east-to-storage leg.");
-                if (stationaryVehicle != null)
-                {
-                    RequireStationaryVehicleAndTrolleyClearance(
-                        stationaryVehicle,
-                        stationaryVehiclePose,
-                        trolley,
-                        "after the east service-lane turn");
-                }
             }
 
             if (run.WarehouseTaskStep ==
@@ -5120,8 +4449,7 @@ namespace HardwareStore.Editor
                     WarehouseTaskStepId.MovingWorkerTrolleyToStorageApproach,
                     isInbound
                         ? "inbound shared storage approach"
-                        : "outbound shared storage approach",
-                    stationaryVehicle);
+                        : "outbound shared storage approach");
                 if (isInbound)
                 {
                     runtime.Systems
@@ -5157,14 +4485,6 @@ namespace HardwareStore.Editor
                         !worker.NavigationAgent.isStopped,
                     $"{(isInbound ? "Inbound" : "Outbound")} straight storage " +
                     "corridor was pre-emptively deadlocked by static world geometry.");
-                if (stationaryVehicle != null)
-                {
-                    RequireStationaryVehicleAndTrolleyClearance(
-                        stationaryVehicle,
-                        stationaryVehiclePose,
-                        trolley,
-                        "after the shared storage approach");
-                }
             }
             else
             {
@@ -5183,18 +4503,7 @@ namespace HardwareStore.Editor
                 WarehouseTaskStepId.MovingWorkerTrolleyToStorage,
                 isInbound
                     ? "inbound storage corridor"
-                    : "outbound storage corridor",
-                stationaryVehicle);
-            if (stationaryVehicle != null)
-            {
-                RequireStationaryVehicleAndTrolleyClearance(
-                    stationaryVehicle,
-                    stationaryVehiclePose,
-                    trolley,
-                    "at the storage loading pose");
-            }
-
-            ValidateWorkerTrolleyStorageClearance(trolley);
+                    : "outbound storage corridor");
         }
 
         private static void MoveWorkerTrolleyAlongNavigationPath(
@@ -5204,14 +4513,8 @@ namespace HardwareStore.Editor
             GameEntity run,
             Pose destination,
             WarehouseTaskStepId expectedStep,
-            string routeName,
-            GameEntity stationaryVehicle = null)
+            string routeName)
         {
-            Pose stationaryVehiclePose = stationaryVehicle == null
-                ? default
-                : new Pose(
-                    stationaryVehicle.Transform.position,
-                    stationaryVehicle.Transform.rotation);
             Vector3 pusherDestination =
                 WorkerTrolleyLeaseUtility.GetPusherPosition(trolley, destination);
             var path = new NavMeshPath();
@@ -5265,14 +4568,6 @@ namespace HardwareStore.Editor
                             !worker.hasTrafficConflictEntityId &&
                             !worker.hasTrafficConflictCollider,
                         $"Worker trolley was obstructed on the {routeName} NavMesh path.");
-                    if (stationaryVehicle != null)
-                    {
-                        RequireStationaryVehicleAndTrolleyClearance(
-                            stationaryVehicle,
-                            stationaryVehiclePose,
-                            trolley,
-                            $"on the {routeName} NavMesh path");
-                    }
                 }
 
                 segmentStart = corner;
@@ -5290,68 +4585,6 @@ namespace HardwareStore.Editor
                     !worker.hasTrafficConflictEntityId &&
                     !worker.hasTrafficConflictCollider,
                 $"Worker trolley did not finish the {routeName} without obstruction.");
-            if (stationaryVehicle != null)
-            {
-                RequireStationaryVehicleAndTrolleyClearance(
-                    stationaryVehicle,
-                    stationaryVehiclePose,
-                    trolley,
-                    $"after the {routeName} NavMesh path");
-            }
-        }
-
-        private static void RequireStationaryVehicleAndTrolleyClearance(
-            GameEntity vehicle,
-            Pose expectedVehiclePose,
-            GameEntity trolley,
-            string phase)
-        {
-            Require(vehicle != null && !vehicle.isDestructed &&
-                    vehicle.isCustomerVehicle && vehicle.hasTransform &&
-                    vehicle.hasRigidbody && vehicle.hasColliders,
-                $"Parked-vehicle clearance check received an invalid vehicle {phase}.");
-            Collider vehicleHull = vehicle.Colliders.Single(collider =>
-                collider != null && collider.enabled && !collider.isTrigger);
-            Collider trolleyHull = trolley.Colliders.Single(collider =>
-                collider != null && collider.enabled && !collider.isTrigger);
-            bool penetrates = Physics.ComputePenetration(
-                trolleyHull,
-                trolleyHull.transform.position,
-                trolleyHull.transform.rotation,
-                vehicleHull,
-                vehicleHull.transform.position,
-                vehicleHull.transform.rotation,
-                out _,
-                out float penetrationDepth);
-            Require(PoseMatches(
-                        new Pose(
-                            vehicle.Transform.position,
-                            vehicle.Transform.rotation),
-                        expectedVehiclePose) &&
-                    PoseMatches(
-                        new Pose(
-                            vehicle.Rigidbody.position,
-                            vehicle.Rigidbody.rotation),
-                        expectedVehiclePose) &&
-                    (!penetrates || penetrationDepth <= 0.0001f),
-                $"The parked customer vehicle moved or the worker trolley penetrated it " +
-                $"{phase}; penetration depth {penetrationDepth:F4} m.");
-        }
-
-        private static float ProjectBoxExtent(
-            BoxCollider box,
-            Vector3 normalizedAxis)
-        {
-            Transform transform = box.transform;
-            return Mathf.Abs(Vector3.Dot(
-                       transform.TransformVector(Vector3.right * box.size.x * 0.5f),
-                       normalizedAxis)) +
-                   Mathf.Abs(Vector3.Dot(
-                       transform.TransformVector(Vector3.up * box.size.y * 0.5f),
-                       normalizedAxis)) +
-                   Mathf.Abs(Vector3.Dot(
-                       transform.TransformVector(Vector3.forward * box.size.z * 0.5f),
-                       normalizedAxis));
         }
 
         private static void MoveReturningWorkerTrolleyAlongNavigationPath(
@@ -8015,6 +7248,9 @@ namespace HardwareStore.Editor
                 $"customer actor {actor.EntityId}");
             Require(actor.hasTransform && actor.hasRigidbody && actor.Rigidbody.isKinematic,
                 "The customer actor view did not register route-movement data.");
+            RequireUncontrolledGhostMover(
+                actor,
+                $"customer actor {actor.EntityId}");
             RequireCustomerDissatisfactionVisual(
                 actor,
                 expectedDissatisfied: false,
@@ -8023,9 +7259,9 @@ namespace HardwareStore.Editor
             runtime.Systems.Create<SyncTrafficIntentSystem>().Execute();
             runtime.Systems.Create<ResolveLocalTrafficSystem>().Execute();
             runtime.Systems.Create<ValidateLocalTrafficStateSystem>().Execute();
-            Require(!actor.hasTrafficConflictEntityId ||
-                    actor.TrafficConflictEntityId != visit.EntityId,
-                "The customer actor treated its own parked vehicle as blocking traffic.");
+            RequireUncontrolledGhostMover(
+                actor,
+                $"customer actor {actor.EntityId} after local traffic resolution");
 
             ForceRouteEndpoint(runtime, actor);
             runtime.Systems.Create<CompleteCustomerApproachSystem>().Execute();
@@ -10611,6 +9847,7 @@ namespace HardwareStore.Editor
 
             runtime.Systems.Create<BindEntityViewFromPrefabSystem>().Execute();
             runtime.Systems.Create<RefreshTrolleyOccupiedSlotCountSystem>().Execute();
+            runtime.Systems.Create<SyncTrolleyCollisionProfileSystem>().Execute();
             runtime.Systems.Create<ValidatePlatformTrolleyStateSystem>().Execute();
             CleanupEvents(runtime);
             EntityBehaviour trolleyView = RequireRuntimeView(
@@ -10638,6 +9875,10 @@ namespace HardwareStore.Editor
                         trolley.Transform.rotation,
                         scenario.TrolleyUpgradeTerminal.TrolleySpawnRotation) < 0.01f,
                 "The purchased trolley was not bound at its authored pose with three slots.");
+            RequireCollisionProfile(
+                trolley,
+                "GhostMover",
+                "parked platform trolley");
 
             int moneyAfterPurchase = scenario.Store.Money;
             RequestInteraction(
@@ -10722,7 +9963,12 @@ namespace HardwareStore.Editor
             scenario.Input.isTrolleyPressed = true;
             runtime.Systems.Create<StartPushingTrolleySystem>().Execute();
             CleanupEvents(runtime);
+            runtime.Systems.Create<SyncTrolleyCollisionProfileSystem>().Execute();
             runtime.Systems.Create<SyncTrolleyNavigationObstacleSystem>().Execute();
+            RequireCollisionProfile(
+                trolley,
+                "TrafficObstacle",
+                "no-customer player-pushed platform trolley");
             runtime.Systems.Create<ValidatePlayerHandlingStateSystem>().Execute();
             runtime.Systems.Create<ValidatePlatformTrolleyStateSystem>().Execute();
             Require(scenario.Player.isHandsOccupied &&
@@ -10743,7 +9989,12 @@ namespace HardwareStore.Editor
             scenario.Input.isTrolleyPressed = true;
             runtime.Systems.Create<DetachPushedTrolleySystem>().Execute();
             CleanupEvents(runtime);
+            runtime.Systems.Create<SyncTrolleyCollisionProfileSystem>().Execute();
             runtime.Systems.Create<SyncTrolleyNavigationObstacleSystem>().Execute();
+            RequireCollisionProfile(
+                trolley,
+                "GhostMover",
+                "no-customer parked platform trolley");
             runtime.Systems.Create<ResolveMovementSpeedSystem>().Execute();
             runtime.Systems.Create<ValidatePlayerHandlingStateSystem>().Execute();
             runtime.Systems.Create<ValidatePlatformTrolleyStateSystem>().Execute();
@@ -10918,7 +10169,12 @@ namespace HardwareStore.Editor
                 runtime.Systems.Create<EmitInteractionRequestSystem>().Execute();
                 runtime.Systems.Create<PickUpProductSystem>().Execute();
                 runtime.Systems.Create<StartPushingTrolleySystem>().Execute();
+                runtime.Systems.Create<SyncTrolleyCollisionProfileSystem>().Execute();
                 runtime.Systems.Create<SyncTrolleyNavigationObstacleSystem>().Execute();
+                RequireCollisionProfile(
+                    trolley,
+                    "TrafficObstacle",
+                    "cargo-focused player-pushed platform trolley");
                 Require(scenario.Player.isHandsOccupied &&
                         scenario.Player.isPushingTrolley &&
                         !scenario.Player.isCarryingProduct &&
@@ -10940,7 +10196,12 @@ namespace HardwareStore.Editor
                 scenario.Input.isTrolleyPressed = true;
                 runtime.Systems.Create<DetachPushedTrolleySystem>().Execute();
                 CleanupEvents(runtime);
+                runtime.Systems.Create<SyncTrolleyCollisionProfileSystem>().Execute();
                 runtime.Systems.Create<SyncTrolleyNavigationObstacleSystem>().Execute();
+                RequireCollisionProfile(
+                    trolley,
+                    "GhostMover",
+                    "cargo-focused parked platform trolley");
                 Require(!scenario.Player.isHandsOccupied &&
                         !scenario.Player.isPushingTrolley &&
                         trolley.isInteractable &&
@@ -11162,7 +10423,12 @@ namespace HardwareStore.Editor
             scenario.Input.isTrolleyPressed = true;
             runtime.Systems.Create<StartPushingTrolleySystem>().Execute();
             CleanupEvents(runtime);
+            runtime.Systems.Create<SyncTrolleyCollisionProfileSystem>().Execute();
             runtime.Systems.Create<SyncTrolleyNavigationObstacleSystem>().Execute();
+            Collider trolleyBody = RequireCollisionProfile(
+                trolley,
+                "TrafficObstacle",
+                "player-pushed platform trolley");
             runtime.Systems.Create<ValidatePlayerHandlingStateSystem>().Execute();
             runtime.Systems.Create<ValidatePlatformTrolleyStateSystem>().Execute();
             Require(scenario.Player.isHandsOccupied &&
@@ -11188,7 +10454,6 @@ namespace HardwareStore.Editor
             Vector3 expectedPosition = scenario.Player.Transform.position +
                                        scenario.Player.Transform.forward *
                                        trolley.TrolleyFollowDistance;
-            Collider trolleyBody = trolley.Colliders.Single(collider => !collider.isTrigger);
             Collider[] cargoBodies = runtime.Game
                 .GetEntitiesWithTrolleyEntityId(trolley.EntityId)
                 .SelectMany(product => product.Colliders.Where(collider => !collider.isTrigger))
@@ -11241,7 +10506,12 @@ namespace HardwareStore.Editor
             scenario.Input.isTrolleyPressed = true;
             runtime.Systems.Create<DetachPushedTrolleySystem>().Execute();
             CleanupEvents(runtime);
+            runtime.Systems.Create<SyncTrolleyCollisionProfileSystem>().Execute();
             runtime.Systems.Create<SyncTrolleyNavigationObstacleSystem>().Execute();
+            RequireCollisionProfile(
+                trolley,
+                "GhostMover",
+                "parked platform trolley after player push");
             runtime.Systems.Create<ResolveMovementSpeedSystem>().Execute();
             runtime.Systems.Create<ValidatePlayerHandlingStateSystem>().Execute();
             runtime.Systems.Create<ValidatePlatformTrolleyStateSystem>().Execute();
@@ -11327,19 +10597,41 @@ namespace HardwareStore.Editor
             float hullHalfDepth = bodyBox.bounds.extents.z;
             float storagePadTangentZ = storagePad.bounds.min.z -
                                        hullCenterZOffset - hullHalfDepth;
+            float hullCenterXOffset = bodyBox.bounds.center.x -
+                                      trolley.Transform.position.x;
+            float hullHalfWidth = bodyBox.bounds.extents.x;
+            const float storagePadSideClearance = 0.25f;
+            float storagePadTangentStartX = storagePad.bounds.min.x -
+                hullCenterXOffset + hullHalfWidth + storagePadSideClearance;
+            float storagePadTangentEndX = storagePad.bounds.max.x -
+                hullCenterXOffset - hullHalfWidth - storagePadSideClearance;
+            Require(storagePadTangentEndX - storagePadTangentStartX > 1f,
+                "The authored Storage Pad is too narrow for a meaningful tangent slide.");
             ValidateSuccessfulTrolleyMove(
                 runtime,
                 scenario,
                 trolley,
-                new Vector3(3f, groundY, storagePadTangentZ),
-                new Vector3(7f, groundY, storagePadTangentZ),
+                new Vector3(
+                    storagePadTangentStartX,
+                    groundY,
+                    storagePadTangentZ),
+                new Vector3(
+                    storagePadTangentEndX,
+                    groundY,
+                    storagePadTangentZ),
                 "authored Storage Pad tangent slide");
             ValidateSuccessfulTrolleyMove(
                 runtime,
                 scenario,
                 trolley,
-                new Vector3(3f, groundY, storagePadTangentZ),
-                new Vector3(3f, groundY, storagePadTangentZ - 2f),
+                new Vector3(
+                    storagePadTangentStartX,
+                    groundY,
+                    storagePadTangentZ),
+                new Vector3(
+                    storagePadTangentStartX,
+                    groundY,
+                    storagePadTangentZ - 2f),
                 "authored Storage Pad zero-distance contact recovery");
 
             GameObject lowThreshold = CreateTrolleyMotionObstacle(
@@ -12280,7 +11572,12 @@ namespace HardwareStore.Editor
             scenario.Input.isTrolleyPressed = true;
             runtime.Systems.Create<StartPushingTrolleySystem>().Execute();
             CleanupEvents(runtime);
+            runtime.Systems.Create<SyncTrolleyCollisionProfileSystem>().Execute();
             runtime.Systems.Create<SyncTrolleyNavigationObstacleSystem>().Execute();
+            RequireCollisionProfile(
+                trolley,
+                "TrafficObstacle",
+                "day-report player-pushed platform trolley");
             Require(scenario.Player.isHandsOccupied &&
                     scenario.Player.isPushingTrolley &&
                     trolley.TrolleyPusherEntityId == scenario.Player.EntityId,
@@ -12308,6 +11605,7 @@ namespace HardwareStore.Editor
             scenario.Input.isTrolleyPressed = true;
             runtime.Systems.Create<DetachPushedTrolleySystem>().Execute();
             CleanupEvents(runtime);
+            runtime.Systems.Create<SyncTrolleyCollisionProfileSystem>().Execute();
             runtime.Systems.Create<SyncTrolleyNavigationObstacleSystem>().Execute();
             Require(!scenario.Player.isHandsOccupied &&
                     !scenario.Player.isPushingTrolley &&
@@ -13057,6 +12355,44 @@ namespace HardwareStore.Editor
                 $"Expected exactly one Player entity, found {playerCount}.");
         }
 
+        private static Collider RequireCollisionProfile(
+            GameEntity entity,
+            string layerName,
+            string role)
+        {
+            int expectedLayer = LayerMask.NameToLayer(layerName);
+            Require(expectedLayer >= 0,
+                $"The {layerName} layer is required for the {role} smoke contract.");
+            Require(entity != null && !entity.isDestructed &&
+                    entity.hasRigidbody && entity.hasColliders &&
+                    entity.Colliders.Length > 0 &&
+                    entity.Colliders.All(collider =>
+                        collider != null && collider.enabled),
+                $"The {role} must keep every registered collider enabled.");
+
+            Collider[] solidColliders = entity.Colliders
+                .Where(collider => !collider.isTrigger &&
+                                   collider.attachedRigidbody == entity.Rigidbody)
+                .ToArray();
+            Require(solidColliders.Length == 1 &&
+                    solidColliders[0].gameObject.layer == expectedLayer,
+                $"The {role} must expose one enabled solid collider on {layerName}.");
+            return solidColliders[0];
+        }
+
+        private static void RequireUncontrolledGhostMover(
+            GameEntity actor,
+            string role)
+        {
+            RequireCollisionProfile(actor, "GhostMover", role);
+            Require(actor.hasTrafficControlPolicy &&
+                    actor.TrafficControlPolicy == TrafficControlPolicyId.Uncontrolled &&
+                    !actor.isTrafficYielding &&
+                    !actor.hasTrafficConflictEntityId &&
+                    !actor.hasTrafficConflictCollider,
+                $"The {role} must remain an uncontrolled non-yielding GhostMover.");
+        }
+
         private static void ValidateRuntimePlayerView(GameEntity player)
         {
             Require(player.Transform == player.View.gameObject.transform,
@@ -13285,10 +12621,10 @@ namespace HardwareStore.Editor
         {
             private const double TimeoutSeconds = 60d;
             private const double DockingTimeoutSeconds = 25d;
-            private const float MaximumAnchorError = 0.25f;
-            private const float MaximumPenetration = 0.08f;
             private const float MinimumPhysicalProgress = 0.5f;
             private const float MaximumCargoPoseError = 0.015f;
+            private const float MaximumFollowPositionError = 0.12f;
+            private const float MaximumFollowRotationError = 6f;
 
             private readonly GameEntity _worker;
             private readonly GameEntity _trolley;
@@ -13305,7 +12641,7 @@ namespace HardwareStore.Editor
             private int _fixedSamples;
             private bool _stopped;
             private bool _sawNaturalApproach;
-            private bool _sawJoint;
+            private bool _sawDirectFollow;
             private bool _sawCompletionStep;
             private bool _sawCompletionStepProgress;
             private bool _sawSynchronizedCargo;
@@ -13338,9 +12674,9 @@ namespace HardwareStore.Editor
                 Application.logMessageReceived += OnLogMessageReceived;
                 EditorApplication.update += Update;
                 Debug.Log(
-                    "[Hardware Store] Worker-trolley joint live smoke started. " +
+                    "[Hardware Store] Worker-trolley direct-follow live smoke started. " +
                     "The worker must approach the parked trolley naturally; the normal " +
-                    "Store update/fixed loop owns all movement and hitching.");
+                    "Store update/fixed loop owns all movement and attachment.");
             }
 
             private void Update()
@@ -13349,7 +12685,7 @@ namespace HardwareStore.Editor
                 {
                     Stop();
                     Debug.LogError(
-                        "[Hardware Store] Worker-trolley joint live smoke was " +
+                        "[Hardware Store] Worker-trolley direct-follow live smoke was " +
                         "interrupted by leaving Play Mode.");
                     return;
                 }
@@ -13362,10 +12698,10 @@ namespace HardwareStore.Editor
                             _consoleException);
                     double elapsed =
                         EditorApplication.timeSinceStartup - _startedAt;
-                    if (!_sawJoint && elapsed > DockingTimeoutSeconds)
+                    if (!_sawDirectFollow && elapsed > DockingTimeoutSeconds)
                     {
                         throw new TimeoutException(CreateDiagnostics(
-                            "Timed out before the worker naturally reached and hitched the " +
+                            "Timed out before the worker naturally reached and attached the " +
                             "parked trolley."));
                     }
                     if (elapsed > TimeoutSeconds)
@@ -13393,57 +12729,70 @@ namespace HardwareStore.Editor
                             product.isEnabled && !product.isDestructed),
                         CreateDiagnostics("The live trolley run lost a product entity."));
 
-                    ConfigurableJoint joint = _trolley.Rigidbody
-                        .GetComponents<ConfigurableJoint>()
-                        .FirstOrDefault(candidate =>
-                            candidate != null &&
-                            candidate.connectedBody == _worker.Rigidbody);
-                    Require(_trolley.hasNavMeshObstacle,
+                    RequireUncontrolledGhostMover(
+                        _worker,
+                        "live warehouse worker");
+                    RequireCollisionProfile(
+                        _trolley,
+                        "GhostMover",
+                        "live worker-leased platform trolley");
+                    Require(_trolley.hasNavMeshObstacle &&
+                            _trolley.isWorkerTrolley &&
+                            !_trolley.NavMeshObstacle.enabled &&
+                            _trolley.Rigidbody.isKinematic &&
+                            !_trolley.Rigidbody.useGravity &&
+                            _trolley.Rigidbody
+                                .GetComponents<ConfigurableJoint>().Length == 0,
                         CreateDiagnostics(
-                            "The live platform trolley lost its registered NavMesh obstacle."));
-                    bool shouldCarve = !_trolley.hasTrolleyPusherEntityId;
-                    Require(_trolley.NavMeshObstacle.enabled == shouldCarve,
-                        CreateDiagnostics(
-                            "The parked/pushed trolley obstacle state diverged from its " +
-                            "pusher relation."));
-                    if (joint == null)
+                            "The live worker trolley lost its joint-free kinematic " +
+                            "GhostMover contract."));
+                    if (!_trolley.hasTrolleyPusherEntityId)
                     {
-                        _sawNaturalApproach |= !_trolley.hasTrolleyPusherEntityId;
-                        Require(_trolley.Rigidbody.isKinematic &&
-                                !_trolley.Rigidbody.useGravity &&
-                                Vector3.Distance(
+                        _sawNaturalApproach = true;
+                        Require(Vector3.Distance(
                                     _trolley.Rigidbody.position,
-                                    _initialTrolleyPosition) <= 0.03f &&
-                                GetMaximumPenetration(_worker, _trolley) <=
-                                MaximumPenetration,
+                                    _initialTrolleyPosition) <= 0.03f,
                             CreateDiagnostics(
-                                "The unhitched trolley moved or the approaching worker " +
-                                "penetrated it."));
+                                "The unattached trolley moved during the worker's natural " +
+                                "approach."));
                         return;
                     }
 
                     Require(_sawNaturalApproach,
                         CreateDiagnostics(
-                            "The joint appeared without observing a natural unhitched " +
+                            "Direct follow began without observing a natural unattached " +
                             "approach."));
-                    _sawJoint = true;
-                    Require(joint.connectedBody == _worker.Rigidbody &&
-                            !_trolley.NavMeshObstacle.enabled &&
-                            !_trolley.Rigidbody.isKinematic &&
-                            _trolley.Rigidbody.useGravity &&
+                    _sawDirectFollow = true;
+                    Require(_trolley.TrolleyPusherEntityId == _worker.EntityId &&
+                            _worker.isPushingWorkerTrolley &&
+                            _worker.isHandsOccupied &&
                             _worker.Rigidbody.isKinematic &&
                             !_worker.Rigidbody.useGravity,
-                        CreateDiagnostics("The live trolley hitch body contract is invalid."));
-                    Require(IsFinite(_trolley.Rigidbody.linearVelocity) &&
-                            IsFinite(_trolley.Rigidbody.angularVelocity) &&
-                            IsFinite(_worker.Rigidbody.linearVelocity) &&
-                            IsFinite(_worker.Rigidbody.angularVelocity),
-                        CreateDiagnostics("A live physics body produced a non-finite velocity."));
-
-                    float anchorError = GetJointAnchorError(joint);
-                    Require(anchorError <= MaximumAnchorError,
                         CreateDiagnostics(
-                            $"The live hitch anchor error reached {anchorError:F3} m."));
+                            "The live worker-trolley attachment relation is invalid."));
+
+                    Vector3 expectedTrolleyPosition =
+                        _worker.Rigidbody.position +
+                        _worker.Rigidbody.rotation * Vector3.forward *
+                        _trolley.TrolleyFollowDistance;
+                    Quaternion expectedTrolleyRotation = _worker.Rigidbody.rotation;
+                    float followPositionError = Vector3.Distance(
+                        _trolley.Rigidbody.position,
+                        expectedTrolleyPosition);
+                    float followRotationError = Quaternion.Angle(
+                        _trolley.Rigidbody.rotation,
+                        expectedTrolleyRotation);
+                    Require(followPositionError <= MaximumFollowPositionError &&
+                            followRotationError <= MaximumFollowRotationError &&
+                            Vector3.Distance(
+                                _trolley.Transform.position,
+                                _trolley.Rigidbody.position) <= 0.001f &&
+                            Quaternion.Angle(
+                                _trolley.Transform.rotation,
+                                _trolley.Rigidbody.rotation) <= 0.1f,
+                        CreateDiagnostics(
+                            $"The live direct-follow error reached " +
+                            $"{followPositionError:F3} m / {followRotationError:F2} deg."));
                     WarehouseTaskStepId step = _run.WarehouseTaskStep;
                     if (step == _completionStep)
                     {
@@ -13486,11 +12835,12 @@ namespace HardwareStore.Editor
 
                     Stop();
                     Debug.Log(
-                        "[Hardware Store] Worker-trolley joint live smoke passed: " +
+                        "[Hardware Store] Worker-trolley direct-follow live smoke passed: " +
                         $"{_fixedSamples} fixed steps, worker {workerProgress:F2} m, " +
-                        $"trolley {trolleyProgress:F2} m, anchor {anchorError:F3} m; " +
-                        $"the worker naturally docked and the dynamic trolley reached " +
-                        $"{_completionDescription} without serious penetration.");
+                        $"trolley {trolleyProgress:F2} m, follow error " +
+                        $"{followPositionError:F3} m / {followRotationError:F2} deg; " +
+                        $"the worker naturally attached and the kinematic GhostMover " +
+                        $"reached {_completionDescription}.");
                 }
                 catch (Exception exception)
                 {
@@ -13571,56 +12921,10 @@ namespace HardwareStore.Editor
                        $"trafficConflict={conflict}; " +
                        $"trolley={_trolley.Rigidbody.position}, " +
                        $"trolleyVelocity={_trolley.Rigidbody.linearVelocity}; " +
-                       $"jointSeen={_sawJoint}; " +
+                       $"directFollowSeen={_sawDirectFollow}; " +
                        $"completionStepSeen={_sawCompletionStep}; " +
                        $"completionStepProgress={_sawCompletionStepProgress}.";
             }
-
-            private static float GetJointAnchorError(ConfigurableJoint joint)
-            {
-                Rigidbody trolleyBody = joint.GetComponent<Rigidbody>();
-                Rigidbody workerBody = joint.connectedBody;
-                Vector3 trolleyAnchor = trolleyBody.position +
-                    trolleyBody.rotation * Vector3.Scale(
-                        joint.anchor,
-                        trolleyBody.transform.lossyScale);
-                Vector3 workerAnchor = workerBody.position +
-                    workerBody.rotation * Vector3.Scale(
-                        joint.connectedAnchor,
-                        workerBody.transform.lossyScale);
-                return Vector3.Distance(trolleyAnchor, workerAnchor);
-            }
-
-            private static float GetMaximumPenetration(
-                GameEntity first, GameEntity second)
-            {
-                float maximum = 0f;
-                foreach (Collider firstCollider in first.Colliders)
-                foreach (Collider secondCollider in second.Colliders)
-                {
-                    if (firstCollider == null || secondCollider == null ||
-                        !firstCollider.enabled || !secondCollider.enabled ||
-                        firstCollider.isTrigger || secondCollider.isTrigger)
-                        continue;
-                    if (Physics.ComputePenetration(
-                            firstCollider,
-                            firstCollider.transform.position,
-                            firstCollider.transform.rotation,
-                            secondCollider,
-                            secondCollider.transform.position,
-                            secondCollider.transform.rotation,
-                            out _,
-                            out float distance))
-                        maximum = Mathf.Max(maximum, distance);
-                }
-
-                return maximum;
-            }
-
-            private static bool IsFinite(Vector3 value) =>
-                !float.IsNaN(value.x) && !float.IsInfinity(value.x) &&
-                !float.IsNaN(value.y) && !float.IsInfinity(value.y) &&
-                !float.IsNaN(value.z) && !float.IsInfinity(value.z);
         }
 
         private sealed class FixedPhysicsTimeService : IPhysicsTimeService

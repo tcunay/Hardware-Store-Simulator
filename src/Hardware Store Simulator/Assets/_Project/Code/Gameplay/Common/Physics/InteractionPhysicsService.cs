@@ -31,7 +31,9 @@ namespace HardwareStore.Gameplay.Common.Physics
             int candidateCount = 0;
 
             int directHitCount = UnityEngine.Physics.RaycastNonAlloc(ray, _castHits, interactionDistance,
-                UnityEngine.Physics.DefaultRaycastLayers, QueryTriggerInteraction.Collide);
+                GhostMoverCollisionProfile.WithoutGhostMover(
+                    UnityEngine.Physics.DefaultRaycastLayers),
+                QueryTriggerInteraction.Collide);
             EnsureQueryDidNotSaturate(directHitCount, _castHits, "interaction raycast");
 
             float nearestBlockerDistance = float.PositiveInfinity;
@@ -56,7 +58,10 @@ namespace HardwareStore.Gameplay.Common.Physics
             }
 
             int assistedHitCount = UnityEngine.Physics.SphereCastNonAlloc(ray, aimAssistRadius, _castHits,
-                interactionDistance, UnityEngine.Physics.DefaultRaycastLayers, QueryTriggerInteraction.Collide);
+                interactionDistance,
+                GhostMoverCollisionProfile.WithoutGhostMover(
+                    UnityEngine.Physics.DefaultRaycastLayers),
+                QueryTriggerInteraction.Collide);
             EnsureQueryDidNotSaturate(assistedHitCount, _castHits, "interaction sphere cast");
 
             for (int i = 0; i < assistedHitCount; i++)
@@ -90,7 +95,10 @@ namespace HardwareStore.Gameplay.Common.Physics
 
             Ray visibilityRay = new(origin, toTarget / targetDistance);
             int hitCount = UnityEngine.Physics.RaycastNonAlloc(visibilityRay, _visibilityHits,
-                targetDistance, UnityEngine.Physics.DefaultRaycastLayers, QueryTriggerInteraction.Collide);
+                targetDistance,
+                GhostMoverCollisionProfile.WithoutGhostMover(
+                    UnityEngine.Physics.DefaultRaycastLayers),
+                QueryTriggerInteraction.Collide);
             EnsureQueryDidNotSaturate(hitCount, _visibilityHits, "interaction visibility raycast");
 
             for (int i = 0; i < hitCount; i++)
@@ -119,11 +127,13 @@ namespace HardwareStore.Gameplay.Common.Physics
         }
 
         private static bool BlocksDirectFocus(Collider hitCollider) =>
+            !GhostMoverCollisionProfile.BelongsToGhostMover(hitCollider) &&
             !IsNonOccludingInteractionProxy(hitCollider);
 
         private bool BlocksAssistedFocus(Collider hitCollider, int candidateEntityId)
         {
-            if (IsNonOccludingInteractionProxy(hitCollider))
+            if (GhostMoverCollisionProfile.BelongsToGhostMover(hitCollider) ||
+                IsNonOccludingInteractionProxy(hitCollider))
                 return false;
 
             return !TryResolveEntityId(hitCollider, out int hitEntityId) ||

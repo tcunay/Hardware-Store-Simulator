@@ -2011,9 +2011,14 @@ namespace HardwareStore.Editor
                 "CreateEntity.Empty",
                 "AddCustomerActorVisitEntityId",
                 "AddCustomerReturnRoute",
+                "AddTrafficControlPolicy(TrafficControlPolicyId.Uncontrolled)",
                 "isCustomer = true",
                 "isCustomerApproachingCounter = true",
                 "isRouteMover = true");
+            Require(!customerFactorySource.Contains(
+                    "TrafficControlPolicyId.BrakeOnly", StringComparison.Ordinal),
+                "Ghost customer NPCs must remain uncontrolled traffic participants and " +
+                "must never brake for physical conflicts.");
 
             string routeMovementSource = ReadRuntimeSource(
                 "Gameplay", "Features", "Customers", "Systems", "MoveRouteSystem.cs");
@@ -2545,6 +2550,9 @@ namespace HardwareStore.Editor
                 "ValidateActorPhysics(actor)",
                 "Pending customer actor",
                 "actor.hasColliders",
+                "GhostMoverCollisionProfile.Validate(",
+                "actor.Colliders",
+                "GhostMoverCollisionProfile.GhostMover",
                 "arrivalSequences.Add",
                 "ValidateParkingRelation",
                 "ValidateBayRelation",
@@ -3408,21 +3416,18 @@ namespace HardwareStore.Editor
             RequireSourceOrder(routeSource,
                 "_motion.TryResolveMove(",
                 "body.position = resolvedPose.position",
-                "Route movement must pass its final physical sweep before mutating pose.");
+                "Route movement must pass its collision-filtered motion query before mutating " +
+                "pose.");
 
             string timeoutSource = ReadRuntimeSource(
                 "Gameplay", "Features", "Employees", "Systems",
                 "TickWarehouseTaskTimeoutSystem.cs");
-            RequireSourceContains(timeoutSource,
-                "task.AssignedWorkerEntityId",
-                "worker.isTrafficYielding",
-                "worker.hasTrafficConflictEntityId",
-                "continue;");
-            RequireSourceOrder(timeoutSource,
-                "worker.isTrafficYielding &&",
-                "worker.hasTrafficConflictEntityId",
-                "Warehouse task timeout may pause for a temporary participant yield, but a " +
-                "persistent world collider must remain bounded by recovery timeout.");
+            Require(!timeoutSource.Contains(
+                        "worker.isTrafficYielding", StringComparison.Ordinal) &&
+                    !timeoutSource.Contains(
+                        "worker.hasTrafficConflictEntityId", StringComparison.Ordinal),
+                "Warehouse task timeouts must not pause for obsolete traffic-yield state on " +
+                "uncontrolled ghost workers.");
             string workerTrolleyFollowSource = ReadRuntimeSource(
                 "Gameplay", "Features", "Trolley", "Systems",
                 "FollowWorkerTrolleySystem.cs");
@@ -3431,13 +3436,29 @@ namespace HardwareStore.Editor
                 "_hitch.BeginFrame()",
                 "_hitch.Maintain(",
                 "worker.Rigidbody, worker.Colliders",
+                "!trolley.Rigidbody.isKinematic",
+                "trolley.Rigidbody.useGravity",
+                "trolley.Transform.SetPositionAndRotation(",
+                "trolley.Rigidbody.position",
+                "trolley.Rigidbody.rotation",
                 "_hitch.EndFrame()",
                 "public void TearDown() => _hitch.DetachAll()");
+            RequireSourceOrder(
+                workerTrolleyFollowSource,
+                "_hitch.Maintain(",
+                "trolley.Transform.SetPositionAndRotation(",
+                "Worker-trolley Transform synchronization must consume the Rigidbody pose " +
+                "after the deterministic follow service has moved it.");
             Require(!workerTrolleyFollowSource.Contains(
-                        "SetPositionAndRotation", StringComparison.Ordinal) &&
+                        "trolley.Rigidbody.position =", StringComparison.Ordinal) &&
                     !workerTrolleyFollowSource.Contains(
-                        "Rigidbody.position", StringComparison.Ordinal),
-                "A physically hitched worker trolley must not receive direct pose writes.");
+                        "trolley.Rigidbody.rotation =", StringComparison.Ordinal) &&
+                    !workerTrolleyFollowSource.Contains(
+                        "targetPosition", StringComparison.Ordinal) &&
+                    !workerTrolleyFollowSource.Contains(
+                        "targetRotation", StringComparison.Ordinal),
+                "Worker-trolley target-pose calculation and Rigidbody writes must stay inside " +
+                "the injected deterministic follow service.");
 
             string fixedFeatureSource = ReadRuntimeSource(
                 "Gameplay", "StoreFixedFeature.cs");
@@ -3523,6 +3544,7 @@ namespace HardwareStore.Editor
                 "DetachPushedTrolleySystem",
                 "LoadHeldProductOnTrolleySystem",
                 "RefreshTrolleyOccupiedSlotCountSystem",
+                "SyncTrolleyCollisionProfileSystem",
                 "SyncTrolleyNavigationObstacleSystem",
                 "ValidatePlayerHandlingStateSystem",
                 "ValidatePlatformTrolleyStateSystem",
@@ -3644,6 +3666,7 @@ namespace HardwareStore.Editor
                 "Add(systems.Create<UnlockPlatformTrolleyUpgradeSystem>())",
                 "Add(systems.Create<PurchasePlatformTrolleySystem>())",
                 "Add(systems.Create<StartPushingTrolleySystem>())",
+                "Add(systems.Create<SyncTrolleyCollisionProfileSystem>())",
                 "Add(systems.Create<LoadHeldProductOnTrolleySystem>())",
                 "Add(systems.Create<RefreshTrolleyOccupiedSlotCountSystem>())",
                 "Add(systems.Create<SyncTrolleyNavigationObstacleSystem>())",
@@ -3661,10 +3684,63 @@ namespace HardwareStore.Editor
                         trolleySystemTokens[index - 1],
                         trolleySystemTokens[index],
                         "TrolleyFeature system order must preserve detach, progression, purchase, " +
-                        "cargo refresh, navigation-obstacle sync and invariant validation " +
+                        "collision-profile sync, cargo refresh, navigation-obstacle sync and " +
+                        "invariant validation " +
                         "sequencing.");
                 }
             }
+
+            string collisionProfileSource = ReadRuntimeSource(
+                "Gameplay", "Common", "Physics",
+                "GhostMoverCollisionProfile.cs");
+            RequireSourceContains(collisionProfileSource,
+                "public const string GhostMover = \"GhostMover\"",
+                "public const string TrafficObstacle = \"TrafficObstacle\"",
+                "private const int PhysicsLayerCount = 32",
+                "public static int WithoutGhostMover(int layerMask)",
+                "public static void Apply(Rigidbody body, Collider[] colliders,",
+                "public static void Validate(Rigidbody body, Collider[] colliders,",
+                "public static bool BelongsToGhostMover(Collider collider)",
+                "public static void ValidateGhostLayerMatrix()",
+                "UnityEngine.Physics.GetIgnoreLayerCollision(",
+                "if (!collider.isTrigger)",
+                "collider.gameObject.layer = layer",
+                "!collider.enabled || !collider.gameObject.activeInHierarchy");
+            Require(!collisionProfileSource.Contains(
+                        "Physics.IgnoreCollision(", StringComparison.Ordinal) &&
+                    !collisionProfileSource.Contains(
+                        "collider.enabled =", StringComparison.Ordinal),
+                "Ghost collision profiles must switch non-trigger layers without disabling " +
+                "query footprints or installing per-pair collision state.");
+
+            string syncTrolleyCollisionSource = ReadRuntimeSource(
+                "Gameplay", "Features", "Trolley", "Systems",
+                "SyncTrolleyCollisionProfileSystem.cs");
+            RequireSourceContains(syncTrolleyCollisionSource,
+                "GameMatcher.Rigidbody",
+                "GameMatcher.Colliders",
+                "GameMatcher.PlatformTrolley",
+                "GameMatcher.WorkerTrolley",
+                ".NoneOf(GameMatcher.Destructed)",
+                "GhostMoverCollisionProfile.ValidateGhostLayerMatrix()",
+                "HasValidPlayerPusher(trolley)",
+                "GhostMoverCollisionProfile.TrafficObstacle",
+                "GhostMoverCollisionProfile.GhostMover",
+                "GhostMoverCollisionProfile.Apply(",
+                "!trolley.isPlatformTrolley || trolley.isWorkerTrolley",
+                "player.isPushingTrolley");
+            RequireSourceOrder(
+                trolleyFeatureSource,
+                "Create<StartPushingTrolleySystem>()",
+                "Create<SyncTrolleyCollisionProfileSystem>()",
+                "Player attachment must be visible before the trolley collision profile is " +
+                "synchronized.");
+            RequireSourceOrder(
+                trolleyFeatureSource,
+                "Create<SyncTrolleyCollisionProfileSystem>()",
+                "Create<LoadHeldProductOnTrolleySystem>()",
+                "The trolley collision profile must be synchronized before later trolley " +
+                "state consumers execute.");
 
             string syncTrolleyObstacleSource = ReadRuntimeSource(
                 "Gameplay", "Features", "Trolley", "Systems",
@@ -3678,7 +3754,8 @@ namespace HardwareStore.Editor
                 ".NoneOf(GameMatcher.Destructed)",
                 "obstacle.gameObject != trolley.Rigidbody.gameObject",
                 "trolley.Transform != trolley.Rigidbody.transform",
-                "bool shouldBeEnabled = !trolley.hasTrolleyPusherEntityId",
+                "bool shouldBeEnabled = !trolley.isWorkerTrolley &&",
+                "!trolley.hasTrolleyPusherEntityId",
                 "obstacle.enabled = shouldBeEnabled");
             Require(!syncTrolleyObstacleSource.Contains(
                     "GetComponent<NavMeshObstacle>", StringComparison.Ordinal),
@@ -4004,18 +4081,28 @@ namespace HardwareStore.Editor
             RequireSourceContains(validatePlatformTrolleySource,
                 "if (trolley.isWorkerTrolley)",
                 "ValidateWorkerLease(trolley)",
+                "GameMatcher.Colliders",
                 "GameMatcher.NavMeshObstacle",
+                "GhostMoverCollisionProfile.Validate(",
+                "GhostMoverCollisionProfile.TrafficObstacle",
+                "GhostMoverCollisionProfile.GhostMover",
                 "NavMeshObstacle obstacle = trolley.NavMeshObstacle",
                 "obstacle.gameObject == trolley.Rigidbody.gameObject",
                 "obstacle.shape == NavMeshObstacleShape.Box",
                 "obstacle.center == new Vector3(0f, 0.27f, 0.15f)",
                 "obstacle.size == new Vector3(2f, 0.5f, 2.1f)",
                 "obstacle.carving && obstacle.carveOnlyStationary",
-                "obstacle.enabled == !trolley.hasTrolleyPusherEntityId",
+                "obstacle.enabled ==",
+                "(!trolley.isWorkerTrolley &&",
+                "!trolley.hasTrolleyPusherEntityId)",
                 "GetEntitiesWithTrolleyEntityId(",
                 "GetEntitiesWithWorkerTrolleyEntityId(",
                 "WarehouseWorkerStatusId.MovingWorkerTrolleyToStorage",
                 "trolley.isInteractable");
+            Require(!validatePlatformTrolleySource.Contains(
+                    "physicallyHitchedWorkerBody", StringComparison.Ordinal),
+                "Platform-trolley validation must keep every worker-leased trolley " +
+                "kinematic instead of accepting the former dynamic hitch body.");
             RequireSourceOrder(
                 followSource,
                 "_motion.TryResolveMove(",
@@ -4040,9 +4127,20 @@ namespace HardwareStore.Editor
                 "trolley.Rigidbody, trolley.Colliders",
                 "worker.Rigidbody, worker.Colliders",
                 "trolley.TrolleyFollowDistance",
+                "!trolley.Rigidbody.isKinematic",
+                "trolley.Rigidbody.useGravity",
+                "trolley.Transform.SetPositionAndRotation(",
+                "trolley.Rigidbody.position",
+                "trolley.Rigidbody.rotation",
                 "_hitch.EndFrame()",
                 "ITearDownSystem",
                 "_hitch.DetachAll()");
+            RequireSourceOrder(
+                followWorkerTrolleySource,
+                "_hitch.Maintain(",
+                "trolley.Transform.SetPositionAndRotation(",
+                "Worker-trolley orchestration may synchronize Transform only after the " +
+                "service-owned Rigidbody pose update.");
             Require(!followWorkerTrolleySource.Contains(
                         "WarehouseTaskBlockReasonId.WorkerTrolleyObstructed",
                         StringComparison.Ordinal) &&
@@ -4058,11 +4156,15 @@ namespace HardwareStore.Editor
                         "RemoveTrolleyPusherEntityId()",
                         StringComparison.Ordinal) &&
                     !followWorkerTrolleySource.Contains(
-                        "SetPositionAndRotation", StringComparison.Ordinal) &&
+                        "trolley.Rigidbody.position =", StringComparison.Ordinal) &&
                     !followWorkerTrolleySource.Contains(
-                        "Rigidbody.position", StringComparison.Ordinal),
-                "A physical worker-trolley hitch must not enter recovery, teleport the " +
-                "trolley or release its lease in the traffic lane.");
+                        "trolley.Rigidbody.rotation =", StringComparison.Ordinal) &&
+                    !followWorkerTrolleySource.Contains(
+                        "targetPosition", StringComparison.Ordinal) &&
+                    !followWorkerTrolleySource.Contains(
+                        "targetRotation", StringComparison.Ordinal),
+                "Worker-trolley follow orchestration must not enter recovery, own the direct " +
+                "Rigidbody target pose or release its lease in the traffic lane.");
             Require(!followWorkerTrolleySource.Contains(
                     ".updateRotation", StringComparison.Ordinal),
                 "Worker-trolley following must keep NavMesh rotation control behind the " +
@@ -4071,26 +4173,41 @@ namespace HardwareStore.Editor
                 "Gameplay", "Common", "Physics",
                 "WorkerTrolleyHitchService.cs");
             RequireSourceContains(hitchSource,
-                "ConfigurableJoint",
-                "joint.connectedBody = workerBody",
-                "joint.autoConfigureConnectedAnchor = false",
-                "joint.anchor = TrolleyHandleAnchor",
-                "joint.connectedAnchor = new Vector3(",
-                "ConfigurableJointMotion.Limited",
-                "joint.angularYMotion = ConfigurableJointMotion.Limited",
-                "joint.rotationDriveMode = RotationDriveMode.Slerp",
-                "CollisionDetectionMode.ContinuousDynamic",
-                "RigidbodyInterpolation.Interpolate",
-                "trolleyBody.isKinematic = false",
-                "trolleyBody.useGravity = true",
-                "trolleyBody.WakeUp()",
-                "UnityEngine.Physics.IgnoreCollision(",
-                "if (!ignore && (trolleyCollider == null || workerCollider == null))",
+                "private readonly HashSet<Rigidbody> _tracked",
+                "GhostMoverCollisionProfile.Apply(",
+                "workerColliders,",
+                "trolleyColliders,",
+                "GhostMoverCollisionProfile.GhostMover",
+                "ConfigureKinematic(trolleyBody)",
+                "workerBody.position +",
+                "workerBody.rotation * Vector3.forward *",
+                "followDistance",
+                "trolleyBody.position = targetPosition",
+                "trolleyBody.rotation = targetRotation",
+                "trolleyBody.transform.SetPositionAndRotation(",
+                "body.linearVelocity = Vector3.zero",
+                "body.angularVelocity = Vector3.zero",
+                "body.useGravity = false",
+                "body.isKinematic = true",
+                "body.detectCollisions",
                 "public void DetachAll()");
+            Require(!hitchSource.Contains(
+                        "ConfigurableJoint", StringComparison.Ordinal) &&
+                    !hitchSource.Contains(
+                        "Physics.IgnoreCollision(", StringComparison.Ordinal) &&
+                    !hitchSource.Contains(
+                        "SweepTest(", StringComparison.Ordinal) &&
+                    !hitchSource.Contains(
+                        "isKinematic = false", StringComparison.Ordinal) &&
+                    !hitchSource.Contains(
+                        "useGravity = true", StringComparison.Ordinal),
+                "Worker trolley follow must remain a direct kinematic GhostMover pose update " +
+                "without joints, per-pair collision state, sweeps or dynamic gravity.");
             RequireSourceOrder(hitchSource,
-                "hitch.Joint.connectedBody = null",
-                "trolleyBody.isKinematic = true",
-                "A trolley hitch must be released before any caller can park its Rigidbody.");
+                "GhostMoverCollisionProfile.Apply(",
+                "trolleyBody.position = targetPosition",
+                "The worker and trolley ghost profiles must be applied before direct pose " +
+                "movement.");
             Require(typeof(ITrolleyMotionService).IsAssignableFrom(
                     typeof(TrolleyMotionService)),
                 $"{nameof(TrolleyMotionService)} must implement " +
@@ -4161,6 +4278,7 @@ namespace HardwareStore.Editor
                 "QueryTriggerInteraction.Ignore",
                 "enabledSolidColliderCount != 1",
                 "candidate == sourceCollider",
+                "GhostMoverCollisionProfile.WithoutGhostMover(",
                 "GrowSweepBuffer(",
                 "GrowOverlapBuffer(",
                 "Array.Resize(");
@@ -4170,6 +4288,11 @@ namespace HardwareStore.Editor
                 "hitDistance + contactProbeDistance",
                 "A positive-distance trolley sweep hit must block before the near-contact " +
                 "recovery probe.");
+            Require(CountOccurrences(
+                        trolleyMotionSource,
+                        "GhostMoverCollisionProfile.WithoutGhostMover(") == 2,
+                "Player trolley sweep and overlap queries must both exclude GhostMover " +
+                "footprints while retaining ordinary solid collision blocking.");
             Require(CountOccurrences(trolleyMotionSource, "!IsPathClear(") == 3,
                 "The trolley curb fallback must validate exactly three bounded path segments: " +
                 "rise, traverse and settle.");
@@ -4566,6 +4689,7 @@ namespace HardwareStore.Editor
             RequireSourceContains(workerFactorySource,
                 "CreateEntity.Empty(_identifiers.Next())",
                 "AddViewPrefab(config.ViewPrefab)",
+                "AddTrafficControlPolicy(TrafficControlPolicyId.Uncontrolled)",
                 "AddWarehouseWorkerStoreEntityId(storeEntityId)",
                 "AddWarehouseWorkerStatus(WarehouseWorkerStatusId.Idle)",
                 "AddWarehouseWorkerPickupPosition(pickupPose.position)",
@@ -4575,6 +4699,10 @@ namespace HardwareStore.Editor
                 "AddWarehouseWorkerCustomerLoadingRotation(",
                 "customerLoadingPose.rotation",
                 "isWarehouseWorker = true");
+            Require(!workerFactorySource.Contains(
+                    "TrafficControlPolicyId.NavMesh", StringComparison.Ordinal),
+                "Ghost warehouse workers must remain uncontrolled traffic participants and " +
+                "must never yield to local traffic.");
             string taskFactorySource = ReadRuntimeSource(
                 "Gameplay", "Factories", nameof(WarehouseTaskFactory) + ".cs");
             RequireSourceContains(taskFactorySource,
@@ -4744,6 +4872,8 @@ namespace HardwareStore.Editor
                 "Quaternion.Angle(body.rotation, target)",
                 "agent.updatePosition = false",
                 "agent.updateRotation = false",
+                "agent.obstacleAvoidanceType =",
+                "ObstacleAvoidanceType.NoObstacleAvoidance",
                 "_automaticRotation.Add(agent)",
                 "_automaticRotation.Remove(agent)",
                 "GetState(agent) != WorkerNavigationStateId.Reached",
@@ -4752,20 +4882,38 @@ namespace HardwareStore.Editor
             string workerPhysicsMotorSource = ReadRuntimeSource(
                 "Gameplay", "Common", "Physics",
                 "WarehouseWorkerPhysicsMotor.cs");
+            RequireMethod(
+                typeof(IWarehouseWorkerPhysicsMotor),
+                nameof(IWarehouseWorkerPhysicsMotor.Step),
+                typeof(void),
+                typeof(Rigidbody),
+                typeof(Collider[]),
+                typeof(NavMeshAgent),
+                typeof(float),
+                typeof(float),
+                typeof(float));
             RequireSourceContains(workerPhysicsMotorSource,
                 "IPhysicsTimeService time",
                 "IWorkerNavigationService navigation",
                 "agent.nextPosition = body.position",
                 "agent.desiredVelocity",
-                "Rigidbody coupledBody",
-                "coupledBody, direction, displacement.magnitude",
-                "hasSolidCoupledCollider",
+                "GhostMoverCollisionProfile.Validate(",
+                "GhostMoverCollisionProfile.GhostMover",
                 "_navigation.TryGetManualRotation(agent, out Quaternion manualTarget)",
-                "body.SweepTest(",
                 "body.MovePosition(",
                 "body.MoveRotation(",
                 "body.isKinematic",
                 "RigidbodyInterpolation.Interpolate");
+            Require(!workerPhysicsMotorSource.Contains(
+                        "SweepTest(", StringComparison.Ordinal) &&
+                    !workerPhysicsMotorSource.Contains(
+                        "ResolveAllowedDistance(", StringComparison.Ordinal) &&
+                    !workerPhysicsMotorSource.Contains(
+                        "coupledBody", StringComparison.Ordinal) &&
+                    !workerPhysicsMotorSource.Contains(
+                        "yielding", StringComparison.Ordinal),
+                "The warehouse-worker ghost motor must follow NavMesh intent directly without " +
+                "physical sweeps, coupled-body blocking or traffic yielding.");
             Require(!navigationSource.Contains(
                     "return agent.hasPath ||", StringComparison.Ordinal),
                 "A completed sampled NavMesh path must not count as arrival while the worker " +
@@ -4774,7 +4922,13 @@ namespace HardwareStore.Editor
                 "Gameplay", "Features", "Employees", "Systems",
                 "ConfigureWarehouseWorkerNavigationSystem.cs");
             RequireSourceContains(configureNavigationSource,
+                "GameMatcher.Rigidbody",
+                "GameMatcher.Colliders",
                 "GameMatcher.WarehouseWorkerCustomerLoadingPosition",
+                "GhostMoverCollisionProfile.Apply(",
+                "worker.Rigidbody",
+                "worker.Colliders",
+                "GhostMoverCollisionProfile.GhostMover",
                 "_navigation.TryEnsurePlacedOnNavMesh(",
                 "_config.NavigationSampleRadius");
             string executeInboundNavigationSource = ReadRuntimeSource(
@@ -5578,6 +5732,12 @@ namespace HardwareStore.Editor
                 "trolley.TrolleyCapacity != _config.Capacity",
                 "trolley.TrolleyMovementSpeed != _config.MovementSpeed",
                 "trolley.TrolleyFollowDistance != _config.FollowDistance",
+                "!trolley.Rigidbody.isKinematic",
+                "trolley.Rigidbody.useGravity",
+                "GetComponents<ConfigurableJoint>().Length != 0",
+                "GhostMoverCollisionProfile.Validate(",
+                "trolley.Colliders",
+                "GhostMoverCollisionProfile.GhostMover",
                 "GetEntitiesWithTrolleyEntityId(",
                 "GetEntitiesWithWorkerTrolleyEntityId(",
                 "product.WorkerTrolleySlotIndex",
@@ -5594,6 +5754,12 @@ namespace HardwareStore.Editor
                 "MovingWorkerTrolleyToStorage or",
                 "MovingWorkerTrolleyToCustomerLoading or",
                 "ReturningWorkerTrolley");
+            Require(!validateWorkerTrolleySource.Contains(
+                        "hasPhysicalHitch", StringComparison.Ordinal) &&
+                    !validateWorkerTrolleySource.Contains(
+                        "ContinuousDynamic", StringComparison.Ordinal),
+                "Worker-trolley validation must reject joint components and must not restore " +
+                "the former dynamic physical-hitch contract.");
             string detectOrphanedTaskSource = ReadRuntimeSource(
                 "Gameplay", "Features", "Employees", "Systems",
                 "DetectOrphanedWarehouseTaskSystem.cs");
@@ -5657,6 +5823,10 @@ namespace HardwareStore.Editor
                 "Pending warehouse worker",
                 "ValidateWorkerPhysics(worker)",
                 "worker.hasCarryAnchor",
+                "ObstacleAvoidanceType.NoObstacleAvoidance",
+                "GhostMoverCollisionProfile.Validate(",
+                "worker.Colliders",
+                "GhostMoverCollisionProfile.GhostMover",
                 "moving != (task != null)",
                 "worker.isCarryingProduct && worker.isPushingWorkerTrolley",
                 "worker.isHandsOccupied !=",
@@ -8219,6 +8389,44 @@ namespace HardwareStore.Editor
 
         private static void ValidateSupplyChainAssets()
         {
+            string prototypeBuilderSource = ReadEditorSource(
+                nameof(PrototypeSceneBuilder) + ".cs");
+            RequireSourceContains(prototypeBuilderSource,
+                "private const string GhostMoverLayerName = \"GhostMover\"",
+                "customer.layer = ghostMoverLayer",
+                "trafficColliderObject.layer = ghostMoverLayer",
+                "bodyColliderObject.layer = ghostMoverLayer",
+                "agent.obstacleAvoidanceType = ObstacleAvoidanceType.NoObstacleAvoidance",
+                "interactionArea.layer = defaultLayer");
+            Require(CountOccurrences(
+                        prototypeBuilderSource,
+                        "LayerMask.NameToLayer(GhostMoverLayerName)") == 4,
+                "PrototypeSceneBuilder must author exactly the customer, warehouse worker " +
+                "and both trolley body footprints on GhostMover.");
+
+            string gleyBuilderSource = ReadEditorSource(
+                nameof(GleyTrafficPrototypeBuilder) + ".cs");
+            Match dynamicObstaclePaths = Regex.Match(
+                gleyBuilderSource,
+                @"DynamicObstacleCollisionPrefabPaths\s*=\s*\{(?<body>.*?)\};",
+                RegexOptions.Singleline);
+            Require(dynamicObstaclePaths.Success,
+                "Gley traffic builder must retain its explicit dynamic-obstacle prefab list.");
+            string dynamicObstacleBody = dynamicObstaclePaths.Groups["body"].Value;
+            RequireSourceContains(dynamicObstacleBody,
+                "Assets/_Project/Prefabs/Gameplay/Player.prefab",
+                "Assets/_Project/Prefabs/Gameplay/Forklift.prefab");
+            Require(CountOccurrences(dynamicObstacleBody, ".prefab") == 2 &&
+                    !dynamicObstacleBody.Contains("Customer.prefab", StringComparison.Ordinal) &&
+                    !dynamicObstacleBody.Contains(
+                        "WarehouseWorker.prefab", StringComparison.Ordinal) &&
+                    !dynamicObstacleBody.Contains(
+                        "PlatformTrolley.prefab", StringComparison.Ordinal) &&
+                    !dynamicObstacleBody.Contains(
+                        "WarehouseWorkerTrolley.prefab", StringComparison.Ordinal),
+                "Gley traffic preparation may overwrite only Player and Forklift collision " +
+                "layers; NPC and trolley GhostMover footprints must remain untouched.");
+
             ProductTypeId[] enumValues = Enum.GetValues(typeof(ProductTypeId))
                 .Cast<ProductTypeId>()
                 .ToArray();
@@ -8725,6 +8933,16 @@ namespace HardwareStore.Editor
             int trafficObstacleLayer = LayerMask.NameToLayer("TrafficObstacle");
             Require(trafficObstacleLayer >= 0,
                 "Required Gley TrafficObstacle layer is missing.");
+            int ghostMoverLayer = LayerMask.NameToLayer("GhostMover");
+            Require(ghostMoverLayer >= 0,
+                "Required GhostMover layer is missing.");
+            Require(Enumerable.Range(0, 32).All(layer =>
+                    Physics.GetIgnoreLayerCollision(ghostMoverLayer, layer)),
+                "GhostMover must ignore every one of Unity's 32 collision layers while " +
+                "its enabled non-trigger colliders remain available to explicit queries.");
+            int defaultLayer = LayerMask.NameToLayer("Default");
+            Require(defaultLayer >= 0,
+                "Required built-in Default layer is missing.");
             Require(customerBodyColliderTransform != null,
                 $"{CustomerVehiclePrefabPath} must contain a Body Collider child.");
             Require(customerInteractionAreaTransform != null,
@@ -8895,16 +9113,17 @@ namespace HardwareStore.Editor
             CapsuleCollider customerTrafficCollider =
                 customerActorTrafficColliders[0];
             Require(customerActorColliders.Length == 1 &&
+                    customerTrafficCollider.enabled &&
                     Mathf.Approximately(customerTrafficCollider.radius, 0.32f) &&
                     Mathf.Approximately(customerTrafficCollider.height, 1.8f) &&
                     (customerTrafficCollider.center -
                         new Vector3(0f, 0.9f, 0f)).sqrMagnitude < 0.000001f &&
                     customerTrafficCollider.direction == 1 &&
                     !customerTrafficCollider.isTrigger &&
-                    customerTrafficCollider.gameObject.layer == trafficObstacleLayer &&
+                    customerTrafficCollider.gameObject.layer == ghostMoverLayer &&
                     customerPrefab.GetComponentsInChildren<InteractionView>(true).Length == 0,
-                $"{CustomerPrefabPath} must expose one solid TrafficObstacle capsule and no " +
-                "interaction adapter so Gley vehicles stop for walking customers.");
+                $"{CustomerPrefabPath} must expose one enabled non-trigger GhostMover " +
+                "footprint capsule and no interaction adapter.");
             CustomerDissatisfactionView moodView = customerMoodViews[0];
             Renderer[] moodRenderers = moodView.Renderers;
             Transform leftShoulder = moodView.LeftShoulder;
@@ -9054,9 +9273,10 @@ namespace HardwareStore.Editor
                 "Rigidbody, Colliders and CarryAnchor registrars.");
             CapsuleCollider workerTrafficCollider = workerTrafficColliders[0];
             Require(workerColliders.Length == 1 &&
+                    workerTrafficCollider.enabled &&
                     workerTrafficCollider.transform.name == "Traffic Collider" &&
                     workerTrafficCollider.transform.parent == workerPrefab.transform &&
-                    workerTrafficCollider.gameObject.layer == trafficObstacleLayer &&
+                    workerTrafficCollider.gameObject.layer == ghostMoverLayer &&
                     !workerTrafficCollider.isTrigger &&
                     Mathf.Approximately(workerTrafficCollider.radius, 0.32f) &&
                     Mathf.Approximately(workerTrafficCollider.height, 1.9f) &&
@@ -9064,8 +9284,8 @@ namespace HardwareStore.Editor
                         workerTrafficCollider.center,
                         new Vector3(0f, 0.95f, 0f)) < 0.001f &&
                     workerPrefab.GetComponentsInChildren<InteractionView>(true).Length == 0,
-                $"{WarehouseWorkerPrefabPath} must expose one exact solid TrafficObstacle " +
-                "capsule and no interaction view.");
+                $"{WarehouseWorkerPrefabPath} must expose one exact enabled non-trigger " +
+                "GhostMover footprint capsule and no interaction view.");
             Require(workerRenderers.Length >= 14,
                 $"{WarehouseWorkerPrefabPath} must contain a visible blue/yellow worker silhouette.");
             string[] blueWorkwearParts =
@@ -9094,8 +9314,11 @@ namespace HardwareStore.Editor
                     Mathf.Approximately(workerAgent.angularSpeed, warehouseWorkerConfig.AngularSpeed) &&
                     Mathf.Approximately(workerAgent.stoppingDistance,
                         warehouseWorkerConfig.StoppingDistance) &&
-                    workerAgent.autoBraking && workerAgent.autoRepath,
-                $"{WarehouseWorkerPrefabPath} NavMeshAgent must mirror its config and repath.");
+                    workerAgent.autoBraking && workerAgent.autoRepath &&
+                    workerAgent.obstacleAvoidanceType ==
+                    ObstacleAvoidanceType.NoObstacleAvoidance,
+                $"{WarehouseWorkerPrefabPath} NavMeshAgent must mirror its config, repath and " +
+                "disable local avoidance for full ghost traversal.");
             Rigidbody workerBody = workerRigidbodies[0];
             Require(Mathf.Approximately(workerBody.mass, 80f) &&
                     workerBody.isKinematic && !workerBody.useGravity &&
@@ -9188,6 +9411,8 @@ namespace HardwareStore.Editor
                         .Length == 0 &&
                     workerTrolleyPrefab.GetComponentsInChildren<NavMeshAgent>(true)
                         .Length == 0 &&
+                    workerTrolleyPrefab.GetComponentsInChildren<ConfigurableJoint>(true)
+                        .Length == 0 &&
                     workerTrolleyPrefab.transform.Find("Interaction Area") == null &&
                     workerTrolleyPrefab.transform.Find("Push Point") == null,
                 $"{WarehouseWorkerTrolleyPrefabPath} must not expose a player-focusable " +
@@ -9214,15 +9439,15 @@ namespace HardwareStore.Editor
                     workerTrolleyBodyCollider != null &&
                     workerTrolleyBodyCollider.enabled &&
                     !workerTrolleyBodyCollider.isTrigger &&
-                    workerTrolleyBodyCollider.gameObject.layer == trafficObstacleLayer &&
+                    workerTrolleyBodyCollider.gameObject.layer == ghostMoverLayer &&
                     Vector3.Distance(
                         workerTrolleyBodyCollider.center,
                         new Vector3(0f, 0.27f, 0.15f)) < 0.001f &&
                     Vector3.Distance(
                         workerTrolleyBodyCollider.size,
                         new Vector3(2f, 0.5f, 2.1f)) < 0.001f,
-                $"{WarehouseWorkerTrolleyPrefabPath} must expose only its exact solid " +
-                "TrafficObstacle body hull.");
+                $"{WarehouseWorkerTrolleyPrefabPath} must expose only its exact enabled " +
+                "non-trigger GhostMover footprint hull.");
             Rigidbody workerTrolleyBody = workerTrolleyRigidbodies[0];
             Require(Mathf.Approximately(workerTrolleyBody.mass, 45f) &&
                     workerTrolleyBody.isKinematic && !workerTrolleyBody.useGravity &&
@@ -9330,6 +9555,9 @@ namespace HardwareStore.Editor
                         .SetEquals(expectedTrolleyRegistrarTypes),
                 $"{PlatformTrolleyPrefabPath} must contain exactly the generic Transform, " +
                 "Rigidbody, NavMeshObstacle, InteractionView, Colliders and Slots registrars.");
+            Require(trolleyPrefab.GetComponentsInChildren<ConfigurableJoint>(true).Length == 0,
+                $"{PlatformTrolleyPrefabPath} must not author the removed physical worker " +
+                "trolley hitch component.");
             Require(trolleySlots.Length == platformTrolleyConfig.Capacity &&
                     trolleySlots.All(slot => slot.IsChildOf(trolleyPrefab.transform)),
                 $"{PlatformTrolleyPrefabPath} must expose exactly three unique cargo slots " +
@@ -9352,15 +9580,15 @@ namespace HardwareStore.Editor
             Collider trolleyInteractionCollider =
                 trolleyInteractionAreaTransform.GetComponent<Collider>();
             Require(trolleyColliders.Length == 2 &&
-                    trolleyBodyCollider != null && !trolleyBodyCollider.isTrigger &&
-                    trolleyBodyCollider.gameObject.layer == trafficObstacleLayer &&
+                    trolleyBodyCollider != null && trolleyBodyCollider.enabled &&
+                    !trolleyBodyCollider.isTrigger &&
+                    trolleyBodyCollider.gameObject.layer == ghostMoverLayer &&
                     trolleyInteractionCollider != null &&
                     trolleyInteractionCollider.enabled &&
                     trolleyInteractionCollider.isTrigger &&
-                    trolleyInteractionCollider.gameObject.layer != trafficObstacleLayer &&
-                    trolleyInteractionCollider.gameObject.layer != ignoreRaycastLayer,
-                $"{PlatformTrolleyPrefabPath} must keep its solid body on TrafficObstacle and " +
-                "expose exactly one enabled, raycastable trolley interaction point.");
+                    trolleyInteractionCollider.gameObject.layer == defaultLayer,
+                $"{PlatformTrolleyPrefabPath} must author its enabled non-trigger body on " +
+                "GhostMover and expose exactly one enabled Default-layer interaction trigger.");
             BoxCollider trolleyBodyBox = trolleyBodyCollider as BoxCollider;
             BoxCollider trolleyHandleTrigger = trolleyInteractionCollider as BoxCollider;
             Require(trolleyBodyBox != null &&
@@ -11663,6 +11891,16 @@ namespace HardwareStore.Editor
         {
             string path = GetRuntimeSourcePath(relativePath);
             Require(File.Exists(path), $"Required runtime source is missing at {path}.");
+            return File.ReadAllText(path);
+        }
+
+        private static string ReadEditorSource(params string[] relativePath)
+        {
+            string[] pathParts = new[] { Application.dataPath, "_Project", "Editor" }
+                .Concat(relativePath)
+                .ToArray();
+            string path = Path.GetFullPath(Path.Combine(pathParts));
+            Require(File.Exists(path), $"Required editor source is missing at {path}.");
             return File.ReadAllText(path);
         }
 

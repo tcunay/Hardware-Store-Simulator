@@ -18,6 +18,8 @@ namespace HardwareStore.Gameplay.Common.Navigation
             agent.angularSpeed = angularSpeed;
             agent.stoppingDistance = stoppingDistance;
             agent.autoBraking = true;
+            agent.obstacleAvoidanceType =
+                ObstacleAvoidanceType.NoObstacleAvoidance;
             agent.updatePosition = false;
             agent.updateRotation = false;
             agent.isStopped = false;

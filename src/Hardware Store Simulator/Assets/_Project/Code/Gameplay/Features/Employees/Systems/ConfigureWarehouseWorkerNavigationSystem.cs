@@ -1,6 +1,7 @@
 using System;
 using Entitas;
 using HardwareStore.Gameplay.Common.Navigation;
+using HardwareStore.Gameplay.Common.Physics;
 using HardwareStore.Gameplay.Configs;
 using HardwareStore.Gameplay.StaticData;
 
@@ -22,6 +23,8 @@ namespace HardwareStore.Gameplay.Features.Employees.Systems
                     GameMatcher.EntityId,
                     GameMatcher.View,
                     GameMatcher.Transform,
+                    GameMatcher.Rigidbody,
+                    GameMatcher.Colliders,
                     GameMatcher.NavigationAgent,
                     GameMatcher.CarryAnchor,
                     GameMatcher.WarehouseWorkerPickupPosition,
@@ -35,6 +38,10 @@ namespace HardwareStore.Gameplay.Features.Employees.Systems
         {
             foreach (GameEntity worker in _workers)
             {
+                GhostMoverCollisionProfile.Apply(
+                    worker.Rigidbody,
+                    worker.Colliders,
+                    GhostMoverCollisionProfile.GhostMover);
                 _navigation.Configure(worker.NavigationAgent,
                     _config.MovementSpeed,
                     _config.Acceleration,

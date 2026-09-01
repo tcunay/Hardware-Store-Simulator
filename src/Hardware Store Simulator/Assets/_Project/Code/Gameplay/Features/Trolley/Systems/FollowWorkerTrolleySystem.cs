@@ -50,6 +50,16 @@ namespace HardwareStore.Gameplay.Features.Trolley.Systems
                     trolley.Rigidbody, trolley.Colliders,
                     worker.Rigidbody, worker.Colliders,
                     trolley.TrolleyFollowDistance);
+                if (!trolley.Rigidbody.isKinematic ||
+                    trolley.Rigidbody.useGravity)
+                {
+                    throw new InvalidOperationException(
+                        $"Worker trolley {trolley.EntityId} did not retain its " +
+                        "deterministic kinematic state.");
+                }
+                trolley.Transform.SetPositionAndRotation(
+                    trolley.Rigidbody.position,
+                    trolley.Rigidbody.rotation);
             }
             _hitch.EndFrame();
         }

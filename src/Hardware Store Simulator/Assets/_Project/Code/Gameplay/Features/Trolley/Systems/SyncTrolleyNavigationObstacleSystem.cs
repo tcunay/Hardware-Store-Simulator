@@ -32,7 +32,8 @@ namespace HardwareStore.Gameplay.Features.Trolley.Systems
                         "obstacle binding.");
                 }
 
-                bool shouldBeEnabled = !trolley.hasTrolleyPusherEntityId;
+                bool shouldBeEnabled = !trolley.isWorkerTrolley &&
+                                       !trolley.hasTrolleyPusherEntityId;
                 if (obstacle.enabled != shouldBeEnabled)
                     obstacle.enabled = shouldBeEnabled;
             }

@@ -12,6 +12,7 @@ namespace HardwareStore.Gameplay.Features.Trolley
             Add(systems.Create<UnlockPlatformTrolleyUpgradeSystem>());
             Add(systems.Create<PurchasePlatformTrolleySystem>());
             Add(systems.Create<StartPushingTrolleySystem>());
+            Add(systems.Create<SyncTrolleyCollisionProfileSystem>());
             Add(systems.Create<LoadHeldProductOnTrolleySystem>());
             Add(systems.Create<RefreshTrolleyOccupiedSlotCountSystem>());
             Add(systems.Create<SyncTrolleyNavigationObstacleSystem>());

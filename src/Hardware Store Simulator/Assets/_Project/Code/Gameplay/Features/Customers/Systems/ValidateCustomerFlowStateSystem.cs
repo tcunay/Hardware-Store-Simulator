@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
 using Entitas;
+using HardwareStore.Gameplay.Common.Physics;
+using HardwareStore.Gameplay.Components;
 using HardwareStore.Gameplay.Configs;
 using HardwareStore.Gameplay.StaticData;
 using UnityEngine;
@@ -419,7 +421,10 @@ namespace HardwareStore.Gameplay.Features.Customers.Systems
         private static void ValidateActorPhysics(GameEntity actor)
         {
             if (!actor.hasTransform || !actor.hasRigidbody || !actor.hasColliders ||
-                actor.Colliders == null || actor.Colliders.Length == 0)
+                actor.Colliders == null || actor.Colliders.Length == 0 ||
+                !actor.hasTrafficControlPolicy ||
+                actor.TrafficControlPolicy !=
+                TrafficControlPolicyId.Uncontrolled)
             {
                 throw new InvalidOperationException(
                     $"Bound customer actor {actor.EntityId} is missing registered " +
@@ -436,6 +441,11 @@ namespace HardwareStore.Gameplay.Features.Customers.Systems
                     $"Customer actor {actor.EntityId} has an invalid route physics " +
                     "configuration.");
             }
+
+            GhostMoverCollisionProfile.Validate(
+                body,
+                actor.Colliders,
+                GhostMoverCollisionProfile.GhostMover);
         }
 
         private void ValidateFifoQueue(GameEntity store)

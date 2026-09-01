@@ -56,6 +56,7 @@ namespace HardwareStore.Editor
             "Assets/_Project/Prefabs/Gameplay/WarehouseWorkerTrolley.prefab";
         private const string PlatformTrolleyPrefabPath =
             "Assets/_Project/Prefabs/Gameplay/PlatformTrolley.prefab";
+        private const string GhostMoverLayerName = "GhostMover";
         private const string ForkliftPrefabPath =
             "Assets/_Project/Prefabs/Gameplay/Forklift.prefab";
         private const string FreightTruckPrefabPath =
@@ -2595,6 +2596,12 @@ namespace HardwareStore.Editor
                 customer.transform.localScale = Vector3.one;
                 customer.SetActive(true);
 
+                int ghostMoverLayer = LayerMask.NameToLayer(GhostMoverLayerName);
+                if (ghostMoverLayer < 0)
+                    throw new InvalidOperationException(
+                        $"Required {GhostMoverLayerName} layer is missing.");
+                customer.layer = ghostMoverLayer;
+
                 Rigidbody body = customer.AddComponent<Rigidbody>();
                 body.mass = 80f;
                 body.isKinematic = true;
@@ -2608,6 +2615,8 @@ namespace HardwareStore.Editor
                 trafficCollider.radius = 0.32f;
                 trafficCollider.height = 1.8f;
                 trafficCollider.direction = 1;
+                trafficCollider.enabled = true;
+                trafficCollider.isTrigger = false;
 
                 GameObject torso = CreateCube(
                     "Torso", customer.transform, new Vector3(0f, 1.18f, 0f),
@@ -2734,17 +2743,19 @@ namespace HardwareStore.Editor
 
                 GameObject trafficColliderObject = CreateEmpty(
                     "Traffic Collider", worker.transform);
-                int ignoreRaycastLayer = LayerMask.NameToLayer("Ignore Raycast");
-                if (ignoreRaycastLayer < 0)
+                int ghostMoverLayer = LayerMask.NameToLayer(GhostMoverLayerName);
+                if (ghostMoverLayer < 0)
                     throw new InvalidOperationException(
-                        "Required Ignore Raycast layer is missing.");
-                trafficColliderObject.layer = ignoreRaycastLayer;
+                        $"Required {GhostMoverLayerName} layer is missing.");
+                trafficColliderObject.layer = ghostMoverLayer;
                 CapsuleCollider trafficCollider =
                     trafficColliderObject.AddComponent<CapsuleCollider>();
                 trafficCollider.center = new Vector3(0f, 0.95f, 0f);
                 trafficCollider.radius = 0.32f;
                 trafficCollider.height = 1.9f;
                 trafficCollider.direction = 1;
+                trafficCollider.enabled = true;
+                trafficCollider.isTrigger = false;
 
                 NavMeshAgent agent = worker.AddComponent<NavMeshAgent>();
                 agent.agentTypeID = 0;
@@ -2757,7 +2768,7 @@ namespace HardwareStore.Editor
                 agent.stoppingDistance = config.StoppingDistance;
                 agent.autoBraking = true;
                 agent.autoRepath = true;
-                agent.obstacleAvoidanceType = ObstacleAvoidanceType.HighQualityObstacleAvoidance;
+                agent.obstacleAvoidanceType = ObstacleAvoidanceType.NoObstacleAvoidance;
 
                 CreateCube("Torso", worker.transform, new Vector3(0f, 1.18f, 0f),
                     new Vector3(0.62f, 0.78f, 0.34f), workwear, false, true);
@@ -2880,16 +2891,18 @@ namespace HardwareStore.Editor
 
                 GameObject bodyColliderObject = CreateEmpty(
                     "Body Collider", trolley.transform);
-                int ignoreRaycastLayer = LayerMask.NameToLayer("Ignore Raycast");
-                if (ignoreRaycastLayer < 0)
+                int ghostMoverLayer = LayerMask.NameToLayer(GhostMoverLayerName);
+                if (ghostMoverLayer < 0)
                 {
                     throw new InvalidOperationException(
-                        "Required Ignore Raycast layer is missing.");
+                        $"Required {GhostMoverLayerName} layer is missing.");
                 }
-                bodyColliderObject.layer = ignoreRaycastLayer;
+                bodyColliderObject.layer = ghostMoverLayer;
                 BoxCollider bodyCollider = bodyColliderObject.AddComponent<BoxCollider>();
                 bodyCollider.center = new Vector3(0f, 0.27f, 0.15f);
                 bodyCollider.size = new Vector3(2f, 0.5f, 2.1f);
+                bodyCollider.enabled = true;
+                bodyCollider.isTrigger = false;
 
                 GameObject slotsRoot = CreateEmpty("Cargo Slots", trolley.transform);
                 var slots = new Transform[config.TrolleyCapacity];
@@ -3005,16 +3018,25 @@ namespace HardwareStore.Editor
                     new Vector3(0.82f, 0.23f, -0.76f), darkMetal);
 
                 GameObject bodyColliderObject = CreateEmpty("Body Collider", trolley.transform);
-                int ignoreRaycastLayer = LayerMask.NameToLayer("Ignore Raycast");
-                if (ignoreRaycastLayer < 0)
-                    throw new InvalidOperationException("Required Ignore Raycast layer is missing.");
-                bodyColliderObject.layer = ignoreRaycastLayer;
+                int ghostMoverLayer = LayerMask.NameToLayer(GhostMoverLayerName);
+                if (ghostMoverLayer < 0)
+                    throw new InvalidOperationException(
+                        $"Required {GhostMoverLayerName} layer is missing.");
+                bodyColliderObject.layer = ghostMoverLayer;
                 BoxCollider bodyCollider = bodyColliderObject.AddComponent<BoxCollider>();
                 bodyCollider.center = new Vector3(0f, 0.27f, 0.15f);
                 bodyCollider.size = new Vector3(2f, 0.5f, 2.1f);
+                bodyCollider.enabled = true;
+                bodyCollider.isTrigger = false;
 
                 GameObject interactionArea = CreateEmpty("Interaction Area", trolley.transform);
+                int defaultLayer = LayerMask.NameToLayer("Default");
+                if (defaultLayer < 0)
+                    throw new InvalidOperationException(
+                        "Required Default layer is missing.");
+                interactionArea.layer = defaultLayer;
                 BoxCollider interactionCollider = interactionArea.AddComponent<BoxCollider>();
+                interactionCollider.enabled = true;
                 interactionCollider.isTrigger = true;
                 interactionCollider.center = new Vector3(0f, 1.76f, -1.12f);
                 interactionCollider.size = new Vector3(1.8f, 0.35f, 0.3f);

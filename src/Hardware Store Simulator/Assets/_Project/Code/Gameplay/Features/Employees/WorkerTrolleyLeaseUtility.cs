@@ -1,4 +1,5 @@
 using System;
+using HardwareStore.Gameplay.Common.Physics;
 using UnityEngine;
 
 namespace HardwareStore.Gameplay.Features.Employees
@@ -36,6 +37,10 @@ namespace HardwareStore.Gameplay.Features.Employees
                     "Platform trolley cannot begin a warehouse-worker lease.");
             }
 
+            GhostMoverCollisionProfile.Apply(
+                trolley.Rigidbody,
+                trolley.Colliders,
+                GhostMoverCollisionProfile.GhostMover);
             trolley.isInteractable = false;
             trolley.isHighlighted = false;
             trolley.AddWorkerTrolleyStoreEntityId(storeEntityId);
